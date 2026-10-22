@@ -84,7 +84,7 @@ func (w *WriteDB) CreateCourse(name string) (map[string]any, error) {
 	if _, err := tx.Exec("INSERT INTO courses(id,name) VALUES(?,?)", id, trimmed); err != nil {
 		return nil, err
 	}
-	if _, err := tx.Exec("INSERT INTO chat_sessions(id,course_id,title) VALUES(?,?,?)", newID(), id, "新对话"); err != nil {
+	if _, err := createSessionTx(tx, id, "", ""); err != nil {
 		return nil, err
 	}
 	if err := tx.Commit(); err != nil {
@@ -108,8 +108,82 @@ func (w *WriteDB) Lecture(id string) (map[string]any, error) {
 	return lecture, nil
 }
 
-func (w *WriteDB) sessionName(courseID, base string, ignoreID string) (string, error) {
-	sessions, err := queryAll(w.db, "SELECT * FROM chat_sessions WHERE course_id=? ORDER BY rowid", courseID)
+func (w *WriteDB) CreateSession(courseID, title, lectureID string) (map[string]any, error) {
+	tx, err := w.db.Begin()
+	if err != nil {
+		return nil, err
+	}
+	defer tx.Rollback()
+	session, err := createSessionTx(tx, courseID, title, lectureID)
+	if err != nil {
+		return nil, err
+	}
+	if err := tx.Commit(); err != nil {
+		return nil, err
+	}
+	return session, nil
+}
+
+func createSessionTx(tx *sql.Tx, courseID, title, lectureID string) (map[string]any, error) {
+	course, err := queryOneTx(tx, "SELECT * FROM courses WHERE id=?", courseID)
+	if err != nil {
+		return nil, err
+	}
+	if course == nil {
+		return nil, contract.NewError(contract.CodeNotFound, "课程不存在")
+	}
+	var lecture map[string]any
+	if lectureID != "" {
+		value, err := queryOneTx(tx, "SELECT * FROM lectures WHERE id=?", lectureID)
+		if err != nil {
+			return nil, err
+		}
+		if value == nil {
+			return nil, contract.NewError(contract.CodeNotFound, "课次不存在")
+		}
+		if toStringValue(value["course_id"]) != courseID {
+			return nil, contract.InputInvalid("课次不属于当前课程")
+		}
+		lecture = value
+	} else {
+		value, err := queryOneTx(tx, "SELECT * FROM lectures WHERE course_id=? ORDER BY created_at,id LIMIT 1", courseID)
+		if err != nil {
+			return nil, err
+		}
+		if value != nil {
+			if toStringValue(value["course_id"]) != courseID {
+				return nil, contract.InputInvalid("课次不属于当前课程")
+			}
+			lecture = value
+		}
+	}
+	base := strings.TrimSpace(title)
+	if base == "" && lecture != nil {
+		base = toStringValue(lecture["title"])
+	}
+	if base == "" {
+		base = "新对话"
+	}
+	name, err := sessionNameTx(tx, courseID, base, "")
+	if err != nil {
+		return nil, err
+	}
+	id := newID()
+	lectureRef := ""
+	if lecture != nil {
+		lectureRef = toStringValue(lecture["id"])
+	}
+	if _, err := tx.Exec(
+		"INSERT INTO chat_sessions(id,course_id,title,lecture_id) VALUES(?,?,?,?)",
+		id, courseID, name, nilIfEmpty(lectureRef),
+	); err != nil {
+		return nil, err
+	}
+	return queryOneTx(tx, "SELECT * FROM chat_sessions WHERE id=? AND course_id=?", id, courseID)
+}
+
+func sessionNameTx(tx *sql.Tx, courseID, base, ignoreID string) (string, error) {
+	sessions, err := queryAllTx(tx, "SELECT * FROM chat_sessions WHERE course_id=? ORDER BY rowid", courseID)
 	if err != nil {
 		return "", err
 	}
@@ -131,49 +205,73 @@ func (w *WriteDB) sessionName(courseID, base string, ignoreID string) (string, e
 	}
 }
 
-func (w *WriteDB) CreateSession(courseID, title, lectureID string) (map[string]any, error) {
-	if _, err := w.Course(courseID); err != nil {
-		return nil, err
+func (w *WriteDB) DeleteCourse(id string) (bool, error) {
+	if _, err := w.Course(id); err != nil {
+		return false, err
 	}
-	lecture := map[string]any(nil)
-	if lectureID != "" {
-		value, err := w.Lecture(lectureID)
-		if err != nil {
-			return nil, err
-		}
-		if toStringValue(value["course_id"]) != courseID {
-			return nil, contract.InputInvalid("课次不属于当前课程")
-		}
-		lecture = value
-	} else {
-		value, err := queryOne(w.db, "SELECT * FROM lectures WHERE course_id=? ORDER BY created_at,id LIMIT 1", courseID)
-		if err != nil {
-			return nil, err
-		}
-		if value != nil {
-			if toStringValue(value["course_id"]) != courseID {
-				return nil, contract.InputInvalid("课次不属于当前课程")
-			}
-			lecture = value
-		}
+	if _, err := w.db.Exec("DELETE FROM courses WHERE id=?", id); err != nil {
+		return false, err
 	}
-	base := title
-	if base == "" && lecture != nil {
-		base = toStringValue(lecture["title"])
+	if err := w.Checkpoint(); err != nil {
+		return false, err
 	}
-	if base == "" {
-		base = "新对话"
-	}
-	name, err := w.sessionName(courseID, base, "")
+	return true, nil
+}
+
+func (w *WriteDB) DeleteSession(courseID, id string) ([]map[string]any, error) {
+	tx, err := w.db.Begin()
 	if err != nil {
 		return nil, err
 	}
-	id := newID()
-	if _, err := w.db.Exec(
-		"INSERT INTO chat_sessions(id,course_id,title,lecture_id) VALUES(?,?,?,?)",
-		id, courseID, name, nilIfEmpty(toStringValue(lecture["id"])),
-	); err != nil {
+	defer tx.Rollback()
+	session, err := queryOneTx(tx, "SELECT * FROM chat_sessions WHERE id=? AND course_id=?", id, courseID)
+	if err != nil {
 		return nil, err
 	}
-	return queryOne(w.db, "SELECT * FROM chat_sessions WHERE id=? AND course_id=?", id, courseID)
+	if session == nil {
+		return nil, contract.InputInvalid("会话不属于当前课程")
+	}
+	if _, err := tx.Exec("DELETE FROM chat_sessions WHERE id=? AND course_id=?", id, courseID); err != nil {
+		return nil, err
+	}
+	remaining, err := queryAllTx(tx, "SELECT * FROM chat_sessions WHERE course_id=? ORDER BY rowid", courseID)
+	if err != nil {
+		return nil, err
+	}
+	if len(remaining) == 0 {
+		if _, err := createSessionTx(tx, courseID, "", ""); err != nil {
+			return nil, err
+		}
+	}
+	if err := tx.Commit(); err != nil {
+		return nil, err
+	}
+	if err := w.Checkpoint(); err != nil {
+		return nil, err
+	}
+	return queryAll(w.db, "SELECT * FROM chat_sessions WHERE course_id=? ORDER BY rowid", courseID)
+}
+
+func (w *WriteDB) DeleteLecture(id string) (bool, error) {
+	if _, err := w.Lecture(id); err != nil {
+		return false, err
+	}
+	tx, err := w.db.Begin()
+	if err != nil {
+		return false, err
+	}
+	defer tx.Rollback()
+	if _, err := tx.Exec("DELETE FROM messages WHERE lecture_id=?", id); err != nil {
+		return false, err
+	}
+	if _, err := tx.Exec("DELETE FROM lectures WHERE id=?", id); err != nil {
+		return false, err
+	}
+	if err := tx.Commit(); err != nil {
+		return false, err
+	}
+	if err := w.Checkpoint(); err != nil {
+		return false, err
+	}
+	return true, nil
 }

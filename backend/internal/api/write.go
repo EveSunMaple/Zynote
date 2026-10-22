@@ -101,3 +101,68 @@ func handleDBBootstrap(_ contract.StateStore, state *contract.State, _ json.RawM
 	}
 	return map[string]any{"ok": true}, nil
 }
+
+func confirmedDelete(params json.RawMessage, subject string) error {
+	var input struct {
+		Confirmed bool `json:"confirmed"`
+	}
+	if err := json.Unmarshal(params, &input); err != nil || !input.Confirmed {
+		return contract.InputInvalid("请先确认删除" + subject)
+	}
+	return nil
+}
+
+func handleCourseDelete(_ contract.StateStore, state *contract.State, params json.RawMessage) (any, error) {
+	var input struct {
+		ID string `json:"id"`
+	}
+	if err := json.Unmarshal(params, &input); err != nil || !config.IsUUID(input.ID) {
+		return nil, contract.InputInvalid("课程标识无效")
+	}
+	if err := confirmedDelete(params, "课程"); err != nil {
+		return nil, err
+	}
+	write, err := openWriteDB(state)
+	if err != nil {
+		return nil, err
+	}
+	defer write.Close()
+	return write.DeleteCourse(input.ID)
+}
+
+func handleSessionDelete(_ contract.StateStore, state *contract.State, params json.RawMessage) (any, error) {
+	var input struct {
+		CourseID string `json:"courseId"`
+		ID       string `json:"id"`
+	}
+	if err := json.Unmarshal(params, &input); err != nil || !config.IsUUID(input.CourseID) || !config.IsUUID(input.ID) {
+		return nil, contract.InputInvalid("标识无效")
+	}
+	if err := confirmedDelete(params, "会话"); err != nil {
+		return nil, err
+	}
+	write, err := openWriteDB(state)
+	if err != nil {
+		return nil, err
+	}
+	defer write.Close()
+	return write.DeleteSession(input.CourseID, input.ID)
+}
+
+func handleLectureDelete(_ contract.StateStore, state *contract.State, params json.RawMessage) (any, error) {
+	var input struct {
+		ID string `json:"id"`
+	}
+	if err := json.Unmarshal(params, &input); err != nil || !config.IsUUID(input.ID) {
+		return nil, contract.InputInvalid("课次标识无效")
+	}
+	if err := confirmedDelete(params, "课次"); err != nil {
+		return nil, err
+	}
+	write, err := openWriteDB(state)
+	if err != nil {
+		return nil, err
+	}
+	defer write.Close()
+	return write.DeleteLecture(input.ID)
+}

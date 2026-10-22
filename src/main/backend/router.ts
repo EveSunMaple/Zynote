@@ -10,7 +10,18 @@ export const goPrimaryActions = new Set([
  'library:list',
  'course:create',
  'sessions',
- 'session:create'
+ 'session:create',
+ 'db:bootstrap',
+ 'course:delete',
+ 'session:delete',
+ 'lecture:delete',
+ 'lecture:detail'
+])
+
+const deleteSubjects = new Map([
+ ['course:delete', '课程'],
+ ['session:delete', '会话'],
+ ['lecture:delete', '课次']
 ])
 
 function stable(value: unknown): unknown {
@@ -28,6 +39,7 @@ export function createRoutedDispatch(
  handlers: readonly IpcHandler[],
  goCore: GoCore | undefined,
  root: string,
+ activeJobs: () => number,
  diagnostic: (
   root: string,
   component: string,
@@ -36,6 +48,8 @@ export function createRoutedDispatch(
  ) => void
 ) {
  return async (action: string, object: Record<string, unknown>): Promise<unknown> => {
+  const subject = deleteSubjects.get(action)
+  if (subject && activeJobs()) throw new Error('请等待当前任务完成后再删除' + subject)
   if (!goCore || goCore.currentStatus !== 'ready' || !goPrimaryActions.has(action))
    return dispatch(handlers, action, object)
   const [goSettled, tsSettled] = await Promise.all([

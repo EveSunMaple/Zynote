@@ -71,6 +71,10 @@ func QueryAll(db *sql.DB, query string, args ...any) ([]map[string]any, error) {
 	return queryAll(db, query, args...)
 }
 
+func QueryOne(db *sql.DB, query string, args ...any) (map[string]any, error) {
+	return queryOne(db, query, args...)
+}
+
 func queryAllTx(tx *sql.Tx, query string, args ...any) ([]map[string]any, error) {
 	rows, err := tx.Query(query, args...)
 	if err != nil {

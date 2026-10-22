@@ -31,6 +31,10 @@ func NewInvoker() *Invoker {
 		"sessions":       requireState(handleSessions),
 		"session:create": requireState(handleSessionCreate),
 		"db:bootstrap":   requireState(handleDBBootstrap),
+		"course:delete":  requireState(handleCourseDelete),
+		"session:delete": requireState(handleSessionDelete),
+		"lecture:delete": requireState(handleLectureDelete),
+		"lecture:detail": requireState(handleLectureDetail),
 	}}
 }
 

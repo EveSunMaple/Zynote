@@ -62,6 +62,7 @@ var DefaultCapabilities = []string{
 	"app:info", "settings:get", "appearance:get", "identity:get",
 	"db:health", "db:backup", "course:detail", "library:list",
 	"course:create", "sessions", "session:create",
+	"db:bootstrap", "course:delete", "session:delete", "lecture:delete", "lecture:detail",
 }
 
 type HelloParams struct {

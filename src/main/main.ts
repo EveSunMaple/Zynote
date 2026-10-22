@@ -554,8 +554,12 @@ async function startApplication() {
   createLearningHandler(context),
   createWindowHandler(context)
  ]
- const routedDispatch = createRoutedDispatch(handlers, goCore, root, (r, component, event, fields) =>
-  diagnostic(r, component, event, fields)
+ const routedDispatch = createRoutedDispatch(
+  handlers,
+  goCore,
+  root,
+  () => jobs.size,
+  (r, component, event, fields) => diagnostic(r, component, event, fields)
  )
  ipcMain.handle('assistant:invoke', async (event, action: string, args: unknown) => {
   if (event.sender !== window.webContents || event.senderFrame !== window.webContents.mainFrame)
