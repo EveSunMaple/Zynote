@@ -499,6 +499,14 @@ Zynote/
 - [x] 验证：Go 测试（documents 包新增 4 套）、冒烟 26 项断言、parity、roundtrip、build 全绿。
 - [ ] **P3d 待办**：`parseCourseware` PPTX 幻灯片文本（jszip+saxes → Go zip+xml）与序列化缓存 `serializeCoursewareSourceCache`；`files:add`/`lecture:create`/`lecture:transcript`/`lecture:courseware` 完整链路（copyInto + readTranscript + parseCourseware 组合）。
 
+## 1.10 P3d/P3e 完成记录（2026-10-22）
+
+- [x] **P3d**（`04ecca3`）：`internal/courseware`（Chunks 14k 分块/缓存序列化/stale 判定，RE2 无 lookahead 手动分割）；`ParsePptx`（页面目录/rels/文本截断/图片预算/omissions 逐字对齐）；`files:add`/`files:remove` 链路（ManagedFile 修复 `Join` vs `resolve` 绝对路径语义 + /var symlink 边界）；`importDocument` 语义修正（text 为原始解析文本，不包缓存）。
+- [x] **P3e**（`6270ff7`）：`lecture:create`（resolveSource→readTranscript→parseCourseware→needsOcr 拒绝→PPT/Transcripts 双 copyInto→缓存序列化→CreateLecture+占位会话改名→SetLectureTranscript）；`lecture:transcript`/`lecture:courseware`（导入即清派生表 + 返回 lectureDetail）；`questions:save`（归属校验/删除清理/practice_sets 复位，错误文案逐字对齐）；字段名对齐 TS（transcript/courseware 用 `path`，create 用 `transcriptPath`）。
+- [x] 验证：Go 测试（lecture 链路含占位会话改名/缓存标记/外键/越界）、冒烟 30 项断言、build 全绿。
+- [x] **迁移进度：28/105 action 已由 Go+Rust 承担**。
+- [ ] **P4 待办（最大硬骨头）**：媒体下载域——任务状态机/租约/分段传输/HLS/B 站目录与登录档案/ffmpeg 编排/成果核验；YouTube 走 Rust `--mode youtube`（rustypipe）；SnapAny 留 Electron 壳。
+
 ## 17. 已决事项记录
 
 以下问题已全部拍板（原"待确认问题"清单）：
