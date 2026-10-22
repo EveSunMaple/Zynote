@@ -112,7 +112,7 @@ const hello = (await call('core.hello', {
 })) as HelloResult
 check('hello protocol', hello.protocol === 1)
 check('hello platform', hello.platform === 'darwin')
-check('hello capabilities', hello.capabilities.length === 22)
+check('hello capabilities', hello.capabilities.length === 24)
 
 const bootstrap = (await call('db:bootstrap')) as {ok: boolean}
 check('bootstrap ok', bootstrap.ok === true)
@@ -187,6 +187,21 @@ check(
 await writeFile(join(dataRoot, 'smoke-note.md'), '课程笔记\n第二行')
 const markdownParse = (await call('document:parse', {path: join(dataRoot, 'smoke-note.md')})) as {text: string}
 check('document parse md', markdownParse.text.startsWith('课程笔记'))
+
+const sourcePath = join(dataRoot, 'import-source.md')
+await writeFile(sourcePath, '## 学长资料\n这是导入的内容段落')
+const addedFiles = (await call('files:add', {
+ courseId: course.id,
+ kind: 'senior_notes',
+ paths: [sourcePath]
+})) as {id: string; path: string; needs_ocr: number}[]
+check('files add count', addedFiles.length === 1)
+const detailAfter = (await call('course:detail', {id: course.id})) as {files: {id: string; chunks: string[]}[]}
+check('files add detail', detailAfter.files.length === 1 && detailAfter.files[0].chunks.length >= 1)
+const removed = (await call('files:remove', {courseId: course.id, id: addedFiles[0].id})) as boolean
+check('files remove', removed === true)
+const detailClean = (await call('course:detail', {id: course.id})) as {files: unknown[]}
+check('files remove detail', detailClean.files.length === 0)
 
 const info = (await call('app:info')) as InfoResult
 check('app:info version', info.version === '0.0.1')

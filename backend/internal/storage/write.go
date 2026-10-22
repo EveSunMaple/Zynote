@@ -1,19 +1,21 @@
 package storage
 
 import (
-	"crypto/rand"
 	"database/sql"
-	"encoding/hex"
-	"fmt"
 	"path/filepath"
 	"strings"
 
 	"github.com/EveSunMaple/Zynote/backend/internal/contract"
+	"github.com/EveSunMaple/Zynote/backend/internal/ids"
 )
 
 type WriteDB struct {
 	db *sql.DB
 }
+
+func NewID() string { return ids.New() }
+
+func (w *WriteDB) NewID() string { return ids.New() }
 
 func OpenWrite(path string) (*WriteDB, error) {
 	db, err := sql.Open("sqlite", "file:"+filepath.ToSlash(path))
@@ -44,21 +46,6 @@ func (w *WriteDB) Checkpoint() error {
 
 func BootstrapInto(w *WriteDB) error { return Bootstrap(w.db) }
 
-func newID() string {
-	bytes := make([]byte, 16)
-	if _, err := rand.Read(bytes); err != nil {
-		panic(err)
-	}
-	bytes[6] = (bytes[6] & 0x0f) | 0x40
-	bytes[8] = (bytes[8] & 0x3f) | 0x80
-	return fmt.Sprintf("%s-%s-%s-%s-%s",
-		hex.EncodeToString(bytes[0:4]),
-		hex.EncodeToString(bytes[4:6]),
-		hex.EncodeToString(bytes[6:8]),
-		hex.EncodeToString(bytes[8:10]),
-		hex.EncodeToString(bytes[10:16]))
-}
-
 func (w *WriteDB) Course(id string) (map[string]any, error) {
 	course, err := queryOne(w.db, "SELECT * FROM courses WHERE id=?", id)
 	if err != nil {
@@ -75,7 +62,7 @@ func (w *WriteDB) CreateCourse(name string) (map[string]any, error) {
 	if trimmed == "" {
 		return nil, contract.InputInvalid("课程名称不能为空")
 	}
-	id := newID()
+	id := NewID()
 	tx, err := w.db.Begin()
 	if err != nil {
 		return nil, err
@@ -95,6 +82,47 @@ func (w *WriteDB) CreateCourse(name string) (map[string]any, error) {
 
 func (w *WriteDB) Sessions() ([]map[string]any, error) {
 	return queryAll(w.db, "SELECT * FROM chat_sessions ORDER BY rowid")
+}
+
+func (w *WriteDB) CourseName(id string) (string, error) {
+	course, err := w.Course(id)
+	if err != nil {
+		return "", err
+	}
+	return ToStringValue(course["name"]), nil
+}
+
+func (w *WriteDB) InsertFile(file map[string]any) error {
+	_, err := w.db.Exec(
+		"INSERT INTO course_files(id,course_id,kind,filename,path,text,chunks_json,needs_ocr) VALUES(?,?,?,?,?,?,?,?)",
+		ToStringValue(file["id"]),
+		ToStringValue(file["course_id"]),
+		ToStringValue(file["kind"]),
+		ToStringValue(file["filename"]),
+		ToStringValue(file["path"]),
+		ToStringValue(file["text"]),
+		ToStringValue(file["chunks_json"]),
+		file["needs_ocr"],
+	)
+	return err
+}
+
+func (w *WriteDB) RemoveFile(courseID, id string) error {
+	tx, err := w.db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	if _, err := tx.Exec("DELETE FROM course_files WHERE course_id=? AND id=?", courseID, id); err != nil {
+		return err
+	}
+	if _, err := tx.Exec(
+		"DELETE FROM practice_sets WHERE lecture_id IN (SELECT id FROM lectures WHERE course_id=?)",
+		courseID,
+	); err != nil {
+		return err
+	}
+	return tx.Commit()
 }
 
 func (w *WriteDB) Lecture(id string) (map[string]any, error) {
@@ -168,7 +196,7 @@ func createSessionTx(tx *sql.Tx, courseID, title, lectureID string) (map[string]
 	if err != nil {
 		return nil, err
 	}
-	id := newID()
+	id := NewID()
 	lectureRef := ""
 	if lecture != nil {
 		lectureRef = toStringValue(lecture["id"])

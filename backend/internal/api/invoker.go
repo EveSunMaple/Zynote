@@ -74,6 +74,18 @@ func (inv *Invoker) Invoke(store contract.StateStore, action string, params json
 			return inv.handleDocumentParse(state, params)
 		}
 		return inv.handleTranscriptRead(state, params)
+	case "files:add":
+		state := store.State()
+		if state == nil {
+			return nil, contract.Unavailable("后台尚未完成握手")
+		}
+		return inv.handleFilesAdd(state, params)
+	case "files:remove":
+		state := store.State()
+		if state == nil {
+			return nil, contract.Unavailable("后台尚未完成握手")
+		}
+		return inv.handleFilesRemove(state, params)
 	}
 	handler, ok := inv.handlers[action]
 	if !ok {

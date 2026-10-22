@@ -150,6 +150,30 @@ func ParseDocument(caller NativeCaller, path string) (ParseResult, error) {
 	return ParseResult{}, fmt.Errorf("资料只支持 PDF、DOCX、TXT 和 Markdown；PPT 请先另存为 PDF")
 }
 
+func ParseCourseware(caller NativeCaller, path string) (CoursewareResult, error) {
+	extension := strings.ToLower(filepath.Ext(path))
+	if extension == ".ppt" {
+		return CoursewareResult{}, fmt.Errorf("旧版 PPT 暂不支持直接解析，请在 PowerPoint 中另存为 PPTX")
+	}
+	if extension == ".pptx" {
+		data, err := os.ReadFile(path)
+		if err != nil {
+			return CoursewareResult{}, fmt.Errorf("课件文件不可读")
+		}
+		return ParsePptx(data)
+	}
+	parsed, err := ParseDocument(caller, path)
+	if err != nil {
+		return CoursewareResult{}, err
+	}
+	return CoursewareResult{
+		Text:      parsed.Text,
+		NeedsOcr:  parsed.NeedsOcr,
+		Images:    []coursewareImage{},
+		Omissions: []string{},
+	}, nil
+}
+
 func ReadTranscript(caller NativeCaller, path string) (SplitResult, error) {
 	if strings.ToLower(filepath.Ext(path)) == ".srt" {
 		raw, err := os.ReadFile(path)

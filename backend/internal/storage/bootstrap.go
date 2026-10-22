@@ -60,7 +60,7 @@ func Bootstrap(db *sql.DB) error {
 			return err
 		}
 		if session == nil {
-			sessionID := newID()
+			sessionID := NewID()
 			if _, err := tx.Exec("INSERT INTO chat_sessions(id,course_id,title) VALUES(?,?,?)", sessionID, courseID, "新对话"); err != nil {
 				return err
 			}
