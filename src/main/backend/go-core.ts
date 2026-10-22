@@ -25,9 +25,16 @@ export type GoCoreOptions = {
  libraryRoot: string
  resourcesRoot: string
  promptsRoot: string
+ nativePath: string
  portable: boolean
  onEvent: (event: EventPayload) => void
  onFailed: (reason: string) => void
+}
+
+export function nativeBinaryPath() {
+ return app.isPackaged
+  ? join(process.resourcesPath, 'bin', 'zynote-native')
+  : join(app.getAppPath(), 'native', 'target', 'release', 'zynote-native')
 }
 
 export function coreBinaryPath() {
@@ -86,6 +93,7 @@ export class GoCore {
     libraryRoot: this.options.libraryRoot,
     resourcesRoot: this.options.resourcesRoot,
     promptsRoot: this.options.promptsRoot,
+    nativePath: this.options.nativePath,
     portable: this.options.portable
    }
   })

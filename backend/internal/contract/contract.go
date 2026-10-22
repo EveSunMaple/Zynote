@@ -63,6 +63,7 @@ var DefaultCapabilities = []string{
 	"db:health", "db:backup", "course:detail", "library:list",
 	"course:create", "sessions", "session:create",
 	"db:bootstrap", "course:delete", "session:delete", "lecture:delete", "lecture:detail",
+	"pdf.text", "pdf.plainText",
 }
 
 type HelloParams struct {
@@ -74,6 +75,7 @@ type HelloParams struct {
 	LibraryRoot     string `json:"libraryRoot"`
 	ResourcesRoot   string `json:"resourcesRoot"`
 	PromptsRoot     string `json:"promptsRoot"`
+	NativePath      string `json:"nativePath"`
 	Portable        bool   `json:"portable"`
 }
 

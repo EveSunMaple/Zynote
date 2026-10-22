@@ -1,7 +1,10 @@
-use std::env;
+use serde::Deserialize;
+use serde_json::{json, Value};
 use std::io::{BufRead, Write};
 
-#[derive(Debug)]
+mod pdf;
+
+#[derive(Debug, Clone)]
 enum Mode {
     Pdf,
     Asr,
@@ -9,29 +12,54 @@ enum Mode {
     Wechat,
 }
 
-fn parse_mode() -> Result<Mode, String> {
-    let args: Vec<String> = env::args().collect();
+fn parse_mode() -> Result<(Mode, Option<String>), String> {
+    let args: Vec<String> = std::env::args().collect();
     let index = args
         .iter()
         .position(|arg| arg == "--mode")
         .ok_or("missing --mode")?;
     let value = args.get(index + 1).ok_or("missing --mode value")?;
-    match value.as_str() {
-        "pdf" => Ok(Mode::Pdf),
-        "asr" => Ok(Mode::Asr),
-        "youtube" => Ok(Mode::Youtube),
-        "wechat" => Ok(Mode::Wechat),
-        other => Err(format!("unknown mode {other}")),
-    }
+    let pdfium = args
+        .iter()
+        .position(|arg| arg == "--pdfium")
+        .and_then(|i| args.get(i + 1).cloned());
+    let mode = match value.as_str() {
+        "pdf" => Mode::Pdf,
+        "asr" => Mode::Asr,
+        "youtube" => Mode::Youtube,
+        "wechat" => Mode::Wechat,
+        other => return Err(format!("unknown mode {other}")),
+    };
+    Ok((mode, pdfium))
+}
+
+#[derive(Deserialize)]
+struct Envelope {
+    #[serde(default)]
+    id: Option<Value>,
+    #[serde(default)]
+    method: String,
+    #[serde(default)]
+    params: Value,
 }
 
 fn main() {
-    let mode = match parse_mode() {
-        Ok(mode) => mode,
+    let (mode, pdfium_path) = match parse_mode() {
+        Ok(result) => result,
         Err(message) => {
             eprintln!("zynote-native: {message}");
             std::process::exit(1);
         }
+    };
+    let pdf = match (&mode, pdfium_path) {
+        (Mode::Pdf, Some(path)) => match pdf::PdfService::new(&path) {
+            Ok(service) => Some(service),
+            Err(error) => {
+                eprintln!("zynote-native: pdfium bind failed: {error}");
+                std::process::exit(1);
+            }
+        },
+        _ => None,
     };
     let stdin = std::io::stdin();
     let stdout = std::io::stdout();
@@ -52,30 +80,55 @@ fn main() {
         if trimmed.is_empty() {
             continue;
         }
-        let method = json_string_field(trimmed, "method").unwrap_or_default();
-        let id = json_string_field(trimmed, "id").unwrap_or_default();
-        if method.is_empty() {
+        let envelope: Envelope = match serde_json::from_str(trimmed) {
+            Ok(value) => value,
+            Err(_) => continue,
+        };
+        if envelope.method.is_empty() {
             continue;
         }
-        let result = match method.as_str() {
-            "core.hello" => {
-                format!(r#"{{"protocol":1,"mode":"{}","pid":{}}}"#, mode_name(&mode), std::process::id())
+        let id = envelope.id.clone();
+        let result = dispatch(&mode, &pdf, &envelope.method, &envelope.params);
+        let reply = match (id, result) {
+            (Some(id), Ok(result)) => json!({"jsonrpc": "2.0", "id": id, "result": result}),
+            (Some(id), Err(message)) => {
+                json!({"jsonrpc": "2.0", "id": id, "error": {"code": "INPUT_INVALID", "message": message}})
             }
-            "ping" => r#"{"pong":true}"#.to_string(),
-            other => {
-                eprintln!("zynote-native: mode {} does not implement {other}", mode_name(&mode));
-                continue;
-            }
-        };
-        let reply = if id.is_empty() {
-            format!(r#"{{"jsonrpc":"2.0","method":"event","params":{}}}"#, result)
-        } else {
-            format!(r#"{{"jsonrpc":"2.0","id":{},"result":{}}}"#,
-                serde_json_string(&id), result)
+            (None, _) => continue,
         };
         if writeln!(out, "{reply}").is_err() {
             break;
         }
+    }
+}
+
+fn dispatch(mode: &Mode, pdf: &Option<pdf::PdfService>, method: &str, params: &Value) -> Result<Value, String> {
+    match (mode, method) {
+        (_, "core.hello") => Ok(json!({
+            "protocol": 1,
+            "mode": mode_name(mode),
+            "pid": std::process::id()
+        })),
+        (_, "ping") => Ok(json!({"pong": true})),
+        (Mode::Pdf, "pdf.text") => {
+            let path = params
+                .get("path")
+                .and_then(|value| value.as_str())
+                .ok_or("path missing")?;
+            let page = params
+                .get("page")
+                .and_then(|value| value.as_u64())
+                .map(|value| value as usize);
+            pdf.as_ref().ok_or("pdfium not bound")?.text(path, page)
+        }
+        (Mode::Pdf, "pdf.plainText") => {
+            let path = params
+                .get("path")
+                .and_then(|value| value.as_str())
+                .ok_or("path missing")?;
+            pdf.as_ref().ok_or("pdfium not bound")?.plain_text(path)
+        }
+        (mode, other) => Err(format!("mode {} does not implement {other}", mode_name(mode))),
     }
 }
 
@@ -85,49 +138,5 @@ fn mode_name(mode: &Mode) -> &'static str {
         Mode::Asr => "asr",
         Mode::Youtube => "youtube",
         Mode::Wechat => "wechat",
-    }
-}
-
-fn json_string_field(input: &str, field: &str) -> Option<String> {
-    let key = format!("\"{field}\"");
-    let start = input.find(&key)? + key.len();
-    let rest = input[start..].trim_start();
-    if !rest.starts_with(':') {
-        return None;
-    }
-    let rest = rest[1..].trim_start();
-    let mut chars = rest.chars();
-    if chars.next()? != '"' {
-        return None;
-    }
-    let mut value = String::new();
-    for char in chars {
-        if char == '"' {
-            return Some(value);
-        }
-        value.push(char);
-    }
-    None
-}
-
-fn serde_json_string(value: &str) -> String {
-    if value.starts_with('"') && value.ends_with('"') {
-        value.to_string()
-    } else {
-        format!("\"{value}\"")
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn parses_string_field() {
-        assert_eq!(
-            json_string_field(r#"{"jsonrpc":"2.0","id":"a","method":"ping"}"#, "method"),
-            Some("ping".to_string())
-        );
-        assert_eq!(json_string_field(r#"{"method":"ping"}"#, "nope"), None);
     }
 }

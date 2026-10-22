@@ -21,6 +21,7 @@
   "native:build": "cargo build --manifest-path native/Cargo.toml --release",
   "native:test": "cargo test --manifest-path native/Cargo.toml",
   "smoke:go-core": "node scripts/go-core-smoke.mts",
+  "parity:pdf": "node scripts/pdf-parity.mts",
   "pack": "pnpm build && pnpm release full",
   "release": "node scripts/release.mts",
   "release:source": "node scripts/source-package.mts",
@@ -106,7 +107,8 @@
     "from": "backend/bin",
     "to": "bin",
     "filter": [
-     "zynote-core"
+     "zynote-core",
+     "zynote-native"
     ]
    },
    {

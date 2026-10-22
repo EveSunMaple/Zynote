@@ -1,5 +1,5 @@
 import {dispatch} from '@main/ipc/handler'
-import {GoCore} from '@main/backend/go-core'
+import {GoCore, nativeBinaryPath} from '@main/backend/go-core'
 import {createRoutedDispatch} from '@main/backend/router'
 import {RuntimeComponents} from '@main/app/runtime-components'
 import {diagnostic} from '@main/app/diagnostics'
@@ -156,6 +156,7 @@ async function startApplication() {
     libraryRoot,
     resourcesRoot: app.isPackaged ? process.resourcesPath : join(app.getAppPath(), 'resources'),
     promptsRoot: app.isPackaged ? process.resourcesPath : join(app.getAppPath(), 'src'),
+    nativePath: nativeBinaryPath(),
     portable: !!portable,
     onEvent: e => {
      if (!window.isDestroyed()) window.webContents.send('assistant:event', e)

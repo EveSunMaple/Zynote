@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"path/filepath"
+	"time"
 
 	"github.com/EveSunMaple/Zynote/backend/internal/config"
 	"github.com/EveSunMaple/Zynote/backend/internal/contract"
@@ -17,6 +18,32 @@ func handleAppInfo(_ contract.StateStore, state *contract.State, _ json.RawMessa
 		"electron": state.ElectronVersion,
 		"platform": state.Platform,
 	}, nil
+}
+
+func (inv *Invoker) callNative(state *contract.State, action string, params json.RawMessage) (any, error) {
+	if inv.native == nil {
+		return nil, contract.Unavailable("原生助手不可用")
+	}
+	var input struct {
+		Path string  `json:"path"`
+		Page *uint64 `json:"page"`
+	}
+	if err := json.Unmarshal(params, &input); err != nil || input.Path == "" {
+		return nil, contract.InputInvalid("PDF 路径无效")
+	}
+	payload := map[string]any{"path": input.Path}
+	if action == "pdf.text" && input.Page != nil {
+		payload["page"] = *input.Page
+	}
+	result, err := inv.native.Call(action, payload, 15*time.Second)
+	if err != nil {
+		return nil, contract.Unavailable(err.Error())
+	}
+	var value any
+	if err := json.Unmarshal(result, &value); err != nil {
+		return nil, contract.Unavailable("原生助手返回无效")
+	}
+	return value, nil
 }
 
 func handleSettingsGet(store contract.StateStore, state *contract.State, _ json.RawMessage) (any, error) {

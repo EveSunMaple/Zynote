@@ -107,11 +107,12 @@ const hello = (await call('core.hello', {
  libraryRoot: dataRoot,
  resourcesRoot,
  promptsRoot: projectRoot,
+ nativePath: join(projectRoot, 'native', 'target', 'release', 'zynote-native'),
  portable: false
 })) as HelloResult
 check('hello protocol', hello.protocol === 1)
 check('hello platform', hello.platform === 'darwin')
-check('hello capabilities', hello.capabilities.length === 16)
+check('hello capabilities', hello.capabilities.length === 18)
 
 const bootstrap = (await call('db:bootstrap')) as {ok: boolean}
 check('bootstrap ok', bootstrap.ok === true)
@@ -131,6 +132,30 @@ try {
  dirExists = true
 } catch {}
 check('library dirs english', dirExists)
+
+const {PDFDocument: SmokePdfDoc, StandardFonts: SmokeFonts} = await import('pdf-lib')
+const smokePdf = await SmokePdfDoc.create()
+const smokeFont = await smokePdf.embedFont(SmokeFonts.Helvetica)
+const smokePage = smokePdf.addPage([300, 200])
+smokePage.drawText('bridge smoke', {x: 40, y: 120, size: 14, font: smokeFont})
+await writeFile(join(dataRoot, 'smoke.pdf'), await smokePdf.save())
+const nativePath = join(projectRoot, 'native', 'target', 'release', 'zynote-native')
+if (fs.existsSync(nativePath)) {
+ try {
+  const pdfResult = (await call('pdf.text', {path: join(dataRoot, 'smoke.pdf')})) as {
+   numPages: number
+   pages: {items: {text: string}[]}[]
+  }
+  check('bridge pdf.text numPages', pdfResult.numPages === 1)
+  check(
+   'bridge pdf.text content',
+   pdfResult.pages[0].items.some(item => item.text.includes('bridge smoke'))
+  )
+ } catch (error) {
+  console.error('FAIL bridge pdf.text', error)
+  process.exitCode = 1
+ }
+} else console.log('skip bridge pdf.text (native binary missing)')
 
 const info = (await call('app:info')) as InfoResult
 check('app:info version', info.version === '0.0.1')

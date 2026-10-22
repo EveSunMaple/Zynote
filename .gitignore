@@ -15,3 +15,5 @@ native/target/
 resources/asr/
 resources/knowledge/
 resources/video/
+
+resources/pdfium/

@@ -7,6 +7,7 @@ import (
 
 	"github.com/EveSunMaple/Zynote/backend/internal/api"
 	"github.com/EveSunMaple/Zynote/backend/internal/contract"
+	"github.com/EveSunMaple/Zynote/backend/internal/helper"
 )
 
 type App struct {
@@ -24,6 +25,10 @@ func (a *App) Wire(reverse contract.ReverseCaller) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	a.reverse = reverse
+}
+
+func (a *App) SetNative(native *helper.Native) {
+	a.invoker.SetNative(native)
 }
 
 func (a *App) State() *contract.State {
