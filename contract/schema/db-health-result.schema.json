@@ -1,0 +1,17 @@
+{
+ "$schema": "https://json-schema.org/draft/2020-12/schema",
+ "title": "db:health result",
+ "type": "object",
+ "required": ["ok", "integrity", "exists", "tables"],
+ "properties": {
+  "ok": { "type": "boolean" },
+  "exists": { "type": "boolean" },
+  "integrity": { "type": "string" },
+  "tables": { "type": "object", "additionalProperties": { "type": "integer" } },
+  "pageSize": { "type": "integer" },
+  "pageCount": { "type": "integer" },
+  "walMode": { "type": "boolean" },
+  "foreignKeys": { "type": "string" },
+  "error": { "type": "string" }
+ }
+}

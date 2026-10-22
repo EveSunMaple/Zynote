@@ -1,0 +1,22 @@
+{
+ "theme": "dark",
+ "browserWidth": 480,
+ "browserOpen": false,
+ "maxMinutes": 30,
+ "maxGB": 2.5,
+ "compress": true,
+ "prompts": {},
+ "searchProvider": "searxng",
+ "searchEndpoint": "https://search.example",
+ "videoPolicyVersion": 2,
+ "qwenProfile": {
+  "id": "qwen",
+  "name": "测试配置",
+  "baseUrl": "https://api.example.com/v1",
+  "model": "qwen-max",
+  "visionModel": "qwen-vl",
+  "provider": "qwen",
+  "apiFormat": "chat_completions",
+  "models": ["qwen-max", "qwen-vl"]
+ }
+}

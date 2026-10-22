@@ -1,0 +1,52 @@
+{
+ "$schema": "https://json-schema.org/draft/2020-12/schema",
+ "title": "settings:get result",
+ "type": "object",
+ "required": [
+  "connection",
+  "hasSearchKey",
+  "activeProfile",
+  "profiles",
+  "prompts",
+  "theme",
+  "browserWidth",
+  "browserOpen",
+  "maxMinutes",
+  "maxGB",
+  "compress"
+ ],
+ "properties": {
+  "connection": { "const": "qwen" },
+  "hasSearchKey": { "type": "boolean" },
+  "searchProvider": { "enum": ["duckduckgo", "searxng"] },
+  "searchEndpoint": { "type": "string" },
+  "activeProfile": { "type": "string", "minLength": 1 },
+  "theme": { "enum": ["light", "dark", "system"] },
+  "browserWidth": { "type": "number" },
+  "browserOpen": { "type": "boolean" },
+  "maxMinutes": { "type": "number" },
+  "maxGB": { "type": "number" },
+  "compress": { "type": "boolean" },
+  "prompts": { "type": "object", "additionalProperties": { "type": "string" } },
+  "profiles": {
+   "type": "array",
+   "items": {
+    "type": "object",
+    "required": ["id", "name", "baseUrl", "model", "provider", "apiFormat", "hasKey", "keyLength"],
+    "properties": {
+     "id": { "type": "string", "minLength": 1 },
+     "name": { "type": "string", "minLength": 1 },
+     "baseUrl": { "type": "string", "minLength": 1 },
+     "model": { "type": "string" },
+     "visionModel": { "type": "string" },
+     "provider": { "const": "qwen" },
+     "apiFormat": { "const": "chat_completions" },
+     "hasKey": { "type": "boolean" },
+     "keyLength": { "type": "integer", "minimum": 0 },
+     "models": { "type": "array", "items": { "type": "string" } },
+     "parameters": { "type": "object" }
+    }
+   }
+  }
+ }
+}

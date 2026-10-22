@@ -1,0 +1,19 @@
+{
+ "$schema": "https://json-schema.org/draft/2020-12/schema",
+ "title": "core.hello result (contract.State)",
+ "type": "object",
+ "required": ["protocol", "platform", "pid", "goVersion", "appVersion", "electronVersion", "capabilities"],
+ "properties": {
+  "protocol": { "const": 1 },
+  "platform": { "enum": ["darwin", "win32", "linux"] },
+  "pid": { "type": "integer", "minimum": 1 },
+  "goVersion": { "type": "string", "minLength": 1 },
+  "appVersion": { "type": "string", "minLength": 1 },
+  "electronVersion": { "type": "string", "minLength": 1 },
+  "dataRoot": { "type": "string" },
+  "libraryRoot": { "type": "string" },
+  "resourcesRoot": { "type": "string" },
+  "portable": { "type": "boolean" },
+  "capabilities": { "type": "array", "items": { "type": "string" }, "minItems": 1 }
+ }
+}

@@ -1,0 +1,49 @@
+{
+ "$schema": "https://json-schema.org/draft/2020-12/schema",
+ "title": "appearance:get result (AppearanceState)",
+ "type": "object",
+ "required": ["global", "courses"],
+ "properties": {
+  "global": { "$ref": "#/$defs/appearance" },
+  "courses": { "type": "object", "additionalProperties": { "$ref": "#/$defs/appearance" } },
+  "$defs": {
+   "appearance": {
+    "type": "object",
+    "required": [
+     "background",
+     "image",
+     "opacity",
+     "blur",
+     "scrim",
+     "accent",
+     "fontSize",
+     "lineHeight",
+     "avatarSize",
+     "avatarShape",
+     "showNames",
+     "assistantBubble",
+     "bubbleRadius",
+     "messageGap",
+     "contentWidth"
+    ],
+    "properties": {
+     "background": { "enum": ["none", "lavender", "rose", "mint", "image"] },
+     "image": { "type": "string", "maxLength": 6000000 },
+     "opacity": { "type": "number", "minimum": 0, "maximum": 1 },
+     "blur": { "type": "number", "minimum": 0, "maximum": 24 },
+     "scrim": { "type": "number", "minimum": 0, "maximum": 1 },
+     "accent": { "enum": ["default", "lavender", "rose", "mint", "blue"] },
+     "fontSize": { "type": "number", "minimum": 12, "maximum": 24 },
+     "lineHeight": { "type": "number", "minimum": 1.3, "maximum": 2.2 },
+     "avatarSize": { "type": "number", "minimum": 28, "maximum": 72 },
+     "avatarShape": { "enum": ["round", "rounded"] },
+     "showNames": { "type": "boolean" },
+     "assistantBubble": { "type": "boolean" },
+     "bubbleRadius": { "type": "number", "minimum": 0, "maximum": 28 },
+     "messageGap": { "type": "number", "minimum": 8, "maximum": 48 },
+     "contentWidth": { "type": "number", "minimum": 560, "maximum": 1040 }
+    }
+   }
+  }
+ }
+}

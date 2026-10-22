@@ -1,0 +1,636 @@
+{
+ "schema": 1,
+ "total": 105,
+ "actions": [
+  {
+   "action": "runtime:install",
+   "source": "desktop.ts",
+   "phase": 0,
+   "backend": "go"
+  },
+  {
+   "action": "runtime:status",
+   "source": "desktop.ts",
+   "phase": 0,
+   "backend": "go"
+  },
+  {
+   "action": "window:close",
+   "source": "window.ts",
+   "phase": 0,
+   "backend": "shell"
+  },
+  {
+   "action": "window:is-maximized",
+   "source": "window.ts",
+   "phase": 0,
+   "backend": "shell"
+  },
+  {
+   "action": "window:minimize",
+   "source": "window.ts",
+   "phase": 0,
+   "backend": "shell"
+  },
+  {
+   "action": "window:toggle-maximize",
+   "source": "window.ts",
+   "phase": 0,
+   "backend": "shell"
+  },
+  {
+   "action": "app:info",
+   "source": "desktop.ts",
+   "phase": 1,
+   "backend": "go"
+  },
+  {
+   "action": "appearance:clear",
+   "source": "desktop.ts",
+   "phase": 1,
+   "backend": "go"
+  },
+  {
+   "action": "appearance:get",
+   "source": "desktop.ts",
+   "phase": 1,
+   "backend": "go"
+  },
+  {
+   "action": "appearance:image",
+   "source": "desktop.ts",
+   "phase": 1,
+   "backend": "go"
+  },
+  {
+   "action": "appearance:save",
+   "source": "desktop.ts",
+   "phase": 1,
+   "backend": "go"
+  },
+  {
+   "action": "identity:avatar",
+   "source": "desktop.ts",
+   "phase": 1,
+   "backend": "go"
+  },
+  {
+   "action": "identity:get",
+   "source": "desktop.ts",
+   "phase": 1,
+   "backend": "go"
+  },
+  {
+   "action": "identity:save",
+   "source": "desktop.ts",
+   "phase": 1,
+   "backend": "go"
+  },
+  {
+   "action": "job:current",
+   "source": "desktop.ts",
+   "phase": 1,
+   "backend": "go"
+  },
+  {
+   "action": "library:delete",
+   "source": "desktop.ts",
+   "phase": 1,
+   "backend": "go"
+  },
+  {
+   "action": "library:list",
+   "source": "desktop.ts",
+   "phase": 1,
+   "backend": "go"
+  },
+  {
+   "action": "library:open",
+   "source": "desktop.ts",
+   "phase": 1,
+   "backend": "go"
+  },
+  {
+   "action": "library:open-file",
+   "source": "desktop.ts",
+   "phase": 1,
+   "backend": "go"
+  },
+  {
+   "action": "library:reveal",
+   "source": "desktop.ts",
+   "phase": 1,
+   "backend": "go"
+  },
+  {
+   "action": "settings:get",
+   "source": "desktop.ts",
+   "phase": 1,
+   "backend": "go"
+  },
+  {
+   "action": "settings:models",
+   "source": "desktop.ts",
+   "phase": 1,
+   "backend": "go"
+  },
+  {
+   "action": "settings:probe",
+   "source": "desktop.ts",
+   "phase": 1,
+   "backend": "go"
+  },
+  {
+   "action": "settings:save",
+   "source": "desktop.ts",
+   "phase": 1,
+   "backend": "go"
+  },
+  {
+   "action": "settings:test",
+   "source": "desktop.ts",
+   "phase": 1,
+   "backend": "go"
+  },
+  {
+   "action": "course:create",
+   "source": "courses.ts",
+   "phase": 2,
+   "backend": "go"
+  },
+  {
+   "action": "course:delete",
+   "source": "courses.ts",
+   "phase": 2,
+   "backend": "go"
+  },
+  {
+   "action": "course:detail",
+   "source": "courses.ts",
+   "phase": 2,
+   "backend": "go"
+  },
+  {
+   "action": "files:add",
+   "source": "courses.ts",
+   "phase": 2,
+   "backend": "go"
+  },
+  {
+   "action": "files:remove",
+   "source": "courses.ts",
+   "phase": 2,
+   "backend": "go"
+  },
+  {
+   "action": "lecture:courseware",
+   "source": "courses.ts",
+   "phase": 2,
+   "backend": "go"
+  },
+  {
+   "action": "lecture:create",
+   "source": "courses.ts",
+   "phase": 2,
+   "backend": "go"
+  },
+  {
+   "action": "lecture:delete",
+   "source": "courses.ts",
+   "phase": 2,
+   "backend": "go"
+  },
+  {
+   "action": "lecture:detail",
+   "source": "courses.ts",
+   "phase": 2,
+   "backend": "go"
+  },
+  {
+   "action": "lecture:transcript",
+   "source": "courses.ts",
+   "phase": 2,
+   "backend": "go"
+  },
+  {
+   "action": "notes:generate",
+   "source": "learning.ts",
+   "phase": 2,
+   "backend": "go"
+  },
+  {
+   "action": "notes:save",
+   "source": "learning.ts",
+   "phase": 2,
+   "backend": "go"
+  },
+  {
+   "action": "practice:answer",
+   "source": "learning.ts",
+   "phase": 2,
+   "backend": "go"
+  },
+  {
+   "action": "practice:generate",
+   "source": "learning.ts",
+   "phase": 2,
+   "backend": "go"
+  },
+  {
+   "action": "practice:prepare",
+   "source": "learning.ts",
+   "phase": 2,
+   "backend": "go"
+  },
+  {
+   "action": "practice:reset",
+   "source": "learning.ts",
+   "phase": 2,
+   "backend": "go"
+  },
+  {
+   "action": "practice:submit",
+   "source": "learning.ts",
+   "phase": 2,
+   "backend": "go"
+  },
+  {
+   "action": "questions:save",
+   "source": "courses.ts",
+   "phase": 2,
+   "backend": "go"
+  },
+  {
+   "action": "questions:split",
+   "source": "courses.ts",
+   "phase": 2,
+   "backend": "go"
+  },
+  {
+   "action": "session:create",
+   "source": "courses.ts",
+   "phase": 2,
+   "backend": "go"
+  },
+  {
+   "action": "session:delete",
+   "source": "courses.ts",
+   "phase": 2,
+   "backend": "go"
+  },
+  {
+   "action": "study:get",
+   "source": "study.ts",
+   "phase": 2,
+   "backend": "go"
+  },
+  {
+   "action": "study:parse",
+   "source": "study.ts",
+   "phase": 2,
+   "backend": "go"
+  },
+  {
+   "action": "study:save",
+   "source": "study.ts",
+   "phase": 2,
+   "backend": "go"
+  },
+  {
+   "action": "subtitles:generate",
+   "source": "learning.ts",
+   "phase": 2,
+   "backend": "go"
+  },
+  {
+   "action": "subtitles:import",
+   "source": "learning.ts",
+   "phase": 2,
+   "backend": "go"
+  },
+  {
+   "action": "subtitles:save",
+   "source": "learning.ts",
+   "phase": 2,
+   "backend": "go"
+  },
+  {
+   "action": "textbook:analyze",
+   "source": "study.ts",
+   "phase": 3,
+   "backend": "go"
+  },
+  {
+   "action": "textbook:analyze-images",
+   "source": "study.ts",
+   "phase": 3,
+   "backend": "go"
+  },
+  {
+   "action": "textbook:apply",
+   "source": "study.ts",
+   "phase": 3,
+   "backend": "go"
+  },
+  {
+   "action": "textbook:bytes",
+   "source": "study.ts",
+   "phase": 3,
+   "backend": "go"
+  },
+  {
+   "action": "textbook:clear",
+   "source": "study.ts",
+   "phase": 3,
+   "backend": "go"
+  },
+  {
+   "action": "textbook:manual",
+   "source": "study.ts",
+   "phase": 3,
+   "backend": "go"
+  },
+  {
+   "action": "textbook:open",
+   "source": "study.ts",
+   "phase": 3,
+   "backend": "go"
+  },
+  {
+   "action": "textbook:pick",
+   "source": "study.ts",
+   "phase": 3,
+   "backend": "go"
+  },
+  {
+   "action": "textbook:ppt-ocr",
+   "source": "study.ts",
+   "phase": 3,
+   "backend": "go"
+  },
+  {
+   "action": "textbook:ppt-source",
+   "source": "study.ts",
+   "phase": 3,
+   "backend": "go"
+  },
+  {
+   "action": "media:auth-import",
+   "source": "resources.ts",
+   "phase": 4,
+   "backend": "go"
+  },
+  {
+   "action": "media:auth-list",
+   "source": "resources.ts",
+   "phase": 4,
+   "backend": "go"
+  },
+  {
+   "action": "media:auth-remove",
+   "source": "resources.ts",
+   "phase": 4,
+   "backend": "go"
+  },
+  {
+   "action": "media:cancel",
+   "source": "resources.ts",
+   "phase": 4,
+   "backend": "go"
+  },
+  {
+   "action": "media:catalog",
+   "source": "resources.ts",
+   "phase": 4,
+   "backend": "go"
+  },
+  {
+   "action": "media:create",
+   "source": "resources.ts",
+   "phase": 4,
+   "backend": "go"
+  },
+  {
+   "action": "media:discussion",
+   "source": "resources.ts",
+   "phase": 4,
+   "backend": "go"
+  },
+  {
+   "action": "media:discussion-import",
+   "source": "resources.ts",
+   "phase": 4,
+   "backend": "go"
+  },
+  {
+   "action": "media:list",
+   "source": "resources.ts",
+   "phase": 4,
+   "backend": "go"
+  },
+  {
+   "action": "media:open",
+   "source": "resources.ts",
+   "phase": 4,
+   "backend": "go"
+  },
+  {
+   "action": "media:options",
+   "source": "resources.ts",
+   "phase": 4,
+   "backend": "go"
+  },
+  {
+   "action": "media:retry",
+   "source": "resources.ts",
+   "phase": 4,
+   "backend": "go"
+  },
+  {
+   "action": "visual:list",
+   "source": "resources.ts",
+   "phase": 4,
+   "backend": "go"
+  },
+  {
+   "action": "visual:prepare",
+   "source": "resources.ts",
+   "phase": 4,
+   "backend": "go"
+  },
+  {
+   "action": "visual:prepare-resume",
+   "source": "resources.ts",
+   "phase": 4,
+   "backend": "go"
+  },
+  {
+   "action": "visual:recognize",
+   "source": "resources.ts",
+   "phase": 4,
+   "backend": "go"
+  },
+  {
+   "action": "visual:recover-output",
+   "source": "resources.ts",
+   "phase": 4,
+   "backend": "go"
+  },
+  {
+   "action": "zhiyun:back",
+   "source": "desktop.ts",
+   "phase": 4,
+   "backend": "go"
+  },
+  {
+   "action": "zhiyun:bounds",
+   "source": "desktop.ts",
+   "phase": 4,
+   "backend": "go"
+  },
+  {
+   "action": "zhiyun:export",
+   "source": "desktop.ts",
+   "phase": 4,
+   "backend": "go"
+  },
+  {
+   "action": "zhiyun:lessons",
+   "source": "desktop.ts",
+   "phase": 4,
+   "backend": "go"
+  },
+  {
+   "action": "zhiyun:login",
+   "source": "desktop.ts",
+   "phase": 4,
+   "backend": "go"
+  },
+  {
+   "action": "zhiyun:refresh",
+   "source": "desktop.ts",
+   "phase": 4,
+   "backend": "go"
+  },
+  {
+   "action": "zhiyun:search",
+   "source": "desktop.ts",
+   "phase": 4,
+   "backend": "go"
+  },
+  {
+   "action": "knowledge:ask",
+   "source": "knowledge.ts",
+   "phase": 5,
+   "backend": "go"
+  },
+  {
+   "action": "knowledge:citation",
+   "source": "knowledge.ts",
+   "phase": 5,
+   "backend": "go"
+  },
+  {
+   "action": "knowledge:classification-options",
+   "source": "knowledge.ts",
+   "phase": 5,
+   "backend": "go"
+  },
+  {
+   "action": "knowledge:classification-read",
+   "source": "knowledge.ts",
+   "phase": 5,
+   "backend": "go"
+  },
+  {
+   "action": "knowledge:classification-save",
+   "source": "knowledge.ts",
+   "phase": 5,
+   "backend": "go"
+  },
+  {
+   "action": "knowledge:classification-suggest",
+   "source": "knowledge.ts",
+   "phase": 5,
+   "backend": "go"
+  },
+  {
+   "action": "knowledge:delete",
+   "source": "knowledge.ts",
+   "phase": 5,
+   "backend": "go"
+  },
+  {
+   "action": "knowledge:import",
+   "source": "knowledge.ts",
+   "phase": 5,
+   "backend": "go"
+  },
+  {
+   "action": "knowledge:list",
+   "source": "knowledge.ts",
+   "phase": 5,
+   "backend": "go"
+  },
+  {
+   "action": "knowledge:organize",
+   "source": "knowledge.ts",
+   "phase": 5,
+   "backend": "go"
+  },
+  {
+   "action": "knowledge:read",
+   "source": "knowledge.ts",
+   "phase": 5,
+   "backend": "go"
+  },
+  {
+   "action": "knowledge:rebuild",
+   "source": "knowledge.ts",
+   "phase": 5,
+   "backend": "go"
+  },
+  {
+   "action": "knowledge:search",
+   "source": "knowledge.ts",
+   "phase": 5,
+   "backend": "go"
+  },
+  {
+   "action": "knowledge:vector-enable",
+   "source": "knowledge.ts",
+   "phase": 5,
+   "backend": "go"
+  },
+  {
+   "action": "knowledge:vector-rebuild",
+   "source": "knowledge.ts",
+   "phase": 5,
+   "backend": "go"
+  },
+  {
+   "action": "knowledge:vector-status",
+   "source": "knowledge.ts",
+   "phase": 5,
+   "backend": "go"
+  },
+  {
+   "action": "tools:request",
+   "source": "research.ts",
+   "phase": 5,
+   "backend": "go"
+  },
+  {
+   "action": "tools:skill-open",
+   "source": "research.ts",
+   "phase": 5,
+   "backend": "go"
+  },
+  {
+   "action": "im:draft",
+   "source": "research.ts",
+   "phase": 6,
+   "backend": "go"
+  }
+ ]
+}

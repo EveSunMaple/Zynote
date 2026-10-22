@@ -1,0 +1,17 @@
+node_modules/
+out/
+release/
+test-results/
+tmp/
+backend/bin/
+native/target/
+*.db
+*.db-*
+*.sqlite*
+*.dpapi
+.env*
+*.log
+.DS_Store
+resources/asr/
+resources/knowledge/
+resources/video/

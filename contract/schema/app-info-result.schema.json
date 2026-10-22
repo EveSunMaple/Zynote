@@ -1,0 +1,11 @@
+{
+ "$schema": "https://json-schema.org/draft/2020-12/schema",
+ "title": "app:info result",
+ "type": "object",
+ "required": ["version", "electron", "platform"],
+ "properties": {
+  "version": { "type": "string", "minLength": 1 },
+  "electron": { "type": "string", "minLength": 1 },
+  "platform": { "enum": ["darwin", "win32", "linux"] }
+ }
+}

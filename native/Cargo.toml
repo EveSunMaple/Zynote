@@ -1,0 +1,12 @@
+[workspace]
+resolver = "2"
+members = ["zynote-native"]
+
+[workspace.package]
+edition = "2021"
+license = "AGPL-3.0-only"
+
+[profile.release]
+lto = true
+codegen-units = 1
+strip = "symbols"

@@ -1,0 +1,16 @@
+{
+ "$schema": "https://json-schema.org/draft/2020-12/schema",
+ "title": "core.hello request",
+ "type": "object",
+ "required": ["protocol", "appVersion", "electronVersion", "platform", "dataRoot", "libraryRoot", "resourcesRoot"],
+ "properties": {
+  "protocol": { "const": 1 },
+  "appVersion": { "type": "string", "minLength": 1 },
+  "electronVersion": { "type": "string", "minLength": 1 },
+  "platform": { "enum": ["darwin", "win32", "linux"] },
+  "dataRoot": { "type": "string", "minLength": 1 },
+  "libraryRoot": { "type": "string", "minLength": 1 },
+  "resourcesRoot": { "type": "string", "minLength": 1 },
+  "portable": { "type": "boolean" }
+ }
+}

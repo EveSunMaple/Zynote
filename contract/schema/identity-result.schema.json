@@ -1,0 +1,13 @@
+{
+ "$schema": "https://json-schema.org/draft/2020-12/schema",
+ "title": "identity:get result",
+ "type": "object",
+ "required": ["userName", "assistantName", "userAvatar", "assistantAvatar", "persona"],
+ "properties": {
+  "userName": { "type": "string", "minLength": 1, "maxLength": 40 },
+  "assistantName": { "type": "string", "minLength": 1, "maxLength": 40 },
+  "userAvatar": { "type": "string", "maxLength": 1000000 },
+  "assistantAvatar": { "type": "string", "maxLength": 1000000 },
+  "persona": { "type": "string", "maxLength": 12000 }
+ }
+}

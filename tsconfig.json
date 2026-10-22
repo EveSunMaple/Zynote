@@ -1,0 +1,22 @@
+{
+ "compilerOptions": {
+  "target": "ES2022",
+  "module": "ESNext",
+  "moduleResolution": "Bundler",
+  "paths": {
+   "@shared/*": ["./src/shared/*"],
+   "@main/*": ["./src/main/*"],
+   "@renderer/*": ["./src/renderer/src/*"]
+  },
+  "jsx": "react-jsx",
+  "strict": true,
+  "esModuleInterop": true,
+  "resolveJsonModule": true,
+  "skipLibCheck": true,
+  "lib": ["ES2022", "DOM"],
+  "types": ["node", "vite/client"],
+  "noEmit": true,
+  "allowImportingTsExtensions": true
+ },
+ "include": ["src", "electron.vite.config.ts"]
+}

@@ -1,0 +1,20 @@
+{
+ "global": {
+  "background": "mint",
+  "image": "",
+  "opacity": 0.5,
+  "blur": 4,
+  "scrim": 0.3,
+  "accent": "blue",
+  "fontSize": 18,
+  "lineHeight": 1.8,
+  "avatarSize": 44,
+  "avatarShape": "rounded",
+  "showNames": false,
+  "assistantBubble": true,
+  "bubbleRadius": 20,
+  "messageGap": 30,
+  "contentWidth": 900
+ },
+ "courses": {}
+}
