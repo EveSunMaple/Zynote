@@ -58,6 +58,15 @@
 - [x] 提交：`143e847` 已推送 origin/main。
 - [ ] P2b 待办：删除类 action（需 Go 任务状态）、files:add/remove、lecture:create/delete、questions:save/split、导出行为；子目录（Knowledge/MediaDownloads 等）英文化与其记录重定位。
 
+## 1.8 P2b 完成记录（2026-10-22）
+
+- [x] 删除类 action 迁 Go：`course:delete`/`session:delete`/`lecture:delete`（confirmed 二次确认 + 错误文案逐字对齐）；任务前置检查（`jobs.size`）保留在路由层，不依赖反向 RPC。
+- [x] `session:delete` 的空课重建走事务化 `createSessionTx`（与 `CreateSession`/`CreateCourse` 共用，避免单连接池死锁），语义对齐 TS（空则重建、取第一课标题）。
+- [x] `lecture:detail` 影子读：checkpoint 分段优先 + `toSrt` 逐字复刻（修一处毫秒/秒换算 bug）+ notes/practice 解析 + correction 汇总条件字段。
+- [x] 测试新增 2 套（删除路径全生命周期 + 字幕/检查点 detail），Go 全绿；冒烟 20 项断言全绿；dev 集成影子读零差异。
+- [x] 提交：`7824045` 已推送 origin/main。
+- [ ] P2c 边界：`files:add`/`lecture:create`/`lecture:transcript`/`lecture:courseware` 依赖 `parseCourseware`（PDF/PPTX/DOCX 解析）与 `readTranscript`，归入 P3（Rust PDF 助手）一并处理；`files:remove` 可随 P2c 单独迁。
+
 ## 2. 目标架构
 
 ```text
