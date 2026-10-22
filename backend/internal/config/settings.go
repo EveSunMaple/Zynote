@@ -22,10 +22,10 @@ type StoredProfile struct {
 	BaseURL      string                     `json:"baseUrl"`
 	Model        string                     `json:"model"`
 	VisionModel  string                     `json:"visionModel"`
-	APIFormat    string                     `json:"apiFormat,omitempty"`
-	Provider     string                     `json:"provider,omitempty"`
-	Parameters   map[string]ModelParameters `json:"parameters,omitempty"`
-	Models       []string                   `json:"models,omitempty"`
+	APIFormat    string                     `json:"apiFormat"`
+	Provider     string                     `json:"provider"`
+	Parameters   map[string]ModelParameters `json:"parameters"`
+	Models       []string                   `json:"models"`
 	EncryptedKey string                     `json:"encryptedKey,omitempty"`
 	APIKey       string                     `json:"apiKey,omitempty"`
 }
@@ -47,7 +47,7 @@ const unprotectTimeoutMS = 5000
 
 type storedSettings map[string]json.RawMessage
 
-func ReadSettings(dataRoot, resourcesRoot string, reverse contract.ReverseCaller) (map[string]any, error) {
+func ReadSettings(dataRoot, promptsRoot string, reverse contract.ReverseCaller) (map[string]any, error) {
 	stored, err := loadStored(dataRoot)
 	if err != nil {
 		return nil, err
@@ -71,7 +71,7 @@ func ReadSettings(dataRoot, resourcesRoot string, reverse contract.ReverseCaller
 		}
 		output[key] = decoded
 	}
-	prompts, err := readPrompts(stored, resourcesRoot)
+	prompts, err := readPrompts(stored, promptsRoot)
 	if err != nil {
 		return nil, err
 	}
@@ -123,7 +123,7 @@ func rawString(raw json.RawMessage) string {
 	return value
 }
 
-func readPrompts(stored storedSettings, resourcesRoot string) (map[string]string, error) {
+func readPrompts(stored storedSettings, promptsRoot string) (map[string]string, error) {
 	existing := map[string]string{}
 	if raw, ok := stored["prompts"]; ok {
 		if err := json.Unmarshal(raw, &existing); err != nil {
@@ -136,7 +136,7 @@ func readPrompts(stored storedSettings, resourcesRoot string) (map[string]string
 			result[name] = value
 			continue
 		}
-		raw, err := os.ReadFile(filepath.Join(resourcesRoot, "prompts", name+".txt"))
+		raw, err := os.ReadFile(filepath.Join(promptsRoot, "prompts", name+".txt"))
 		if err != nil {
 			continue
 		}
@@ -154,6 +154,12 @@ func publicProfile(profile StoredProfile, reverse contract.ReverseCaller) map[st
 	}
 	delete(public, "encryptedKey")
 	delete(public, "apiKey")
+	if profile.Parameters == nil {
+		delete(public, "parameters")
+	}
+	if profile.Models == nil {
+		delete(public, "models")
+	}
 	public["provider"] = "qwen"
 	public["apiFormat"] = "chat_completions"
 	keyLength := 0
@@ -181,7 +187,7 @@ func decryptValue(reverse contract.ReverseCaller, value string) (string, error) 
 	return decoded.Text, nil
 }
 
-func isUUID(value string) bool {
+func IsUUID(value string) bool {
 	if len(value) != 36 {
 		return false
 	}

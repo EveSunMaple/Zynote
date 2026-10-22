@@ -24,6 +24,7 @@ export type GoCoreOptions = {
  dataRoot: string
  libraryRoot: string
  resourcesRoot: string
+ promptsRoot: string
  portable: boolean
  onEvent: (event: EventPayload) => void
  onFailed: (reason: string) => void
@@ -84,6 +85,7 @@ export class GoCore {
     dataRoot: this.options.dataRoot,
     libraryRoot: this.options.libraryRoot,
     resourcesRoot: this.options.resourcesRoot,
+    promptsRoot: this.options.promptsRoot,
     portable: this.options.portable
    }
   })

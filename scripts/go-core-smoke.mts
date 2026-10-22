@@ -105,6 +105,7 @@ const hello = (await call('core.hello', {
  dataRoot,
  libraryRoot: dataRoot,
  resourcesRoot,
+ promptsRoot: projectRoot,
  portable: false
 })) as HelloResult
 check('hello protocol', hello.protocol === 1)

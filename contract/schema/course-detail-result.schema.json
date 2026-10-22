@@ -1,0 +1,23 @@
+{
+ "$schema": "https://json-schema.org/draft/2020-12/schema",
+ "title": "course:detail result (Detail)",
+ "type": "object",
+ "required": ["course", "sessions", "files", "questions", "lectures", "messages"],
+ "properties": {
+  "course": { "type": "object", "required": ["id", "name", "created_at"] },
+  "sessions": { "type": "array", "items": { "type": "object", "required": ["id", "course_id", "title"] } },
+  "files": {
+   "type": "array",
+   "items": {
+    "type": "object",
+    "required": ["id", "course_id", "kind", "chunks"],
+    "properties": {
+     "chunks": { "type": "array", "items": { "type": "string" } }
+    }
+   }
+  },
+  "questions": { "type": "array", "items": { "type": "object" } },
+  "lectures": { "type": "array", "items": { "type": "object", "required": ["id", "course_id"] } },
+  "messages": { "type": "array", "items": { "type": "object", "required": ["id", "role", "content"] } }
+ }
+}

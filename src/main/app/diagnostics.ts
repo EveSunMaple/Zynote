@@ -9,6 +9,7 @@ export function diagnostic(
   requestId?: number
   code?: string
   pid?: number
+  keys?: string
  } = {}
 ) {
  try {

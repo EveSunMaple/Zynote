@@ -53,11 +53,15 @@ type State struct {
 	DataRoot        string   `json:"dataRoot"`
 	LibraryRoot     string   `json:"libraryRoot"`
 	ResourcesRoot   string   `json:"resourcesRoot"`
+	PromptsRoot     string   `json:"promptsRoot"`
 	Portable        bool     `json:"portable"`
 	Capabilities    []string `json:"capabilities"`
 }
 
-var DefaultCapabilities = []string{"app:info", "settings:get", "appearance:get", "identity:get", "db:health", "db:backup"}
+var DefaultCapabilities = []string{
+	"app:info", "settings:get", "appearance:get", "identity:get",
+	"db:health", "db:backup", "course:detail", "library:list",
+}
 
 type HelloParams struct {
 	Protocol        int    `json:"protocol"`
@@ -67,6 +71,7 @@ type HelloParams struct {
 	DataRoot        string `json:"dataRoot"`
 	LibraryRoot     string `json:"libraryRoot"`
 	ResourcesRoot   string `json:"resourcesRoot"`
+	PromptsRoot     string `json:"promptsRoot"`
 	Portable        bool   `json:"portable"`
 }
 

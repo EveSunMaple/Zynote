@@ -71,7 +71,7 @@ func ReadAppearance(dataRoot string) (AppearanceState, error) {
 		return AppearanceState{}, err
 	}
 	for courseID, value := range state.Courses {
-		if !isUUID(courseID) {
+		if !IsUUID(courseID) {
 			return AppearanceState{}, contract.InputInvalid("外观课程标识无效")
 		}
 		if err := validateAppearance(value); err != nil {

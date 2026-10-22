@@ -13,6 +13,7 @@
   "dataRoot": { "type": "string" },
   "libraryRoot": { "type": "string" },
   "resourcesRoot": { "type": "string" },
+  "promptsRoot": { "type": "string" },
   "portable": { "type": "boolean" },
   "capabilities": { "type": "array", "items": { "type": "string" }, "minItems": 1 }
  }

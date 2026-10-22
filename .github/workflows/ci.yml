@@ -1,0 +1,49 @@
+name: CI
+
+on:
+  push:
+    branches-ignore: []
+    tags-ignore:
+      - 'v*'
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  verify:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-14
+            name: mac
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: backend/go.mod
+          cache-dependency-path: backend/go.sum
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+      - name: TS verify
+        run: pnpm verify
+      - name: Go test
+        run: pnpm backend:test
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: native
+      - name: Rust test
+        run: pnpm native:test
+      - name: Build
+        run: pnpm build
+      - name: Go core smoke
+        run: pnpm smoke:go-core

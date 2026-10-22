@@ -18,7 +18,7 @@ func handleAppInfo(_ contract.StateStore, state *contract.State, _ json.RawMessa
 }
 
 func handleSettingsGet(store contract.StateStore, state *contract.State, _ json.RawMessage) (any, error) {
-	return config.ReadSettings(state.DataRoot, state.ResourcesRoot, store.Reverse())
+	return config.ReadSettings(state.DataRoot, state.PromptsRoot, store.Reverse())
 }
 
 func handleAppearanceGet(_ contract.StateStore, state *contract.State, _ json.RawMessage) (any, error) {

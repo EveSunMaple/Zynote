@@ -1,0 +1,17 @@
+{
+ "$schema": "https://json-schema.org/draft/2020-12/schema",
+ "title": "library:list result (LibraryFile[])",
+ "type": "array",
+ "items": {
+  "type": "object",
+  "required": ["path", "name", "category", "course", "size", "modified"],
+  "properties": {
+   "path": { "type": "string" },
+   "name": { "type": "string", "minLength": 1 },
+   "category": { "type": "string", "minLength": 1 },
+   "course": { "type": "string" },
+   "size": { "type": "integer", "minimum": 0 },
+   "modified": { "type": "string", "minLength": 1 }
+  }
+ }
+}

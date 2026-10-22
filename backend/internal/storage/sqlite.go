@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/EveSunMaple/Zynote/backend/internal/contract"
+	_ "modernc.org/sqlite"
 )
 
 type HealthReport struct {

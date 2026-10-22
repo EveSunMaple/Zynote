@@ -93,7 +93,11 @@ func (f *fixture) drain(count int) []wireEnvelope {
 
 func writeFixtureFile(t *testing.T, dir, name, content string) {
 	t.Helper()
-	if err := os.WriteFile(filepath.Join(dir, name), []byte(content), 0o644); err != nil {
+	path := filepath.Join(dir, filepath.FromSlash(name))
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -111,13 +115,14 @@ func TestP0Contract(t *testing.T) {
 	}`)
 	writeFixtureFile(t, dataRoot, "identity.json", `{"userName":"连酱","assistantName":"梅酱","userAvatar":"","assistantAvatar":"","persona":"自定义人格"}`)
 	writeFixtureFile(t, dataRoot, "appearance.json", `{"global":{"background":"mint","image":"","opacity":0.5,"blur":4,"scrim":0.3,"accent":"blue","fontSize":18,"lineHeight":1.8,"avatarSize":44,"avatarShape":"rounded","showNames":false,"assistantBubble":true,"bubbleRadius":20,"messageGap":30,"contentWidth":900},"courses":{}}`)
+	writeFixtureFile(t, resourcesRoot, "prompts/notes.txt", "默认笔记提示词")
 
 	f := startCore(t, dataRoot, resourcesRoot)
 
 	state, errReply := f.call("core.hello", map[string]any{
 		"protocol": 1, "appVersion": "0.0.1", "electronVersion": "42.11.10",
 		"platform": "darwin", "dataRoot": dataRoot, "libraryRoot": dataRoot,
-		"resourcesRoot": resourcesRoot, "portable": false,
+		"resourcesRoot": resourcesRoot, "promptsRoot": resourcesRoot, "portable": false,
 	})
 	if errReply != nil {
 		t.Fatalf("hello failed: %+v", errReply)
@@ -130,7 +135,7 @@ func TestP0Contract(t *testing.T) {
 	if err := json.Unmarshal(state, &hello); err != nil {
 		t.Fatal(err)
 	}
-	if hello.Protocol != 1 || hello.Platform != "darwin" || len(hello.Capabilities) != 6 {
+	if hello.Protocol != 1 || hello.Platform != "darwin" || len(hello.Capabilities) != 8 {
 		t.Fatalf("unexpected hello: %+v", hello)
 	}
 
@@ -167,7 +172,7 @@ func TestP0Contract(t *testing.T) {
 		t.Fatalf("unexpected profile: %v", profile)
 	}
 	prompts := settings["prompts"].(map[string]any)
-	if prompts["chat"] != "custom" {
+	if prompts["chat"] != "custom" || prompts["notes"] != "默认笔记提示词" {
 		t.Fatalf("prompts passthrough broken: %v", prompts)
 	}
 

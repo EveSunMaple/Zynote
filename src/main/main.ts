@@ -1,5 +1,6 @@
 import {dispatch} from '@main/ipc/handler'
 import {GoCore} from '@main/backend/go-core'
+import {createRoutedDispatch} from '@main/backend/router'
 import {RuntimeComponents} from '@main/app/runtime-components'
 import {diagnostic} from '@main/app/diagnostics'
 import {createKnowledgeHandler} from '@main/ipc/knowledge'
@@ -140,7 +141,6 @@ async function startApplication() {
  }
  window.on('maximize', () => emit({kind: 'window', data: {maximized: true}}))
  window.on('unmaximize', () => emit({kind: 'window', data: {maximized: false}}))
- const goActions = new Set(['app:info', 'settings:get', 'appearance:get', 'identity:get'])
  let goCore: GoCore | undefined
  if (process.env.ZYNOTE_BACKEND !== 'ts') {
   try {
@@ -149,6 +149,7 @@ async function startApplication() {
     dataRoot: root,
     libraryRoot,
     resourcesRoot: app.isPackaged ? process.resourcesPath : join(app.getAppPath(), 'resources'),
+    promptsRoot: app.isPackaged ? process.resourcesPath : join(app.getAppPath(), 'src'),
     portable: !!portable,
     onEvent: e => {
      if (!window.isDestroyed()) window.webContents.send('assistant:event', e)
@@ -547,15 +548,16 @@ async function startApplication() {
   createLearningHandler(context),
   createWindowHandler(context)
  ]
+ const routedDispatch = createRoutedDispatch(handlers, goCore, root, (r, component, event, fields) =>
+  diagnostic(r, component, event, fields)
+ )
  ipcMain.handle('assistant:invoke', async (event, action: string, args: unknown) => {
   if (event.sender !== window.webContents || event.senderFrame !== window.webContents.mainFrame)
    throw new Error('拒绝未知页面请求')
   const object = z.record(z.string(), z.unknown()).parse(args || {})
   const validated = z.string().min(1).max(100).parse(action)
   try {
-   if (goCore && goCore.currentStatus === 'ready' && goActions.has(validated))
-    return await goCore.call(validated, object)
-   return await dispatch(handlers, validated, object)
+   return await routedDispatch(validated, object)
   } catch (error) {
    diagnostic(root, 'ipc', 'request-failed', {
     action: validated,

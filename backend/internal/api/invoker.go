@@ -25,6 +25,8 @@ func NewInvoker() *Invoker {
 		"identity:get":   requireState(handleIdentityGet),
 		"db:health":      requireState(handleDBHealth),
 		"db:backup":      requireState(handleDBBackup),
+		"course:detail":  requireState(handleCourseDetail),
+		"library:list":   requireState(handleLibraryList),
 	}}
 }
 
@@ -64,7 +66,7 @@ func handleHello(store contract.StateStore, _ *contract.State, params json.RawMe
 	if input.Platform != contract.CurrentPlatform() {
 		return nil, contract.Unavailable("运行平台不匹配")
 	}
-	if !isAbsPath(input.DataRoot) || !isAbsPath(input.LibraryRoot) || !isAbsPath(input.ResourcesRoot) {
+	if !isAbsPath(input.DataRoot) || !isAbsPath(input.LibraryRoot) || !isAbsPath(input.ResourcesRoot) || !isAbsPath(input.PromptsRoot) {
 		return nil, contract.InputInvalid("目录无效")
 	}
 	state := &contract.State{
@@ -77,6 +79,7 @@ func handleHello(store contract.StateStore, _ *contract.State, params json.RawMe
 		DataRoot:        input.DataRoot,
 		LibraryRoot:     input.LibraryRoot,
 		ResourcesRoot:   input.ResourcesRoot,
+		PromptsRoot:     input.PromptsRoot,
 		Portable:        input.Portable,
 		Capabilities:    contract.DefaultCapabilities,
 	}
