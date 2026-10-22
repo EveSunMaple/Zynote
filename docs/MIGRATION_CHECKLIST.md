@@ -491,13 +491,23 @@ Zynote/
 - [ ] 许可证、第三方声明、SBOM、签名/公证完成。
 - [ ] 发布 beta 并完成至少一次真实回滚演练。
 
-## 16. 待确认问题
+## 1.9 P3a/P3b/P3c 完成记录（2026-10-22）
 
-1. Electron 壳是否长期保留，还是未来还要迁 Tauri？如果未来迁 Tauri，contract 和 Go core 可以复用，但 shell 反向 RPC 需要重做。
-2. 产品名是否从“摘云/梅酱”改为 Zynote？`appId` 和 `userData` 是否保持不变？
-3. 是否接受 YouTube/PDF/SnapAny/IM 以 Node helper 形式长期存在？
-4. 第一版是否必须三平台同时发布，还是 Windows x64 优先？
-5. 是否保留 Windows 专属的微信只读与内置 QQ 后台？
-6. 数据迁移是自动执行，还是首次启动让用户确认备份后再执行？
-7. 是否继续遵守 AGPL-3.0-only，还是需要重新评估许可证？
-8. 旧仓库是否继续维护 0.1.x 修复，还是冻结后只做安全修复？
+- [x] **P3a PDF 文本提取**（`0cda4f5`）：`zynote-native --mode pdf`（pdfium-render + `resources/pdfium/libpdfium.dylib`，gitignore 大文件）；Go 桥接 `internal/helper`（spawn/管道/崩溃处理/按 id 关联修复 base64 二次编码 bug）；`pdf.text`/`pdf.plainText` 全链路（Electron→Go→Rust→pdfium）；黄金对比：两页文本逐行一致，坐标偏差 x≤0.8pt / y≤1.8pt / w≤1.3pt / h≤3.3pt（pdfjs baseline vs pdfium bounds 语义差，容差口径已记录）。
+- [x] **P3b 批注 C2**（`b77c6f0`）：lopdf 批注读写；inspect 读双前缀（`meijiang:`+`MeijiangData` / `zynote:`+`ZynoteData`）；write 全量重放语义对齐 TS（旧批注需在 rows 带上 → 迁移为 `zynote:`，T='Zynote'）；保存后回读校验（pages/count/逐行 rect 容差 0.00001）；跨语言 round-trip 测试（pdf-lib 写旧格式 → Rust 读 → Rust 写 → pdf-lib 验证）。
+- [x] **P3c 文档解析**（`a21604f`）：Go `internal/documents`——`ParseSrt`/`milliseconds`（错误文案逐字对齐）、`SplitTranscript`（时间戳/估算时长/递增校验）、`ParseDocx`（zip+xml，提升 TS fallback 逻辑为主路径）、文本编码检测（chardet + GB18030/UTF-8 策略对齐）；`document:parse`/`transcript:read` 接入。
+- [x] 验证：Go 测试（documents 包新增 4 套）、冒烟 26 项断言、parity、roundtrip、build 全绿。
+- [ ] **P3d 待办**：`parseCourseware` PPTX 幻灯片文本（jszip+saxes → Go zip+xml）与序列化缓存 `serializeCoursewareSourceCache`；`files:add`/`lecture:create`/`lecture:transcript`/`lecture:courseware` 完整链路（copyInto + readTranscript + parseCourseware 组合）。
+
+## 17. 已决事项记录
+
+以下问题已全部拍板（原"待确认问题"清单）：
+
+1. 平台节奏：macOS 优先（arm64），Windows/Linux 按各自能力矩阵对齐后发布。
+2. 产品名：Zynote；`appId`（`org.listening-assistant.desktop`）与 `userData` 沿用。
+3. Node helper：不留（A4）——PDF/ASR/YouTube/微信用 Rust 重写；QQ/NapCat 保留 vendor 二进制（D1a）、SnapAny 留 Electron 壳（D2a）。
+4. 对齐口径：B1 全功能对齐；YouTube = 同画质档位可解析可下载（D3a）。
+5. Windows 专属能力：保留，按平台能力显式禁用。
+6. 数据迁移：首次启动自动改名旧中文目录 + DB 路径重定位（已实现）。
+7. 许可证：维持 AGPL-3.0-only。
+8. 版本：0.0.1 测试版。
