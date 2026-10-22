@@ -49,6 +49,15 @@
 - [x] 验证：真实 dev 流量下影子读 **零差异事件**（此前抓到 settings:get 的 profiles/prompts 真实差异并修复）；`pnpm verify`/`backend:test`/`native:test`/`build`/smoke 全绿。
 - [x] 提交：`de05f9c`（P0 基线）、`4c81a36`（P1 只读域）已推送 origin/main。
 
+## 1.7 P2a 完成记录（2026-10-22）
+
+- [x] 数据目录英文化（TS 回退后端同步）：分类 `Transcripts/Notes/PastExams`、资料根 `Library`、portable `Data`、诊断 `Logs`、笔记文件名 `-notes.md`；`src/main/storage/layout-migration.ts` 启动时自动改名旧中文目录并重定位 DB 内路径（course_files/lectures）。
+- [x] Go 写路径：`db:bootstrap`（13 表 schema + ALTER 列检查 + placeholder 会话迁移，逐字对齐 TS Store 构造）、`course:create`（trim/默认会话/ensureLibrary 英文目录/created_at SQLite 格式）、`sessions`、`session:create`（lecture 归属校验 + `· n` 去重命名）；WAL/synchronous=FULL/foreign_keys/busy_timeout 按连接对齐。
+- [x] IPC 路由：写 action 走 Go 主路径（TS 不双跑）；删除类（course:delete/session:delete/lecture:delete）仍留 TS——它们依赖 Electron 侧 jobs 状态，待 Go 侧任务管理就绪（P2b）。
+- [x] 冒烟扩到 20 项断言全绿；dev 集成影子读零差异；`pnpm verify`/`backend:test`/`build` 全绿。
+- [x] 提交：`143e847` 已推送 origin/main。
+- [ ] P2b 待办：删除类 action（需 Go 任务状态）、files:add/remove、lecture:create/delete、questions:save/split、导出行为；子目录（Knowledge/MediaDownloads 等）英文化与其记录重定位。
+
 ## 2. 目标架构
 
 ```text
