@@ -63,7 +63,7 @@ var DefaultCapabilities = []string{
 	"db:health", "db:backup", "course:detail", "library:list",
 	"course:create", "sessions", "session:create",
 	"db:bootstrap", "course:delete", "session:delete", "lecture:delete", "lecture:detail",
-	"pdf.text", "pdf.plainText",
+	"pdf.text", "pdf.plainText", "pdf.inspect", "pdf.write",
 }
 
 type HelloParams struct {

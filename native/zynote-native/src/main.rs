@@ -2,6 +2,7 @@ use serde::Deserialize;
 use serde_json::{json, Value};
 use std::io::{BufRead, Write};
 
+mod annotations;
 mod pdf;
 
 #[derive(Debug, Clone)]
@@ -127,6 +128,25 @@ fn dispatch(mode: &Mode, pdf: &Option<pdf::PdfService>, method: &str, params: &V
                 .and_then(|value| value.as_str())
                 .ok_or("path missing")?;
             pdf.as_ref().ok_or("pdfium not bound")?.plain_text(path)
+        }
+        (Mode::Pdf, "pdf.inspect") => {
+            let path = params
+                .get("path")
+                .and_then(|value| value.as_str())
+                .ok_or("path missing")?;
+            annotations::inspect_pdf(path)
+        }
+        (Mode::Pdf, "pdf.write") => {
+            let path = params
+                .get("path")
+                .and_then(|value| value.as_str())
+                .ok_or("path missing")?;
+            let output = params
+                .get("output")
+                .and_then(|value| value.as_str())
+                .ok_or("output missing")?;
+            let rows = params.get("rows").cloned().unwrap_or(Value::Array(Vec::new()));
+            annotations::write_annotations(path, output, &rows)
         }
         (mode, other) => Err(format!("mode {} does not implement {other}", mode_name(mode))),
     }
