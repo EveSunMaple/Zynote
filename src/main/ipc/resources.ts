@@ -224,7 +224,7 @@ export function createResourcesHandler(
       sourceMethod: '观众讨论（未核实）',
       expectedGeneration
      })
-     const directory = await libraryDirectory(libraryRoot, '笔记', category),
+     const directory = await libraryDirectory(libraryRoot, 'Notes', category),
       path = join(directory, folderName(title) + '-' + result.pack.ref.slice(0, 12) + '.md')
      await writeFile(path, result.text, 'utf8')
      if ((await readFile(path, 'utf8')) !== result.text) throw new Error('讨论保存核验失败')

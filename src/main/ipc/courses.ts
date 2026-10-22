@@ -98,7 +98,7 @@ export function createCoursesHandler(
        course,
        kind,
        path,
-       await directory(kind === 'past_exam' ? '历年卷' : '笔记', course)
+       await directory(kind === 'past_exam' ? 'PastExams' : 'Notes', course)
       )
       db.insertFile(file)
       added.push(file)
@@ -129,7 +129,7 @@ export function createCoursesHandler(
        ? await serializeCoursewareSourceCache(pptPath, parsed.text, 'local', parsed.needsOcr, parsed.omissions)
        : ''
      const lecture = db.createLecture(course, z.string().min(1).max(200).parse(object.title), '', pptPath, pptText)
-     const path = await copyInto(root, course, source, 'transcripts', await directory('语音原文', course))
+     const path = await copyInto(root, course, source, 'transcripts', await directory('Transcripts', course))
      db.db
       .prepare('UPDATE lectures SET transcript_path=?,transcript_text=?,time_estimated=?,status=? WHERE id=?')
       .run(path, original.text, original.estimated ? 1 : 0, '待校订', lecture.id)
@@ -144,7 +144,7 @@ export function createCoursesHandler(
        lecture.course_id,
        source,
        'transcripts',
-       await directory('语音原文', lecture.course_id)
+       await directory('Transcripts', lecture.course_id)
       )
      db.db
       .prepare('UPDATE lectures SET transcript_path=?,transcript_text=?,time_estimated=?,status=? WHERE id=?')

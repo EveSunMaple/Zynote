@@ -1,7 +1,7 @@
 import {mkdir, open} from 'node:fs/promises'
 import {join, basename, extname} from 'node:path'
 
-export const categories = ['PPT', '语音原文', '笔记', '历年卷'] as const
+export const categories = ['PPT', 'Transcripts', 'Notes', 'PastExams'] as const
 export type Category = (typeof categories)[number]
 export function folderName(name: string) {
  const value =

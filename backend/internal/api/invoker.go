@@ -27,6 +27,10 @@ func NewInvoker() *Invoker {
 		"db:backup":      requireState(handleDBBackup),
 		"course:detail":  requireState(handleCourseDetail),
 		"library:list":   requireState(handleLibraryList),
+		"course:create":  requireState(handleCourseCreate),
+		"sessions":       requireState(handleSessions),
+		"session:create": requireState(handleSessionCreate),
+		"db:bootstrap":   requireState(handleDBBootstrap),
 	}}
 }
 

@@ -13,7 +13,7 @@ export function diagnostic(
  } = {}
 ) {
  try {
-  const dir = join(root, '诊断日志')
+  const dir = join(root, 'Logs')
   mkdirSync(dir, {recursive: true})
   const file = join(dir, 'backend.jsonl')
   if (existsSync(file) && statSync(file).size > 2000000) renameSync(file, join(dir, 'backend.previous.jsonl'))

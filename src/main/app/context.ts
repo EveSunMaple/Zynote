@@ -61,7 +61,7 @@ export type ApplicationContext = {
  biliSession: Session
  db: Store
  derivedDependencies: SubtitleDerivedDependencies
- directory: (category: 'PPT' | '语音原文' | '笔记' | '历年卷', courseId: string) => Promise<string>
+ directory: (category: 'PPT' | 'Transcripts' | 'Notes' | 'PastExams', courseId: string) => Promise<string>
  emit: (event: EventPayload) => void
  fetchBiliSubtitle: (url: string, signal: AbortSignal) => ReturnType<typeof readBiliSubtitles>
  flows: Workflows

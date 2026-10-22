@@ -12,7 +12,7 @@ import (
 	"github.com/EveSunMaple/Zynote/backend/internal/contract"
 )
 
-var Categories = []string{"PPT", "语音原文", "笔记", "历年卷"}
+var Categories = []string{"PPT", "Transcripts", "Notes", "PastExams"}
 
 var reservedDevice = regexp.MustCompile(`(?i)^(CON|PRN|AUX|NUL|COM[1-9]|LPT[1-9])(?:\.|$)`)
 var invalidChars = regexp.MustCompile(`[<>:"/\\|?*\x00-\x1f]`)

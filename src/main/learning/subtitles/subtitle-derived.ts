@@ -141,7 +141,7 @@ export class SubtitleDerived {
      }
      signal.throwIfAborted()
      await this.current(item.source, dependencies)
-     const directory = await libraryDirectory(this.library, '笔记', task.courseName)
+     const directory = await libraryDirectory(this.library, 'Notes', task.courseName)
      const stem =
       folderName(item.source.title).slice(0, 40) +
       '-' +

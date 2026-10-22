@@ -61,6 +61,7 @@ type State struct {
 var DefaultCapabilities = []string{
 	"app:info", "settings:get", "appearance:get", "identity:get",
 	"db:health", "db:backup", "course:detail", "library:list",
+	"course:create", "sessions", "session:create",
 }
 
 type HelloParams struct {

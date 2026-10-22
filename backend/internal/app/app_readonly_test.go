@@ -74,7 +74,7 @@ func TestP1Readonly(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	writeLibraryFile(t, libraryRoot, "语音原文/课程A/notes.txt", "内容")
+	writeLibraryFile(t, libraryRoot, "Transcripts/课程A/notes.txt", "内容")
 
 	f := startCore(t, dataRoot, resourcesRoot)
 	if _, errReply := f.call("core.hello", map[string]any{
@@ -131,7 +131,7 @@ func TestP1Readonly(t *testing.T) {
 		t.Fatalf("unexpected library files: %v", files)
 	}
 	entry := files[0].(map[string]any)
-	if entry["course"] != "课程A" || entry["category"] != "语音原文" || entry["name"] != "notes.txt" || entry["size"] != float64(6) {
+	if entry["course"] != "课程A" || entry["category"] != "Transcripts" || entry["name"] != "notes.txt" || entry["size"] != float64(6) {
 		t.Fatalf("unexpected entry: %v", entry)
 	}
 

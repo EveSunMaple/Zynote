@@ -7,7 +7,10 @@ export const goPrimaryActions = new Set([
  'appearance:get',
  'identity:get',
  'course:detail',
- 'library:list'
+ 'library:list',
+ 'course:create',
+ 'sessions',
+ 'session:create'
 ])
 
 function stable(value: unknown): unknown {

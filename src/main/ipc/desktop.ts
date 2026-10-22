@@ -190,7 +190,7 @@ export function createDesktopHandler(
       try {
        const resource = await zhiyun.resource(externalCourse, sub, kind, signal)
        path = await reserveFile(
-        await directory(kind === 'transcript' ? '语音原文' : 'PPT', course.id),
+        await directory(kind === 'transcript' ? 'Transcripts' : 'PPT', course.id),
         resource.filename.replace(/[<>:"/\\|?*\x00-\x1f]/g, '_')
        )
        await zhiyun.download(resource.url, path, signal)
@@ -416,7 +416,7 @@ export function createDesktopHandler(
       detail,
       kind,
       format,
-      await directory(kind === 'practice' ? '历年卷' : '笔记', detail.lecture.course_id),
+      await directory(kind === 'practice' ? 'PastExams' : 'Notes', detail.lecture.course_id),
       kind === 'evidence-bundle' ? db.course(detail.lecture.course_id) : undefined
      )
     }

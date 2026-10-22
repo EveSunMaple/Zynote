@@ -6,7 +6,7 @@ import {notify} from '@renderer/ui/ToastHost'
 import {WindowMenuButton, WindowPanel} from '@renderer/ui/WindowPanel'
 import {ConfirmDialog} from '@renderer/ui/ConfirmDialog'
 import {MediaDownloads} from '@renderer/features/bilibili/MediaDownloads'
-const categories = ['全部', 'PPT', '语音原文', '笔记', '历年卷']
+const categories = ['全部', 'PPT', 'Transcripts', 'Notes', 'PastExams']
 export function FileManager({
  busy,
  close,

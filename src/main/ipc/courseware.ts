@@ -140,7 +140,7 @@ export function createCoursewareHandler(
       if (!task || matches.length !== 1) throw new Error('请按视频网址明确选择本次同步的分集')
       const item = matches[0],
        page = item.page
-      const directory = await libraryDirectory(libraryRoot, '语音原文', task.courseName)
+      const directory = await libraryDirectory(libraryRoot, 'Transcripts', task.courseName)
       const result = await dialog.showOpenDialog(window, {
        title: `为 P${page} 选择已有字幕`,
        defaultPath: directory,
@@ -239,7 +239,7 @@ export function createCoursewareHandler(
      const selectedCourse = object.courseId ? db.course(idSchema.parse(object.courseId)).name : undefined
      const result = await dialog.showOpenDialog(window, {
       title: '载入已保存的字幕',
-      defaultPath: await libraryDirectory(libraryRoot, '语音原文', selectedCourse),
+      defaultPath: await libraryDirectory(libraryRoot, 'Transcripts', selectedCourse),
       properties: ['openFile'],
       filters: [{name: '字幕 SRT', extensions: ['srt']}]
      })
@@ -269,7 +269,7 @@ export function createCoursewareHandler(
       srt = z.string().min(1).max(4000000).parse(object.srt)
      const title = folderName(z.string().min(1).max(200).parse(object.title))
      const selectedCourse = object.courseId ? db.course(idSchema.parse(object.courseId)).name : undefined
-     return saveTextExport(await libraryDirectory(libraryRoot, '语音原文', selectedCourse), title, srt, format)
+     return saveTextExport(await libraryDirectory(libraryRoot, 'Transcripts', selectedCourse), title, srt, format)
     }
     case 'video-ppt:notes-export': {
      const source = await managedFile(libraryRoot, z.string().parse(object.path))
@@ -350,7 +350,7 @@ export function createCoursewareHandler(
       )
       const suffix = noteTitles[mode]
       const path = await reserveFile(
-       await libraryDirectory(libraryRoot, '笔记', selectedCourse),
+       await libraryDirectory(libraryRoot, 'Notes', selectedCourse),
        title + '-' + suffix + '.md'
       )
       const evidence = path.replace(/\.md$/i, '.json'),
@@ -410,7 +410,10 @@ export function createCoursewareHandler(
      return job('video-subtitle', async signal => {
       const meta = await videoPpt.subtitleTask(id())
       if (meta.saved) {
-       const path = await managedFile(await libraryDirectory(libraryRoot, '语音原文', meta.courseName), meta.saved.path)
+       const path = await managedFile(
+        await libraryDirectory(libraryRoot, 'Transcripts', meta.courseName),
+        meta.saved.path
+       )
        const bytes = await readFile(path),
         hash = createHash('sha256').update(bytes).digest('hex')
        if (hash !== meta.saved.sha256) throw new Error('已保存字幕与任务记录不一致，临时视频已保留')

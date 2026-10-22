@@ -1,5 +1,6 @@
 import Database from 'better-sqlite3'
 import {access, cp, mkdir, readFile, rename, writeFile} from 'node:fs/promises'
+import {renameSync, existsSync} from 'node:fs'
 import {join, relative, isAbsolute, resolve} from 'node:path'
 import {Store} from '@main/storage/db'
 import {categories, ensureLibrary} from '@main/library/library'
@@ -14,8 +15,19 @@ async function exists(path: string) {
  }
 }
 export async function openPortableLibrary(appDirectory: string, machineRoot: string, legacyLibrary: string) {
- const root = join(appDirectory, '课程数据'),
-  libraryRoot = join(appDirectory, '资料')
+ for (const [from, to] of [
+  ['课程数据', 'Data'],
+  ['资料', 'Library']
+ ] as const) {
+  const source = join(appDirectory, from),
+   target = join(appDirectory, to)
+  if (!existsSync(source) || existsSync(target)) continue
+  try {
+   renameSync(source, target)
+  } catch {}
+ }
+ const root = join(appDirectory, 'Data'),
+  libraryRoot = join(appDirectory, 'Library')
  await mkdir(root, {recursive: true})
  const database = join(root, 'assistant.db'),
   location = join(root, 'library-location.json')

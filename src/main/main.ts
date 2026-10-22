@@ -36,9 +36,11 @@ import {join, extname, dirname, basename} from 'node:path'
 import {fileURLToPath} from 'node:url'
 import {createHash} from 'node:crypto'
 import {readFile, writeFile, rm} from 'node:fs/promises'
+import {existsSync} from 'node:fs'
 import {z} from 'zod'
 import {Store} from '@main/storage/db'
 import {openPortableLibrary} from '@main/storage/portable-library'
+import {migrateDataLayout, relocateStorePaths} from '@main/storage/layout-migration'
 import {searchAnswers} from '@main/learning/practice-answer'
 import {SettingsStore} from '@main/config/settings'
 import {Api} from '@main/ai/api'
@@ -83,6 +85,8 @@ async function startApplication() {
   app.getVersion()
  )
  diagnostic(root, 'application', 'startup', {code: app.getVersion()})
+ const layout = migrateDataLayout(root)
+ const legacyLibraryRoot = join(root, '资料')
  const portable =
   process.env.LISTENING_ASSISTANT_DATA && !process.env.LISTENING_ASSISTANT_PORTABLE_TEST
    ? null
@@ -90,7 +94,7 @@ async function startApplication() {
       process.env.LISTENING_ASSISTANT_PORTABLE_TEST || (app.isPackaged ? dirname(process.execPath) : app.getAppPath()),
       root,
       process.env.LISTENING_ASSISTANT_PORTABLE_TEST
-       ? join(root, '资料')
+       ? join(root, 'Library')
        : join(app.getPath('documents'), '听课助手资料')
      )
  store = portable?.store || new Store(root)
@@ -98,19 +102,21 @@ async function startApplication() {
   settings = new SettingsStore(root),
   identity = new IdentityStore(root),
   appearance = new AppearanceStore(root)
- const libraryRoot = portable?.libraryRoot || join(root, '资料')
+ const libraryRoot = portable?.libraryRoot || join(root, layout.library)
+ if (!portable && layout.library !== '资料' && existsSync(legacyLibraryRoot))
+  relocateStorePaths(store, legacyLibraryRoot, libraryRoot)
  await ensureLibrary(
   libraryRoot,
   db.courses().map(c => c.name)
  )
- const directory = (category: 'PPT' | '语音原文' | '笔记' | '历年卷', courseId: string) =>
+ const directory = (category: 'PPT' | 'Transcripts' | 'Notes' | 'PastExams', courseId: string) =>
   libraryDirectory(libraryRoot, category, db.course(courseId).name)
  const saveNoteFile = async (lectureId: string) => {
   const detail = db.lectureDetail(lectureId)
   await writeFile(
    join(
-    await directory('笔记', detail.lecture.course_id),
-    folderName(detail.lecture.title) + '-' + lectureId + '-听课笔记.md'
+    await directory('Notes', detail.lecture.course_id),
+    folderName(detail.lecture.title) + '-' + lectureId + '-notes.md'
    ),
    markdown(detail, 'notes'),
    'utf8'
@@ -321,7 +327,7 @@ async function startApplication() {
   page = 1
  ) {
   const transcript = await transcribeLocalVideo(task.video, signal, videoProgress)
-  const path = await reserveFile(await libraryDirectory(libraryRoot, '语音原文', selectedCourse), name)
+  const path = await reserveFile(await libraryDirectory(libraryRoot, 'Transcripts', selectedCourse), name)
   try {
    await writeFile(path, transcript.srt, 'utf8')
    if ((await readFile(path, 'utf8')) !== transcript.srt) throw new Error('保存字幕后校验失败')
@@ -379,7 +385,7 @@ async function startApplication() {
       : kind === 'courseware'
         ? ['ppt', 'pptx', 'pdf', 'docx', 'txt', 'md']
         : ['pdf', 'docx', 'txt', 'md']
-  const category = kind === 'transcript' ? '语音原文' : kind === 'courseware' ? 'PPT' : '笔记'
+  const category = kind === 'transcript' ? 'Transcripts' : kind === 'courseware' ? 'PPT' : 'Notes'
   const result = await dialog.showOpenDialog(window, {
    defaultPath: await libraryDirectory(libraryRoot, category, course ? db.course(course).name : undefined),
    properties: kind === 'srt' || kind === 'transcript' ? ['openFile'] : ['openFile', 'multiSelections'],
@@ -419,7 +425,7 @@ async function startApplication() {
    '-' +
    folderName(title) +
    '.srt'
-  const path = await reserveFile(await libraryDirectory(libraryRoot, '语音原文', selectedCourse), name)
+  const path = await reserveFile(await libraryDirectory(libraryRoot, 'Transcripts', selectedCourse), name)
   try {
    await writeFile(path, srt, 'utf8')
    if ((await readFile(path, 'utf8')) !== srt) throw new Error('字幕保存校验失败')

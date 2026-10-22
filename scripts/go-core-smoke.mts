@@ -96,6 +96,7 @@ type SettingsResult = {
 type IdentityResult = {assistantName: string}
 type AppearanceResult = {global: {fontSize: number}}
 type HealthResult = {exists: boolean}
+type CourseResult = {id: string; name: string; created_at: string}
 
 const hello = (await call('core.hello', {
  protocol: 1,
@@ -110,7 +111,26 @@ const hello = (await call('core.hello', {
 })) as HelloResult
 check('hello protocol', hello.protocol === 1)
 check('hello platform', hello.platform === 'darwin')
-check('hello capabilities', hello.capabilities.length === 6)
+check('hello capabilities', hello.capabilities.length === 11)
+
+const bootstrap = (await call('db:bootstrap')) as {ok: boolean}
+check('bootstrap ok', bootstrap.ok === true)
+
+const course = (await call('course:create', {name: '冒烟课程'})) as CourseResult
+check('course create id', course.id.length === 36)
+check('course create name', course.name === '冒烟课程')
+check('course created_at format', course.created_at.length === 19)
+
+const sessions = (await call('sessions', undefined)) as {title: string}[]
+check('default session', sessions.length === 1 && sessions[0].title === '新对话')
+
+const fs = await import('node:fs')
+let dirExists = false
+try {
+ await fs.promises.access(join(dataRoot, 'Transcripts', '冒烟课程'))
+ dirExists = true
+} catch {}
+check('library dirs english', dirExists)
 
 const info = (await call('app:info')) as InfoResult
 check('app:info version', info.version === '0.0.1')
@@ -129,16 +149,11 @@ check('identity default name', identity.assistantName === 'Zynote')
 const appearance = (await call('appearance:get')) as AppearanceResult
 check('appearance default', appearance.global.fontSize === 16)
 
-const health = (await call('db:health')) as HealthResult
-check('health missing db', health.exists === false)
+const health = (await call('db:health')) as HealthResult & {ok: boolean; integrity: string}
+check('health after bootstrap', health.exists === true && health.ok === true && health.integrity === 'ok')
 
-let backupFailed = false
-try {
- await call('db:backup')
-} catch {
- backupFailed = true
-}
-check('backup without db fails', backupFailed)
+const backup = (await call('db:backup', undefined)) as {path: string; bytes: number}
+check('backup created', backup.bytes > 0 && backup.path.startsWith(dataRoot))
 
 child.kill('SIGTERM')
 setTimeout(() => process.exit(process.exitCode ?? 0), 200).unref?.()
