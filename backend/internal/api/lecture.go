@@ -1,6 +1,7 @@
 package api
 
 import (
+	"database/sql"
 	"encoding/json"
 
 	"github.com/EveSunMaple/Zynote/backend/internal/config"
@@ -8,6 +9,15 @@ import (
 	"github.com/EveSunMaple/Zynote/backend/internal/learning"
 	"github.com/EveSunMaple/Zynote/backend/internal/storage"
 )
+
+func (inv *Invoker) lectureDetailOf(state *contract.State, lectureID string) (any, error) {
+	db, err := openReadOnlyDB(state)
+	if err != nil {
+		return nil, err
+	}
+	defer db.Close()
+	return lectureDetailFromDB(db, lectureID)
+}
 
 func handleLectureDetail(_ contract.StateStore, state *contract.State, params json.RawMessage) (any, error) {
 	var input struct {
@@ -21,7 +31,11 @@ func handleLectureDetail(_ contract.StateStore, state *contract.State, params js
 		return nil, err
 	}
 	defer db.Close()
-	lecture, err := storage.QueryOne(db, "SELECT * FROM lectures WHERE id=?", input.ID)
+	return lectureDetailFromDB(db, input.ID)
+}
+
+func lectureDetailFromDB(db *sql.DB, lectureID string) (any, error) {
+	lecture, err := storage.QueryOne(db, "SELECT * FROM lectures WHERE id=?", lectureID)
 	if err != nil {
 		return nil, contract.Unavailable("课次读取失败")
 	}
@@ -31,7 +45,7 @@ func handleLectureDetail(_ contract.StateStore, state *contract.State, params js
 	checkpoint, err := storage.QueryOne(
 		db,
 		"SELECT fingerprint,total,segments_json FROM correction_checkpoints WHERE lecture_id=?",
-		input.ID,
+		lectureID,
 	)
 	if err != nil {
 		return nil, contract.Unavailable("校订检查点读取失败")
@@ -39,7 +53,7 @@ func handleLectureDetail(_ contract.StateStore, state *contract.State, params js
 	subtitles, err := storage.QueryOne(
 		db,
 		"SELECT srt_text,segments_json FROM subtitles WHERE lecture_id=?",
-		input.ID,
+		lectureID,
 	)
 	if err != nil {
 		return nil, contract.Unavailable("字幕读取失败")
@@ -60,7 +74,7 @@ func handleLectureDetail(_ contract.StateStore, state *contract.State, params js
 		}
 	}
 	notes := any(nil)
-	if row, err := storage.QueryOne(db, "SELECT notes_json FROM lecture_notes WHERE lecture_id=?", input.ID); err != nil {
+	if row, err := storage.QueryOne(db, "SELECT notes_json FROM lecture_notes WHERE lecture_id=?", lectureID); err != nil {
 		return nil, contract.Unavailable("笔记读取失败")
 	} else if row != nil {
 		if err := json.Unmarshal([]byte(storage.ToStringValue(row["notes_json"])), &notes); err != nil {
@@ -68,7 +82,7 @@ func handleLectureDetail(_ contract.StateStore, state *contract.State, params js
 		}
 	}
 	practice := any(nil)
-	if row, err := storage.QueryOne(db, "SELECT extended_json FROM practice_sets WHERE lecture_id=?", input.ID); err != nil {
+	if row, err := storage.QueryOne(db, "SELECT extended_json FROM practice_sets WHERE lecture_id=?", lectureID); err != nil {
 		return nil, contract.Unavailable("练习读取失败")
 	} else if row != nil {
 		if err := json.Unmarshal([]byte(storage.ToStringValue(row["extended_json"])), &practice); err != nil {

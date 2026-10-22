@@ -64,7 +64,7 @@ var DefaultCapabilities = []string{
 	"course:create", "sessions", "session:create",
 	"db:bootstrap", "course:delete", "session:delete", "lecture:delete", "lecture:detail",
 	"pdf.text", "pdf.plainText", "pdf.inspect", "pdf.write",
-	"document:parse", "transcript:read", "files:add", "files:remove",
+	"document:parse", "transcript:read", "files:add", "files:remove", "lecture:create", "lecture:transcript", "lecture:courseware", "questions:save",
 }
 
 type HelloParams struct {

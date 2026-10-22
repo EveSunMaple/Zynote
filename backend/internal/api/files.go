@@ -59,10 +59,6 @@ func (inv *Invoker) handleFilesAdd(state *contract.State, params json.RawMessage
 		if err != nil {
 			return nil, err
 		}
-		text, err := courseware.SerializeSourceCache(source, parsed.Text, "local", parsed.NeedsOcr, parsed.Omissions)
-		if err != nil {
-			return nil, err
-		}
 		destination, err := copyInto(directory, source)
 		if err != nil {
 			return nil, err
@@ -73,8 +69,8 @@ func (inv *Invoker) handleFilesAdd(state *contract.State, params json.RawMessage
 			"kind":        input.Kind,
 			"filename":    filepath.Base(source),
 			"path":        destination,
-			"text":        text,
-			"chunks_json": mustJSON(courseware.Chunks(text, 14000)),
+			"text":        parsed.Text,
+			"chunks_json": mustJSON(courseware.Chunks(parsed.Text, 14000)),
 			"needs_ocr":   boolToInt(parsed.NeedsOcr),
 		}
 		if err := write.InsertFile(file); err != nil {

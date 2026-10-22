@@ -86,6 +86,21 @@ func (inv *Invoker) Invoke(store contract.StateStore, action string, params json
 			return nil, contract.Unavailable("后台尚未完成握手")
 		}
 		return inv.handleFilesRemove(state, params)
+	case "lecture:create", "lecture:transcript", "lecture:courseware", "questions:save":
+		state := store.State()
+		if state == nil {
+			return nil, contract.Unavailable("后台尚未完成握手")
+		}
+		switch action {
+		case "lecture:create":
+			return inv.handleLectureCreate(store, state, params)
+		case "lecture:transcript":
+			return inv.handleLectureTranscript(store, state, params)
+		case "lecture:courseware":
+			return inv.handleLectureCourseware(store, state, params)
+		default:
+			return inv.handleQuestionsSave(store, state, params)
+		}
 	}
 	handler, ok := inv.handlers[action]
 	if !ok {

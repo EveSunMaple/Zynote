@@ -2,6 +2,7 @@ package storage
 
 import (
 	"database/sql"
+	"encoding/json"
 	"path/filepath"
 	"strings"
 
@@ -115,6 +116,125 @@ func (w *WriteDB) RemoveFile(courseID, id string) error {
 	defer tx.Rollback()
 	if _, err := tx.Exec("DELETE FROM course_files WHERE course_id=? AND id=?", courseID, id); err != nil {
 		return err
+	}
+	if _, err := tx.Exec(
+		"DELETE FROM practice_sets WHERE lecture_id IN (SELECT id FROM lectures WHERE course_id=?)",
+		courseID,
+	); err != nil {
+		return err
+	}
+	return tx.Commit()
+}
+
+func (w *WriteDB) CreateLecture(courseID, title, video, ppt, pptText, sourceVideo string) (map[string]any, error) {
+	if _, err := w.Course(courseID); err != nil {
+		return nil, err
+	}
+	if strings.TrimSpace(title) == "" {
+		return nil, contract.InputInvalid("请填写课次标题")
+	}
+	id := NewID()
+	tx, err := w.db.Begin()
+	if err != nil {
+		return nil, err
+	}
+	defer tx.Rollback()
+	if _, err := tx.Exec(
+		"INSERT INTO lectures(id,course_id,title,video_path,ppt_path,ppt_text,source_video_path) VALUES(?,?,?,?,?,?,?)",
+		id, courseID, title, video, ppt, pptText, sourceVideo,
+	); err != nil {
+		return nil, err
+	}
+	if err := renamePlaceholderSessionsTx(tx, courseID, id); err != nil {
+		return nil, err
+	}
+	if err := tx.Commit(); err != nil {
+		return nil, err
+	}
+	return w.Lecture(id)
+}
+
+func (w *WriteDB) SetLectureTranscript(id, path, text string, estimated int) (map[string]any, error) {
+	if _, err := w.Lecture(id); err != nil {
+		return nil, err
+	}
+	if _, err := w.db.Exec(
+		"UPDATE lectures SET transcript_path=?,transcript_text=?,time_estimated=?,status='待校订' WHERE id=?",
+		path, text, estimated, id,
+	); err != nil {
+		return nil, err
+	}
+	return w.Lecture(id)
+}
+
+func (w *WriteDB) SetLectureCourseware(id, path, text string) (map[string]any, error) {
+	if _, err := w.Lecture(id); err != nil {
+		return nil, err
+	}
+	if _, err := w.db.Exec(
+		"UPDATE lectures SET ppt_path=?,ppt_text=?,ppt_processed=0 WHERE id=?",
+		path, text, id,
+	); err != nil {
+		return nil, err
+	}
+	return w.Lecture(id)
+}
+
+func (w *WriteDB) ClearDerived(id string) error {
+	tx, err := w.db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	for _, table := range []string{"correction_checkpoints", "subtitles", "lecture_notes", "practice_sets"} {
+		if _, err := tx.Exec("DELETE FROM "+table+" WHERE lecture_id=?", id); err != nil {
+			return err
+		}
+	}
+	return tx.Commit()
+}
+
+func (w *WriteDB) SaveQuestions(courseID string, questions []map[string]any) error {
+	existing, err := queryAll(w.db, "SELECT id FROM past_questions WHERE course_id=?", courseID)
+	if err != nil {
+		return err
+	}
+	existingIDs := map[string]bool{}
+	for _, row := range existing {
+		existingIDs[ToStringValue(row["id"])] = true
+	}
+	incoming := map[string]bool{}
+	for _, question := range questions {
+		id := ToStringValue(question["id"])
+		if ToStringValue(question["courseId"]) != courseID || !existingIDs[id] {
+			return contract.InputInvalid("题目不属于当前课程")
+		}
+		incoming[id] = true
+	}
+	tx, err := w.db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	for _, row := range existing {
+		id := ToStringValue(row["id"])
+		if !incoming[id] {
+			if _, err := tx.Exec("DELETE FROM past_questions WHERE id=? AND course_id=?", id, courseID); err != nil {
+				return err
+			}
+		}
+	}
+	for _, question := range questions {
+		encoded, err := json.Marshal(question)
+		if err != nil {
+			return err
+		}
+		if _, err := tx.Exec(
+			"UPDATE past_questions SET question_json=? WHERE id=? AND course_id=?",
+			string(encoded), ToStringValue(question["id"]), courseID,
+		); err != nil {
+			return err
+		}
 	}
 	if _, err := tx.Exec(
 		"DELETE FROM practice_sets WHERE lecture_id IN (SELECT id FROM lectures WHERE course_id=?)",
