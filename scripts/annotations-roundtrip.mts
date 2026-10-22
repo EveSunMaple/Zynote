@@ -63,9 +63,7 @@ const run = (request: string) =>
   child.stdin.write(request + '\n')
  })
 
-const inspected = await run(
- JSON.stringify({jsonrpc: '2.0', id: '1', method: 'pdf.inspect', params: {path: basePdf}})
-)
+const inspected = await run(JSON.stringify({jsonrpc: '2.0', id: '1', method: 'pdf.inspect', params: {path: basePdf}}))
 const previous = inspected.result?.previous ?? []
 if (previous.length !== 1 || previous[0].id !== 'legacy-1' || previous[0].page !== 1) {
  console.error('FAIL inspect previous:', JSON.stringify(previous))
@@ -108,7 +106,7 @@ console.log('ok write (count=1 pages=1)')
 const reopened = await PDFDocument.load(await readFile(outputPdf), {updateMetadata: false})
 const annots = reopened.getPage(0).node.lookupMaybe(PDFName.of('Annots'), PDFArray)
 const decoded = (annots?.asArray() ?? []).map(ref => {
- const dict = reopened.context.lookup(ref)
+ const dict = reopened.context.lookup(ref) as import('pdf-lib').PDFDict
  const get = (key: string) => {
   const value = dict.get(PDFName.of(key))
   return value instanceof PDFHexString ? value.decodeText() : ''
@@ -135,9 +133,7 @@ if (!legacyMigrated || !hasCurrent) {
 }
 console.log('ok roundtrip（旧 meijiang 批注迁移为 zynote + 新批注写入）')
 
-const reInspect = await run(
- JSON.stringify({jsonrpc: '2.0', id: '3', method: 'pdf.inspect', params: {path: outputPdf}})
-)
+const reInspect = await run(JSON.stringify({jsonrpc: '2.0', id: '3', method: 'pdf.inspect', params: {path: outputPdf}}))
 const afterRows = reInspect.result?.previous ?? []
 if (afterRows.length !== 2) {
  console.error('FAIL reinspect:', JSON.stringify(afterRows))

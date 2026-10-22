@@ -4,7 +4,6 @@ import (
 	"database/sql"
 	"encoding/json"
 	"path/filepath"
-	"time"
 
 	"github.com/EveSunMaple/Zynote/backend/internal/config"
 	"github.com/EveSunMaple/Zynote/backend/internal/contract"
@@ -35,7 +34,7 @@ func (inv *Invoker) callNative(state *contract.State, action string, params json
 	if action == "pdf.text" && input.Page != nil {
 		payload["page"] = *input.Page
 	}
-	result, err := inv.native.Call(action, payload, 15*time.Second)
+	result, err := inv.native.Call(action, payload, 15000)
 	if err != nil {
 		return nil, contract.Unavailable(err.Error())
 	}

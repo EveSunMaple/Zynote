@@ -2,7 +2,11 @@ module github.com/EveSunMaple/Zynote/backend
 
 go 1.27.3
 
-require modernc.org/sqlite v1.61.0
+require (
+	github.com/saintfish/chardet v0.0.0-20230101081208-5e3ef4b5456d
+	golang.org/x/text v0.43.0
+	modernc.org/sqlite v1.61.0
+)
 
 require (
 	github.com/dustin/go-humanize v1.1.0 // indirect

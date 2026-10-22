@@ -65,6 +65,15 @@ func (inv *Invoker) Invoke(store contract.StateStore, action string, params json
 			return nil, contract.Unavailable("后台尚未完成握手")
 		}
 		return inv.callNative(state, action, params)
+	case "document:parse", "transcript:read":
+		state := store.State()
+		if state == nil {
+			return nil, contract.Unavailable("后台尚未完成握手")
+		}
+		if action == "document:parse" {
+			return inv.handleDocumentParse(state, params)
+		}
+		return inv.handleTranscriptRead(state, params)
 	}
 	handler, ok := inv.handlers[action]
 	if !ok {

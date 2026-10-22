@@ -112,7 +112,7 @@ const hello = (await call('core.hello', {
 })) as HelloResult
 check('hello protocol', hello.protocol === 1)
 check('hello platform', hello.platform === 'darwin')
-check('hello capabilities', hello.capabilities.length === 20)
+check('hello capabilities', hello.capabilities.length === 22)
 
 const bootstrap = (await call('db:bootstrap')) as {ok: boolean}
 check('bootstrap ok', bootstrap.ok === true)
@@ -137,7 +137,7 @@ const {PDFDocument: SmokePdfDoc, StandardFonts: SmokeFonts} = await import('pdf-
 const smokePdf = await SmokePdfDoc.create()
 const smokeFont = await smokePdf.embedFont(SmokeFonts.Helvetica)
 const smokePage = smokePdf.addPage([300, 200])
-smokePage.drawText('bridge smoke', {x: 40, y: 120, size: 14, font: smokeFont})
+smokePage.drawText('bridge smoke with plenty of extractable content', {x: 40, y: 120, size: 14, font: smokeFont})
 await writeFile(join(dataRoot, 'smoke.pdf'), await smokePdf.save())
 const nativePath = join(projectRoot, 'native', 'target', 'release', 'zynote-native')
 if (fs.existsSync(nativePath)) {
@@ -155,7 +155,38 @@ if (fs.existsSync(nativePath)) {
   console.error('FAIL bridge pdf.text', error)
   process.exitCode = 1
  }
+ const plain = (await call('document:parse', {path: join(dataRoot, 'smoke.pdf')})) as {
+  text: string
+  needsOcr: boolean
+ }
+ check('document parse pdf', plain.text.includes('bridge smoke') && !plain.needsOcr)
 } else console.log('skip bridge pdf.text (native binary missing)')
+
+await writeFile(
+ join(dataRoot, 'smoke.srt'),
+ '1\n00:00:01,000 --> 00:00:03,000\n冒烟字幕第一句\n\n2\n00:00:03,000 --> 00:00:05,000\n第二句\n'
+)
+const transcript = (await call('transcript:read', {path: join(dataRoot, 'smoke.srt')})) as {
+ estimated: boolean
+ segments: {start: number; end: number; text: string}[]
+}
+check('transcript read srt', !transcript.estimated && transcript.segments.length === 2)
+
+await writeFile(join(dataRoot, 'smoke-transcript.txt'), '1. 语音识别\n00:00:01 第一句\n00:00:04 第二句\n')
+const parsedTranscript = (await call('transcript:read', {path: join(dataRoot, 'smoke-transcript.txt')})) as {
+ estimated: boolean
+ segments: {start: number; text: string}[]
+}
+check(
+ 'transcript read txt',
+ parsedTranscript.estimated &&
+  parsedTranscript.segments[0].start === 1000 &&
+  parsedTranscript.segments[1].start === 4000
+)
+
+await writeFile(join(dataRoot, 'smoke-note.md'), '课程笔记\n第二行')
+const markdownParse = (await call('document:parse', {path: join(dataRoot, 'smoke-note.md')})) as {text: string}
+check('document parse md', markdownParse.text.startsWith('课程笔记'))
 
 const info = (await call('app:info')) as InfoResult
 check('app:info version', info.version === '0.0.1')

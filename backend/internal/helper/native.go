@@ -124,7 +124,7 @@ func (n *Native) failAll(message string) {
 	})
 }
 
-func (n *Native) Call(method string, params any, timeout time.Duration) (json.RawMessage, error) {
+func (n *Native) Call(method string, params any, timeoutMS int) (json.RawMessage, error) {
 	if err := n.ensure(); err != nil {
 		return nil, err
 	}
@@ -142,8 +142,7 @@ func (n *Native) Call(method string, params any, timeout time.Duration) (json.Ra
 		return nil, err
 	}
 	n.mu.Lock()
-	var writer io.WriteCloser
-	writer = n.stdin
+	writer := n.stdin
 	if writer == nil {
 		n.mu.Unlock()
 		return nil, fmt.Errorf("原生助手未启动")
@@ -153,12 +152,14 @@ func (n *Native) Call(method string, params any, timeout time.Duration) (json.Ra
 		return nil, err
 	}
 	n.mu.Unlock()
+	timer := time.NewTimer(time.Duration(timeoutMS) * time.Millisecond)
+	defer timer.Stop()
 	select {
 	case result := <-item.result:
 		return result, nil
 	case err := <-item.err:
 		return nil, err
-	case <-time.After(timeout):
+	case <-timer.C:
 		return nil, fmt.Errorf("原生助手请求超时")
 	}
 }
