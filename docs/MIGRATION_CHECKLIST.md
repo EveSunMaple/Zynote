@@ -39,6 +39,16 @@
 - [ ] 待办：CI workflow；`docs/架构.md` 等上游文档已清 meijiang 字样。
 - [x] 打包 POC：`pnpm release lite --prepared` ✅ → `Zynote-0.0.1-lite-arm64.dmg`（274MB）/ `.zip`（289MB）；安装后 `.app` 893MiB（app.asar 353M + unpacked 249M，P7 瘦身目标 −400M）；`bin/zynote-core` 2.9M 已入 Resources 并在打包版中握手成功（本机 Apple Development 证书自动签名）。
 
+## 1.6 P1 完成记录（2026-10-22）
+
+- [x] CI workflow（`.github/workflows/ci.yml`）：pnpm verify + go test + cargo test + build + go-core 冒烟。
+- [x] Go 只读域：`course:detail`（五表查询 + chunks_json/question_json 解析，NOT_FOUND/INPUT_INVALID 错误码对齐）、`library:list`（目录遍历 + 课程名映射，FolderName 逐字复刻含 `未命名课程` 兜底）。
+- [x] 影子读路由（`src/main/backend/router.ts`）：六个只读 action 双跑对比，键序无关 stable 比较，差异只记键名不记内容。
+- [x] 修复三处对齐缺陷：`omitempty` 吞空 `parameters`/`models`；nil slice/map 输出 `null`；dev 提示词根目录 `promptsRoot`（appPath/src）。
+- [x] 修复 SQLite 驱动只在测试注册、生产二进制 `sql.Open` 失败的问题（`storage` 包 blank import）。
+- [x] 验证：真实 dev 流量下影子读 **零差异事件**（此前抓到 settings:get 的 profiles/prompts 真实差异并修复）；`pnpm verify`/`backend:test`/`native:test`/`build`/smoke 全绿。
+- [x] 提交：`de05f9c`（P0 基线）、`4c81a36`（P1 只读域）已推送 origin/main。
+
 ## 2. 目标架构
 
 ```text
