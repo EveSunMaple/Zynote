@@ -643,3 +643,9 @@ Zynote/
 - [x] `platform/youtube.go`：自生成 visitor data，WEB InnerTube `browse` 拉取播放列表；兼容新 `lockupViewModel` 与旧 `playlistVideoRenderer` 布局，标题/条目去重、continuation 最多 10 页或 100 条；`limited` 标记。
 - [x] 实测：`PLFgquLnL59alCl_2TQvOiD5Vgm1hCaGSI` 返回 100 条唯一视频，`limited=true`；单测覆盖两页 continuation、旧布局、空列表。
 - [ ] **剩余 YouTube 缺口**：翻译字幕（rustypipe 未暴露 translationLanguages）；媒体路由仍待该缺口决定。
+
+## 1.27 外观与身份写路径迁移（2026-10-23）
+
+- [x] `config.SaveIdentity` / `SaveAppearance` / `ClearAppearance`：原子写入、字段校验、课程存在性检查；`appearance:save/clear`、`identity:save` 切 Go 主路径。
+- [x] capabilities 46 → **49**；路由 `appearance:save/clear`、`identity:save` 仅走 Go。
+- [x] 测试：身份 trim/头像格式/空名拒绝、外观全局+课程合并/清除/非法值；Go 全量测试、smoke（49）、verify/build 全绿。

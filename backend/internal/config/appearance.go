@@ -102,3 +102,44 @@ func validateAppearance(value Appearance) error {
 func outOfRange(value, min, max float64) bool {
 	return math.IsNaN(value) || value < min || value > max
 }
+
+func SaveAppearance(dataRoot string, raw json.RawMessage, courseID *string) (AppearanceState, error) {
+	var value Appearance
+	if err := json.Unmarshal(raw, &value); err != nil {
+		return AppearanceState{}, contract.InputInvalid("外观参数无效")
+	}
+	if err := validateAppearance(value); err != nil {
+		return AppearanceState{}, err
+	}
+	state, err := ReadAppearance(dataRoot)
+	if err != nil {
+		return AppearanceState{}, err
+	}
+	if courseID != nil {
+		if !IsUUID(*courseID) {
+			return AppearanceState{}, contract.InputInvalid("外观课程标识无效")
+		}
+		state.Courses[*courseID] = value
+	} else {
+		state.Global = value
+	}
+	if err := writeAtomic(filepath.Join(dataRoot, "appearance.json"), state); err != nil {
+		return AppearanceState{}, contract.Unavailable("外观文件不可写")
+	}
+	return state, nil
+}
+
+func ClearAppearance(dataRoot, courseID string) (AppearanceState, error) {
+	if !IsUUID(courseID) {
+		return AppearanceState{}, contract.InputInvalid("外观课程标识无效")
+	}
+	state, err := ReadAppearance(dataRoot)
+	if err != nil {
+		return AppearanceState{}, err
+	}
+	delete(state.Courses, courseID)
+	if err := writeAtomic(filepath.Join(dataRoot, "appearance.json"), state); err != nil {
+		return AppearanceState{}, contract.Unavailable("外观文件不可写")
+	}
+	return state, nil
+}

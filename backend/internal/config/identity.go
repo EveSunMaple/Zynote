@@ -60,3 +60,41 @@ func ReadIdentity(dataRoot string) (Identity, error) {
 func validAvatar(value string) bool {
 	return value == "" || (len(value) <= 1000000 && strings.HasPrefix(value, "data:image/png;base64,"))
 }
+
+func SaveIdentity(dataRoot string, raw json.RawMessage) (Identity, error) {
+	var value Identity
+	if err := json.Unmarshal(raw, &value); err != nil {
+		return Identity{}, contract.InputInvalid("身份参数无效")
+	}
+	value.UserName = strings.TrimSpace(value.UserName)
+	value.AssistantName = strings.TrimSpace(value.AssistantName)
+	if len([]rune(value.UserName)) < 1 || len([]rune(value.UserName)) > 40 ||
+		len([]rune(value.AssistantName)) < 1 || len([]rune(value.AssistantName)) > 40 ||
+		len([]rune(value.Persona)) > 12000 ||
+		!validAvatar(value.UserAvatar) || !validAvatar(value.AssistantAvatar) {
+		return Identity{}, contract.InputInvalid("身份字段无效")
+	}
+	if err := writeAtomic(filepath.Join(dataRoot, "identity.json"), value); err != nil {
+		return Identity{}, contract.Unavailable("身份文件不可写")
+	}
+	return value, nil
+}
+
+func writeAtomic(path string, value any) error {
+	encoded, err := json.Marshal(value)
+	if err != nil {
+		return err
+	}
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		return err
+	}
+	temporary := path + ".tmp"
+	if err := os.WriteFile(temporary, encoded, 0o644); err != nil {
+		return err
+	}
+	if err := os.Rename(temporary, path); err != nil {
+		_ = os.Remove(temporary)
+		return err
+	}
+	return nil
+}

@@ -13,6 +13,9 @@ const goShadowActions = new Set([
 ])
 
 export const goPrimaryActions = new Set([
+ 'appearance:save',
+ 'appearance:clear',
+ 'identity:save',
  'course:create',
  'session:create',
  'db:bootstrap',

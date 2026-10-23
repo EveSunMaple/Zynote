@@ -62,7 +62,7 @@ type State struct {
 }
 
 var DefaultCapabilities = []string{
-	"app:info", "settings:get", "appearance:get", "identity:get",
+	"app:info", "settings:get", "appearance:get", "appearance:save", "appearance:clear", "identity:get", "identity:save",
 	"db:health", "db:backup", "course:detail", "library:list",
 	"course:create", "sessions", "session:create",
 	"db:bootstrap", "course:delete", "session:delete", "lecture:delete", "lecture:detail",
