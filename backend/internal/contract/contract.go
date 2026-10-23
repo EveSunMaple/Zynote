@@ -67,6 +67,8 @@ var DefaultCapabilities = []string{
 	"document:parse", "transcript:read", "files:add", "files:remove", "lecture:create", "lecture:transcript", "lecture:courseware", "questions:save",
 	"media:options", "media:list", "media:retry", "media:cancel", "media:file",
 	"media:auth-import", "media:auth-list", "media:auth-remove",
+	"bili-resources:status", "bili-resources:browse", "bili-resources:qr", "bili-resources:poll",
+	"bili-resources:logout", "bili-resources:folders", "bili-resources:videos",
 }
 
 type HelloParams struct {

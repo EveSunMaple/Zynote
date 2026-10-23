@@ -1,6 +1,6 @@
 {
  "schema": 1,
- "total": 105,
+ "total": 112,
  "actions": [
   {
    "action": "runtime:install",
@@ -372,6 +372,48 @@
    "action": "textbook:ppt-source",
    "source": "study.ts",
    "phase": 3,
+   "backend": "go"
+  },
+  {
+   "action": "bili-resources:browse",
+   "source": "resources.ts",
+   "phase": 4,
+   "backend": "go"
+  },
+  {
+   "action": "bili-resources:folders",
+   "source": "resources.ts",
+   "phase": 4,
+   "backend": "go"
+  },
+  {
+   "action": "bili-resources:logout",
+   "source": "resources.ts",
+   "phase": 4,
+   "backend": "go"
+  },
+  {
+   "action": "bili-resources:poll",
+   "source": "resources.ts",
+   "phase": 4,
+   "backend": "go"
+  },
+  {
+   "action": "bili-resources:qr",
+   "source": "resources.ts",
+   "phase": 4,
+   "backend": "go"
+  },
+  {
+   "action": "bili-resources:status",
+   "source": "resources.ts",
+   "phase": 4,
+   "backend": "go"
+  },
+  {
+   "action": "bili-resources:videos",
+   "source": "resources.ts",
+   "phase": 4,
    "backend": "go"
   },
   {

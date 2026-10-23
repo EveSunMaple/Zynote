@@ -1,9 +1,7 @@
 package api
 
 import (
-	"encoding/base64"
 	"encoding/json"
-	"fmt"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -22,30 +20,7 @@ func (inv *Invoker) mediaServiceFor(state *contract.State, reverse contract.Reve
 	if inv.media != nil && inv.mediaRoot == root {
 		return inv.media, nil
 	}
-	crypt := func(data []byte, decrypt bool) ([]byte, error) {
-		if reverse == nil {
-			return nil, fmt.Errorf("系统加密桥不可用")
-		}
-		method := "crypto.protect-bytes"
-		if decrypt {
-			method = "crypto.unprotect-bytes"
-		}
-		raw, err := reverse.Call(method, map[string]any{
-			"value":  base64.StdEncoding.EncodeToString(data),
-			"domain": "media",
-		}, 5000)
-		if err != nil {
-			return nil, err
-		}
-		var reply struct {
-			Value string `json:"value"`
-		}
-		if json.Unmarshal(raw, &reply) != nil {
-			return nil, fmt.Errorf("系统加密响应无效")
-		}
-		return base64.StdEncoding.DecodeString(reply.Value)
-	}
-	inv.media = media.NewMediaService(root, crypt)
+	inv.media = media.NewMediaService(root, inv.cryptAdapter(reverse))
 	inv.mediaRoot = root
 	return inv.media, nil
 }

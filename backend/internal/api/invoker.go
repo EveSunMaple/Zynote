@@ -11,6 +11,7 @@ import (
 	"github.com/EveSunMaple/Zynote/backend/internal/contract"
 	"github.com/EveSunMaple/Zynote/backend/internal/helper"
 	"github.com/EveSunMaple/Zynote/backend/internal/media"
+	"github.com/EveSunMaple/Zynote/backend/internal/media/bilibili"
 )
 
 type handlerFunc func(store contract.StateStore, state *contract.State, params json.RawMessage) (any, error)
@@ -20,6 +21,8 @@ type Invoker struct {
 	native    *helper.Native
 	media     *media.MediaService
 	mediaRoot string
+	bili      *bilibili.Resources
+	biliRoot  string
 	mediaMu   sync.Mutex
 }
 
@@ -91,6 +94,28 @@ func (inv *Invoker) Invoke(store contract.StateStore, action string, params json
 			return nil, contract.Unavailable("后台尚未完成握手")
 		}
 		return inv.handleFilesRemove(state, params)
+	case "bili-resources:status", "bili-resources:browse", "bili-resources:qr", "bili-resources:poll",
+		"bili-resources:logout", "bili-resources:folders", "bili-resources:videos":
+		state := store.State()
+		if state == nil {
+			return nil, contract.Unavailable("后台尚未完成握手")
+		}
+		switch action {
+		case "bili-resources:status":
+			return inv.handleBiliStatus(store, state, params)
+		case "bili-resources:browse":
+			return inv.handleBiliBrowse(store, state, params)
+		case "bili-resources:qr":
+			return inv.handleBiliQR(store, state, params)
+		case "bili-resources:poll":
+			return inv.handleBiliPoll(store, state, params)
+		case "bili-resources:logout":
+			return inv.handleBiliLogout(store, state, params)
+		case "bili-resources:folders":
+			return inv.handleBiliFolders(store, state, params)
+		default:
+			return inv.handleBiliVideos(store, state, params)
+		}
 	case "media:options", "media:list", "media:retry", "media:cancel", "media:file",
 		"media:auth-import", "media:auth-list", "media:auth-remove":
 		state := store.State()
