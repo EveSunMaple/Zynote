@@ -317,7 +317,6 @@ func (jobs *DownloadJobs) Create(identity, url, title string, options any, legac
 		id = strings.ReplaceAll(fmt.Sprintf("%s", uuidV4()), "-", "")
 	}
 	now := time.Now().UTC().Format(time.RFC3339Nano)
-	title = title
 	if len([]rune(title)) > 240 {
 		title = string([]rune(title)[:240])
 	}

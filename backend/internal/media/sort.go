@@ -7,7 +7,6 @@ import (
 	"net/url"
 	"regexp"
 	"sort"
-	"strconv"
 	"strings"
 )
 
@@ -148,5 +147,3 @@ func validateProxy(value string) error {
 	}
 	return nil
 }
-
-var _ = strconv.Itoa
