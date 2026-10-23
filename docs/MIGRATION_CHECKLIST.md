@@ -515,7 +515,16 @@ Zynote/
 - [x] 过程中修复：Initialize 每次重扫把新建 queued 任务误标 interrupted（改为 memoized）；根目录不存在时 EvalSymlinks 未解析导致目录校验失败；artifact 复用未记录 owner；transfer Progress 空指针；代理 scheme 未校验。
 - [x] 验证：Go 测试 3 包全绿（media 新增 tools/command/probe/service/并行/HLS 套件）、冒烟 **33 项断言**、`pnpm verify`/`build` 全绿。
 - [x] **迁移进度：33 个能力由 Go+Rust 承担**（105 个 IPC action 中约 30 个已切换）。
-- [ ] **P4c 剩余**：B 站目录/字幕/讨论/QR 登录 + 登录档案（`media:auth-*`、`media:catalog/create/discussion*`）；ffmpeg mux（章节/字幕/封面/滤镜）；媒体 legacy 记录只读合并。
+- [ ] **P4c 剩余**：`media:catalog/create/discussion*`（依赖 media-bili 目录与下载 runner）；ffmpeg mux（章节/字幕/封面/滤镜）；媒体 legacy 记录只读合并。
+
+## 1.12 P4c-2a/2b 完成记录（2026-10-23）
+
+- [x] **P4c-2a 登录档案**（`4a212db`）：`internal/media/auth.go` —— Netscape Cookie 严格解析（`#HttpOnly_`、域归属、去重、过期过滤、1MB/2000 条上限、错误文案逐字对齐）、站点域校验（拒 co.uk/com.cn/com.au）、加密档案（`download-auth/profiles.dpapi`、8MB 上限、原子写入、50 档案上限）、`Scoped` Cookie 注入（https/无端口/域归属、剥离 cookie/authorization、http 不注入）；`media:auth-import/list/remove` 接入 + `shell.pickFile` 反向桥（Electron dialog 保持壳内）。
+- [x] **P4c-2b B 站资源客户端**（`42de1d5`）：`internal/media/bilibili` —— WBI 签名（mixin key 表、过滤 `!'()*`、md5、1h 缓存）、`read` 错误码映射（-101 登录失效）、`status/browse`（搜索/热门、HTML 清洗、BV 校验、分页）、QR 登录状态机（generate/poll：0/86101/86090/86038，180s 过期，官方 origin 校验）、`folders/videos`（账号归属校验、失效视频标记）、Cookie 加密持久化（自定义存储：域/路径/过期/删除）；QR PNG data-URL（skip2/go-qrcode，scale 5）；7 个 `bili-resources:*` action 接入。
+- [x] 契约清单修正：`contract/actions.json` 补录带连字符域名的 7 个 action，总数 105 → **112**。
+- [x] 验证：Go 4 包测试全绿（bilibili 新增 6 套：WBI/错误码/搜索/QR/收藏夹/Cookie 持久化）、冒烟 **34 项断言**、verify/build 绿。
+- [x] **迁移进度：43 个能力 Go 化**（112 个 action 中用户可见约 31 个）。
+- [ ] **P4c 剩余**：`media:catalog/create/discussion*`（需 media-bili 目录解析 + 下载 runner + ffmpeg mux）；媒体 legacy 记录只读合并。
 - [ ] **P4d**：YouTube（Rust `--mode youtube`，rustypipe spike + D3a 口径对比）；智云 `zhiyun:search/lessons/export`；SnapAny 留 Electron 壳。
 
 ## 17. 已决事项记录
