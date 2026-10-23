@@ -175,7 +175,7 @@ func TestCatalogErrors(t *testing.T) {
 			"id": 1, "base_url": "http://evil.example.com/v.mp4", "height": 720,
 		}}},
 	}}
-	check(t, viewFixture(), badAddress, playerFixture(), "BV1xx411c7mD", "B 站媒体地址不受信任")
+	check(t, viewFixture(), badAddress, playerFixture(), "BV1xx411c7mD", "媒体格式缺少可信下载地址")
 
 	empty := map[string]any{"code": 0, "data": map[string]any{"timelength": 1000}}
 	check(t, viewFixture(), empty, playerFixture(), "BV1xx411c7mD", "未取得可用音视频格式")

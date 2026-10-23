@@ -282,12 +282,15 @@ func (reader *CatalogReader) Read(input string, playlist bool, options any) (any
 				for _, address := range addresses {
 					checked, err := MediaAddress(address)
 					if err != nil {
-						return nil, err
+						continue
 					}
 					if !seen[checked] {
 						seen[checked] = true
 						validated = append(validated, checked)
 					}
+				}
+				if len(validated) == 0 {
+					return nil, contract.Unavailable("媒体格式缺少可信下载地址")
 				}
 				mime := stringValue(row["mimeType"])
 				if mime == "" {

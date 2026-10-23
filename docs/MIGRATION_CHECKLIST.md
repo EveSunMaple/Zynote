@@ -649,3 +649,9 @@ Zynote/
 - [x] `config.SaveIdentity` / `SaveAppearance` / `ClearAppearance`：原子写入、字段校验、课程存在性检查；`appearance:save/clear`、`identity:save` 切 Go 主路径。
 - [x] capabilities 46 → **49**；路由 `appearance:save/clear`、`identity:save` 仅走 Go。
 - [x] 测试：身份 trim/头像格式/空名拒绝、外观全局+课程合并/清除/非法值；Go 全量测试、smoke（49）、verify/build 全绿。
+
+## 1.28 反向 RPC 死锁与 B 站 CDN 兼容（2026-10-23）
+
+- [x] **修复反向 RPC 死锁**：stdio 请求处理阻塞回复帧读取，`crypto.*`/`shell.pickFile` 会等满超时；请求改为串行 goroutine 执行，Serve 循环持续消费回复帧（新增 transport 测试）。
+- [x] B 站 playurl 的备份 CDN 可能带 `:8082` 端口（不可信白名单），现过滤无效备份地址、保留有效地址；无有效地址才拒绝。
+- [x] **端到端**：Go core 实下 B 站 `BV1GJ411x7h7`（360p HEVC + AAC），9.5MB `result.mkv`，ffprobe 时长 212.3s，成果核验完成。

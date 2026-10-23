@@ -26,7 +26,7 @@ func TestScopedCatalogReaderUsesFetcher(t *testing.T) {
 			if !strings.Contains(target, "w_rid=") || !strings.Contains(target, "wts=") {
 				t.Errorf("playurl request is not WBI signed: %s", target)
 			}
-			body = `{"code":0,"data":{"dash":{"video":[{"id":80,"codecid":7,"baseUrl":"https://upos-sz-mirrorcos.bilivideo.com/video.mp4","height":1080,"codecs":"avc1","bandwidth":1000,"mimeType":"video/mp4"}],"audio":[{"id":30280,"codecid":0,"baseUrl":"https://upos-sz-mirrorcos.bilivideo.com/audio.m4a","codecs":"mp4a","mimeType":"audio/mp4"}]}}}`
+			body = `{"code":0,"data":{"dash":{"video":[{"id":80,"codecid":7,"baseUrl":"https://upos-sz-mirrorcos.bilivideo.com/video.mp4","backupUrl":["https://xy106x41x209x206xy.mcdn.bilivideo.cn:8082/v1/resource/video.m4s","https://upos-sz-mirrorcos.bilivideo.com/backup.mp4"],"height":1080,"codecs":"avc1","bandwidth":1000,"mimeType":"video/mp4"}],"audio":[{"id":30280,"codecid":0,"baseUrl":"https://upos-sz-mirrorcos.bilivideo.com/audio.m4a","codecs":"mp4a","mimeType":"audio/mp4"}]}}}`
 		case strings.Contains(target, "/x/player/v2"):
 			body = `{"code":0,"data":{"subtitle":{"subtitles":[]},"view_points":[]}}`
 		default:
@@ -48,6 +48,9 @@ func TestScopedCatalogReaderUsesFetcher(t *testing.T) {
 	if !ok || source.Identity != "BV1xx411c7mD:9:1" || len(source.Streams) != 2 ||
 		source.Catalog.URL != "https://www.bilibili.com/video/BV1xx411c7mD/?p=1" || source.Thumbnail == "" {
 		t.Fatalf("scoped source mismatch: %+v", source)
+	}
+	if len(source.Streams[0].URLs) != 2 {
+		t.Fatalf("untrusted backup CDN should be filtered: %+v", source.Streams[0].URLs)
 	}
 	if len(seen) < 4 {
 		t.Fatalf("scoped fetcher not used: %+v", seen)
