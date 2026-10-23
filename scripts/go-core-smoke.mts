@@ -112,7 +112,7 @@ const hello = (await call('core.hello', {
 })) as HelloResult
 check('hello protocol', hello.protocol === 1)
 check('hello platform', hello.platform === 'darwin')
-check('hello capabilities', hello.capabilities.length === 69)
+check('hello capabilities', hello.capabilities.length === 71)
 
 const bootstrap = (await call('db:bootstrap')) as {ok: boolean}
 check('bootstrap ok', bootstrap.ok === true)

@@ -146,6 +146,15 @@ func (inv *Invoker) Invoke(store contract.StateStore, action string, params json
 		default:
 			return inv.handleBiliVideos(store, state, params)
 		}
+	case "zhiyun:search", "zhiyun:lessons":
+		state := store.State()
+		if state == nil {
+			return nil, contract.Unavailable("后台尚未完成握手")
+		}
+		if action == "zhiyun:search" {
+			return inv.handleZhiyunSearch(store, state, params)
+		}
+		return inv.handleZhiyunLessons(store, state, params)
 	case "settings:models", "settings:probe", "settings:test":
 		state := store.State()
 		if state == nil {

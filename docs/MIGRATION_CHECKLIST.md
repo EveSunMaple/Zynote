@@ -681,3 +681,11 @@ Zynote/
 - [x] `knowledge:classification-suggest`：分类草稿 + 选项 → 结构化选择校验。
 - [x] 测试：检索-问答-引用、分类建议、无命中；capabilities 67 → **69**。
 - [ ] `tools:request`/`tools:skill-open` 仍依赖研究后端（约 3.4k 行），留待研究域迁移。
+
+## 1.32 M4 智云 search/lessons（2026-10-23）
+
+- [x] 壳侧 `shell.zhiyunSession` 反向服务：读取 `persist:zhiyun` Cookie 与 `_token` Authorization；Go `internal/zhiyun` 客户端（30s、系统代理、网络重试、401/403/5002 登录提示、登录页/JSON 异常分类）。
+- [x] `zhiyun:search`：infosimple 账号校验 → searchlist（页码/每页 20/去重/过滤 recommend/hasMore）。
+- [x] `zhiyun:lessons`：catalogue 权限与结构校验、content JSON 解析、`videoAvailable` 标记（不暴露 URL）。
+- [x] 测试：搜索映射/去重/分页、课次内容、Cookie/Authorization 透传、登录/权限/HTML 错误；capabilities 69 → **71**。
+- [ ] `zhiyun:export` 仍留 TS（依赖视频 PPT 管线/文件落盘）。

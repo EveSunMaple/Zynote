@@ -1,4 +1,4 @@
-import {type BrowserWindow, dialog, safeStorage} from 'electron'
+import {type BrowserWindow, dialog, safeStorage, session} from 'electron'
 import {z} from 'zod'
 import {assertSecureStorage, systemProtect} from '@main/security/system-encryption'
 import type {ShellService} from '@main/backend/shell-service'
@@ -29,6 +29,19 @@ export function createShellServices(window: BrowserWindow): Record<string, Shell
    assertSecureStorage()
    const raw = decodeBytes(params.value)
    return {value: systemProtect(raw, true, domainOf(params.domain)).toString('base64')}
+  },
+  'shell.zhiyunSession': async () => {
+   const cookies = await session.fromPartition('persist:zhiyun').cookies.get({
+    url: 'https://onlineroom.cmc.zju.edu.cn'
+   })
+   const cookie = cookies.map(item => item.name + '=' + item.value).join('; ')
+   const raw = cookies.find(item => item.name === '_token')?.value || ''
+   let value = raw
+   try {
+    value = decodeURIComponent(raw)
+   } catch {}
+   const token = /{i:\d+;s:\d+:"_token";i:\d+;s:\d+:"(.+?)";}/.exec(value)?.[1]
+   return {cookie, authorization: token ? 'Bearer ' + token : ''}
   },
   'shell.pickFile': async params => {
    const title = z.string().min(1).max(200).parse(params.title)

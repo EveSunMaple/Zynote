@@ -63,7 +63,7 @@ type State struct {
 
 var DefaultCapabilities = []string{
 	"app:info", "settings:get", "appearance:get", "appearance:save", "appearance:clear", "identity:get", "identity:save",
-	"db:health", "db:backup", "chat", "cancel", "job:current", "settings:models", "settings:probe", "settings:test",
+	"db:health", "db:backup", "chat", "cancel", "job:current", "settings:models", "settings:probe", "settings:test", "zhiyun:search", "zhiyun:lessons",
 		"knowledge:list", "knowledge:generation", "knowledge:read", "knowledge:import",
 	"knowledge:citation", "knowledge:delete", "knowledge:organize", "knowledge:rebuild",
 	"knowledge:search", "knowledge:ask", "knowledge:classification-suggest", "knowledge:classification-options", "knowledge:classification-read",
