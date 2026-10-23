@@ -148,6 +148,21 @@ func (inv *Invoker) Invoke(store contract.StateStore, action string, params json
 		default:
 			return inv.handleBiliVideos(store, state, params)
 		}
+	case "questions:split":
+		state := store.State()
+		if state == nil {
+			return nil, contract.Unavailable("后台尚未完成握手")
+		}
+		return inv.handleQuestionsSplit(store, state, params)
+	case "subtitles:save", "subtitles:import":
+		state := store.State()
+		if state == nil {
+			return nil, contract.Unavailable("后台尚未完成握手")
+		}
+		if action == "subtitles:save" {
+			return inv.handleSubtitlesSave(store, state, params)
+		}
+		return inv.handleSubtitlesImport(store, state, params)
 	case "study:get", "study:save", "study:parse":
 		state := store.State()
 		if state == nil {

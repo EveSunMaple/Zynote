@@ -705,3 +705,9 @@ Zynote/
 - [x] `study_entries` 读写：UUID/课程/课次校验、删除重建事务、课次与聊天会话标题同步、`checkAt=endsAt+4h`。
 - [x] `study:parse`：课程/课次上下文 + 课表提示词 + 结构化校验（最多 1000 条、编号去重、endsAt 时区）。
 - [x] 测试：字段 trim/checkAt、课次/会话改名、重复/非法时间拒绝、AI 解析；capabilities 73 → **76**。
+
+## 1.36 字幕保存/导入与拆题（2026-10-23）
+
+- [x] `subtitles:save/import`：SRT 严格解析、字幕写库、校订检查点/笔记/练习清理、课次状态更新、详情回读；导入经 `shell.pickFile`。
+- [x] `questions:split`：历年卷归属/OCR 校验、14k 分块、`past-exam` 提示词、逐块进度、题目字段白名单校验、题库替换与练习复位。
+- [x] 测试：字幕清理/状态、拆题生成与题库落库、缺失历年卷拒绝；capabilities 76 → **79**。

@@ -359,3 +359,15 @@ func sameStrings(left, right []string) bool {
 	}
 	return true
 }
+
+func Prompt(dataRoot, promptsRoot, name string) (string, error) {
+	stored, err := loadStored(dataRoot)
+	if err != nil {
+		return "", err
+	}
+	prompts, err := readPrompts(stored, promptsRoot)
+	if err != nil {
+		return "", err
+	}
+	return prompts[name], nil
+}

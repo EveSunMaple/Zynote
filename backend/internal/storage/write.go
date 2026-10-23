@@ -585,3 +585,71 @@ func (w *WriteDB) SaveStudyEntries(entries []map[string]any) error {
 	}
 	return tx.Commit()
 }
+
+func (w *WriteDB) SaveSubtitles(lectureID, srt string, segments any) error {
+	if _, err := w.Lecture(lectureID); err != nil {
+		return err
+	}
+	encoded, err := json.Marshal(segments)
+	if err != nil {
+		return err
+	}
+	tx, err := w.db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	if _, err := tx.Exec(
+		"INSERT OR REPLACE INTO subtitles(lecture_id,srt_text,segments_json) VALUES(?,?,?)",
+		lectureID, srt, string(encoded),
+	); err != nil {
+		return err
+	}
+	for _, statement := range []string{
+		"DELETE FROM correction_checkpoints WHERE lecture_id=?",
+		"DELETE FROM lecture_notes WHERE lecture_id=?",
+		"DELETE FROM practice_sets WHERE lecture_id=?",
+		"UPDATE lectures SET status='字幕完成' WHERE id=?",
+	} {
+		if _, err := tx.Exec(statement, lectureID); err != nil {
+			return err
+		}
+	}
+	return tx.Commit()
+}
+
+func (w *WriteDB) ReplaceQuestions(courseID, fileID string, questions []map[string]any) error {
+	file, err := queryOne(w.db, "SELECT course_id FROM course_files WHERE id=? AND course_id=?", fileID, courseID)
+	if err != nil {
+		return err
+	}
+	if file == nil {
+		return contract.InputInvalid("资料不属于当前课程")
+	}
+	tx, err := w.db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	if _, err := tx.Exec("DELETE FROM past_questions WHERE course_id=? AND file_id=?", courseID, fileID); err != nil {
+		return err
+	}
+	for _, question := range questions {
+		encoded, err := json.Marshal(question)
+		if err != nil {
+			return err
+		}
+		if _, err := tx.Exec(
+			"INSERT INTO past_questions(id,course_id,file_id,question_json) VALUES(?,?,?,?)",
+			toStringValue(question["id"]), courseID, fileID, string(encoded),
+		); err != nil {
+			return err
+		}
+	}
+	if _, err := tx.Exec(
+		"DELETE FROM practice_sets WHERE lecture_id IN (SELECT id FROM lectures WHERE course_id=?)", courseID,
+	); err != nil {
+		return err
+	}
+	return tx.Commit()
+}
