@@ -177,7 +177,7 @@ func RetimeCues(cues []SubtitleCue, kept []MediaInterval) []SubtitleCue {
 	return output
 }
 
-func DownloadSubtitles(source Source, options NativeMediaOptions, directory string, fetcher AuthFetcher, ctx context.Context) ([]DownloadedSubtitle, error) {
+func DownloadSubtitles(source Source, options NativeMediaOptions, directory string, fetcher AuthFetcher, ctx context.Context, kept []MediaInterval) ([]DownloadedSubtitle, error) {
 	tracks := []SubtitleTrack{}
 	for _, track := range source.SubtitleTracks {
 		if !MatchesSubtitleLanguage(track.Language, options.SubtitleLanguages) {
@@ -223,6 +223,19 @@ func DownloadSubtitles(source Source, options NativeMediaOptions, directory stri
 		cues, err = normalizeCues(cues, source.Catalog.Duration)
 		if err != nil {
 			return nil, err
+		}
+		if kept != nil {
+			cues = RetimeCues(cues, kept)
+			filtered := []SubtitleCue{}
+			for _, cue := range cues {
+				if cue.End > cue.Start {
+					filtered = append(filtered, cue)
+				}
+			}
+			cues = filtered
+			if len(cues) == 0 || len(cues) > 20000 {
+				return nil, fmt.Errorf("片段移除后的字幕为空或条目过多，请调整分类")
+			}
 		}
 		formats, srt, err := subtitleFormats(cues)
 		if err != nil {

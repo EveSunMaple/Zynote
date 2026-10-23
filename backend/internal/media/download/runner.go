@@ -68,11 +68,6 @@ func (runner *Runner) Run(id string, ctx context.Context) (map[string]any, error
 	if err != nil {
 		return nil, err
 	}
-	if options.Sponsorblock != "" {
-		err := fmt.Errorf("原生执行器尚未接入片段移除，请关闭 SponsorBlock 后重试")
-		runner.fail(id, ctx, err)
-		return nil, err
-	}
 	tuning, err := media.MediaTuning(options.CustomArgs)
 	if err != nil {
 		runner.fail(id, ctx, err)
@@ -155,6 +150,22 @@ func (runner *Runner) Run(id string, ctx context.Context) (map[string]any, error
 		runner.fail(id, ctx, err)
 		return nil, err
 	}
+	var keepSegments []media.MediaInterval
+	if options.Sponsorblock != "" {
+		plan, err := media.SponsorBlockPlan(source, options, directory, fetcher, ctx)
+		if err != nil {
+			runner.fail(id, ctx, err)
+			return nil, err
+		}
+		sidecars = append(sidecars, plan.Relative)
+		job, err = runner.Jobs.Transition(id, job.Revision, "running", "已核验片段移除计划", "", joinedWarning(job.Warning, plan.Warning), nil)
+		if err != nil {
+			return nil, err
+		}
+		if len(plan.Removed) > 0 || options.ClipStart != nil {
+			keepSegments = plan.Kept
+		}
+	}
 	if options.SplitChapters && len(source.Chapters) == 0 {
 		err := fmt.Errorf("此分集没有站点章节，无法按章节拆分；可指定时间片段")
 		runner.fail(id, ctx, err)
@@ -162,7 +173,7 @@ func (runner *Runner) Run(id string, ctx context.Context) (map[string]any, error
 	}
 	subtitles := []media.DownloadedSubtitle{}
 	if options.Subtitles {
-		subtitles, err = media.DownloadSubtitles(source, options, directory, fetcher, ctx)
+		subtitles, err = media.DownloadSubtitles(source, options, directory, fetcher, ctx, keepSegments)
 		if err != nil {
 			runner.fail(id, ctx, err)
 			return nil, err
@@ -470,7 +481,7 @@ func (runner *Runner) Run(id string, ctx context.Context) (map[string]any, error
 	muxResult, err := runner.Mux.Mux(media.MuxInput{
 		Directory: directory, Tracks: tracks, Options: options, ExpectedDuration: duration,
 		Title: job.Title, Ctx: ctx, Chapters: chapters, Cover: coverPath, OutputName: outputName,
-		Subtitles: embedSubtitles,
+		Subtitles: embedSubtitles, KeepSegments: keepSegments,
 	})
 	if err != nil {
 		runner.fail(id, ctx, err)

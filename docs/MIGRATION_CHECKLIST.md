@@ -620,3 +620,10 @@ Zynote/
 
 - [x] `scripts/runtime-smoke.mts` 的设置分区标签更新为当前 UI（搜索服务/提示词库/模型服务），修复自 UI 改名后一直失败的导航阶段。
 - [x] `pnpm runtime:smoke` 全绿：seed/restart（Electron safeStorage、生产媒体/IM 加密二进制、Cookie/IM 跨重启、加密日志恢复）+ 设置导航/窗口激活复验。
+
+## 1.24 Go SponsorBlock 片段移除（2026-10-23）
+
+- [x] `media/sponsorblock.go`：仅 YouTube、分类去重排序与白名单、20s 超时、1MB 上限、404 视为无标注、身份重复/时长不符/恢复记录篡改拒绝；回执 `sponsorblock-plan.json`（严格字段、sha256、CC BY-NC-SA 归属）复用。
+- [x] runner：Plan 提示与警告、`KeepSegments` 传入 mux、字幕按保留区间重映射（空/过多拒绝）；移除原“未接入”拒绝。
+- [x] 测试：正常移除/过滤非 skip/缓存命中零网络/篡改拒绝、404、平台限制、分类白名单、时长不符。
+- [ ] SponsorBlock 只能在 YouTube 迁移完成后端到端验证。
