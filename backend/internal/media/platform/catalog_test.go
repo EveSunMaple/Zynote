@@ -168,13 +168,6 @@ func TestReadYoutube(t *testing.T) {
 	}, false, options, nil, caller); err == nil || !strings.Contains(err.Error(), "格式已改变") {
 		t.Fatalf("youtube format mismatch: %v", err)
 	}
-	caller.raw = `{"url":"https://www.youtube.com/playlist?list=PL1234567890","title":"课程","playlist":true,"entries":[{"title":"P1","url":"https://www.youtube.com/watch?v=dQw4w9WgXcQ"}]}`
-	catalog, err := Read(context.Background(), Selection{
-		Platform: "youtube", URL: "https://www.youtube.com/playlist?list=PL1234567890", Hash: "PL1234567890",
-	}, true, mediaOptions(), nil, caller)
-	if err != nil || catalog.(media.Catalog).Title != "课程" || caller.method != "youtube.playlist" {
-		t.Fatalf("youtube playlist mismatch: %+v %v", catalog, err)
-	}
 }
 
 func TestReadRejectsPlaylistAndFormatMismatch(t *testing.T) {
@@ -205,4 +198,38 @@ func TestReadRejectsPlaylistAndFormatMismatch(t *testing.T) {
 func mediaOptions() media.NativeMediaOptions {
 	options, _ := media.MediaOptions(map[string]any{})
 	return options
+}
+
+func TestReadYoutubePlaylist(t *testing.T) {
+	pages := []string{
+		`{"metadata":{"playlistMetadataRenderer":{"title":"课程"}},"contents":[{"lockupViewModel":{"contentId":"dQw4w9WgXcQ","contentType":"LOCKUP_CONTENT_TYPE_VIDEO","metadata":{"lockupMetadataViewModel":{"title":{"content":"P1"}}}}},{"lockupViewModel":{"contentId":"aaaaaaaaaaa","contentType":"LOCKUP_CONTENT_TYPE_VIDEO","metadata":{"lockupMetadataViewModel":{"title":{"content":"P2"}}}}}],"continuationCommand":{"token":"next"}}`,
+		`{"contents":[{"playlistVideoRenderer":{"videoId":"bbbbbbbbbbb","title":{"runs":[{"text":"P3"}]}}}],"continuationCommand":{"token":"next"}}`,
+	}
+	calls := 0
+	post := func(ctx context.Context, endpoint string, headers map[string]string, body []byte) (map[string]any, error) {
+		if headers["X-Goog-Visitor-Id"] == "" || !strings.Contains(endpoint, "browse") {
+			t.Fatalf("playlist request missing visitor/client: %+v %s", headers, endpoint)
+		}
+		var page map[string]any
+		if err := json.Unmarshal([]byte(pages[calls]), &page); err != nil {
+			t.Fatal(err)
+		}
+		calls++
+		return page, nil
+	}
+	catalog, err := readYoutubePlaylistWith(context.Background(), "PL1234567890", post)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if catalog.Title != "课程" || len(catalog.Entries) != 3 || catalog.Entries[0]["url"] != "https://www.youtube.com/watch?v=dQw4w9WgXcQ" ||
+		catalog.Entries[2]["title"] != "P3" || catalog.Limited || calls != 2 {
+		t.Fatalf("playlist mismatch: %+v calls=%d", catalog, calls)
+	}
+	empty := func(context.Context, string, map[string]string, []byte) (map[string]any, error) {
+		return map[string]any{}, nil
+	}
+	if _, err := readYoutubePlaylistWith(context.Background(), "PL1234567890", empty); err == nil ||
+		!strings.Contains(err.Error(), "未取得可选择的公开视频") {
+		t.Fatalf("empty playlist mismatch: %v", err)
+	}
 }

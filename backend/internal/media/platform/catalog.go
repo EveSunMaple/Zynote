@@ -144,7 +144,7 @@ type NativeCaller interface {
 
 func Read(ctx context.Context, selection Selection, playlist bool, options media.NativeMediaOptions, fetcher Fetcher, youtube NativeCaller) (any, error) {
 	if selection.Platform == "youtube" {
-		return readYoutube(selection, playlist, options, youtube)
+		return readYoutube(ctx, selection, playlist, options, youtube, fetcher)
 	}
 	if playlist {
 		return nil, fmt.Errorf("此平台当前请逐条选择视频，不把单个视频误当作完整播放列表")
@@ -171,7 +171,7 @@ func Read(ctx context.Context, selection Selection, playlist bool, options media
 	return dailymotionSource(selection, raw, options)
 }
 
-func readYoutube(selection Selection, playlist bool, options media.NativeMediaOptions, caller NativeCaller) (any, error) {
+func readYoutube(ctx context.Context, selection Selection, playlist bool, options media.NativeMediaOptions, caller NativeCaller, fetcher Fetcher) (any, error) {
 	if caller == nil {
 		return nil, fmt.Errorf("YouTube 原生执行器不可用")
 	}
@@ -179,18 +179,7 @@ func readYoutube(selection Selection, playlist bool, options media.NativeMediaOp
 		if selection.Hash == "" {
 			return nil, fmt.Errorf("请提供带播放列表标识的网址，单个视频不冒充整套课程")
 		}
-		raw, err := caller.Call("youtube.playlist", map[string]any{"id": selection.Hash}, 90000)
-		if err != nil {
-			return nil, err
-		}
-		var catalog media.Catalog
-		if err := json.Unmarshal(raw, &catalog); err != nil {
-			return nil, fmt.Errorf("YouTube 目录读取失败：响应格式异常")
-		}
-		if catalog.URL == "" || catalog.Title == "" || len(catalog.Entries) == 0 {
-			return nil, fmt.Errorf("未取得可选择的公开视频")
-		}
-		return catalog, nil
+		return readYoutubePlaylist(ctx, selection.Hash, fetcher)
 	}
 	if selection.ID == "" {
 		return nil, fmt.Errorf("请先选择播放列表中的具体视频")

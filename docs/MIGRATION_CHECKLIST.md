@@ -636,4 +636,10 @@ Zynote/
 - [x] 稳定性：自生成 visitor data（避免 rustypipe 首次拉取 visitor data 失败 panic）+ `catch_unwind` 将内部 panic 转为错误；缓存目录由核心传入。
 - [x] 传输层修复：默认遵循系统代理（`ProxyFromEnvironment`），移除 `http.Client.Timeout` 总时长限制（改为连接/响应头超时），避免大文件被 60s 总超时截断。
 - [x] E2E：Go core → `media:catalog` 实测 27 格式/8 档位；下载尝试受本机代理吞吐（约 3.7KB/s，curl 同样截断）阻塞，未完成成品验证。
-- [ ] **已知缺口**：rustypipe 0.11.4 的播放列表解析对当前 YouTube 响应失败（`missing field description` / `itemSectionRenderer empty`），Go 端暂显式报错；翻译字幕未暴露；媒体路由保持 TS。
+- [x] **播放列表**已由 Go InnerTube 补位（见 1.26）；**剩余**：翻译字幕未暴露，媒体路由保持 TS。
+
+## 1.26 YouTube 播放列表（Go InnerTube，2026-10-23）
+
+- [x] `platform/youtube.go`：自生成 visitor data，WEB InnerTube `browse` 拉取播放列�表；兼容新 `lockupViewModel` 与旧 `playlistVideoRenderer` 布局，标题/条目去重、continuation 最多 10 页或 100 条；`limited` 标记。
+- [x] 实测：`PLFgquLnL59alCl_2TQvOiD5Vgm1hCaGSI` 返回 100 条唯一视频，`limited=true`；单测覆盖两页 continuation、旧布局、空列表。
+- [ ] **剩余 YouTube 缺口**：翻译字幕（rustypipe 未暴露 translationLanguages）；媒体路由仍待该缺口决定。
