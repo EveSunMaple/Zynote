@@ -22,12 +22,15 @@ func (dispatcher *Dispatcher) ReadWithFetcher(ctx context.Context, input string,
 	if err != nil {
 		return nil, err
 	}
-	if selection.Platform == "bilibili" {
-		return dispatcher.Bili.Read(input, playlist, options)
-	}
 	settings, err := media.MediaOptions(options)
 	if err != nil {
 		return nil, err
+	}
+	if selection.Platform == "bilibili" {
+		if settings.CookieProfile != "" {
+			return bilibili.NewCatalogReader(bilibili.NewScopedResources(bilibili.ScopedFetcher(fetcher))).Read(input, playlist, settings)
+		}
+		return dispatcher.Bili.Read(input, playlist, settings)
 	}
 	return Read(ctx, selection, playlist, settings, fetcher)
 }

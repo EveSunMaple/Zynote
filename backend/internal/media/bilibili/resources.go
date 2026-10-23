@@ -204,6 +204,7 @@ type qrState struct {
 type Resources struct {
 	client     *http.Client
 	cookies    *cookieStore
+	fetch      func(*http.Request) (*http.Response, error)
 	mu         sync.Mutex
 	qr         *qrState
 	signingKey *wbiKey
@@ -253,8 +254,10 @@ func (resources *Resources) ReadDiscussion(requestPath string, params map[string
 }
 
 func (resources *Resources) RawDiscussion(requestPath string, params map[string]string, ctx context.Context, limit int64) ([]byte, error) {
-	if err := resources.cookies.load(); err != nil {
-		return nil, err
+	if resources.cookies != nil {
+		if err := resources.cookies.load(); err != nil {
+			return nil, err
+		}
 	}
 	target := resources.baseAPI + requestPath
 	if len(params) > 0 {
@@ -271,10 +274,12 @@ func (resources *Resources) RawDiscussion(requestPath string, params map[string]
 	for key, value := range biliHeaders {
 		request.Header.Set(key, value)
 	}
-	if cookie := resources.cookies.header(request.URL.Hostname(), request.URL.Path, request.URL.Scheme == "https"); cookie != "" {
-		request.Header.Set("Cookie", cookie)
+	if resources.cookies != nil {
+		if cookie := resources.cookies.header(request.URL.Hostname(), request.URL.Path, request.URL.Scheme == "https"); cookie != "" {
+			request.Header.Set("Cookie", cookie)
+		}
 	}
-	response, err := resources.client.Do(request)
+	response, err := resources.do(request)
 	if err != nil {
 		if ctx.Err() != nil {
 			return nil, ctx.Err()
@@ -299,9 +304,34 @@ func (resources *Resources) RawDiscussion(requestPath string, params map[string]
 	return body, nil
 }
 
+func (resources *Resources) do(request *http.Request) (*http.Response, error) {
+	if resources.fetch != nil {
+		return resources.fetch(request)
+	}
+	return resources.client.Do(request)
+}
+
+type ScopedFetcher func(url string, headers map[string]string, ctx context.Context) (*http.Response, error)
+
+func NewScopedResources(fetcher ScopedFetcher) *Resources {
+	return &Resources{
+		fetch: func(request *http.Request) (*http.Response, error) {
+			headers := map[string]string{}
+			for key := range request.Header {
+				headers[key] = request.Header.Get(key)
+			}
+			return fetcher(request.URL.String(), headers, request.Context())
+		},
+		baseAPI:  "https://api.bilibili.com",
+		basePass: "https://passport.bilibili.com",
+	}
+}
+
 func (resources *Resources) readContext(ctx context.Context, requestPath string, params map[string]string, passport bool) (any, error) {
-	if err := resources.cookies.load(); err != nil {
-		return nil, err
+	if resources.cookies != nil {
+		if err := resources.cookies.load(); err != nil {
+			return nil, err
+		}
 	}
 	base := resources.baseAPI
 	if passport {
@@ -322,10 +352,12 @@ func (resources *Resources) readContext(ctx context.Context, requestPath string,
 	for key, value := range biliHeaders {
 		request.Header.Set(key, value)
 	}
-	if cookie := resources.cookies.header(request.URL.Hostname(), request.URL.Path, request.URL.Scheme == "https"); cookie != "" {
-		request.Header.Set("Cookie", cookie)
+	if resources.cookies != nil {
+		if cookie := resources.cookies.header(request.URL.Hostname(), request.URL.Path, request.URL.Scheme == "https"); cookie != "" {
+			request.Header.Set("Cookie", cookie)
+		}
 	}
-	response, err := resources.client.Do(request)
+	response, err := resources.do(request)
 	if err != nil {
 		if ctx.Err() != nil {
 			return nil, ctx.Err()
@@ -333,7 +365,9 @@ func (resources *Resources) readContext(ctx context.Context, requestPath string,
 		return nil, contract.Unavailable("B 站服务暂不可用，请稍后重试")
 	}
 	defer response.Body.Close()
-	resources.cookies.setFromResponse(request.URL.Hostname(), response)
+	if resources.cookies != nil {
+		resources.cookies.setFromResponse(request.URL.Hostname(), response)
+	}
 	if response.StatusCode < 200 || response.StatusCode >= 300 {
 		return nil, contract.Unavailable(fmt.Sprintf("B 站服务暂不可用（HTTP %d）", response.StatusCode))
 	}

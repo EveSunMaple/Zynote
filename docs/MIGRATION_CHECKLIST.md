@@ -609,3 +609,9 @@ Zynote/
 - [x] runner：移除字幕拒绝；字幕下载（自动字幕警告）、嵌入 mux、仅字幕发布分支、清理 embed/未保留字幕；Vimeo/Dailymotion 轨道标记 `webvtt`，B 站保持 JSON。
 - [x] 测试：语言匹配、VTT/JSON/json3 解析、四种格式文本、时间线重映射、下载/幂等/冲突/自动字幕过滤/重复语言、runner 仅字幕端到端。
 - [ ] **仍缺**：SponsorBlock 片段移除（TS 支持，Go 显式拒绝）；媒体路由继续 TS 直至 YouTube 迁移。
+
+## 1.22 B 站 scoped 目录（cookie_profile）与 YouTube 探测（2026-10-23）
+
+- [x] `bilibili.NewScopedResources(fetcher)`：目录读取走登录档案 scoped fetcher（nil Cookie 存储安全），WBI playurl 使用同一 fetcher 签名；dispatcher 与 `media:create` 重读在 `cookie_profile` 下使用 scoped catalog。
+- [x] 测试：假 fetcher 覆盖 nav（WBI 密钥）/view/playurl/player，断言请求带 `w_rid`/`wts` 且返回 `media.Source`。
+- [x] YouTube 网络探测：crates.io SSL 超时；直接 InnerTube（WEB legacy key）返回 `UNPLAYABLE`，无签名/会话不可用，确认仍需 rustypipe + 播放器签名，维持 TS 路由。

@@ -417,7 +417,7 @@ func (inv *Invoker) readCatalogSource(state *contract.State, reverse contract.Re
 	if err != nil {
 		return nil, err
 	}
-	if selection.Platform == "bilibili" {
+	if selection.Platform == "bilibili" && settings.CookieProfile == "" {
 		resources, err := inv.biliResourcesFor(state, reverse)
 		if err != nil {
 			return nil, err
@@ -439,6 +439,9 @@ func (inv *Invoker) readCatalogSource(state *contract.State, reverse contract.Re
 	scoped, err := service.Auth.Scoped(selection.URL, settings, media.AuthFetcher(transport.Fetch))
 	if err != nil {
 		return nil, err
+	}
+	if selection.Platform == "bilibili" {
+		return bilibili.NewCatalogReader(bilibili.NewScopedResources(bilibili.ScopedFetcher(scoped))).Read(input, playlist, settings)
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()
