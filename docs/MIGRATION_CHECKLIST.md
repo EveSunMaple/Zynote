@@ -560,3 +560,12 @@ Zynote/
 - [x] `media:discussion` 接入（pages 1–10，默认 2）；capabilities 45 → **46**。
 - [x] 测试：分类/标签顺序、canonical JSON 无 HTML 转义、渲染根上下文、XML/protobuf 弹幕解析、证据库保存/选择/旧 ref 拒绝/复核合并、httptest 端到端采集。
 - [ ] **剩余**：`media:discussion-import`（依赖 P5 knowledge `import`，待知识库域迁移后接入）；媒体 legacy 记录只读合并；路由层 media 域灰度切换。
+
+## 1.15 媒体 legacy 只读合并（2026-10-23）
+
+- [x] `media/download/legacy.go`：只读视图（`records/<kbr>/<id>/state.json`），scope 计算与 Python/TS 一致（realpath + 小写 + `kbr_` 前缀）；目录/记录/清单均拒绝符号链接、越界与超限。
+- [x] `media:list` 合并旧记录（同 id 以原生队列为准；queued/running 投影为 interrupted，读取失败记录为只读 error 行）；`media:file` 原生优先、旧成果回退。
+- [x] `media:retry` 旧记录：completed 先核验成果；未完成先复核站点身份（`bvid/cid/page/storage_id` 一致）→ catalog 复核 → `unchanged` 记录哈希 → 以同一 id 建原生任务并入队；精确格式/登录档案等不可迁移选项显式拒绝。
+- [x] `media:create` 的 `skip_existing` 同时匹配旧完成任务（身份 + 规范化 options + 成果核验）。
+- [x] 修复：原生 `media:retry` 未入队（此前 Go 重试只改状态）；旧记录 scope 未统一小写。
+- [x] 测试：legacy 列表/文件/recipe、interrupted 与不可读行、未完成分段拒绝、精确格式拒绝、跨 scope 冲突；Go 全量测试与 vet 通过。

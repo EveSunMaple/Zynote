@@ -43,7 +43,28 @@ func (inv *Invoker) handleMediaList(store contract.StateStore, state *contract.S
 	if err != nil {
 		return nil, err
 	}
-	return service.List()
+	native, err := service.List()
+	if err != nil {
+		return nil, err
+	}
+	legacyRows, err := download.NewLegacyDownloads(service.Root).List()
+	if err != nil {
+		return nil, err
+	}
+	ids := map[string]bool{}
+	for _, row := range native {
+		if id, ok := row["id"].(string); ok {
+			ids[id] = true
+		}
+	}
+	result := native
+	for _, row := range legacyRows {
+		if id, ok := row["id"].(string); ok && ids[id] {
+			continue
+		}
+		result = append(result, row)
+	}
+	return result, nil
 }
 
 func (inv *Invoker) handleMediaRetry(store contract.StateStore, state *contract.State, params json.RawMessage) (any, error) {
@@ -55,7 +76,72 @@ func (inv *Invoker) handleMediaRetry(store contract.StateStore, state *contract.
 	if err != nil {
 		return nil, err
 	}
-	return service.Retry(id)
+	if _, readErr := service.Jobs.Read(id); readErr == nil {
+		downloadService, err := inv.downloadServiceFor(state, store.Reverse())
+		if err != nil {
+			return nil, err
+		}
+		if downloadService.Active(id) {
+			return nil, contract.InputInvalid("该任务仍在执行")
+		}
+		updated, err := service.Retry(id)
+		if err != nil {
+			return nil, err
+		}
+		downloadService.Enqueue(id)
+		return updated, nil
+	}
+	legacy := download.NewLegacyDownloads(service.Root)
+	original, err := legacy.Read(id)
+	if err != nil {
+		return nil, err
+	}
+	if original.State == "completed" {
+		if _, err := legacy.File(id); err != nil {
+			return nil, err
+		}
+		rows, err := legacy.List()
+		if err != nil {
+			return nil, err
+		}
+		for _, row := range rows {
+			if row["id"] == id {
+				return row, nil
+			}
+		}
+		return nil, contract.InputInvalid("旧任务尚无可确认成果")
+	}
+	recipe, err := legacy.Recipe(id)
+	if err != nil {
+		return nil, err
+	}
+	resources, err := inv.biliResourcesFor(state, store.Reverse())
+	if err != nil {
+		return nil, err
+	}
+	freshResult, err := bilibili.NewCatalogReader(resources).Read(recipe.URL, false, recipe.Options)
+	if err != nil {
+		return nil, err
+	}
+	fresh, ok := freshResult.(bilibili.Source)
+	if !ok || fresh.Identity != recipe.Identity {
+		return nil, contract.InputInvalid("旧任务与当前站点分集身份不一致，原记录保留")
+	}
+	if err := legacy.Unchanged(recipe.Row); err != nil {
+		return nil, err
+	}
+	job, err := service.Jobs.Create(recipe.Identity, recipe.URL, recipe.Row.Title, recipe.Options, &media.JobLegacy{
+		ID: id, RecordHash: recipe.Row.RecordHash,
+	})
+	if err != nil {
+		return nil, err
+	}
+	downloadService, err := inv.downloadServiceFor(state, store.Reverse())
+	if err != nil {
+		return nil, err
+	}
+	downloadService.Enqueue(job.ID)
+	return service.Project(job), nil
 }
 
 func (inv *Invoker) handleMediaCancel(store contract.StateStore, state *contract.State, params json.RawMessage) (any, error) {
@@ -88,7 +174,10 @@ func (inv *Invoker) handleMediaFile(store contract.StateStore, state *contract.S
 	if err != nil {
 		return nil, err
 	}
-	return service.File(id)
+	if _, readErr := service.Jobs.Read(id); readErr == nil {
+		return service.File(id)
+	}
+	return download.NewLegacyDownloads(service.Root).File(id)
 }
 
 func mediaJobID(params json.RawMessage) (string, error) {
@@ -286,6 +375,24 @@ func (inv *Invoker) handleMediaCreate(store contract.StateStore, state *contract
 				if _, fileErr := service.Jobs.File(row.ID); fileErr == nil {
 					return service.Project(row), nil
 				}
+			}
+		}
+		legacyRows, err := download.NewLegacyDownloads(service.Root).List()
+		if err != nil {
+			return nil, err
+		}
+		for _, row := range legacyRows {
+			if row["state"] != "completed" {
+				continue
+			}
+			id, _ := row["id"].(string)
+			recipe, readErr := download.NewLegacyDownloads(service.Root).Recipe(id)
+			if readErr != nil || recipe.Identity != fresh.Identity ||
+				!reflect.DeepEqual(media.OptionsMap(recipe.Options), media.OptionsMap(options)) {
+				continue
+			}
+			if _, fileErr := download.NewLegacyDownloads(service.Root).File(id); fileErr == nil {
+				return row, nil
 			}
 		}
 	}
