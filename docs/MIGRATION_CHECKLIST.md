@@ -505,7 +505,18 @@ Zynote/
 - [x] **P3e**（`6270ff7`）：`lecture:create`（resolveSource→readTranscript→parseCourseware→needsOcr 拒绝→PPT/Transcripts 双 copyInto→缓存序列化→CreateLecture+占位会话改名→SetLectureTranscript）；`lecture:transcript`/`lecture:courseware`（导入即清派生表 + 返回 lectureDetail）；`questions:save`（归属校验/删除清理/practice_sets 复位，错误文案逐字对齐）；字段名对齐 TS（transcript/courseware 用 `path`，create 用 `transcriptPath`）。
 - [x] 验证：Go 测试（lecture 链路含占位会话改名/缓存标记/外键/越界）、冒烟 30 项断言、build 全绿。
 - [x] **迁移进度：28/105 action 已由 Go+Rust 承担**。
-- [ ] **P4 待办（最大硬骨头）**：媒体下载域——任务状态机/租约/分段传输/HLS/B 站目录与登录档案/ffmpeg 编排/成果核验；YouTube 走 Rust `--mode youtube`（rustypipe）；SnapAny 留 Electron 壳。
+- [ ] **P4 待办（最大硬骨头）**：媒体下载域——B 站目录与登录档案、ffmpeg mux、YouTube（Rust rustypipe）、智云导出链路。
+
+## 1.11 P4b/P4c 完成记录（2026-10-22）
+
+- [x] **P4b 传输层**（`a6c9be3`）：`transport.go`（代理/IPv4/超时/重定向拒绝/sleep-requests 节流/rate 限速）；`transfer.go`（journal 断点续传：200/206/416、ETag 强校验、`.lock` 互斥、取消保留 checkpoint、写入上限）；`artifact.go`（成果预留/核验/`.incomplete-` 归档）；测试覆盖全路径。
+- [x] **P4b 并行与 HLS**（`e3eb7e7`）：`parallel.go`（HEAD 探测 → 分片 → 有界并发 → 合并；服务器忽略 Range 自动回退串行）；`hls.go`（EXTM3U 严格解析：变体/音轨/密钥/AES-128-CBC 解密/直播拒绝；原生分段下载 + artifact 合并）；本地 httptest 测试含加密流。
+- [x] **P4c 编排基础**（`0b8ae0c`）：`tools.go`（app-owned 可执行解析、目录/符号链接/越界校验、系统白名单回退）；`command.go`（进程组取消、输出上限、退出码映射）；`mux.go`（ffprobe 探测：时长/轨道/封面/章节）；`service.go`（options/list/retry/cancel/file 投影）；反向加密桥 `crypto.protect-bytes`/`unprotect-bytes`（复用 `systemProtect` 信封，与 TS 兼容）；媒体目录英文化 `媒体下载`→`MediaDownloads`（TS+Go+启动迁移）。
+- [x] 过程中修复：Initialize 每次重扫把新建 queued 任务误标 interrupted（改为 memoized）；根目录不存在时 EvalSymlinks 未解析导致目录校验失败；artifact 复用未记录 owner；transfer Progress 空指针；代理 scheme 未校验。
+- [x] 验证：Go 测试 3 包全绿（media 新增 tools/command/probe/service/并行/HLS 套件）、冒烟 **33 项断言**、`pnpm verify`/`build` 全绿。
+- [x] **迁移进度：33 个能力由 Go+Rust 承担**（105 个 IPC action 中约 30 个已切换）。
+- [ ] **P4c 剩余**：B 站目录/字幕/讨论/QR 登录 + 登录档案（`media:auth-*`、`media:catalog/create/discussion*`）；ffmpeg mux（章节/字幕/封面/滤镜）；媒体 legacy 记录只读合并。
+- [ ] **P4d**：YouTube（Rust `--mode youtube`，rustypipe spike + D3a 口径对比）；智云 `zhiyun:search/lessons/export`；SnapAny 留 Electron 壳。
 
 ## 17. 已决事项记录
 
