@@ -15,6 +15,7 @@ type SubtitleTrack struct {
 	Language  string `json:"language"`
 	URL       string `json:"url"`
 	Automatic bool   `json:"automatic"`
+	Format    string `json:"format,omitempty"`
 }
 
 type Chapter struct {

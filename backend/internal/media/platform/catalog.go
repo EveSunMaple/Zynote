@@ -369,7 +369,7 @@ func vimeoSource(selection Selection, raw map[string]any, options media.NativeMe
 			}
 		}
 		if !duplicate {
-			tracks = append(tracks, media.SubtitleTrack{Language: language, URL: address, Automatic: false})
+			tracks = append(tracks, media.SubtitleTrack{Language: language, URL: address, Automatic: false, Format: "webvtt"})
 		}
 	}
 	return finishSource(selection, "vimeo", title, duration, "", thumbnail, streams, tracks, options)
@@ -452,7 +452,7 @@ func dailymotionSource(selection Selection, raw map[string]any, options media.Na
 			continue
 		}
 		if address, err := mediaAddress(stringOf(urls[0]), []string{"dailymotion.com", "dmcdn.net"}); err == nil {
-			tracks = append(tracks, media.SubtitleTrack{Language: language, URL: address, Automatic: false})
+			tracks = append(tracks, media.SubtitleTrack{Language: language, URL: address, Automatic: false, Format: "webvtt"})
 		}
 	}
 	return finishSource(selection, "dailymotion", title, duration, description, thumbnail, streams, tracks, options)

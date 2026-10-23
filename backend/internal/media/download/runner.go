@@ -68,12 +68,6 @@ func (runner *Runner) Run(id string, ctx context.Context) (map[string]any, error
 	if err != nil {
 		return nil, err
 	}
-	if options.Subtitles || options.SubtitleOnly || options.AutoSubtitles || options.TranslatedSubtitles ||
-		options.EmbedSubtitles {
-		err := fmt.Errorf("原生执行器尚未接入字幕下载，请关闭字幕选项后重试")
-		runner.fail(id, ctx, err)
-		return nil, err
-	}
 	if options.Sponsorblock != "" {
 		err := fmt.Errorf("原生执行器尚未接入片段移除，请关闭 SponsorBlock 后重试")
 		runner.fail(id, ctx, err)
@@ -161,6 +155,32 @@ func (runner *Runner) Run(id string, ctx context.Context) (map[string]any, error
 		runner.fail(id, ctx, err)
 		return nil, err
 	}
+	if options.SplitChapters && len(source.Chapters) == 0 {
+		err := fmt.Errorf("此分集没有站点章节，无法按章节拆分；可指定时间片段")
+		runner.fail(id, ctx, err)
+		return nil, err
+	}
+	subtitles := []media.DownloadedSubtitle{}
+	if options.Subtitles {
+		subtitles, err = media.DownloadSubtitles(source, options, directory, fetcher, ctx)
+		if err != nil {
+			runner.fail(id, ctx, err)
+			return nil, err
+		}
+		automatic := false
+		for _, subtitle := range subtitles {
+			if subtitle.Automatic {
+				automatic = true
+				break
+			}
+		}
+		if automatic {
+			job, err = runner.Jobs.Transition(id, job.Revision, "running", "字幕已保存", "", joinedWarning(job.Warning, "包含站点自动字幕，可能存在识别错误"), nil)
+			if err != nil {
+				return nil, err
+			}
+		}
+	}
 	coverPath := ""
 	coverRelative := ""
 	coverIntermediates := []string{}
@@ -197,10 +217,62 @@ func (runner *Runner) Run(id string, ctx context.Context) (map[string]any, error
 			coverIntermediates = values
 		}
 	}
-	if options.SplitChapters && len(source.Chapters) == 0 {
-		err := fmt.Errorf("此分集没有站点章节，无法按章节拆分；可指定时间片段")
-		runner.fail(id, ctx, err)
-		return nil, err
+	if options.SubtitleOnly {
+		if ctx.Err() != nil {
+			err := fmt.Errorf("下载已取消")
+			runner.fail(id, ctx, err)
+			return nil, err
+		}
+		names := []string{}
+		for _, subtitle := range subtitles {
+			names = append(names, subtitle.Relative)
+		}
+		names = append(names, sidecars...)
+		if options.Thumbnail && coverRelative != "" {
+			names = append(names, coverRelative)
+		}
+		layout, err := media.PublishMediaLayout(directory, names, options, job.Created)
+		if err != nil {
+			runner.fail(id, ctx, err)
+			return nil, err
+		}
+		evidence := []media.Receipt{}
+		for _, name := range layout.Outputs {
+			receipt, err := runner.Jobs.Evidence(id, name)
+			if err != nil {
+				runner.fail(id, ctx, err)
+				return nil, err
+			}
+			evidence = append(evidence, receipt)
+		}
+		cleanup := append([]string{}, layout.Cleanup...)
+		cleanup = append(cleanup, coverIntermediates...)
+		job, err = runner.Jobs.Complete(id, job.Revision, evidence, cleanup)
+		if err != nil {
+			runner.fail(id, ctx, err)
+			return nil, err
+		}
+		remaining, err := runner.Jobs.CleanupCompleted(id)
+		if err != nil {
+			return nil, err
+		}
+		cleanupPending := []string{}
+		for _, name := range remaining {
+			cleanupPending = append(cleanupPending, filepath.Join(directory, name))
+		}
+		duration := 0.0
+		if source.Catalog.Duration != nil {
+			duration = *source.Catalog.Duration
+		}
+		outputPath := filepath.Join(directory, evidence[0].Relative)
+		return map[string]any{
+			"job": job,
+			"output": map[string]any{
+				"path": outputPath, "relative": evidence[0].Relative, "duration": duration,
+				"video": 0, "audio": 0, "subtitles": len(subtitles), "chapters": 0, "covers": 0,
+			},
+			"cleanupPending": cleanupPending,
+		}, nil
 	}
 	selected, err := bilibili.SelectStreams(source, options)
 	if err != nil {
@@ -387,9 +459,18 @@ func (runner *Runner) Run(id string, ctx context.Context) (map[string]any, error
 	if source.Catalog.Duration != nil {
 		duration = *source.Catalog.Duration
 	}
+	embedSubtitles := []media.MuxSubtitle{}
+	for _, subtitle := range subtitles {
+		if subtitle.EmbedRelative != "" {
+			embedSubtitles = append(embedSubtitles, media.MuxSubtitle{
+				Path: filepath.Join(directory, subtitle.EmbedRelative), Language: subtitle.Language,
+			})
+		}
+	}
 	muxResult, err := runner.Mux.Mux(media.MuxInput{
 		Directory: directory, Tracks: tracks, Options: options, ExpectedDuration: duration,
 		Title: job.Title, Ctx: ctx, Chapters: chapters, Cover: coverPath, OutputName: outputName,
+		Subtitles: embedSubtitles,
 	})
 	if err != nil {
 		runner.fail(id, ctx, err)
@@ -410,7 +491,7 @@ func (runner *Runner) Run(id string, ctx context.Context) (map[string]any, error
 			part, err := runner.Mux.Mux(media.MuxInput{
 				Directory: directory, Tracks: tracks, Options: chapterOptions, ExpectedDuration: duration,
 				Title: chapter.Title, Ctx: ctx, Chapters: chapters, Cover: coverPath,
-				OutputName: fmt.Sprintf("chapter-%03d.%s", index+1, extension),
+				OutputName: fmt.Sprintf("chapter-%03d.%s", index+1, extension), Subtitles: embedSubtitles,
 			})
 			if err != nil {
 				runner.fail(id, ctx, err)
@@ -428,6 +509,12 @@ func (runner *Runner) Run(id string, ctx context.Context) (map[string]any, error
 	names := []string{muxResult.Relative}
 	names = append(names, chapterOutputs...)
 	names = append(names, sidecars...)
+	keepSubtitles := options.KeepSubtitles || !options.EmbedSubtitles
+	if keepSubtitles {
+		for _, subtitle := range subtitles {
+			names = append(names, subtitle.Relative)
+		}
+	}
 	if options.Thumbnail && coverRelative != "" {
 		names = append(names, coverRelative)
 	}
@@ -456,6 +543,14 @@ func (runner *Runner) Run(id string, ctx context.Context) (map[string]any, error
 		cleanup = append(cleanup, coverRelative)
 	}
 	cleanup = append(cleanup, layout.Cleanup...)
+	for _, subtitle := range subtitles {
+		if subtitle.EmbedRelative != "" {
+			cleanup = append(cleanup, subtitle.EmbedRelative)
+		}
+		if !keepSubtitles {
+			cleanup = append(cleanup, subtitle.Relative)
+		}
+	}
 	job, err = runner.Jobs.Complete(id, job.Revision, evidence, cleanup)
 	if err != nil {
 		runner.fail(id, ctx, err)

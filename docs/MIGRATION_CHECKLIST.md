@@ -602,3 +602,10 @@ Zynote/
 - [x] 证据令牌保存平台中立的 `media.Source`；`media:create` 重读时按同一 dispatcher 校验身份。
 - [ ] **已知缺口**：B 站 `cookie_profile` 的目录读取仍用内置 Cookie 存储，未像 TS 一样用档案 scoped 的 BiliResources；待媒体路由恢复前补齐。
 - [ ] **YouTube**：crates.io 不可达（rustypipe 无法拉取），`platform.Read` 暂显式报错；媒体路由保持 TS。
+
+## 1.21 Go 字幕下载与嵌入（2026-10-23）
+
+- [x] `media/subtitles.go`：语言模式匹配（含 `-` 排除）、WebVTT / B站 JSON / YouTube json3 解析、时间/正文校验、SponsorBlock 保留区间重映射（`RetimeCues`）、SRT/VTT/LRC/ASS/original 输出、`subtitle_only` 与 `embed_subtitles` 写入（内容相同可重入、不同则保留原文件报错）。
+- [x] runner：移除字幕拒绝；字幕下载（自动字幕警告）、嵌入 mux、仅字幕发布分支、清理 embed/未保留字幕；Vimeo/Dailymotion 轨道标记 `webvtt`，B 站保持 JSON。
+- [x] 测试：语言匹配、VTT/JSON/json3 解析、四种格式文本、时间线重映射、下载/幂等/冲突/自动字幕过滤/重复语言、runner 仅字幕端到端。
+- [ ] **仍缺**：SponsorBlock 片段移除（TS 支持，Go 显式拒绝）；媒体路由继续 TS 直至 YouTube 迁移。

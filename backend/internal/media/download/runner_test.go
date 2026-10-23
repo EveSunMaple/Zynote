@@ -163,3 +163,40 @@ func TestRunnerRejectsChangedIdentity(t *testing.T) {
 		t.Fatalf("error state mismatch: %+v", row)
 	}
 }
+
+func TestRunnerSubtitleOnlyPublishesSubtitle(t *testing.T) {
+	runner, jobs, identity := runnerFixture(t, "media-bytes")
+	subtitleServer := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		_, _ = writer.Write([]byte(`{"body":[{"from":0.5,"to":1.25,"content":"你好"}]}`))
+	}))
+	defer subtitleServer.Close()
+	duration := 10.0
+	runner.Catalog = stubCatalog{source: bilibili.Source{
+		Identity: identity,
+		Catalog:  bilibili.Catalog{URL: "https://www.bilibili.com/video/BV1xx411c7mD/?p=1", Title: "标题", Duration: &duration},
+		SubtitleTracks: []bilibili.SubtitleTrack{{
+			Language: "zh-Hans", URL: subtitleServer.URL + "/subtitle.json",
+		}},
+		Platform: "bilibili",
+	}}
+	job := createJob(t, jobs, identity, map[string]any{"subtitle_only": true, "retries": 0})
+	result, err := runner.Run(job.ID, context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	row, err := jobs.Read(job.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if row.State != "completed" || len(row.Outputs) != 1 || row.Outputs[0].Relative != "subtitle-zh-Hans.srt" {
+		t.Fatalf("subtitle job mismatch: %+v", row)
+	}
+	if output, ok := result["output"].(map[string]any); !ok || output["subtitles"] != 1 || output["video"] != 0 {
+		t.Fatalf("subtitle output mismatch: %+v", result["output"])
+	}
+	directory, _ := jobs.TaskDirectory(job.ID)
+	body, err := os.ReadFile(filepath.Join(directory, "subtitle-zh-Hans.srt"))
+	if err != nil || !strings.Contains(string(body), "00:00:00,500 --> 00:00:01,250") {
+		t.Fatalf("subtitle content mismatch: %q %v", string(body), err)
+	}
+}
