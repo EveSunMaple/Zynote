@@ -78,6 +78,23 @@ func (inv *Invoker) handleBiliBrowse(store contract.StateStore, state *contract.
 	return resources.Browse(input.Kind, input.Query, page)
 }
 
+func (inv *Invoker) handleMediaCatalog(store contract.StateStore, state *contract.State, params json.RawMessage) (any, error) {
+	var input struct {
+		URL      string `json:"url"`
+		Playlist bool   `json:"playlist"`
+		Options  any    `json:"options"`
+	}
+	if err := json.Unmarshal(params, &input); err != nil || input.URL == "" || len(input.URL) > 2000 {
+		return nil, contract.InputInvalid("视频网址无效")
+	}
+	resources, err := inv.biliResourcesFor(state, store.Reverse())
+	if err != nil {
+		return nil, err
+	}
+	reader := bilibili.NewCatalogReader(resources)
+	return reader.Read(input.URL, input.Playlist, input.Options)
+}
+
 func (inv *Invoker) handleBiliQR(store contract.StateStore, state *contract.State, _ json.RawMessage) (any, error) {
 	resources, err := inv.biliResourcesFor(state, store.Reverse())
 	if err != nil {

@@ -31,6 +31,8 @@ func InputInvalid(message string) *AppError { return NewError(CodeInputInvalid, 
 
 func Unavailable(message string) *AppError { return NewError(CodeUnavailable, message) }
 
+func NotFound(message string) *AppError { return NewError(CodeNotFound, message) }
+
 func CurrentPlatform() string {
 	switch runtime.GOOS {
 	case "darwin":
@@ -68,7 +70,7 @@ var DefaultCapabilities = []string{
 	"media:options", "media:list", "media:retry", "media:cancel", "media:file",
 	"media:auth-import", "media:auth-list", "media:auth-remove",
 	"bili-resources:status", "bili-resources:browse", "bili-resources:qr", "bili-resources:poll",
-	"bili-resources:logout", "bili-resources:folders", "bili-resources:videos",
+	"bili-resources:logout", "bili-resources:folders", "bili-resources:videos", "media:catalog",
 }
 
 type HelloParams struct {

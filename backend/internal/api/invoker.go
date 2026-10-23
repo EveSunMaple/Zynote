@@ -95,7 +95,7 @@ func (inv *Invoker) Invoke(store contract.StateStore, action string, params json
 		}
 		return inv.handleFilesRemove(state, params)
 	case "bili-resources:status", "bili-resources:browse", "bili-resources:qr", "bili-resources:poll",
-		"bili-resources:logout", "bili-resources:folders", "bili-resources:videos":
+		"bili-resources:logout", "bili-resources:folders", "bili-resources:videos", "media:catalog":
 		state := store.State()
 		if state == nil {
 			return nil, contract.Unavailable("后台尚未完成握手")
@@ -113,6 +113,8 @@ func (inv *Invoker) Invoke(store contract.StateStore, action string, params json
 			return inv.handleBiliLogout(store, state, params)
 		case "bili-resources:folders":
 			return inv.handleBiliFolders(store, state, params)
+		case "media:catalog":
+			return inv.handleMediaCatalog(store, state, params)
 		default:
 			return inv.handleBiliVideos(store, state, params)
 		}

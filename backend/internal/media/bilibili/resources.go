@@ -288,6 +288,29 @@ func (resources *Resources) read(requestPath string, params map[string]string, p
 	return data, nil
 }
 
+var mediaReadPaths = map[string]bool{
+	"/x/web-interface/view": true,
+	"/x/player/wbi/playurl": true,
+	"/x/player/v2":          true,
+	"/x/v2/reply":           true,
+	"/x/v2/reply/reply":     true,
+	"/x/v2/reply/wbi/main":  true,
+}
+
+func (resources *Resources) ReadMedia(requestPath string, params map[string]string) (any, error) {
+	if !mediaReadPaths[requestPath] {
+		return nil, contract.InputInvalid("媒体读取地址无效")
+	}
+	if requestPath == "/x/player/wbi/playurl" || requestPath == "/x/v2/reply/wbi/main" {
+		signed, err := resources.sign(params)
+		if err != nil {
+			return nil, err
+		}
+		return resources.read(requestPath, signed, false)
+	}
+	return resources.read(requestPath, params, false)
+}
+
 func (resources *Resources) Status() (map[string]any, error) {
 	data, err := resources.read("/x/web-interface/nav", nil, false)
 	if err != nil {
