@@ -16,6 +16,9 @@ func main() {
 	native := helper.NewNative("pdf")
 	core.SetNative(native)
 	defer native.Dispose()
+	youtube := helper.NewNative("youtube")
+	core.SetYoutubeNative(youtube)
+	defer youtube.Dispose()
 	if err := server.Serve(context.Background(), os.Stdin, os.Stdout); err != nil {
 		os.Exit(1)
 	}

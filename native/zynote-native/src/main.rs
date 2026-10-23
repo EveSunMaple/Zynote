@@ -4,6 +4,7 @@ use std::io::{BufRead, Write};
 
 mod annotations;
 mod pdf;
+mod youtube;
 
 #[derive(Debug, Clone)]
 enum Mode {
@@ -13,7 +14,7 @@ enum Mode {
     Wechat,
 }
 
-fn parse_mode() -> Result<(Mode, Option<String>), String> {
+fn parse_mode() -> Result<(Mode, Option<String>, Option<String>), String> {
     let args: Vec<String> = std::env::args().collect();
     let index = args
         .iter()
@@ -24,6 +25,10 @@ fn parse_mode() -> Result<(Mode, Option<String>), String> {
         .iter()
         .position(|arg| arg == "--pdfium")
         .and_then(|i| args.get(i + 1).cloned());
+    let youtube_cache = args
+        .iter()
+        .position(|arg| arg == "--youtube-cache")
+        .and_then(|i| args.get(i + 1).cloned());
     let mode = match value.as_str() {
         "pdf" => Mode::Pdf,
         "asr" => Mode::Asr,
@@ -31,7 +36,7 @@ fn parse_mode() -> Result<(Mode, Option<String>), String> {
         "wechat" => Mode::Wechat,
         other => return Err(format!("unknown mode {other}")),
     };
-    Ok((mode, pdfium))
+    Ok((mode, pdfium, youtube_cache))
 }
 
 #[derive(Deserialize)]
@@ -45,12 +50,23 @@ struct Envelope {
 }
 
 fn main() {
-    let (mode, pdfium_path) = match parse_mode() {
+    let (mode, pdfium_path, youtube_cache) = match parse_mode() {
         Ok(result) => result,
         Err(message) => {
             eprintln!("zynote-native: {message}");
             std::process::exit(1);
         }
+    };
+    let youtube_service = if matches!(mode, Mode::Youtube) {
+        match youtube::YoutubeService::new(youtube_cache.as_deref()) {
+            Ok(service) => Some(service),
+            Err(error) => {
+                eprintln!("zynote-native: {error}");
+                std::process::exit(1);
+            }
+        }
+    } else {
+        None
     };
     let pdf = match (&mode, pdfium_path) {
         (Mode::Pdf, Some(path)) => match pdf::PdfService::new(&path) {
@@ -89,7 +105,7 @@ fn main() {
             continue;
         }
         let id = envelope.id.clone();
-        let result = dispatch(&mode, &pdf, &envelope.method, &envelope.params);
+        let result = dispatch(&mode, &pdf, &youtube_service, &envelope.method, &envelope.params);
         let reply = match (id, result) {
             (Some(id), Ok(result)) => json!({"jsonrpc": "2.0", "id": id, "result": result}),
             (Some(id), Err(message)) => {
@@ -103,7 +119,13 @@ fn main() {
     }
 }
 
-fn dispatch(mode: &Mode, pdf: &Option<pdf::PdfService>, method: &str, params: &Value) -> Result<Value, String> {
+fn dispatch(
+    mode: &Mode,
+    pdf: &Option<pdf::PdfService>,
+    youtube: &Option<youtube::YoutubeService>,
+    method: &str,
+    params: &Value,
+) -> Result<Value, String> {
     match (mode, method) {
         (_, "core.hello") => Ok(json!({
             "protocol": 1,
@@ -147,6 +169,20 @@ fn dispatch(mode: &Mode, pdf: &Option<pdf::PdfService>, method: &str, params: &V
                 .ok_or("output missing")?;
             let rows = params.get("rows").cloned().unwrap_or(Value::Array(Vec::new()));
             annotations::write_annotations(path, output, &rows)
+        }
+        (Mode::Youtube, "youtube.video") => {
+            let id = params
+                .get("id")
+                .and_then(|value| value.as_str())
+                .ok_or("id missing")?;
+            youtube.as_ref().ok_or("youtube service not ready")?.video(id)
+        }
+        (Mode::Youtube, "youtube.playlist") => {
+            let id = params
+                .get("id")
+                .and_then(|value| value.as_str())
+                .ok_or("id missing")?;
+            youtube.as_ref().ok_or("youtube service not ready")?.playlist(id)
         }
         (mode, other) => Err(format!("mode {} does not implement {other}", mode_name(mode))),
     }

@@ -31,6 +31,10 @@ func (a *App) SetNative(native *helper.Native) {
 	a.invoker.SetNative(native)
 }
 
+func (a *App) SetYoutubeNative(native *helper.Native) {
+	a.invoker.SetYoutubeNative(native)
+}
+
 func (a *App) State() *contract.State {
 	a.mu.Lock()
 	defer a.mu.Unlock()

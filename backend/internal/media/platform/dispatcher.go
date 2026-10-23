@@ -8,7 +8,8 @@ import (
 )
 
 type Dispatcher struct {
-	Bili *bilibili.CatalogReader
+	Bili    *bilibili.CatalogReader
+	Youtube NativeCaller
 }
 
 func NewDispatcher(bili *bilibili.CatalogReader) *Dispatcher { return &Dispatcher{Bili: bili} }
@@ -32,5 +33,5 @@ func (dispatcher *Dispatcher) ReadWithFetcher(ctx context.Context, input string,
 		}
 		return dispatcher.Bili.Read(input, playlist, settings)
 	}
-	return Read(ctx, selection, playlist, settings, fetcher)
+	return Read(ctx, selection, playlist, settings, fetcher, dispatcher.Youtube)
 }

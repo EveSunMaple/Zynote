@@ -319,6 +319,7 @@ func (inv *Invoker) downloadServiceFor(state *contract.State, reverse contract.R
 	}
 	allowSystem := !state.Packaged || os.Getenv("ZYNOTE_SYSTEM_MEDIA") == "1"
 	dispatcher := platform.NewDispatcher(bilibili.NewCatalogReader(resources))
+	dispatcher.Youtube = inv.youtube
 	runner := &download.Runner{
 		Jobs:          service.Jobs,
 		Auth:          service.Auth,
@@ -445,7 +446,7 @@ func (inv *Invoker) readCatalogSource(state *contract.State, reverse contract.Re
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()
-	return platform.Read(ctx, selection, playlist, settings, scoped)
+	return platform.Read(ctx, selection, playlist, settings, scoped, inv.youtube)
 }
 
 func (inv *Invoker) handleMediaDiscussion(store contract.StateStore, state *contract.State, params json.RawMessage) (any, error) {

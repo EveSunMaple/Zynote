@@ -627,3 +627,13 @@ Zynote/
 - [x] runner：Plan 提示与警告、`KeepSegments` 传入 mux、字幕按保留区间重映射（空/过多拒绝）；移除原“未接入”拒绝。
 - [x] 测试：正常移除/过滤非 skip/缓存命中零网络/篡改拒绝、404、平台限制、分类白名单、时长不符。
 - [ ] SponsorBlock 只能在 YouTube 迁移完成后端到端验证。
+
+## 1.25 YouTube 原生目录（Rust rustypipe，2026-10-23）
+
+- [x] `native/zynote-native` 增加 rustypipe 0.11.4 + tokio；`--mode youtube` 支持 `youtube.video`（标题/时长/封面/描述/格式/字幕，DRM 与直播拒绝，itag 去重，`fmt=json3` 字幕），缓存目录由 Go 传入 `--youtube-cache`。
+- [x] Go：`helper.Native` 支持 youtube 模式与缓存参数（`cmd` 创建第二个助手）；`platform` 增加 `NativeCaller` 与 YouTube video/playlist 分支；dispatcher/`readCatalogSource` 接入；`media:catalog` 实测返回 27 个格式、720/1080/2160 等档位。
+- [x] 依赖合规：NOTICE 记录 rustypipe GPL-3.0（与 AGPL-3.0-only 组合）。
+- [x] 稳定性：自生成 visitor data（避免 rustypipe 首次拉取 visitor data 失败 panic）+ `catch_unwind` 将内部 panic 转为错误；缓存目录由核心传入。
+- [x] 传输层修复：默认遵循系统代理（`ProxyFromEnvironment`），移除 `http.Client.Timeout` 总时长限制（改为连接/响应头超时），避免大文件被 60s 总超时截断。
+- [x] E2E：Go core → `media:catalog` 实测 27 格式/8 档位；下载尝试受本机代理吞吐（约 3.7KB/s，curl 同样截断）阻塞，未完成成品验证。
+- [ ] **已知缺口**：rustypipe 0.11.4 的播放列表解析对当前 YouTube 响应失败（`missing field description` / `itemSectionRenderer empty`），Go 端暂显式报错；翻译字幕未暴露；媒体路由保持 TS。

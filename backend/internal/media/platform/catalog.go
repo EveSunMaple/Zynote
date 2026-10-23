@@ -138,9 +138,13 @@ func youtubeInput(parsed *url.URL) (Selection, error) {
 
 type Fetcher = media.AuthFetcher
 
-func Read(ctx context.Context, selection Selection, playlist bool, options media.NativeMediaOptions, fetcher Fetcher) (any, error) {
+type NativeCaller interface {
+	Call(method string, params any, timeoutMS int) (json.RawMessage, error)
+}
+
+func Read(ctx context.Context, selection Selection, playlist bool, options media.NativeMediaOptions, fetcher Fetcher, youtube NativeCaller) (any, error) {
 	if selection.Platform == "youtube" {
-		return nil, fmt.Errorf("YouTube 原生解析尚未接入")
+		return readYoutube(selection, playlist, options, youtube)
 	}
 	if playlist {
 		return nil, fmt.Errorf("此平台当前请逐条选择视频，不把单个视频误当作完整播放列表")
@@ -165,6 +169,53 @@ func Read(ctx context.Context, selection Selection, playlist bool, options media
 		return vimeoSource(selection, raw, options)
 	}
 	return dailymotionSource(selection, raw, options)
+}
+
+func readYoutube(selection Selection, playlist bool, options media.NativeMediaOptions, caller NativeCaller) (any, error) {
+	if caller == nil {
+		return nil, fmt.Errorf("YouTube 原生执行器不可用")
+	}
+	if playlist {
+		if selection.Hash == "" {
+			return nil, fmt.Errorf("请提供带播放列表标识的网址，单个视频不冒充整套课程")
+		}
+		raw, err := caller.Call("youtube.playlist", map[string]any{"id": selection.Hash}, 90000)
+		if err != nil {
+			return nil, err
+		}
+		var catalog media.Catalog
+		if err := json.Unmarshal(raw, &catalog); err != nil {
+			return nil, fmt.Errorf("YouTube 目录读取失败：响应格式异常")
+		}
+		if catalog.URL == "" || catalog.Title == "" || len(catalog.Entries) == 0 {
+			return nil, fmt.Errorf("未取得可选择的公开视频")
+		}
+		return catalog, nil
+	}
+	if selection.ID == "" {
+		return nil, fmt.Errorf("请先选择播放列表中的具体视频")
+	}
+	raw, err := caller.Call("youtube.video", map[string]any{"id": selection.ID}, 120000)
+	if err != nil {
+		return nil, err
+	}
+	var source media.Source
+	if err := json.Unmarshal(raw, &source); err != nil {
+		return nil, fmt.Errorf("YouTube 目录读取失败：响应格式异常")
+	}
+	if source.Identity != "youtube:"+selection.ID {
+		return nil, fmt.Errorf("YouTube 目录与所选视频身份不一致")
+	}
+	if len(source.Streams) == 0 && !options.SubtitleOnly {
+		return nil, fmt.Errorf("YouTube 未返回可读取格式，请检查访问权限或站点验证要求")
+	}
+	if options.Subtitles && len(source.SubtitleTracks) == 0 {
+		return nil, fmt.Errorf("此视频没有提供可用字幕；可下载后使用本地转写")
+	}
+	if err := validateFormats(options, source.Streams); err != nil {
+		return nil, fmt.Errorf("YouTube 格式已改变，请重新读取")
+	}
+	return source, nil
 }
 
 func requestJSON(ctx context.Context, fetcher Fetcher, endpoint string) (map[string]any, error) {

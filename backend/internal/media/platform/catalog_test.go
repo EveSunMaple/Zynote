@@ -2,6 +2,7 @@ package platform
 
 import (
 	"context"
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -78,7 +79,7 @@ func TestReadVimeo(t *testing.T) {
 	defer server.Close()
 	source, err := Read(context.Background(), Selection{
 		Platform: "vimeo", URL: "https://vimeo.com/123456", ID: "123456",
-	}, false, mediaOptions(), fetcherFor(server))
+	}, false, mediaOptions(), fetcherFor(server), nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -101,7 +102,7 @@ func TestReadVimeoRejectsIdentityMismatch(t *testing.T) {
 	defer server.Close()
 	if _, err := Read(context.Background(), Selection{
 		Platform: "vimeo", URL: "https://vimeo.com/123456", ID: "123456",
-	}, false, mediaOptions(), fetcherFor(server)); err == nil || !strings.Contains(err.Error(), "身份不一致") {
+	}, false, mediaOptions(), fetcherFor(server), nil); err == nil || !strings.Contains(err.Error(), "身份不一致") {
 		t.Fatalf("identity mismatch: %v", err)
 	}
 }
@@ -119,7 +120,7 @@ func TestReadDailymotion(t *testing.T) {
 	defer server.Close()
 	source, err := Read(context.Background(), Selection{
 		Platform: "dailymotion", URL: "https://www.dailymotion.com/video/x8abc12", ID: "x8abc12",
-	}, false, mediaOptions(), fetcherFor(server))
+	}, false, mediaOptions(), fetcherFor(server), nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -131,10 +132,55 @@ func TestReadDailymotion(t *testing.T) {
 	}
 }
 
+type fakeCaller struct {
+	method string
+	raw    string
+}
+
+func (caller *fakeCaller) Call(method string, params any, timeoutMS int) (json.RawMessage, error) {
+	caller.method = method
+	return json.RawMessage(caller.raw), nil
+}
+
+func TestReadYoutube(t *testing.T) {
+	source := `{
+		"platform":"youtube","sourceId":"dQw4w9WgXcQ","identity":"youtube:dQw4w9WgXcQ",
+		"streams":[{"id":"137","kind":"video","urls":["https://rr1---sn.googlevideo.com/v.mp4"],"height":1080,"codec":"avc1","bandwidth":1000,"extension":"mp4"}],
+		"subtitleTracks":[{"language":"en","url":"https://www.youtube.com/api/timedtext?v=x&fmt=json3","automatic":false,"format":"youtube-json3"}],
+		"catalog":{"url":"https://www.youtube.com/watch?v=dQw4w9WgXcQ","title":"标题","duration":10,"heights":[1080],"formats":[]}
+	}`
+	caller := &fakeCaller{raw: source}
+	result, err := Read(context.Background(), Selection{
+		Platform: "youtube", URL: "https://www.youtube.com/watch?v=dQw4w9WgXcQ", ID: "dQw4w9WgXcQ",
+	}, false, mediaOptions(), nil, caller)
+	if err != nil {
+		t.Fatal(err)
+	}
+	row, ok := result.(media.Source)
+	if !ok || row.Identity != "youtube:dQw4w9WgXcQ" || len(row.Streams) != 1 || len(row.SubtitleTracks) != 1 ||
+		caller.method != "youtube.video" {
+		t.Fatalf("youtube source mismatch: %+v %s", row, caller.method)
+	}
+	options := mediaOptions()
+	options.FormatIDs = "999"
+	if _, err := Read(context.Background(), Selection{
+		Platform: "youtube", URL: "https://www.youtube.com/watch?v=dQw4w9WgXcQ", ID: "dQw4w9WgXcQ",
+	}, false, options, nil, caller); err == nil || !strings.Contains(err.Error(), "格式已改变") {
+		t.Fatalf("youtube format mismatch: %v", err)
+	}
+	caller.raw = `{"url":"https://www.youtube.com/playlist?list=PL1234567890","title":"课程","playlist":true,"entries":[{"title":"P1","url":"https://www.youtube.com/watch?v=dQw4w9WgXcQ"}]}`
+	catalog, err := Read(context.Background(), Selection{
+		Platform: "youtube", URL: "https://www.youtube.com/playlist?list=PL1234567890", Hash: "PL1234567890",
+	}, true, mediaOptions(), nil, caller)
+	if err != nil || catalog.(media.Catalog).Title != "课程" || caller.method != "youtube.playlist" {
+		t.Fatalf("youtube playlist mismatch: %+v %v", catalog, err)
+	}
+}
+
 func TestReadRejectsPlaylistAndFormatMismatch(t *testing.T) {
-	if _, err := Read(context.Background(), Selection{Platform: "youtube"}, true, mediaOptions(), nil); err == nil ||
-		!strings.Contains(err.Error(), "YouTube") {
-		t.Fatalf("youtube mismatch: %v", err)
+	if _, err := Read(context.Background(), Selection{Platform: "vimeo"}, true, mediaOptions(), nil, nil); err == nil ||
+		!strings.Contains(err.Error(), "逐条选择") {
+		t.Fatalf("playlist mismatch: %v", err)
 	}
 	options := mediaOptions()
 	options.FormatIDs = "missing"
@@ -147,10 +193,10 @@ func TestReadRejectsPlaylistAndFormatMismatch(t *testing.T) {
 	defer server.Close()
 	if _, err := Read(context.Background(), Selection{
 		Platform: "dailymotion", URL: "https://www.dailymotion.com/video/x8abc12", ID: "x8abc12",
-	}, false, options, fetcherFor(server)); err == nil || !strings.Contains(err.Error(), "格式已改变") {
+	}, false, options, fetcherFor(server), nil); err == nil || !strings.Contains(err.Error(), "格式已改变") {
 		t.Fatalf("format mismatch: %v", err)
 	}
-	if _, err := Read(context.Background(), Selection{Platform: "vimeo", ID: "1"}, true, mediaOptions(), nil); err == nil ||
+	if _, err := Read(context.Background(), Selection{Platform: "vimeo", ID: "1"}, true, mediaOptions(), nil, nil); err == nil ||
 		!strings.Contains(err.Error(), "逐条选择") {
 		t.Fatalf("playlist mismatch: %v", err)
 	}

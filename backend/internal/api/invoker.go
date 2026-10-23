@@ -20,6 +20,7 @@ type handlerFunc func(store contract.StateStore, state *contract.State, params j
 type Invoker struct {
 	handlers     map[string]handlerFunc
 	native       *helper.Native
+	youtube      *helper.Native
 	media        *media.MediaService
 	mediaRoot    string
 	bili         *bilibili.Resources
@@ -56,6 +57,10 @@ func NewInvoker() *Invoker {
 
 func (inv *Invoker) SetNative(native *helper.Native) {
 	inv.native = native
+}
+
+func (inv *Invoker) SetYoutubeNative(native *helper.Native) {
+	inv.youtube = native
 }
 
 func requireState(fn handlerFunc) handlerFunc {
@@ -217,7 +222,10 @@ func (inv *Invoker) handleHello(store contract.StateStore, params json.RawMessag
 		return nil, contract.Unavailable("数据目录不可用")
 	}
 	if inv.native != nil {
-		inv.native.Configure(input.NativePath, filepath.Join(input.ResourcesRoot, "pdfium", pdfiumFilename()))
+		inv.native.Configure(input.NativePath, filepath.Join(input.ResourcesRoot, "pdfium", pdfiumFilename()), "")
+	}
+	if inv.youtube != nil {
+		inv.youtube.Configure(input.NativePath, "", filepath.Join(state.DataRoot, "cache", "youtube"))
 	}
 	store.SetState(state)
 	slog.Info("hello accepted", "dataRoot", state.DataRoot)

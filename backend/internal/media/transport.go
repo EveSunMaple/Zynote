@@ -38,8 +38,10 @@ func NewMediaTransport(options NativeMediaOptions) (*MediaTransport, error) {
 	}
 	dialer := &net.Dialer{Timeout: time.Duration(seconds * float64(time.Second))}
 	transport := &http.Transport{
-		DisableCompression: true,
-		Proxy:              nil,
+		DisableCompression:    true,
+		Proxy:                 http.ProxyFromEnvironment,
+		ResponseHeaderTimeout: time.Duration(seconds * float64(time.Second)),
+		TLSHandshakeTimeout:   time.Duration(seconds * float64(time.Second)),
 		DialContext: func(ctx context.Context, network, address string) (net.Conn, error) {
 			if options.ForceIPv4 {
 				network = "tcp4"
@@ -57,7 +59,6 @@ func NewMediaTransport(options NativeMediaOptions) (*MediaTransport, error) {
 	}
 	client := &http.Client{
 		Transport: transport,
-		Timeout:   time.Duration(seconds * float64(time.Second)),
 		CheckRedirect: func(request *http.Request, via []*http.Request) error {
 			return errors.New("媒体下载不允许重定向")
 		},
