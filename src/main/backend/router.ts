@@ -9,11 +9,7 @@ const goShadowActions = new Set([
  'course:detail',
  'library:list',
  'sessions',
- 'lecture:detail',
- 'media:options',
- 'media:list',
- 'media:auth-list',
- 'bili-resources:status'
+ 'lecture:detail'
 ])
 
 export const goPrimaryActions = new Set([
@@ -22,20 +18,7 @@ export const goPrimaryActions = new Set([
  'db:bootstrap',
  'course:delete',
  'session:delete',
- 'lecture:delete',
- 'media:catalog',
- 'media:create',
- 'media:retry',
- 'media:cancel',
- 'media:discussion',
- 'media:auth-import',
- 'media:auth-remove',
- 'bili-resources:browse',
- 'bili-resources:folders',
- 'bili-resources:videos',
- 'bili-resources:qr',
- 'bili-resources:poll',
- 'bili-resources:logout'
+ 'lecture:delete'
 ])
 
 const deleteSubjects = new Map([
