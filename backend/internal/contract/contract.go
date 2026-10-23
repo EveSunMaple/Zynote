@@ -57,6 +57,7 @@ type State struct {
 	ResourcesRoot   string   `json:"resourcesRoot"`
 	PromptsRoot     string   `json:"promptsRoot"`
 	Portable        bool     `json:"portable"`
+	Packaged        bool     `json:"packaged"`
 	Capabilities    []string `json:"capabilities"`
 }
 
@@ -70,7 +71,7 @@ var DefaultCapabilities = []string{
 	"media:options", "media:list", "media:retry", "media:cancel", "media:file",
 	"media:auth-import", "media:auth-list", "media:auth-remove",
 	"bili-resources:status", "bili-resources:browse", "bili-resources:qr", "bili-resources:poll",
-	"bili-resources:logout", "bili-resources:folders", "bili-resources:videos", "media:catalog",
+	"bili-resources:logout", "bili-resources:folders", "bili-resources:videos", "media:catalog", "media:create",
 }
 
 type HelloParams struct {
@@ -84,6 +85,7 @@ type HelloParams struct {
 	PromptsRoot     string `json:"promptsRoot"`
 	NativePath      string `json:"nativePath"`
 	Portable        bool   `json:"portable"`
+	Packaged        bool   `json:"packaged"`
 }
 
 type StateStore interface {

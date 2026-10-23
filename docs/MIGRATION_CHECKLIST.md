@@ -540,3 +540,15 @@ Zynote/
 6. 数据迁移：首次启动自动改名旧中文目录 + DB 路径重定位（已实现）。
 7. 许可证：维持 AGPL-3.0-only。
 8. 版本：0.0.1 测试版。
+
+## 1.13 P4c-2c/2d/2e/2f 完成记录（2026-10-23）
+
+- [x] **P4c-2c 目录解析与选流**（`3ea6560` `24e5b50`）：`video-policy`（`VideoURL`/`VideoMediaURL`/`MediaAddress` 协议与域白名单）、`catalog.go`（单视频/合集、分集唯一性、DASH 流 + durl 回退、字幕/章节/封面、format_ids 校验）、`SelectStreams`（精确格式、音质上限、编码前缀、组合回退）；`media:catalog` 接入并返回 15 分钟 token（200 上限）。
+- [x] **P4c-2d 文件名/布局/侧车**（`1f5ad7a`）：`naming.go`（模板字段、100 字节截断、非法字符、restrict 模式）、`layout.go`（source/type/date 目录、exclusive 复制 + 哈希核验、cleanup 语义）、`sidecars.go`（O_EXCL、描述/链接/mtime、allowedTuning 白名单）。
+- [x] **P4c-2e 时间线与 mux**（`f81e656`）：`timeline.go`（区间校验/保留时间线/章节重映射）、`mux_full.go`（完整 Mux/PrepareCover/Concatenate、章节+片段、预期时长核验、封面嵌入、假 ffmpeg/ffprobe 离线测试）。
+- [x] **P4c-2f 下载 runner + `media:create`**（本次）：`download/runner.go`（catalog 复核身份→封面→选流→串行/分片/HLS→拼接→mux→拆分章节→发布→Evidence→清理；错误/取消状态机；aria2c 降级警告；字幕/SponsorBlock 显式拒绝）；`download/service.go`（单活动队列、取消、进度内存投影）；`media:create`（token 重读复核身份、skip_existing 去重、入队）+ `media:cancel` 取消活动任务；hello 增加 `packaged` 参数（决定系统工具回退）。
+- [x] 修复：`jobs.Create` 误用 32 位十六进制 ID 正则校验 identity（会拒绝真实 B 站分集标识），改为 1..500 字符；Transfer 警告改为追加而非覆盖。
+- [x] 验证：`go vet`、`go test ./...`（download 新增 4 套：成功发布/字幕拒绝/章节拆分拒绝/身份变化）、`pnpm smoke:go-core`（45 能力）、`pnpm verify`、`pnpm build` 全绿。
+- [x] **迁移进度：45 个能力 Go 化**（112 个 action）。
+- [ ] **P4c 剩余**：`media:discussion`/`media:discussion-import`（B 站评论抓取 + 选择导入）；媒体 legacy 记录只读合并；路由层 media 域灰度切换（当前 Go 能力尚未全部加入 `goPrimaryActions`/影子读集合）。
+- [ ] **P4d**：YouTube（Rust `--mode youtube`，rustypipe spike + D3a 口径对比）；智云 `zhiyun:search/lessons/export`；SnapAny 留 Electron 壳。

@@ -13,6 +13,7 @@ import (
 	"strings"
 	"syscall"
 	"time"
+	"unicode/utf8"
 )
 
 const JobIDPattern = `^[a-f0-9]{32}$`
@@ -301,6 +302,8 @@ func (jobs *DownloadJobs) initializeLocked() error {
 	return nil
 }
 
+func OptionsMap(options NativeMediaOptions) map[string]any { return recipeMap(options) }
+
 func recipeMap(options NativeMediaOptions) map[string]any {
 	encoded, _ := json.Marshal(options)
 	result := map[string]any{}
@@ -321,7 +324,7 @@ func (jobs *DownloadJobs) Create(identity, url, title string, options any, legac
 	if legacy != nil && jobs.records[legacy.ID] != nil {
 		return nil, fmt.Errorf("此旧任务已经迁入原生队列，请刷新记录")
 	}
-	if !jobIDRegexp.MatchString(identity) {
+	if strings.TrimSpace(identity) == "" || utf8.RuneCountInString(identity) > 500 {
 		return nil, fmt.Errorf("下载任务标识无效")
 	}
 	id := ""

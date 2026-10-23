@@ -12,18 +12,23 @@ import (
 	"github.com/EveSunMaple/Zynote/backend/internal/helper"
 	"github.com/EveSunMaple/Zynote/backend/internal/media"
 	"github.com/EveSunMaple/Zynote/backend/internal/media/bilibili"
+	"github.com/EveSunMaple/Zynote/backend/internal/media/download"
 )
 
 type handlerFunc func(store contract.StateStore, state *contract.State, params json.RawMessage) (any, error)
 
 type Invoker struct {
-	handlers  map[string]handlerFunc
-	native    *helper.Native
-	media     *media.MediaService
-	mediaRoot string
-	bili      *bilibili.Resources
-	biliRoot  string
-	mediaMu   sync.Mutex
+	handlers     map[string]handlerFunc
+	native       *helper.Native
+	media        *media.MediaService
+	mediaRoot    string
+	bili         *bilibili.Resources
+	biliRoot     string
+	download     *download.Service
+	downloadRoot string
+	tokens       map[string]catalogToken
+	tokenMu      sync.Mutex
+	mediaMu      sync.Mutex
 }
 
 func NewInvoker() *Invoker {
@@ -95,7 +100,7 @@ func (inv *Invoker) Invoke(store contract.StateStore, action string, params json
 		}
 		return inv.handleFilesRemove(state, params)
 	case "bili-resources:status", "bili-resources:browse", "bili-resources:qr", "bili-resources:poll",
-		"bili-resources:logout", "bili-resources:folders", "bili-resources:videos", "media:catalog":
+		"bili-resources:logout", "bili-resources:folders", "bili-resources:videos", "media:catalog", "media:create":
 		state := store.State()
 		if state == nil {
 			return nil, contract.Unavailable("后台尚未完成握手")
@@ -115,6 +120,8 @@ func (inv *Invoker) Invoke(store contract.StateStore, action string, params json
 			return inv.handleBiliFolders(store, state, params)
 		case "media:catalog":
 			return inv.handleMediaCatalog(store, state, params)
+		case "media:create":
+			return inv.handleMediaCreate(store, state, params)
 		default:
 			return inv.handleBiliVideos(store, state, params)
 		}
@@ -201,6 +208,7 @@ func (inv *Invoker) handleHello(store contract.StateStore, params json.RawMessag
 		ResourcesRoot:   input.ResourcesRoot,
 		PromptsRoot:     input.PromptsRoot,
 		Portable:        input.Portable,
+		Packaged:        input.Packaged,
 		Capabilities:    contract.DefaultCapabilities,
 	}
 	if err := os.MkdirAll(state.DataRoot, 0o755); err != nil {

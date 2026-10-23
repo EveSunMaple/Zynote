@@ -92,7 +92,16 @@ func (inv *Invoker) handleMediaCatalog(store contract.StateStore, state *contrac
 		return nil, err
 	}
 	reader := bilibili.NewCatalogReader(resources)
-	return reader.Read(input.URL, input.Playlist, input.Options)
+	result, err := reader.Read(input.URL, input.Playlist, input.Options)
+	if err != nil {
+		return nil, err
+	}
+	source, ok := result.(bilibili.Source)
+	if !ok {
+		return result, nil
+	}
+	token := inv.storeCatalogToken(source)
+	return catalogWithToken{Catalog: source.Catalog, Token: token}, nil
 }
 
 func (inv *Invoker) handleBiliQR(store contract.StateStore, state *contract.State, _ json.RawMessage) (any, error) {

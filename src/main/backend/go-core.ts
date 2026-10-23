@@ -95,7 +95,8 @@ export class GoCore {
     resourcesRoot: this.options.resourcesRoot,
     promptsRoot: this.options.promptsRoot,
     nativePath: this.options.nativePath,
-    portable: this.options.portable
+    portable: this.options.portable,
+    packaged: app.isPackaged
    }
   })
   const timer = setTimeout(() => this.handleExit(undefined, undefined, '握手超时'), HELLO_TIMEOUT_MS)

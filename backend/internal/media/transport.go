@@ -116,7 +116,17 @@ func (body *pacedBody) Close() error {
 	return body.reader.Close()
 }
 
+func (transport *MediaTransport) Close() { transport.client.CloseIdleConnections() }
+
+func (transport *MediaTransport) Head(requestURL string, headers map[string]string, ctx context.Context) (*http.Response, error) {
+	return transport.request(http.MethodHead, requestURL, headers, ctx)
+}
+
 func (transport *MediaTransport) Fetch(requestURL string, headers map[string]string, ctx context.Context) (*http.Response, error) {
+	return transport.request(http.MethodGet, requestURL, headers, ctx)
+}
+
+func (transport *MediaTransport) request(method, requestURL string, headers map[string]string, ctx context.Context) (*http.Response, error) {
 	if transport.interval > 0 {
 		transport.mu.Lock()
 		now := time.Now()
@@ -137,7 +147,7 @@ func (transport *MediaTransport) Fetch(requestURL string, headers map[string]str
 		transport.lastFetch = time.Now()
 		transport.mu.Unlock()
 	}
-	request, err := http.NewRequestWithContext(ctx, http.MethodGet, requestURL, nil)
+	request, err := http.NewRequestWithContext(ctx, method, requestURL, nil)
 	if err != nil {
 		return nil, contract.InputInvalid("下载地址无效")
 	}
