@@ -711,3 +711,8 @@ Zynote/
 - [x] `subtitles:save/import`：SRT 严格解析、字幕写库、校订检查点/笔记/练习清理、课次状态更新、详情回读；导入经 `shell.pickFile`。
 - [x] `questions:split`：历年卷归属/OCR 校验、14k 分块、`past-exam` 提示词、逐块进度、题目字段白名单校验、题库替换与练习复位。
 - [x] 测试：字幕清理/状态、拆题生成与题库落库、缺失历年卷拒绝；capabilities 76 → **79**。
+
+## 1.37 练习作答与重置（2026-10-23）
+
+- [x] `practice:submit/reset`：选项解析、答案字母核对、attempt 写入/清除、practice_sets 持久化。
+- [x] 测试：正确/错误判定、重置、缺题拒绝；capabilities 79 → **81**。

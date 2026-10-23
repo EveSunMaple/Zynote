@@ -148,6 +148,15 @@ func (inv *Invoker) Invoke(store contract.StateStore, action string, params json
 		default:
 			return inv.handleBiliVideos(store, state, params)
 		}
+	case "practice:submit", "practice:reset":
+		state := store.State()
+		if state == nil {
+			return nil, contract.Unavailable("后台尚未完成握手")
+		}
+		if action == "practice:submit" {
+			return inv.handlePracticeSubmit(store, state, params)
+		}
+		return inv.handlePracticeReset(store, state, params)
 	case "questions:split":
 		state := store.State()
 		if state == nil {

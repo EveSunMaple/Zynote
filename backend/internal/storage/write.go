@@ -653,3 +653,32 @@ func (w *WriteDB) ReplaceQuestions(courseID, fileID string, questions []map[stri
 	}
 	return tx.Commit()
 }
+
+func (w *WriteDB) SavePractice(lectureID string, practice map[string]any) error {
+	if _, err := w.Lecture(lectureID); err != nil {
+		return err
+	}
+	pastIDs := []string{}
+	if past, ok := practice["past"].([]any); ok {
+		for _, item := range past {
+			if question, ok := item.(map[string]any); ok {
+				if id := toStringValue(question["id"]); id != "" {
+					pastIDs = append(pastIDs, id)
+				}
+			}
+		}
+	}
+	encodedIDs, err := json.Marshal(pastIDs)
+	if err != nil {
+		return err
+	}
+	encoded, err := json.Marshal(practice)
+	if err != nil {
+		return err
+	}
+	_, err = w.db.Exec(
+		"INSERT OR REPLACE INTO practice_sets(lecture_id,past_ids_json,extended_json,updated_at) VALUES(?,?,?,CURRENT_TIMESTAMP)",
+		lectureID, string(encodedIDs), string(encoded),
+	)
+	return err
+}
