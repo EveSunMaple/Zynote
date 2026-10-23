@@ -673,3 +673,11 @@ Zynote/
 - [x] stdio 请求改为并发处理（反向 RPC 回复不再被长任务阻塞；SQLite 由 busy_timeout/WAL 串行化），新增 jobs 互斥/取消测试。
 - [x] 测试：SSE 完成/截断、JSON/Responses、模型列表、聊天事件与消息持久化、模型草稿校验/Key 复用/缓存写入。
 - [ ] **未切路由**：chat 与模型测试仍走 TS，待界面手测后加入主路径。
+
+## 1.31 M2 知识库问答与分类建议（2026-10-23）
+
+- [x] `ai.JSON`：结构化输出两次尝试、围栏清理、校验失败反馈与 1.5s 重试。
+- [x] `knowledge:ask`：检索 → 片段 JSON → 引用逐字核验（≥6 字、命中来源）→ 重新 citation 校验 digest/generation；无命中返回固定 limitation。
+- [x] `knowledge:classification-suggest`：分类草稿 + 选项 → 结构化选择校验。
+- [x] 测试：检索-问答-引用、分类建议、无命中；capabilities 67 → **69**。
+- [ ] `tools:request`/`tools:skill-open` 仍依赖研究后端（约 3.4k 行），留待研究域迁移。

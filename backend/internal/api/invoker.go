@@ -172,7 +172,7 @@ func (inv *Invoker) Invoke(store contract.StateStore, action string, params json
 		default:
 			return inv.handleJobCurrent(store, state, params)
 		}
-	case "knowledge:list", "knowledge:generation", "knowledge:read", "knowledge:import",
+	case "knowledge:ask", "knowledge:classification-suggest", "knowledge:list", "knowledge:generation", "knowledge:read", "knowledge:import",
 		"knowledge:citation", "knowledge:delete", "knowledge:organize", "knowledge:rebuild",
 		"knowledge:search", "knowledge:classification-options", "knowledge:classification-read",
 		"knowledge:classification-save":
@@ -181,6 +181,10 @@ func (inv *Invoker) Invoke(store contract.StateStore, action string, params json
 			return nil, contract.Unavailable("后台尚未完成握手")
 		}
 		switch action {
+		case "knowledge:ask":
+			return inv.handleKnowledgeAsk(store, state, params)
+		case "knowledge:classification-suggest":
+			return inv.handleKnowledgeClassificationSuggest(store, state, params)
 		case "knowledge:list":
 			return inv.handleKnowledgeList(store, state, params)
 		case "knowledge:generation":

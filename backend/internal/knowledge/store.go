@@ -774,6 +774,8 @@ var selectionKeys = map[string]bool{
 	"language": true, "keywords": true, "quality_tier": true,
 }
 
+func ValidateClassification(selection map[string]any) error { return validateSelection(selection) }
+
 func validateSelection(selection map[string]any) error {
 	for key := range selection {
 		if !selectionKeys[key] {

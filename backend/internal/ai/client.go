@@ -452,3 +452,52 @@ func readSSE(body io.Reader, onText func(string)) (string, error) {
 	}
 	return all.String(), nil
 }
+
+func stripJSONFence(value string) string {
+	trimmed := strings.TrimSpace(value)
+	trimmed = regexp.MustCompile("(?is)^\\s*```(?:json)?\\s*").ReplaceAllString(trimmed, "")
+	trimmed = regexp.MustCompile("(?is)\\s*```\\s*$").ReplaceAllString(trimmed, "")
+	return strings.TrimSpace(trimmed)
+}
+
+func (client *Client) JSON(ctx context.Context, prompt string, input any, validate func([]byte) error) ([]byte, error) {
+	encoded, err := json.Marshal(input)
+	if err != nil {
+		return nil, err
+	}
+	feedback := ""
+	var lastErr error
+	for attempt := 0; attempt < 2; attempt++ {
+		reply, err := client.Chat(ctx, []Message{
+			{Role: "system", Content: prompt},
+			{Role: "user", Content: string(encoded) + feedback},
+		}, nil)
+		if err != nil {
+			return nil, err
+		}
+		clean := []byte(stripJSONFence(reply))
+		if err := validate(clean); err != nil {
+			lastErr = err
+			if ctx.Err() != nil {
+				return nil, ctx.Err()
+			}
+			if attempt == 1 {
+				return nil, err
+			}
+			feedback = "\n上次输出未通过格式校验。请严格返回指定结构的合法 JSON，不加说明。"
+			timer := time.NewTimer(1500 * time.Millisecond)
+			select {
+			case <-timer.C:
+			case <-ctx.Done():
+				timer.Stop()
+				return nil, ctx.Err()
+			}
+			continue
+		}
+		return clean, nil
+	}
+	if lastErr == nil {
+		lastErr = fmt.Errorf("结构化输出失败")
+	}
+	return nil, lastErr
+}

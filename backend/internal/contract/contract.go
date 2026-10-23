@@ -66,7 +66,7 @@ var DefaultCapabilities = []string{
 	"db:health", "db:backup", "chat", "cancel", "job:current", "settings:models", "settings:probe", "settings:test",
 		"knowledge:list", "knowledge:generation", "knowledge:read", "knowledge:import",
 	"knowledge:citation", "knowledge:delete", "knowledge:organize", "knowledge:rebuild",
-	"knowledge:search", "knowledge:classification-options", "knowledge:classification-read",
+	"knowledge:search", "knowledge:ask", "knowledge:classification-suggest", "knowledge:classification-options", "knowledge:classification-read",
 	"knowledge:classification-save",
 	"course:detail", "library:list",
 	"course:create", "sessions", "session:create",
