@@ -689,3 +689,8 @@ Zynote/
 - [x] `zhiyun:lessons`：catalogue 权限与结构校验、content JSON 解析、`videoAvailable` 标记（不暴露 URL）。
 - [x] 测试：搜索映射/去重/分页、课次内容、Cookie/Authorization 透传、登录/权限/HTML 错误；capabilities 69 → **71**。
 - [ ] `zhiyun:export` 仍留 TS（依赖视频 PPT 管线/文件落盘）。
+
+## 1.33 media:discussion-import（2026-10-23）
+
+- [x] `media:discussion-import`：讨论 ref 选择 → 证据文本 → 知识库导入（expectedGeneration 防覆盖）→ `Notes/<分类>/<标题>-<ref>.md` 写入并回读核验。
+- [x] 测试：证据选择/备注渲染、默认分类、笔记文件与知识库列表；capabilities 71 → **72**。

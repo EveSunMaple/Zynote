@@ -119,7 +119,7 @@ func (inv *Invoker) Invoke(store contract.StateStore, action string, params json
 		}
 		return inv.handleFilesRemove(state, params)
 	case "bili-resources:status", "bili-resources:browse", "bili-resources:qr", "bili-resources:poll",
-		"bili-resources:logout", "bili-resources:folders", "bili-resources:videos", "media:catalog", "media:create", "media:discussion":
+		"bili-resources:logout", "bili-resources:folders", "bili-resources:videos", "media:catalog", "media:create", "media:discussion", "media:discussion-import":
 		state := store.State()
 		if state == nil {
 			return nil, contract.Unavailable("后台尚未完成握手")
@@ -143,6 +143,8 @@ func (inv *Invoker) Invoke(store contract.StateStore, action string, params json
 			return inv.handleMediaCreate(store, state, params)
 		case "media:discussion":
 			return inv.handleMediaDiscussion(store, state, params)
+		case "media:discussion-import":
+			return inv.handleMediaDiscussionImport(store, state, params)
 		default:
 			return inv.handleBiliVideos(store, state, params)
 		}
