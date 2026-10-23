@@ -655,3 +655,11 @@ Zynote/
 - [x] **修复反向 RPC 死锁**：stdio 请求处理阻塞回复帧读取，`crypto.*`/`shell.pickFile` 会等满超时；请求改为串行 goroutine 执行，Serve 循环持续消费回复帧（新增 transport 测试）。
 - [x] B 站 playurl 的备份 CDN 可能带 `:8082` 端口（不可信白名单），现过滤无效备份地址、保留有效地址；无有效地址才拒绝。
 - [x] **端到端**：Go core 实下 B 站 `BV1GJ411x7h7`（360p HEVC + AAC），9.5MB `result.mkv`，ffprobe 时长 212.3s，成果核验完成。
+
+## 1.29 P5 知识库前半（2026-10-23）
+
+- [x] `internal/knowledge`：与 TS 完全一致的 `knowledge-native.sqlite` schema（sources/chunks/migrations/vectors/trigram FTS + 触发器）；导入（900/1100 分块、证据 id `evi_`+sha、原子发布）、列表/阅读/generation、关键词检索（FTS 长词 + instr 短词/中文 n-gram、按来源多样化、引用校验）、分类草稿读写、整理/删除/重建。
+- [x] 12 个 action 接入：`knowledge:list/generation/read/import/citation/delete/organize/rebuild/search/classification-options/classification-read/classification-save`；capabilities 49 → **61**。
+- [x] 跨语言：`pnpm parity:knowledge`（Electron ABI + esbuild 打包 TS store）验证 Go↔TS 双向导入/阅读/检索/引用，schema 与证据 digest 完全兼容。
+- [x] 测试：导入/分块统计、幂等与 expectedGeneration、FTS/中文检索/作用域、引用篡改拒绝、整理/删除/重建、分类草稿与非法选项、app 级 action 链路。
+- [ ] **剩余**：`knowledge:ask`/`classification-suggest`（AI）、`vector-*`（Rust ORT + bge 模型）、`tools:*`/`im:draft`；旧 Python 知识库 baseline 迁移；根目录仍为 `知识库数据`（随 P5 改名）。

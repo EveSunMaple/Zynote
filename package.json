@@ -23,6 +23,7 @@
   "smoke:go-core": "node scripts/go-core-smoke.mts",
   "parity:pdf": "node scripts/pdf-parity.mts",
   "parity:discussion": "ELECTRON_RUN_AS_NODE=1 electron scripts/discussion-roundtrip.mts",
+  "parity:knowledge": "ELECTRON_RUN_AS_NODE=1 electron scripts/knowledge-roundtrip.mts",
   "pack": "pnpm build && pnpm release full",
   "release": "node scripts/release.mts",
   "release:source": "node scripts/source-package.mts",

@@ -63,7 +63,11 @@ type State struct {
 
 var DefaultCapabilities = []string{
 	"app:info", "settings:get", "appearance:get", "appearance:save", "appearance:clear", "identity:get", "identity:save",
-	"db:health", "db:backup", "course:detail", "library:list",
+	"db:health", "db:backup", "knowledge:list", "knowledge:generation", "knowledge:read", "knowledge:import",
+	"knowledge:citation", "knowledge:delete", "knowledge:organize", "knowledge:rebuild",
+	"knowledge:search", "knowledge:classification-options", "knowledge:classification-read",
+	"knowledge:classification-save",
+	"course:detail", "library:list",
 	"course:create", "sessions", "session:create",
 	"db:bootstrap", "course:delete", "session:delete", "lecture:delete", "lecture:detail",
 	"pdf.text", "pdf.plainText", "pdf.inspect", "pdf.write",

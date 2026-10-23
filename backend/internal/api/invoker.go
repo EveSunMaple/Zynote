@@ -10,6 +10,7 @@ import (
 
 	"github.com/EveSunMaple/Zynote/backend/internal/contract"
 	"github.com/EveSunMaple/Zynote/backend/internal/helper"
+	"github.com/EveSunMaple/Zynote/backend/internal/knowledge"
 	"github.com/EveSunMaple/Zynote/backend/internal/media"
 	"github.com/EveSunMaple/Zynote/backend/internal/media/bilibili"
 	"github.com/EveSunMaple/Zynote/backend/internal/media/download"
@@ -18,18 +19,20 @@ import (
 type handlerFunc func(store contract.StateStore, state *contract.State, params json.RawMessage) (any, error)
 
 type Invoker struct {
-	handlers     map[string]handlerFunc
-	native       *helper.Native
-	youtube      *helper.Native
-	media        *media.MediaService
-	mediaRoot    string
-	bili         *bilibili.Resources
-	biliRoot     string
-	download     *download.Service
-	downloadRoot string
-	tokens       map[string]catalogToken
-	tokenMu      sync.Mutex
-	mediaMu      sync.Mutex
+	handlers      map[string]handlerFunc
+	native        *helper.Native
+	youtube       *helper.Native
+	media         *media.MediaService
+	mediaRoot     string
+	bili          *bilibili.Resources
+	biliRoot      string
+	download      *download.Service
+	downloadRoot  string
+	knowledge     *knowledge.Store
+	knowledgeRoot string
+	tokens        map[string]catalogToken
+	tokenMu       sync.Mutex
+	mediaMu       sync.Mutex
 }
 
 func NewInvoker() *Invoker {
@@ -134,6 +137,40 @@ func (inv *Invoker) Invoke(store contract.StateStore, action string, params json
 			return inv.handleMediaDiscussion(store, state, params)
 		default:
 			return inv.handleBiliVideos(store, state, params)
+		}
+	case "knowledge:list", "knowledge:generation", "knowledge:read", "knowledge:import",
+		"knowledge:citation", "knowledge:delete", "knowledge:organize", "knowledge:rebuild",
+		"knowledge:search", "knowledge:classification-options", "knowledge:classification-read",
+		"knowledge:classification-save":
+		state := store.State()
+		if state == nil {
+			return nil, contract.Unavailable("后台尚未完成握手")
+		}
+		switch action {
+		case "knowledge:list":
+			return inv.handleKnowledgeList(store, state, params)
+		case "knowledge:generation":
+			return inv.handleKnowledgeGeneration(store, state, params)
+		case "knowledge:read":
+			return inv.handleKnowledgeRead(store, state, params)
+		case "knowledge:import":
+			return inv.handleKnowledgeImport(store, state, params)
+		case "knowledge:citation":
+			return inv.handleKnowledgeCitation(store, state, params)
+		case "knowledge:delete":
+			return inv.handleKnowledgeDelete(store, state, params)
+		case "knowledge:organize":
+			return inv.handleKnowledgeOrganize(store, state, params)
+		case "knowledge:rebuild":
+			return inv.handleKnowledgeRebuild(store, state, params)
+		case "knowledge:search":
+			return inv.handleKnowledgeSearch(store, state, params)
+		case "knowledge:classification-options":
+			return inv.handleKnowledgeClassificationOptions(store, state, params)
+		case "knowledge:classification-read":
+			return inv.handleKnowledgeClassificationRead(store, state, params)
+		default:
+			return inv.handleKnowledgeClassificationSave(store, state, params)
 		}
 	case "media:options", "media:list", "media:retry", "media:cancel", "media:file",
 		"media:auth-import", "media:auth-list", "media:auth-remove":
