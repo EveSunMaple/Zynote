@@ -1,21 +1,24 @@
 import {dispatch, type IpcHandler} from '@main/ipc/handler'
 import type {GoCore} from '@main/backend/go-core'
 
-export const goPrimaryActions = new Set([
+const goShadowActions = new Set([
  'app:info',
  'settings:get',
  'appearance:get',
  'identity:get',
  'course:detail',
  'library:list',
- 'course:create',
  'sessions',
+ 'lecture:detail'
+])
+
+export const goPrimaryActions = new Set([
+ 'course:create',
  'session:create',
  'db:bootstrap',
  'course:delete',
  'session:delete',
- 'lecture:delete',
- 'lecture:detail'
+ 'lecture:delete'
 ])
 
 const deleteSubjects = new Map([
@@ -50,8 +53,9 @@ export function createRoutedDispatch(
  return async (action: string, object: Record<string, unknown>): Promise<unknown> => {
   const subject = deleteSubjects.get(action)
   if (subject && activeJobs()) throw new Error('请等待当前任务完成后再删除' + subject)
-  if (!goCore || goCore.currentStatus !== 'ready' || !goPrimaryActions.has(action))
-   return dispatch(handlers, action, object)
+  if (!goCore || goCore.currentStatus !== 'ready') return dispatch(handlers, action, object)
+  if (goPrimaryActions.has(action)) return goCore.call(action, object)
+  if (!goShadowActions.has(action)) return dispatch(handlers, action, object)
   const [goSettled, tsSettled] = await Promise.all([
    goCore.call(action, object).then(
     value => ({ok: true as const, value}),
