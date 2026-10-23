@@ -40,7 +40,7 @@ import {existsSync} from 'node:fs'
 import {z} from 'zod'
 import {Store} from '@main/storage/db'
 import {openPortableLibrary} from '@main/storage/portable-library'
-import {migrateDataLayout, relocateStorePaths} from '@main/storage/layout-migration'
+import {migrateDataLayout, migrateLibraryLayout, relocateStorePaths} from '@main/storage/layout-migration'
 import {searchAnswers} from '@main/learning/practice-answer'
 import {SettingsStore} from '@main/config/settings'
 import {Api} from '@main/ai/api'
@@ -103,6 +103,7 @@ async function startApplication() {
   identity = new IdentityStore(root),
   appearance = new AppearanceStore(root)
  const libraryRoot = portable?.libraryRoot || join(root, layout.library)
+ migrateLibraryLayout(libraryRoot)
  if (!portable && layout.library !== '资料' && existsSync(legacyLibraryRoot))
   relocateStorePaths(store, legacyLibraryRoot, libraryRoot)
  await ensureLibrary(
@@ -242,7 +243,7 @@ async function startApplication() {
  )
  const media = new MediaBackend(
   app.isPackaged ? process.resourcesPath : join(app.getAppPath(), 'resources'),
-  join(libraryRoot, '媒体下载'),
+  join(libraryRoot, 'MediaDownloads'),
   biliResources
  )
  const visual = new VisualTasks(join(libraryRoot, '画面识别成果'), media)
@@ -254,7 +255,7 @@ async function startApplication() {
       return fetch(biliFixture + target.pathname + target.search, {...init, credentials: 'omit'})
      }
    : (biliSession.fetch.bind(biliSession) as typeof fetch),
-  join(libraryRoot, '媒体下载')
+  join(libraryRoot, 'MediaDownloads')
  )
  const answerDependencies = {
   search: async (query: string, signal?: AbortSignal) => {

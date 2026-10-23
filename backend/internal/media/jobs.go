@@ -79,18 +79,21 @@ func hashRecipe(identity, source string, recipe any) string {
 }
 
 type DownloadJobs struct {
-	root    string
-	crypt   Crypt
-	mu      chan struct{}
-	records map[string]*NativeDownloadJob
+	root        string
+	crypt       Crypt
+	mu          chan struct{}
+	records     map[string]*NativeDownloadJob
+	initialized bool
 }
 
 func NewDownloadJobs(root string, crypt Crypt) *DownloadJobs {
 	if crypt == nil {
 		crypt = func(data []byte, decrypt bool) ([]byte, error) { return data, nil }
 	}
-	if resolved, err := filepath.EvalSymlinks(root); err == nil {
-		root = resolved
+	if err := os.MkdirAll(root, 0o755); err == nil {
+		if resolved, err := filepath.EvalSymlinks(root); err == nil {
+			root = resolved
+		}
 	}
 	return &DownloadJobs{root: root, crypt: crypt, mu: make(chan struct{}, 1), records: map[string]*NativeDownloadJob{}}
 }
@@ -192,7 +195,18 @@ func (jobs *DownloadJobs) save(job *NativeDownloadJob) error {
 func (jobs *DownloadJobs) Initialize() error {
 	jobs.mu <- struct{}{}
 	defer func() { <-jobs.mu }()
-	return jobs.initializeLocked()
+	return jobs.ensureInitializedLocked()
+}
+
+func (jobs *DownloadJobs) ensureInitializedLocked() error {
+	if jobs.initialized {
+		return nil
+	}
+	if err := jobs.initializeLocked(); err != nil {
+		return err
+	}
+	jobs.initialized = true
+	return nil
 }
 
 func (jobs *DownloadJobs) initializeLocked() error {
@@ -297,7 +311,7 @@ func recipeMap(options NativeMediaOptions) map[string]any {
 func (jobs *DownloadJobs) Create(identity, url, title string, options any, legacy *JobLegacy) (*NativeDownloadJob, error) {
 	jobs.mu <- struct{}{}
 	defer func() { <-jobs.mu }()
-	if err := jobs.initializeLocked(); err != nil {
+	if err := jobs.ensureInitializedLocked(); err != nil {
 		return nil, err
 	}
 	recipe, err := MediaOptions(options)

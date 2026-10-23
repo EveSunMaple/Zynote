@@ -6,16 +6,21 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"sync"
 
 	"github.com/EveSunMaple/Zynote/backend/internal/contract"
 	"github.com/EveSunMaple/Zynote/backend/internal/helper"
+	"github.com/EveSunMaple/Zynote/backend/internal/media"
 )
 
 type handlerFunc func(store contract.StateStore, state *contract.State, params json.RawMessage) (any, error)
 
 type Invoker struct {
-	handlers map[string]handlerFunc
-	native   *helper.Native
+	handlers  map[string]handlerFunc
+	native    *helper.Native
+	media     *media.MediaService
+	mediaRoot string
+	mediaMu   sync.Mutex
 }
 
 func NewInvoker() *Invoker {
@@ -86,6 +91,23 @@ func (inv *Invoker) Invoke(store contract.StateStore, action string, params json
 			return nil, contract.Unavailable("后台尚未完成握手")
 		}
 		return inv.handleFilesRemove(state, params)
+	case "media:options", "media:list", "media:retry", "media:cancel", "media:file":
+		state := store.State()
+		if state == nil {
+			return nil, contract.Unavailable("后台尚未完成握手")
+		}
+		switch action {
+		case "media:options":
+			return inv.handleMediaOptions(store, state, params)
+		case "media:list":
+			return inv.handleMediaList(store, state, params)
+		case "media:retry":
+			return inv.handleMediaRetry(store, state, params)
+		case "media:cancel":
+			return inv.handleMediaCancel(store, state, params)
+		default:
+			return inv.handleMediaFile(store, state, params)
+		}
 	case "lecture:create", "lecture:transcript", "lecture:courseware", "questions:save":
 		state := store.State()
 		if state == nil {

@@ -18,6 +18,17 @@ export function migrateDataLayout(root: string): {library: string} {
  return {library: existsSync(join(root, 'Library')) ? 'Library' : existsSync(join(root, '资料')) ? '资料' : 'Library'}
 }
 
+export function migrateLibraryLayout(libraryRoot: string) {
+ for (const [from, to] of [['媒体下载', 'MediaDownloads']] as const) {
+  const source = join(libraryRoot, from),
+   target = join(libraryRoot, to)
+  if (!existsSync(source) || existsSync(target)) continue
+  try {
+   renameSync(source, target)
+  } catch {}
+ }
+}
+
 export function relocateStorePaths(store: Store, previousRoot: string, libraryRoot: string) {
  const from = resolve(previousRoot),
   to = resolve(libraryRoot)
