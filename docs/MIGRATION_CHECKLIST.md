@@ -699,3 +699,9 @@ Zynote/
 
 - [x] 壳侧 `shell.trashItem`（限定 libraryRoot、拒绝链接/目录）；Go 校验任务空闲与 confirmed、`ManagedFile` 边界、回收站调用、DB 事务清理（course_files/practice_sets/lecture ppt/transcript）并 checkpoint。
 - [x] 测试：未确认拒绝、文件记录与课次 PPT 字段清理；capabilities 72 → **73**。
+
+## 1.35 study:get/save/parse（2026-10-23）
+
+- [x] `study_entries` 读写：UUID/课程/课次校验、删除重建事务、课次与聊天会话标题同步、`checkAt=endsAt+4h`。
+- [x] `study:parse`：课程/课次上下文 + 课表提示词 + 结构化校验（最多 1000 条、编号去重、endsAt 时区）。
+- [x] 测试：字段 trim/checkAt、课次/会话改名、重复/非法时间拒绝、AI 解析；capabilities 73 → **76**。

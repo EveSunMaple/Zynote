@@ -515,3 +515,73 @@ func (w *WriteDB) DeleteManagedFile(path string) error {
 	}
 	return w.Checkpoint()
 }
+
+func (w *WriteDB) StudyEntries() ([]map[string]any, error) {
+	rows, err := queryAll(w.db, "SELECT json FROM study_entries ORDER BY rowid")
+	if err != nil {
+		return nil, err
+	}
+	result := []map[string]any{}
+	for _, row := range rows {
+		var entry map[string]any
+		if err := json.Unmarshal([]byte(toStringValue(row["json"])), &entry); err != nil {
+			return nil, contract.InputInvalid("课表记录损坏")
+		}
+		result = append(result, entry)
+	}
+	return result, nil
+}
+
+func (w *WriteDB) SaveStudyEntries(entries []map[string]any) error {
+	tx, err := w.db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	if _, err := tx.Exec("DELETE FROM study_entries"); err != nil {
+		return err
+	}
+	for _, entry := range entries {
+		id := toStringValue(entry["id"])
+		courseID := toStringValue(entry["courseId"])
+		lectureID := toStringValue(entry["lectureId"])
+		if lectureID != "" {
+			lecture, err := queryOneTx(tx, "SELECT course_id,title FROM lectures WHERE id=?", lectureID)
+			if err != nil {
+				return err
+			}
+			if lecture == nil {
+				return contract.NewError(contract.CodeNotFound, "课次不存在")
+			}
+			if toStringValue(lecture["course_id"]) != courseID {
+				return contract.InputInvalid("课次不属于所选课程")
+			}
+			oldTitle := toStringValue(lecture["title"])
+			if _, err := tx.Exec("UPDATE lectures SET title=? WHERE id=?", toStringValue(entry["title"]), lectureID); err != nil {
+				return err
+			}
+			if _, err := tx.Exec(
+				"UPDATE chat_sessions SET title=? WHERE lecture_id=? AND title=?",
+				toStringValue(entry["title"]), lectureID, oldTitle,
+			); err != nil {
+				return err
+			}
+		} else if courseID != "" {
+			course, err := queryOneTx(tx, "SELECT id FROM courses WHERE id=?", courseID)
+			if err != nil {
+				return err
+			}
+			if course == nil {
+				return contract.NewError(contract.CodeNotFound, "课程不存在")
+			}
+		}
+		encoded, err := json.Marshal(entry)
+		if err != nil {
+			return err
+		}
+		if _, err := tx.Exec("INSERT INTO study_entries(id,json) VALUES(?,?)", id, string(encoded)); err != nil {
+			return err
+		}
+	}
+	return tx.Commit()
+}
