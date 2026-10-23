@@ -552,3 +552,11 @@ Zynote/
 - [x] **迁移进度：45 个能力 Go 化**（112 个 action）。
 - [ ] **P4c 剩余**：`media:discussion`/`media:discussion-import`（B 站评论抓取 + 选择导入）；媒体 legacy 记录只读合并；路由层 media 域灰度切换（当前 Go 能力尚未全部加入 `goPrimaryActions`/影子读集合）。
 - [ ] **P4d**：YouTube（Rust `--mode youtube`，rustypipe spike + D3a 口径对比）；智云 `zhiyun:search/lessons/export`；SnapAny 留 Electron 壳。
+
+## 1.14 P4c-2g 讨论证据完成记录（2026-10-23）
+
+- [x] **讨论采集**（本次）：`bilibili/discussion.go`（标签启发式、canonical JSON/digest、证据渲染）+ `discussion_client.go`（视频信息校验、评论热/新两轮 + WBI 首页回退、子评论有界补齐、弹幕 protobuf/XML 解析、分段/回退/去重/排序、有界覆盖回执）+ `discussion_store.go`（`cache/video-discussion/evidence.sqlite3`，snapshots/reviews/heads 三表，IMMEDIATE 事务，ref 校验与选择重放）。
+- [x] `Resources.ReadDiscussion`（路径白名单 + WBI 签名 + context 超时）与 `RawDiscussion`（弹幕原始字节，12MB 上限）。
+- [x] `media:discussion` 接入（pages 1–10，默认 2）；capabilities 45 → **46**。
+- [x] 测试：分类/标签顺序、canonical JSON 无 HTML 转义、渲染根上下文、XML/protobuf 弹幕解析、证据库保存/选择/旧 ref 拒绝/复核合并、httptest 端到端采集。
+- [ ] **剩余**：`media:discussion-import`（依赖 P5 knowledge `import`，待知识库域迁移后接入）；媒体 legacy 记录只读合并；路由层 media 域灰度切换。

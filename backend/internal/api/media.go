@@ -300,3 +300,32 @@ func (inv *Invoker) handleMediaCreate(store contract.StateStore, state *contract
 	downloadService.Enqueue(job.ID)
 	return service.Project(job), nil
 }
+
+func (inv *Invoker) handleMediaDiscussion(store contract.StateStore, state *contract.State, params json.RawMessage) (any, error) {
+	var input struct {
+		URL   string `json:"url"`
+		Pages int    `json:"pages"`
+	}
+	if err := json.Unmarshal(params, &input); err != nil {
+		return nil, contract.InputInvalid("讨论采集参数无效")
+	}
+	if input.Pages == 0 {
+		input.Pages = 2
+	}
+	if input.Pages < 1 || input.Pages > 10 {
+		return nil, contract.InputInvalid("讨论采集页数无效")
+	}
+	resources, err := inv.biliResourcesFor(state, store.Reverse())
+	if err != nil {
+		return nil, err
+	}
+	service, err := inv.mediaServiceFor(state, store.Reverse())
+	if err != nil {
+		return nil, err
+	}
+	discussionStore, err := bilibili.NewDiscussionStore(service.Root)
+	if err != nil {
+		return nil, err
+	}
+	return bilibili.NewDiscussion(resources, discussionStore).Collect(input.URL, input.Pages)
+}

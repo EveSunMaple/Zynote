@@ -1,8 +1,10 @@
 package bilibili
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -226,6 +228,78 @@ func NewResources(root string, crypt Crypt) *Resources {
 }
 
 func (resources *Resources) read(requestPath string, params map[string]string, passport bool) (any, error) {
+	return resources.readContext(context.Background(), requestPath, params, passport)
+}
+
+var discussionReadPaths = map[string]bool{
+	"/x/web-interface/view": true,
+	"/x/v2/reply":           true,
+	"/x/v2/reply/reply":     true,
+	"/x/v2/reply/wbi/main":  true,
+}
+
+func (resources *Resources) ReadDiscussion(requestPath string, params map[string]string, ctx context.Context, signed bool) (any, error) {
+	if !discussionReadPaths[requestPath] {
+		return nil, fmt.Errorf("讨论读取地址无效")
+	}
+	if signed {
+		value, err := resources.sign(params)
+		if err != nil {
+			return nil, err
+		}
+		params = value
+	}
+	return resources.readContext(ctx, requestPath, params, false)
+}
+
+func (resources *Resources) RawDiscussion(requestPath string, params map[string]string, ctx context.Context, limit int64) ([]byte, error) {
+	if err := resources.cookies.load(); err != nil {
+		return nil, err
+	}
+	target := resources.baseAPI + requestPath
+	if len(params) > 0 {
+		pairs := make([]string, 0, len(params))
+		for key, value := range params {
+			pairs = append(pairs, urlEncode(key)+"="+urlEncode(value))
+		}
+		target += "?" + strings.Join(pairs, "&")
+	}
+	request, err := http.NewRequestWithContext(ctx, http.MethodGet, target, nil)
+	if err != nil {
+		return nil, fmt.Errorf("下载地址无效")
+	}
+	for key, value := range biliHeaders {
+		request.Header.Set(key, value)
+	}
+	if cookie := resources.cookies.header(request.URL.Hostname(), request.URL.Path, request.URL.Scheme == "https"); cookie != "" {
+		request.Header.Set("Cookie", cookie)
+	}
+	response, err := resources.client.Do(request)
+	if err != nil {
+		if ctx.Err() != nil {
+			return nil, ctx.Err()
+		}
+		return nil, fmt.Errorf("network_or_protocol")
+	}
+	defer response.Body.Close()
+	resources.cookies.setFromResponse(request.URL.Hostname(), response)
+	if response.StatusCode < 200 || response.StatusCode >= 300 {
+		return nil, fmt.Errorf("HTTP %d", response.StatusCode)
+	}
+	if response.ContentLength > limit {
+		return nil, fmt.Errorf("danmaku_too_large")
+	}
+	body, err := io.ReadAll(io.LimitReader(response.Body, limit+1))
+	if err != nil {
+		return nil, err
+	}
+	if int64(len(body)) > limit {
+		return nil, fmt.Errorf("danmaku_too_large")
+	}
+	return body, nil
+}
+
+func (resources *Resources) readContext(ctx context.Context, requestPath string, params map[string]string, passport bool) (any, error) {
 	if err := resources.cookies.load(); err != nil {
 		return nil, err
 	}
@@ -241,7 +315,7 @@ func (resources *Resources) read(requestPath string, params map[string]string, p
 		}
 		target += "?" + strings.Join(pairs, "&")
 	}
-	request, err := http.NewRequest(http.MethodGet, target, nil)
+	request, err := http.NewRequestWithContext(ctx, http.MethodGet, target, nil)
 	if err != nil {
 		return nil, contract.InputInvalid("B 站请求地址无效")
 	}
@@ -253,6 +327,9 @@ func (resources *Resources) read(requestPath string, params map[string]string, p
 	}
 	response, err := resources.client.Do(request)
 	if err != nil {
+		if ctx.Err() != nil {
+			return nil, ctx.Err()
+		}
 		return nil, contract.Unavailable("B 站服务暂不可用，请稍后重试")
 	}
 	defer response.Body.Close()
