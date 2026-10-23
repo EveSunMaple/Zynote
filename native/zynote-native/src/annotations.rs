@@ -339,3 +339,111 @@ pub fn write_annotations(path: &str, output: &str, rows: &Value) -> Result<Value
         .unwrap_or(0);
     Ok(json!({"pages": verified.get("pages").cloned().unwrap_or(json!(0)), "count": previous_count}))
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use lopdf::dictionary;
+    use serde_json::json;
+
+    fn utf16_round_trip(value: &str) {
+        assert_eq!(decode_text_bytes(&utf16_bytes(value)), value);
+    }
+
+    #[test]
+    fn utf16_bytes_use_bom_and_round_trip() {
+        assert_eq!(utf16_bytes("A"), vec![0xFE, 0xFF, 0x00, 0x41]);
+        for value in ["", "摘云", "emoji 🎧", "line\nbreak", "a\u{0}b"] {
+            utf16_round_trip(value);
+        }
+    }
+
+    #[test]
+    fn utf8_without_bom_decodes() {
+        assert_eq!(decode_text_bytes("旧批注".as_bytes()), "旧批注");
+    }
+
+    #[test]
+    fn prefixes_are_recognized() {
+        assert!(name_starts_with_ours("zynote:abc"));
+        assert!(name_starts_with_ours("meijiang:legacy"));
+        assert!(!name_starts_with_ours("other"));
+        assert!(!name_starts_with_ours(""));
+    }
+
+    #[test]
+    fn annotation_dict_sets_current_keys() {
+        let row = json!({
+            "id": "abc",
+            "page": 1,
+            "rect": [1.0, 2.0, 3.0, 4.0],
+            "color": [0.7, 0.5, 0.2],
+            "description": "批注"
+        });
+        let Object::Dictionary(dict) = annotation_dict(row.as_object().unwrap()) else {
+            panic!("expected dictionary");
+        };
+        assert_eq!(dict.get(b"Subtype").unwrap(), &Object::Name(b"Highlight".to_vec()));
+        assert_eq!(dict.get(b"NM").unwrap(), &string_object("zynote:abc"));
+        assert_eq!(dict.get(b"T").unwrap(), &string_object("Zynote"));
+        assert_eq!(dict.get(b"Contents").unwrap(), &string_object("批注"));
+        assert!(dict.get(CURRENT_DATA_KEY).is_ok());
+        assert!(dict.get(LEGACY_DATA_KEY).is_err());
+    }
+
+    #[test]
+    fn annotations_round_trip_through_pdf() {
+        let directory = std::env::temp_dir().join(format!("zynote-annotations-{}", std::process::id()));
+        std::fs::create_dir_all(&directory).unwrap();
+        let source = directory.join("source.pdf");
+        let output = directory.join("output.pdf");
+        let mut document = LopdfDocument::with_version("1.5");
+        let pages_id = document.new_object_id();
+        let page_id = document.new_object_id();
+        document.objects.insert(
+            page_id,
+            Object::Dictionary(dictionary! {
+                "Type" => "Page",
+                "Parent" => pages_id,
+                "MediaBox" => vec![0.into(), 0.into(), 612.into(), 792.into()],
+            }),
+        );
+        document.objects.insert(
+            pages_id,
+            Object::Dictionary(dictionary! {
+                "Type" => "Pages",
+                "Kids" => vec![page_id.into()],
+                "Count" => 1,
+            }),
+        );
+        let catalog_id = document.add_object(dictionary! {
+            "Type" => "Catalog",
+            "Pages" => pages_id,
+        });
+        document.trailer.set("Root", catalog_id);
+        document.save(&source).unwrap();
+
+        let row = json!({
+            "id": "abc", "page": 1, "rect": [10.0, 20.0, 30.0, 40.0],
+            "color": [0.7, 0.5, 0.2], "description": "测试批注",
+            "createdAt": "2026-10-23T00:00:00Z"
+        });
+        let report = write_annotations(
+            source.to_str().unwrap(),
+            output.to_str().unwrap(),
+            &json!([row]),
+        )
+        .unwrap();
+        assert_eq!(report["pages"], json!(1));
+        assert_eq!(report["count"], json!(0));
+
+        let inspected = inspect_pdf(output.to_str().unwrap()).unwrap();
+        let previous = inspected["previous"].as_array().unwrap();
+        assert_eq!(previous.len(), 1);
+        let item = previous[0].as_object().unwrap();
+        assert_eq!(item["id"], json!("abc"));
+        assert_eq!(item["rect"], json!([10.0, 20.0, 30.0, 40.0]));
+        assert_eq!(item["description"], json!("测试批注"));
+        std::fs::remove_dir_all(&directory).ok();
+    }
+}

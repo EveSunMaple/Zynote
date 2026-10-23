@@ -590,3 +590,8 @@ Zynote/
 - [x] `package.json` `extraResources` 增加 `resources/pdfium` → `pdfium/`（dylib/dll/so 过滤）；此前打包版 `pdf.text` 会因缺少动态库失败。
 - [x] Go 按 `runtime.GOOS` 选择 `libpdfium.dylib`/`pdfium.dll`/`libpdfium.so`，不再硬编码 macOS 文件名。
 - [x] `resources/pdfium/README.md` 记录获取方式与命名（二进制仍不入库）；`docs/legal/THIRD_PARTY_NOTICES.md` 补 PDFium BSD-3-Clause 全文与来源。
+
+## 1.19 Rust 单元测试（2026-10-23）
+
+- [x] `annotations.rs` 测试：UTF-16BE BOM 往返（中文/emoji/控制字符）、无 BOM UTF-8 回退、双前缀识别、批注字典键（NM/T/Contents/ZynoteData），以及 lopdf 最小 PDF 上的写入→回读端到端（页数/数量/坐标/描述）。
+- [x] `pnpm native:test` 由 0 个测试变为 5 个通过；crates.io 当前不可达，YouTube rustypipe 迁移待网络恢复后继续。
