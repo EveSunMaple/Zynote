@@ -515,7 +515,8 @@ Zynote/
 - [x] 过程中修复：Initialize 每次重扫把新建 queued 任务误标 interrupted（改为 memoized）；根目录不存在时 EvalSymlinks 未解析导致目录校验失败；artifact 复用未记录 owner；transfer Progress 空指针；代理 scheme 未校验。
 - [x] 验证：Go 测试 3 包全绿（media 新增 tools/command/probe/service/并行/HLS 套件）、冒烟 **33 项断言**、`pnpm verify`/`build` 全绿。
 - [x] **迁移进度：33 个能力由 Go+Rust 承担**（105 个 IPC action 中约 30 个已切换）。
-- [ ] **P4c 剩余**：`media:catalog/create/discussion*`（依赖 media-bili 目录与下载 runner）；ffmpeg mux（章节/字幕/封面/滤镜）；媒体 legacy 记录只读合并。
+- [x] **P4c-2c 目录解析与流选择**（`3ea6560` `24e5b50`）：`video-policy`（`VideoURL`/`VideoMediaURL`/`MediaAddress` 域与协议白名单）；`BiliMediaCatalog.Read`（单视频/合集、分集唯一性、DASH 流 + durl 回退、字幕/章节/封面、format_ids 校验）；`SelectStreams`（精确格式、音质上限、编码前缀、组合回退）；`media:catalog` 接入。
+- [ ] **P4c 剩余**：下载 runner + `media:create`（需 ffmpeg mux、sidecars/layout/filenames/sponsorblock 子模块）；`media:discussion*`；媒体 legacy 记录只读合并。
 
 ## 1.12 P4c-2a/2b 完成记录（2026-10-23）
 
