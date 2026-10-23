@@ -113,6 +113,15 @@
     ]
    },
    {
+    "from": "resources/pdfium",
+    "to": "pdfium",
+    "filter": [
+     "libpdfium.dylib",
+     "pdfium.dll",
+     "libpdfium.so"
+    ]
+   },
+   {
     "from": "resources/knowledge",
     "to": "knowledge",
     "filter": [

@@ -6907,3 +6907,38 @@ quickjs-emscripten 0.32.0：MIT，JustJake 与贡献者；所含 QuickJS 及 Ems
 
 SponsorBlock 社区片段数据：Ajay Ramachandran 与 SponsorBlock 社区贡献者，API 与数据库按 CC BY-NC-SA 4.0 提供。来源 https://sponsor.ajay.app ，许可 https://creativecommons.org/licenses/by-nc-sa/4.0/ ，官方声明 https://github.com/ajayyy/SponsorBlock/wiki/Database-and-API-License 。仅在用户选择片段移除时按视频 ID 的 SHA256 前四位只读查询，不提交标注或浏览反馈；处理时会合并重叠时间、改变时间轴。每个完成成果保留所用标注、分类、来源、许可及哈希到 sponsorblock-plan.json。社区标注不表示已由本应用人工核实，时长不符时拒绝裁剪。
 
+
+## PDFium（libpdfium）
+
+Zynote 在 `resources/pdfium/` 下随包或由本地获取脚本提供 PDFium 动态库（macOS `libpdfium.dylib`、Windows `pdfium.dll`、Linux `libpdfium.so`），用于本地 PDF 文本与批注读写。PDFium 采用 BSD 3-Clause 许可：
+
+```text
+Copyright 2014 The PDFium Authors. All rights reserved.
+
+Redistribution and use in source and binary forms, with or without
+modification, are permitted provided that the following conditions are met:
+
+   * Redistributions of source code must retain the above copyright
+notice, this list of conditions and the following disclaimer.
+   * Redistributions in binary form must reproduce the above
+copyright notice, this list of conditions and the following disclaimer
+in the documentation and/or other materials provided with the
+distribution.
+   * Neither the name of Google Inc. nor the names of its
+contributors may be used to endorse or promote products derived from
+this software without specific prior written permission.
+
+THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS
+"AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT
+LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR
+A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT
+OWNER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL,
+SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT
+LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE,
+DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY
+THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
+(INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+```
+
+官方来源：https://pdfium.googlesource.com/pdfium/ ，许可：https://pdfium.googlesource.com/pdfium/+/HEAD/LICENSE 。

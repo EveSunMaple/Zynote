@@ -16,4 +16,5 @@ resources/asr/
 resources/knowledge/
 resources/video/
 
-resources/pdfium/
+resources/pdfium/*
+!resources/pdfium/README.md

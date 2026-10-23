@@ -217,9 +217,20 @@ func (inv *Invoker) handleHello(store contract.StateStore, params json.RawMessag
 		return nil, contract.Unavailable("数据目录不可用")
 	}
 	if inv.native != nil {
-		inv.native.Configure(input.NativePath, filepath.Join(input.ResourcesRoot, "pdfium", "libpdfium.dylib"))
+		inv.native.Configure(input.NativePath, filepath.Join(input.ResourcesRoot, "pdfium", pdfiumFilename()))
 	}
 	store.SetState(state)
 	slog.Info("hello accepted", "dataRoot", state.DataRoot)
 	return state, nil
+}
+
+func pdfiumFilename() string {
+	switch runtime.GOOS {
+	case "windows":
+		return "pdfium.dll"
+	case "linux":
+		return "libpdfium.so"
+	default:
+		return "libpdfium.dylib"
+	}
 }

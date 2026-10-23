@@ -584,3 +584,9 @@ Zynote/
 - [x] 测试：输入识别、Vimeo 目录/身份不一致/字幕、Dailymotion 目录、播放列表拒绝、format_ids 变化。
 - [ ] **媒体路由暂缓**（`dd501fe`）：Go 尚未覆盖 YouTube（youtubei.js + quickjs 签名），为避免下载回归 media/bili-resources 继续走 TS。
 - [ ] **下一步**：Rust `--mode youtube`（rustypipe spike，若签名不可用按 D3a 重新评估）；接入平台 dispatcher（catalog/create/runner 共用）；再恢复媒体域路由切换。
+
+## 1.18 打包补齐 PDFium（2026-10-23）
+
+- [x] `package.json` `extraResources` 增加 `resources/pdfium` → `pdfium/`（dylib/dll/so 过滤）；此前打包版 `pdf.text` 会因缺少动态库失败。
+- [x] Go 按 `runtime.GOOS` 选择 `libpdfium.dylib`/`pdfium.dll`/`libpdfium.so`，不再硬编码 macOS 文件名。
+- [x] `resources/pdfium/README.md` 记录获取方式与命名（二进制仍不入库）；`docs/legal/THIRD_PARTY_NOTICES.md` 补 PDFium BSD-3-Clause 全文与来源。
