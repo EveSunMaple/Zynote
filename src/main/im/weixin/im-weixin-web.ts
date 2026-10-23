@@ -4,6 +4,7 @@ import {SaxesParser} from 'saxes'
 import {z} from 'zod'
 import {boundedPublicText} from '@main/net/public-http'
 import {weixinBootstrap} from '@main/im/weixin/im-weixin-html'
+import {WEIXIN_WEB_APPID} from '@main/im/weixin/weixin-web-appid'
 
 const hosts = ['wx.qq.com', 'wx2.qq.com', 'wx8.qq.com', 'web.wechat.com', 'web2.wechat.com']
 const cookieHosts = [...hosts, 'qq.com', 'wechat.com', 'weixin.qq.com', 'login.wx.qq.com', 'login.weixin.qq.com']
@@ -208,7 +209,7 @@ export class NativeWeixinWebSession {
  async start(signal: AbortSignal) {
   const url = new URL('https://login.wx.qq.com/jslogin')
   url.search = new URLSearchParams({
-   appid: 'wx782c26e4c19acffb',
+   appid: WEIXIN_WEB_APPID,
    fun: 'new',
    lang: 'zh_CN',
    _: String(Date.now()),

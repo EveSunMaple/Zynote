@@ -15,9 +15,6 @@ import (
 	"github.com/EveSunMaple/Zynote/backend/internal/media"
 )
 
-const youtubeAPIKey = "AIzaSyAO_FJ2SlqU8Q4STEHLGCilw_Y9_11qcW8"
-const youtubeClientVersion = "2.20240726.00.00"
-
 func visitorData() string {
 	alphabet := "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789_-"
 	identifier := make([]byte, 11)
