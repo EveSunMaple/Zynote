@@ -1,6 +1,7 @@
 package api
 
 import (
+	"context"
 	"encoding/json"
 	"os"
 	"path/filepath"
@@ -14,6 +15,7 @@ import (
 	"github.com/EveSunMaple/Zynote/backend/internal/media"
 	"github.com/EveSunMaple/Zynote/backend/internal/media/bilibili"
 	"github.com/EveSunMaple/Zynote/backend/internal/media/download"
+	"github.com/EveSunMaple/Zynote/backend/internal/media/platform"
 )
 
 var mediaJobIDPattern = regexp.MustCompile(`^[a-f0-9]{32}$`)
@@ -316,12 +318,14 @@ func (inv *Invoker) downloadServiceFor(state *contract.State, reverse contract.R
 		return inv.download, nil
 	}
 	allowSystem := !state.Packaged || os.Getenv("ZYNOTE_SYSTEM_MEDIA") == "1"
+	dispatcher := platform.NewDispatcher(bilibili.NewCatalogReader(resources))
 	runner := &download.Runner{
-		Jobs:     service.Jobs,
-		Auth:     service.Auth,
-		Mux:      &media.NativeMediaMux{Resources: state.ResourcesRoot, AllowSystemFallback: allowSystem, Platform: contract.CurrentPlatform()},
-		Catalog:  bilibili.NewCatalogReader(resources),
-		Progress: service.SetProgress,
+		Jobs:          service.Jobs,
+		Auth:          service.Auth,
+		Mux:           &media.NativeMediaMux{Resources: state.ResourcesRoot, AllowSystemFallback: allowSystem, Platform: contract.CurrentPlatform()},
+		Catalog:       dispatcher,
+		ScopedCatalog: dispatcher,
+		Progress:      service.SetProgress,
 	}
 	inv.download = download.NewService(runner)
 	inv.download.Finished = service.ClearProgress
@@ -347,11 +351,7 @@ func (inv *Invoker) handleMediaCreate(store contract.StateStore, state *contract
 	if err != nil {
 		return nil, err
 	}
-	resources, err := inv.biliResourcesFor(state, store.Reverse())
-	if err != nil {
-		return nil, err
-	}
-	freshResult, err := bilibili.NewCatalogReader(resources).Read(saved.source.Catalog.URL, false, options)
+	freshResult, err := inv.readCatalogSource(state, store.Reverse(), saved.source.Catalog.URL, false, options)
 	if err != nil {
 		return nil, err
 	}
@@ -406,6 +406,43 @@ func (inv *Invoker) handleMediaCreate(store contract.StateStore, state *contract
 	}
 	downloadService.Enqueue(job.ID)
 	return service.Project(job), nil
+}
+
+func (inv *Invoker) readCatalogSource(state *contract.State, reverse contract.ReverseCaller, input string, playlist bool, options any) (any, error) {
+	selection, err := platform.Input(input)
+	if err != nil {
+		return nil, contract.InputInvalid(err.Error())
+	}
+	settings, err := media.MediaOptions(options)
+	if err != nil {
+		return nil, err
+	}
+	if selection.Platform == "bilibili" {
+		resources, err := inv.biliResourcesFor(state, reverse)
+		if err != nil {
+			return nil, err
+		}
+		return bilibili.NewCatalogReader(resources).Read(input, playlist, settings)
+	}
+	if settings.CookieProfile == "" && settings.UseCookies {
+		return nil, contract.InputInvalid("此平台需明确选择导入的登录档案；公开下载可关闭使用登录档案")
+	}
+	service, err := inv.mediaServiceFor(state, reverse)
+	if err != nil {
+		return nil, err
+	}
+	transport, err := media.NewMediaTransport(settings)
+	if err != nil {
+		return nil, err
+	}
+	defer transport.Close()
+	scoped, err := service.Auth.Scoped(selection.URL, settings, media.AuthFetcher(transport.Fetch))
+	if err != nil {
+		return nil, err
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
+	return platform.Read(ctx, selection, playlist, settings, scoped)
 }
 
 func (inv *Invoker) handleMediaDiscussion(store contract.StateStore, state *contract.State, params json.RawMessage) (any, error) {

@@ -17,6 +17,10 @@ type CatalogReader interface {
 	Read(input string, playlist bool, options any) (any, error)
 }
 
+type ScopedCatalogReader interface {
+	ReadWithFetcher(ctx context.Context, input string, playlist bool, options any, fetcher media.AuthFetcher) (any, error)
+}
+
 func joinedWarning(parts ...string) string {
 	result := []string{}
 	for _, part := range parts {
@@ -28,11 +32,12 @@ func joinedWarning(parts ...string) string {
 }
 
 type Runner struct {
-	Jobs     *media.DownloadJobs
-	Auth     *media.MediaAuth
-	Mux      *media.NativeMediaMux
-	Catalog  CatalogReader
-	Progress func(id string, downloaded int64, total *int64)
+	Jobs          *media.DownloadJobs
+	Auth          *media.MediaAuth
+	Mux           *media.NativeMediaMux
+	Catalog       CatalogReader
+	ScopedCatalog ScopedCatalogReader
+	Progress      func(id string, downloaded int64, total *int64)
 }
 
 func (runner *Runner) fail(id string, ctx context.Context, err error) {
@@ -130,7 +135,12 @@ func (runner *Runner) Run(id string, ctx context.Context) (map[string]any, error
 			return nil, err
 		}
 	}
-	catalogResult, err := runner.Catalog.Read(job.SourceURL, false, options)
+	var catalogResult any
+	if runner.ScopedCatalog != nil {
+		catalogResult, err = runner.ScopedCatalog.ReadWithFetcher(ctx, job.SourceURL, false, options, fetcher)
+	} else {
+		catalogResult, err = runner.Catalog.Read(job.SourceURL, false, options)
+	}
 	if err != nil {
 		runner.fail(id, ctx, err)
 		return nil, err

@@ -87,12 +87,7 @@ func (inv *Invoker) handleMediaCatalog(store contract.StateStore, state *contrac
 	if err := json.Unmarshal(params, &input); err != nil || input.URL == "" || len(input.URL) > 2000 {
 		return nil, contract.InputInvalid("视频网址无效")
 	}
-	resources, err := inv.biliResourcesFor(state, store.Reverse())
-	if err != nil {
-		return nil, err
-	}
-	reader := bilibili.NewCatalogReader(resources)
-	result, err := reader.Read(input.URL, input.Playlist, input.Options)
+	result, err := inv.readCatalogSource(state, store.Reverse(), input.URL, input.Playlist, input.Options)
 	if err != nil {
 		return nil, err
 	}

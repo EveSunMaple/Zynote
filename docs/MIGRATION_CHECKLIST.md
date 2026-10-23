@@ -595,3 +595,10 @@ Zynote/
 
 - [x] `annotations.rs` 测试：UTF-16BE BOM 往返（中文/emoji/控制字符）、无 BOM UTF-8 回退、双前缀识别、批注字典键（NM/T/Contents/ZynoteData），以及 lopdf 最小 PDF 上的写入→回读端到端（页数/数量/坐标/描述）。
 - [x] `pnpm native:test` 由 0 个测试变为 5 个通过；crates.io 当前不可达，YouTube rustypipe 迁移待网络恢复后继续。
+
+## 1.20 平台 dispatcher（2026-10-23）
+
+- [x] `platform.Dispatcher`：`media:catalog` 与 `media:create` 共用 `readCatalogSource`（BV/B站 → Bili catalog；Vimeo/Dailymotion → 平台目录 + 登录档案 scoped fetcher）；runner 执行前通过 `ReadWithFetcher` 复核平台目录。
+- [x] 证据令牌保存平台中立的 `media.Source`；`media:create` 重读时按同一 dispatcher 校验身份。
+- [ ] **已知缺口**：B 站 `cookie_profile` 的目录读取仍用内置 Cookie 存储，未像 TS 一样用档案 scoped 的 BiliResources；待媒体路由恢复前补齐。
+- [ ] **YouTube**：crates.io 不可达（rustypipe 无法拉取），`platform.Read` 暂显式报错；媒体路由保持 TS。
