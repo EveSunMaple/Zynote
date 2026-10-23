@@ -569,3 +569,10 @@ Zynote/
 - [x] `media:create` 的 `skip_existing` 同时匹配旧完成任务（身份 + 规范化 options + 成果核验）。
 - [x] 修复：原生 `media:retry` 未入队（此前 Go 重试只改状态）；旧记录 scope 未统一小写。
 - [x] 测试：legacy 列表/文件/recipe、interrupted 与不可读行、未完成分段拒绝、精确格式拒绝、跨 scope 冲突；Go 全量测试与 vet 通过。
+
+## 1.16 媒体域路由切换与讨论跨语言校验（2026-10-23）
+
+- [x] 路由：`media:catalog/create/retry/cancel/discussion/auth-import/auth-remove` 与 `bili-resources:browse/folders/videos/qr/poll/logout` 进入 Go 主路径；`media:options/list/auth-list`、`bili-resources:status` 保持影子读；`media:discussion-import`（依赖 P5 knowledge）与 `media:open`（Electron shell）继续走 TS。
+- [x] 修复：`media:retry` 原生任务此前只切状态不入队，现按 TS 语义先查活动任务、转 queued 后入队。
+- [x] 跨语言证据：`scripts/discussion-roundtrip.mts`（经 `ELECTRON_RUN_AS_NODE` 使用 Electron ABI 的 better-sqlite3）验证 canonical JSON/digest/packRef 与 SQLite 表结构在 Go↔TS 双向一致：Go 写 → TS select；TS 写 → Go select。新增 `pnpm parity:discussion`。
+- [x] 验证：`go test ./...`、`pnpm verify`、`pnpm build`、`pnpm smoke:go-core`、`pnpm parity:discussion` 全绿。
