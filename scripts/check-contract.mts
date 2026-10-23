@@ -45,4 +45,6 @@ for (const action of capabilities) {
  if (!row) throw new Error('Go capability 不在契约中：' + action)
  if (row.backend !== 'go') throw new Error('shell action 不应声明为 Go capability：' + action)
 }
-console.log(`ok contract ${contract.total} actions, go ${capabilities.length} (${internal.length} internal), shell ${contract.actions.filter(row => row.backend === 'shell').length}`)
+console.log(
+ `ok contract ${contract.total} actions, go ${capabilities.length} (${internal.length} internal), shell ${contract.actions.filter(row => row.backend === 'shell').length}`
+)
