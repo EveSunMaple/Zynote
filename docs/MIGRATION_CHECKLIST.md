@@ -640,6 +640,6 @@ Zynote/
 
 ## 1.26 YouTube 播放列表（Go InnerTube，2026-10-23）
 
-- [x] `platform/youtube.go`：自生成 visitor data，WEB InnerTube `browse` 拉取播放列�表；兼容新 `lockupViewModel` 与旧 `playlistVideoRenderer` 布局，标题/条目去重、continuation 最多 10 页或 100 条；`limited` 标记。
+- [x] `platform/youtube.go`：自生成 visitor data，WEB InnerTube `browse` 拉取播放列表；兼容新 `lockupViewModel` 与旧 `playlistVideoRenderer` 布局，标题/条目去重、continuation 最多 10 页或 100 条；`limited` 标记。
 - [x] 实测：`PLFgquLnL59alCl_2TQvOiD5Vgm1hCaGSI` 返回 100 条唯一视频，`limited=true`；单测覆盖两页 continuation、旧布局、空列表。
 - [ ] **剩余 YouTube 缺口**：翻译字幕（rustypipe 未暴露 translationLanguages）；媒体路由仍待该缺口决定。
