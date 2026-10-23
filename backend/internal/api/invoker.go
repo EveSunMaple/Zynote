@@ -10,6 +10,7 @@ import (
 
 	"github.com/EveSunMaple/Zynote/backend/internal/contract"
 	"github.com/EveSunMaple/Zynote/backend/internal/helper"
+	"github.com/EveSunMaple/Zynote/backend/internal/jobs"
 	"github.com/EveSunMaple/Zynote/backend/internal/knowledge"
 	"github.com/EveSunMaple/Zynote/backend/internal/media"
 	"github.com/EveSunMaple/Zynote/backend/internal/media/bilibili"
@@ -33,11 +34,14 @@ type Invoker struct {
 	tokens        map[string]catalogToken
 	tokenMu       sync.Mutex
 	mediaMu       sync.Mutex
+	notifier      contract.Notifier
+	jobs          *jobs.Registry
 }
 
 func NewInvoker() *Invoker {
 	return &Invoker{
 		native: nil,
+		jobs:   jobs.NewRegistry(),
 		handlers: map[string]handlerFunc{
 			"app:info":         requireState(handleAppInfo),
 			"settings:get":     requireState(handleSettingsGet),
@@ -67,6 +71,10 @@ func (inv *Invoker) SetNative(native *helper.Native) {
 
 func (inv *Invoker) SetYoutubeNative(native *helper.Native) {
 	inv.youtube = native
+}
+
+func (inv *Invoker) SetNotifier(notifier contract.Notifier) {
+	inv.notifier = notifier
 }
 
 func requireState(fn handlerFunc) handlerFunc {
@@ -137,6 +145,32 @@ func (inv *Invoker) Invoke(store contract.StateStore, action string, params json
 			return inv.handleMediaDiscussion(store, state, params)
 		default:
 			return inv.handleBiliVideos(store, state, params)
+		}
+	case "settings:models", "settings:probe", "settings:test":
+		state := store.State()
+		if state == nil {
+			return nil, contract.Unavailable("后台尚未完成握手")
+		}
+		switch action {
+		case "settings:models":
+			return inv.handleSettingsModels(store, state, params)
+		case "settings:probe":
+			return inv.handleSettingsProbe(store, state, params)
+		default:
+			return inv.handleSettingsTest(store, state, params)
+		}
+	case "chat", "cancel", "job:current":
+		state := store.State()
+		if state == nil {
+			return nil, contract.Unavailable("后台尚未完成握手")
+		}
+		switch action {
+		case "chat":
+			return inv.handleChat(store, state, params)
+		case "cancel":
+			return inv.handleCancel(store, state, params)
+		default:
+			return inv.handleJobCurrent(store, state, params)
 		}
 	case "knowledge:list", "knowledge:generation", "knowledge:read", "knowledge:import",
 		"knowledge:citation", "knowledge:delete", "knowledge:organize", "knowledge:rebuild",

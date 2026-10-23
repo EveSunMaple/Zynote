@@ -21,13 +21,29 @@ type fixture struct {
 	inWrite    *io.PipeWriter
 	outRead    *bufio.Reader
 	lastResult json.RawMessage
+	events     []wireEnvelope
+}
+
+type testReverse struct{ server *transport.Server }
+
+func (reverse testReverse) Call(method string, params any, timeoutMS int) (json.RawMessage, error) {
+	if method == "crypto.unprotect" {
+		return json.RawMessage(`{"text":"test-key"}`), nil
+	}
+	if method == "crypto.protect-bytes" || method == "crypto.unprotect-bytes" {
+		values, _ := params.(map[string]any)
+		encoded, _ := json.Marshal(map[string]any{"value": values["value"]})
+		return encoded, nil
+	}
+	return reverse.server.Call(method, params, timeoutMS)
 }
 
 func startCore(t *testing.T, dataRoot, resourcesRoot string) *fixture {
 	t.Helper()
 	core := app.New()
 	server := transport.NewServer(core)
-	core.Wire(server)
+	core.Wire(testReverse{server: server})
+	core.SetNotifier(server)
 	serverInR, serverInW := io.Pipe()
 	serverOutR, serverOutW := io.Pipe()
 	go func() {
@@ -43,6 +59,7 @@ func startCore(t *testing.T, dataRoot, resourcesRoot string) *fixture {
 type wireEnvelope struct {
 	ID     json.RawMessage `json:"id,omitempty"`
 	Method string          `json:"method,omitempty"`
+	Params json.RawMessage `json:"params,omitempty"`
 	Result json.RawMessage `json:"result,omitempty"`
 	Error  *wireError      `json:"error,omitempty"`
 }
@@ -83,7 +100,11 @@ func (f *fixture) drain(count int) []wireEnvelope {
 		if err := json.Unmarshal([]byte(line), &env); err != nil {
 			f.t.Fatalf("bad reply %q: %v", line, err)
 		}
-		if env.ID == nil || env.Method != "" {
+		if env.Method != "" {
+			f.events = append(f.events, env)
+			continue
+		}
+		if env.ID == nil {
 			continue
 		}
 		replies = append(replies, env)
@@ -135,7 +156,7 @@ func TestP0Contract(t *testing.T) {
 	if err := json.Unmarshal(state, &hello); err != nil {
 		t.Fatal(err)
 	}
-	if hello.Protocol != 1 || hello.Platform != "darwin" || len(hello.Capabilities) != 61 {
+	if hello.Protocol != 1 || hello.Platform != "darwin" || len(hello.Capabilities) != 67 {
 		t.Fatalf("unexpected hello: %+v", hello)
 	}
 

@@ -2,6 +2,7 @@ package config
 
 import (
 	"encoding/json"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -201,6 +202,159 @@ func IsUUID(value string) bool {
 			if !strings.ContainsRune("0123456789abcdefABCDEF", char) {
 				return false
 			}
+		}
+	}
+	return true
+}
+
+type RuntimeProfile struct {
+	BaseURL     string
+	Model       string
+	VisionModel string
+	APIFormat   string
+	Key         string
+	Parameters  map[string]ModelParameters
+}
+
+func ActiveProfile(dataRoot string, reverse contract.ReverseCaller) (RuntimeProfile, error) {
+	stored, err := loadStored(dataRoot)
+	if err != nil {
+		return RuntimeProfile{}, err
+	}
+	profile := defaultProfile
+	if raw, ok := stored["qwenProfile"]; ok {
+		if err := json.Unmarshal(raw, &profile); err != nil {
+			return RuntimeProfile{}, contract.InputInvalid("模型配置无效")
+		}
+	}
+	baseURL := strings.TrimSpace(profile.BaseURL)
+	parsed, err := url.Parse(baseURL)
+	if err != nil || (parsed.Scheme != "http" && parsed.Scheme != "https") ||
+		parsed.User != nil || parsed.Hostname() == "" || parsed.RawQuery != "" || parsed.Fragment != "" {
+		return RuntimeProfile{}, contract.InputInvalid("请填写完整的 API 地址")
+	}
+	if profile.Provider != "" && profile.Provider != "qwen" {
+		return RuntimeProfile{}, contract.InputInvalid("本版本仅支持千问模型配置")
+	}
+	key := ""
+	if profile.EncryptedKey != "" && reverse != nil {
+		if plain, decryptErr := decryptValue(reverse, profile.EncryptedKey); decryptErr == nil {
+			key = plain
+		}
+	}
+	if strings.TrimSpace(key) == "" {
+		return RuntimeProfile{}, contract.InputInvalid("请填写千问 API Key，并确认 Base URL 与密钥属于同一服务")
+	}
+	return RuntimeProfile{
+		BaseURL: strings.TrimRight(baseURL, "/"), Model: strings.TrimSpace(profile.Model),
+		VisionModel: strings.TrimSpace(profile.VisionModel), APIFormat: "chat_completions",
+		Key: key, Parameters: profile.Parameters,
+	}, nil
+}
+
+type ProfileDraft struct {
+	ID          string
+	Name        string
+	BaseURL     string
+	Model       string
+	VisionModel string
+	Provider    string
+	APIFormat   string
+	APIKey      string
+	Parameters  map[string]ModelParameters
+}
+
+func endpointIdentity(value string) (string, error) {
+	parsed, err := url.Parse(strings.TrimSpace(value))
+	if err != nil || (parsed.Scheme != "http" && parsed.Scheme != "https") ||
+		parsed.User != nil || parsed.Hostname() == "" {
+		return "", contract.InputInvalid("请填写完整的 API 地址")
+	}
+	if parsed.RawQuery != "" || parsed.Fragment != "" {
+		return "", contract.InputInvalid("API 地址不能包含查询参数或片段")
+	}
+	return parsed.Scheme + "://" + parsed.Host + strings.TrimRight(parsed.Path, "/"), nil
+}
+
+func DraftProfile(dataRoot string, reverse contract.ReverseCaller, draft ProfileDraft) (RuntimeProfile, error) {
+	identity, err := endpointIdentity(draft.BaseURL)
+	if err != nil {
+		return RuntimeProfile{}, err
+	}
+	if draft.Provider != "" && draft.Provider != "qwen" {
+		return RuntimeProfile{}, contract.InputInvalid("本版本仅支持千问模型配置")
+	}
+	stored, err := loadStored(dataRoot)
+	if err != nil {
+		return RuntimeProfile{}, err
+	}
+	profile := defaultProfile
+	if raw, ok := stored["qwenProfile"]; ok {
+		if err := json.Unmarshal(raw, &profile); err != nil {
+			return RuntimeProfile{}, contract.InputInvalid("模型配置无效")
+		}
+	}
+	storedIdentity := ""
+	if strings.TrimSpace(profile.BaseURL) != "" {
+		storedIdentity, _ = endpointIdentity(profile.BaseURL)
+	}
+	key := strings.TrimSpace(draft.APIKey)
+	if key == "" && storedIdentity == identity && profile.EncryptedKey != "" && reverse != nil {
+		if plain, decryptErr := decryptValue(reverse, profile.EncryptedKey); decryptErr == nil {
+			key = plain
+		}
+	}
+	if strings.TrimSpace(key) == "" {
+		return RuntimeProfile{}, contract.InputInvalid("请填写千问 API Key，并确认 Base URL 与密钥属于同一服务")
+	}
+	return RuntimeProfile{
+		BaseURL: identity, Model: strings.TrimSpace(draft.Model),
+		VisionModel: strings.TrimSpace(draft.VisionModel), APIFormat: "chat_completions",
+		Key: key, Parameters: draft.Parameters,
+	}, nil
+}
+
+func CacheModels(dataRoot string, models []string) error {
+	stored, err := loadStored(dataRoot)
+	if err != nil {
+		return err
+	}
+	raw, ok := stored["qwenProfile"]
+	if !ok {
+		return nil
+	}
+	profile := defaultProfile
+	if err := json.Unmarshal(raw, &profile); err != nil {
+		return contract.InputInvalid("模型配置无效")
+	}
+	merged := []string{}
+	seen := map[string]bool{}
+	for _, value := range append([]string{profile.Model, profile.VisionModel}, models...) {
+		if value != "" && !seen[value] {
+			seen[value] = true
+			merged = append(merged, value)
+		}
+	}
+	if sameStrings(merged, profile.Models) {
+		return nil
+	}
+	profile.Models = merged
+	encoded, err := json.Marshal(profile)
+	if err != nil {
+		return err
+	}
+	stored["qwenProfile"] = encoded
+	file := map[string]json.RawMessage(stored)
+	return writeAtomic(filepath.Join(dataRoot, "settings.json"), file)
+}
+
+func sameStrings(left, right []string) bool {
+	if len(left) != len(right) {
+		return false
+	}
+	for index := range left {
+		if left[index] != right[index] {
+			return false
 		}
 	}
 	return true

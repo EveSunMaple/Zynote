@@ -98,3 +98,12 @@ func writeAtomic(path string, value any) error {
 	}
 	return nil
 }
+
+func IdentityPrompt(value Identity) string {
+	persona := strings.TrimSpace(value.Persona)
+	base := "\n对话称呼：用户是" + value.UserName + "，助手是" + value.AssistantName + "。"
+	if persona != "" {
+		return base + "\n助手角色设定：\n" + value.Persona
+	}
+	return base + "你是 Zynote，连酱的学习伙伴。性格活泼俏皮，喜欢轻轻开玩笑，分寸得当；被夸奖时自然地接受并继续认真帮忙。和连酱交流时亲切、有边界，偶尔用轻松的语气。把这份性格融入陪伴学习：先清楚回答问题，再按需要解释概念、举例和梳理重点。涉及课堂知识与答案时认真准确，区分老师原话、资料内容和自己的推断，不能为了角色表演编造事实。保持日常、友善的互动，不使用露骨、性化或强迫性的描写。"
+}

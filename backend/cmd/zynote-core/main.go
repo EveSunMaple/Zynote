@@ -13,6 +13,7 @@ func main() {
 	core := app.New()
 	server := transport.NewServer(core)
 	core.Wire(server)
+	core.SetNotifier(server)
 	native := helper.NewNative("pdf")
 	core.SetNative(native)
 	defer native.Dispose()

@@ -1,0 +1,454 @@
+package ai
+
+import (
+	"bufio"
+	"bytes"
+	"context"
+	"encoding/json"
+	"fmt"
+	"io"
+	"net/http"
+	"regexp"
+	"strings"
+	"time"
+
+	"github.com/EveSunMaple/Zynote/backend/internal/config"
+)
+
+type FileInput struct {
+	Filename string `json:"filename"`
+	FileData string `json:"file_data"`
+	Path     string `json:"path,omitempty"`
+}
+
+type ContentPart struct {
+	Type     string     `json:"type"`
+	Text     string     `json:"text,omitempty"`
+	File     *FileInput `json:"file,omitempty"`
+	ImageURL *ImageURL  `json:"image_url,omitempty"`
+}
+
+type ImageURL struct {
+	URL string `json:"url"`
+}
+
+type Message struct {
+	Role    string `json:"role"`
+	Content any    `json:"content"`
+}
+
+type Profile struct {
+	BaseURL     string
+	Model       string
+	VisionModel string
+	APIFormat   string
+	Key         string
+	Parameters  map[string]config.ModelParameters
+}
+
+type Client struct {
+	HTTP    *http.Client
+	Profile Profile
+}
+
+func New(profile Profile) *Client {
+	return &Client{HTTP: &http.Client{}, Profile: profile}
+}
+
+func errorHint(status int, detail string) string {
+	if status == 404 {
+		return "服务端未找到当前模型或接口，请在设置中重新选择文本/视觉模型，并确认 API 地址"
+	}
+	if status == 400 {
+		switch {
+		case regexp.MustCompile(`reasoning(?:_effort|\.effort)?|推理强度`).MatchString(detail):
+			return "服务端拒绝了推理强度参数，请在模型参数中选择提供方默认"
+		case regexp.MustCompile(`temperature|top_p`).MatchString(detail):
+			return "服务端拒绝了温度或 Top P 参数，请恢复提供方默认"
+		case regexp.MustCompile(`max_(?:output_)?tokens`).MatchString(detail):
+			return "服务端拒绝了最大输出参数，请检查模型允许的输出上限"
+		case regexp.MustCompile(`file|pptx?|attachment|mime|文件|附件`).MatchString(detail):
+			return "服务端拒绝了课件文件输入，请核对该模型与接口允许的文件格式及大小"
+		case regexp.MustCompile(`model|模型`).MatchString(detail):
+			return "服务端拒绝了当前模型，请核对模型名与接口是否匹配"
+		}
+	}
+	return "请检查地址、接口格式、模型、密钥或配额"
+}
+
+func requestError(response *http.Response, nativeFile, hasFile bool) error {
+	hint := ""
+	if response.StatusCode == 404 || response.StatusCode == 400 {
+		body, _ := io.ReadAll(io.LimitReader(response.Body, 64*1024))
+		var payload struct {
+			Error struct {
+				Code    string `json:"code"`
+				Param   string `json:"param"`
+				Message string `json:"message"`
+			} `json:"error"`
+		}
+		_ = json.Unmarshal(body, &payload)
+		hint = errorHint(response.StatusCode, payload.Error.Code+" "+payload.Error.Param+" "+payload.Error.Message)
+	}
+	extra := ""
+	if nativeFile {
+		extra = "；PPT 原文件上传需要服务商支持 Responses 文件输入"
+	} else if hasFile {
+		extra = "；此任务需要服务商与模型支持 PDF 文件输入"
+	}
+	return fmt.Errorf("API 请求失败（HTTP %d），%s%s", response.StatusCode, hint, extra)
+}
+
+func (client *Client) Chat(ctx context.Context, messages []Message, onText func(string)) (string, error) {
+	profile := client.Profile
+	nativeFile := false
+	hasFile := false
+	hasImages := false
+	for _, message := range messages {
+		parts, ok := message.Content.([]ContentPart)
+		if !ok {
+			continue
+		}
+		for _, part := range parts {
+			switch part.Type {
+			case "file":
+				hasFile = true
+				if part.File != nil && !strings.HasSuffix(strings.ToLower(part.File.Filename), ".pdf") {
+					nativeFile = true
+				}
+			case "image_url":
+				hasImages = true
+			}
+		}
+	}
+	model := profile.Model
+	if hasImages {
+		model = strings.TrimSpace(profile.VisionModel)
+	}
+	if strings.TrimSpace(model) == "" {
+		if hasImages {
+			return "", fmt.Errorf("请先在设置中选择千问视觉模型")
+		}
+		return "", fmt.Errorf("请先在设置中选择千问文本模型")
+	}
+	responses := nativeFile || profile.APIFormat == "responses"
+	endpoint := strings.TrimRight(profile.BaseURL, "/")
+	if responses {
+		endpoint += "/responses"
+	} else {
+		endpoint += "/chat/completions"
+	}
+	parameters := profile.Parameters[model]
+	var input any
+	if responses {
+		converted := []map[string]any{}
+		for _, message := range messages {
+			content, ok := message.Content.([]ContentPart)
+			if !ok {
+				converted = append(converted, map[string]any{"role": message.Role, "content": message.Content})
+				continue
+			}
+			parts := []map[string]any{}
+			for _, part := range content {
+				switch part.Type {
+				case "text":
+					parts = append(parts, map[string]any{"type": "input_text", "text": part.Text})
+				case "image_url":
+					url := ""
+					if part.ImageURL != nil {
+						url = part.ImageURL.URL
+					}
+					parts = append(parts, map[string]any{"type": "input_image", "image_url": url})
+				case "file":
+					if part.File != nil {
+						parts = append(parts, map[string]any{
+							"type": "input_file", "filename": part.File.Filename, "file_data": part.File.FileData,
+						})
+					}
+				}
+			}
+			converted = append(converted, map[string]any{"role": message.Role, "content": parts})
+		}
+		input = map[string]any{"input": converted, "store": false}
+	} else {
+		input = map[string]any{"messages": messages}
+	}
+	body := map[string]any{"model": model, "stream": onText != nil}
+	for key, value := range input.(map[string]any) {
+		body[key] = value
+	}
+	if parameters.Temperature != nil {
+		body["temperature"] = *parameters.Temperature
+	}
+	if parameters.TopP != nil {
+		body["top_p"] = *parameters.TopP
+	}
+	if parameters.MaxTokens != nil {
+		if responses {
+			body["max_output_tokens"] = *parameters.MaxTokens
+		} else {
+			body["max_tokens"] = *parameters.MaxTokens
+		}
+	}
+	if parameters.ReasoningEffort != nil {
+		if responses {
+			body["reasoning"] = map[string]any{"effort": *parameters.ReasoningEffort}
+		} else {
+			body["reasoning_effort"] = *parameters.ReasoningEffort
+		}
+	}
+	encoded, err := json.Marshal(body)
+	if err != nil {
+		return "", err
+	}
+	requestContext, cancel := context.WithTimeout(ctx, 180*time.Second)
+	defer cancel()
+	request, err := http.NewRequestWithContext(requestContext, http.MethodPost, endpoint, bytes.NewReader(encoded))
+	if err != nil {
+		return "", err
+	}
+	request.Header.Set("Content-Type", "application/json")
+	if profile.Key != "" {
+		request.Header.Set("Authorization", "Bearer "+profile.Key)
+	}
+	response, err := client.HTTP.Do(request)
+	if err != nil {
+		if ctx.Err() != nil {
+			return "", fmt.Errorf("任务已取消")
+		}
+		return "", fmt.Errorf("API 连接失败，请检查网络或服务地址")
+	}
+	defer response.Body.Close()
+	if response.StatusCode < 200 || response.StatusCode >= 300 {
+		return "", requestError(response, nativeFile, hasFile)
+	}
+	if onText != nil && response.Body != nil {
+		return readSSE(response.Body, onText)
+	}
+	var payload struct {
+		Status            string          `json:"status"`
+		IncompleteDetails json.RawMessage `json:"incomplete_details"`
+		Output            []struct {
+			Type    string `json:"type"`
+			Content []struct {
+				Type string `json:"type"`
+				Text string `json:"text"`
+			} `json:"content"`
+		} `json:"output"`
+		Choices []struct {
+			FinishReason string `json:"finish_reason"`
+			Message      struct {
+				Content json.RawMessage `json:"content"`
+			} `json:"message"`
+		} `json:"choices"`
+	}
+	if err := json.NewDecoder(response.Body).Decode(&payload); err != nil {
+		return "", fmt.Errorf("API 响应格式异常，请稍后重试")
+	}
+	if payload.Status == "incomplete" || payload.Status == "failed" || (responses && payload.Status != "completed") {
+		return "", fmt.Errorf("API 未完成输出，请检查输出长度限制或服务状态")
+	}
+	if !responses && len(payload.Choices) > 0 {
+		switch payload.Choices[0].FinishReason {
+		case "", "stop":
+		case "length":
+			return "", fmt.Errorf("API 输出达到长度限制，未保存不完整结果")
+		case "content_filter":
+			return "", fmt.Errorf("API 输出被内容安全过滤，未保存不完整结果")
+		default:
+			return "", fmt.Errorf("API 未正常结束，未保存结果")
+		}
+	}
+	value := ""
+	if responses {
+		parts := []string{}
+		for _, item := range payload.Output {
+			if item.Type != "message" {
+				continue
+			}
+			for _, part := range item.Content {
+				if part.Type == "output_text" {
+					parts = append(parts, part.Text)
+				}
+			}
+		}
+		value = strings.Join(parts, "")
+	} else if len(payload.Choices) > 0 {
+		raw := payload.Choices[0].Message.Content
+		var text string
+		if json.Unmarshal(raw, &text) == nil {
+			value = text
+		} else {
+			var parts []struct {
+				Type string `json:"type"`
+				Text string `json:"text"`
+			}
+			_ = json.Unmarshal(raw, &parts)
+			texts := []string{}
+			for _, part := range parts {
+				if part.Type == "text" {
+					texts = append(texts, part.Text)
+				}
+			}
+			value = strings.Join(texts, "")
+		}
+	}
+	if strings.TrimSpace(value) == "" {
+		return "", fmt.Errorf("API 未返回有效文本")
+	}
+	return value, nil
+}
+
+func (client *Client) Models(ctx context.Context) ([]string, error) {
+	request, err := http.NewRequestWithContext(ctx, http.MethodGet, strings.TrimRight(client.Profile.BaseURL, "/")+"/models", nil)
+	if err != nil {
+		return nil, err
+	}
+	if client.Profile.Key != "" {
+		request.Header.Set("Authorization", "Bearer "+client.Profile.Key)
+	}
+	response, err := client.HTTP.Do(request)
+	if err != nil {
+		return nil, fmt.Errorf("读取模型失败，请检查地址与密钥")
+	}
+	defer response.Body.Close()
+	if response.StatusCode < 200 || response.StatusCode >= 300 {
+		return nil, fmt.Errorf("读取模型失败（HTTP %d），请检查地址与密钥；也可手动填写完整模型名", response.StatusCode)
+	}
+	var payload struct {
+		Data []struct {
+			ID string `json:"id"`
+		} `json:"data"`
+	}
+	if err := json.NewDecoder(response.Body).Decode(&payload); err != nil {
+		return nil, fmt.Errorf("读取模型失败，请检查地址与密钥")
+	}
+	seen := map[string]bool{}
+	models := []string{}
+	for _, row := range payload.Data {
+		if row.ID != "" && !seen[row.ID] {
+			seen[row.ID] = true
+			models = append(models, row.ID)
+		}
+	}
+	if len(models) == 0 {
+		return nil, fmt.Errorf("服务未返回模型列表，请手动填写完整模型名")
+	}
+	return models, nil
+}
+
+type sseError struct{ message string }
+
+func (value sseError) Error() string { return value.message }
+
+func readSSE(body io.Reader, onText func(string)) (string, error) {
+	reader := bufio.NewReaderSize(body, 64*1024)
+	buffer := ""
+	all := strings.Builder{}
+	finishReason := ""
+	completed := false
+	handle := func(value string) error {
+		dataLines := []string{}
+		for _, line := range strings.Split(value, "\n") {
+			if strings.HasPrefix(line, "data:") {
+				dataLines = append(dataLines, strings.TrimLeft(strings.TrimPrefix(line, "data:"), " "))
+			}
+		}
+		data := strings.TrimSpace(strings.Join(dataLines, "\n"))
+		if data == "" {
+			return nil
+		}
+		if data == "[DONE]" {
+			if finishReason == "" || finishReason == "stop" {
+				completed = true
+			}
+			return nil
+		}
+		var payload map[string]any
+		if err := json.Unmarshal([]byte(data), &payload); err != nil {
+			return sseError{message: "API 流式响应格式异常"}
+		}
+		if payload["error"] != nil || payload["type"] == "response.failed" || payload["type"] == "response.incomplete" {
+			return sseError{message: "API 未完成流式输出，请检查服务配置或输出长度限制"}
+		}
+		if payload["type"] == "response.completed" {
+			if response, ok := payload["response"].(map[string]any); ok {
+				if status, ok := response["status"].(string); ok && status != "completed" {
+					return sseError{message: "API 未完成流式输出"}
+				}
+			}
+			completed = true
+			return nil
+		}
+		if choices, ok := payload["choices"].([]any); ok && len(choices) > 0 {
+			if choice, ok := choices[0].(map[string]any); ok {
+				if reason, ok := choice["finish_reason"].(string); ok {
+					finishReason = reason
+					switch reason {
+					case "length":
+						return sseError{message: "API 输出达到长度限制，未保存不完整结果"}
+					case "content_filter":
+						return sseError{message: "API 输出被内容安全过滤，未保存不完整结果"}
+					case "stop":
+						completed = true
+					case "":
+					default:
+						return sseError{message: "API 未正常结束文本输出，未保存结果"}
+					}
+				}
+			}
+		}
+		delta := ""
+		if payload["type"] == "response.output_text.delta" {
+			if value, ok := payload["delta"].(string); ok {
+				delta = value
+			}
+		} else if choices, ok := payload["choices"].([]any); ok && len(choices) > 0 {
+			if choice, ok := choices[0].(map[string]any); ok {
+				if item, ok := choice["delta"].(map[string]any); ok {
+					if value, ok := item["content"].(string); ok {
+						delta = value
+					}
+				}
+			}
+		}
+		if delta != "" {
+			all.WriteString(delta)
+			onText(delta)
+		}
+		return nil
+	}
+	for {
+		line, err := reader.ReadString('\n')
+		buffer += strings.ReplaceAll(line, "\r", "")
+		for {
+			index := strings.Index(buffer, "\n\n")
+			if index < 0 {
+				break
+			}
+			block := buffer[:index]
+			buffer = buffer[index+2:]
+			if handleErr := handle(block); handleErr != nil {
+				return "", handleErr
+			}
+		}
+		if err != nil {
+			if err == io.EOF {
+				if strings.TrimSpace(buffer) != "" {
+					if handleErr := handle(buffer); handleErr != nil {
+						return "", handleErr
+					}
+				}
+				break
+			}
+			return "", err
+		}
+	}
+	if !completed {
+		return "", fmt.Errorf("API 流提前结束，缺少有效完成标记，未保存不完整结果")
+	}
+	if strings.TrimSpace(all.String()) == "" {
+		return "", fmt.Errorf("API 未返回文本")
+	}
+	return all.String(), nil
+}

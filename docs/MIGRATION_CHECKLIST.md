@@ -663,3 +663,13 @@ Zynote/
 - [x] 跨语言：`pnpm parity:knowledge`（Electron ABI + esbuild 打包 TS store）验证 Go↔TS 双向导入/阅读/检索/引用，schema 与证据 digest 完全兼容。
 - [x] 测试：导入/分块统计、幂等与 expectedGeneration、FTS/中文检索/作用域、引用篡改拒绝、整理/删除/重建、分类草稿与非法选项、app 级 action 链路。
 - [ ] **剩余**：`knowledge:ask`/`classification-suggest`（AI）、`vector-*`（Rust ORT + bge 模型）、`tools:*`/`im:draft`；旧 Python 知识库 baseline 迁移；根目录仍为 `知识库数据`（随 P5 改名）。
+
+## 1.30 M1 AI 客户端与聊天（2026-10-23）
+
+- [x] `internal/ai`：chat_completions/responses 双格式、SSE 严格完成标记、180s 超时、模型选择（视觉/文本）、参数（温度/TopP/最大输出/推理强度）、错误提示与 API 状态分类；`Models` 列表。
+- [x] `config`：`ActiveProfile`/`DraftProfile`（Base URL 规范化、同地址复用加密 Key、地址变更必须重填）、`CacheModels` 合并模型缓存、`IdentityPrompt` 与 TS 文案一致。
+- [x] `chat`：用户消息先落库、流式 `kind:chat` 事件、助手消息落库、`kind:job` 完成/失败与 `任务停止` 进度事件；`cancel` 取消活动任务；`job:current` 返回当前任务。
+- [x] `settings:models/probe/test` 接入 Go；capabilities 61 → **67**。
+- [x] stdio 请求改为并发处理（反向 RPC 回复不再被长任务阻塞；SQLite 由 busy_timeout/WAL 串行化），新增 jobs 互斥/取消测试。
+- [x] 测试：SSE 完成/截断、JSON/Responses、模型列表、聊天事件与消息持久化、模型草稿校验/Key 复用/缓存写入。
+- [ ] **未切路由**：chat 与模型测试仍走 TS，待界面手测后加入主路径。

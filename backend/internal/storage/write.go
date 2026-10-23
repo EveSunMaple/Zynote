@@ -423,3 +423,61 @@ func (w *WriteDB) DeleteLecture(id string) (bool, error) {
 	}
 	return true, nil
 }
+
+func (w *WriteDB) AppendMessage(courseID string, lectureID *string, role, content string, sessionID *string) error {
+	if role != "user" && role != "assistant" {
+		return contract.InputInvalid("消息角色无效")
+	}
+	tx, err := w.db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	course, err := queryOneTx(tx, "SELECT id FROM courses WHERE id=?", courseID)
+	if err != nil {
+		return err
+	}
+	if course == nil {
+		return contract.NewError(contract.CodeNotFound, "课程不存在")
+	}
+	if lectureID != nil {
+		lecture, err := queryOneTx(tx, "SELECT course_id FROM lectures WHERE id=?", *lectureID)
+		if err != nil {
+			return err
+		}
+		if lecture == nil {
+			return contract.NewError(contract.CodeNotFound, "课次不存在")
+		}
+		if toStringValue(lecture["course_id"]) != courseID {
+			return contract.InputInvalid("课次不属于当前课程")
+		}
+	}
+	var session map[string]any
+	if sessionID != nil {
+		session, err = queryOneTx(tx, "SELECT * FROM chat_sessions WHERE id=? AND course_id=?", *sessionID, courseID)
+		if err != nil {
+			return err
+		}
+		if session == nil {
+			return contract.InputInvalid("会话不属于当前课程")
+		}
+	} else {
+		session, err = queryOneTx(tx, "SELECT * FROM chat_sessions WHERE course_id=? ORDER BY rowid LIMIT 1", courseID)
+		if err != nil {
+			return err
+		}
+		if session == nil {
+			session, err = createSessionTx(tx, courseID, "", "")
+			if err != nil {
+				return err
+			}
+		}
+	}
+	if _, err := tx.Exec(
+		"INSERT INTO messages(id,course_id,lecture_id,role,content,session_id) VALUES(?,?,?,?,?,?)",
+		ids.New(), courseID, lectureID, role, content, toStringValue(session["id"]),
+	); err != nil {
+		return err
+	}
+	return tx.Commit()
+}

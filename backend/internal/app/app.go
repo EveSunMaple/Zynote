@@ -11,10 +11,11 @@ import (
 )
 
 type App struct {
-	mu      sync.Mutex
-	state   *contract.State
-	reverse contract.ReverseCaller
-	invoker *api.Invoker
+	mu       sync.Mutex
+	state    *contract.State
+	reverse  contract.ReverseCaller
+	notifier contract.Notifier
+	invoker  *api.Invoker
 }
 
 func New() *App {
@@ -25,6 +26,13 @@ func (a *App) Wire(reverse contract.ReverseCaller) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	a.reverse = reverse
+}
+
+func (a *App) SetNotifier(notifier contract.Notifier) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	a.notifier = notifier
+	a.invoker.SetNotifier(notifier)
 }
 
 func (a *App) SetNative(native *helper.Native) {
@@ -51,6 +59,16 @@ func (a *App) Reverse() contract.ReverseCaller {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	return a.reverse
+}
+
+func (a *App) Notify(method string, params any) error {
+	a.mu.Lock()
+	notifier := a.notifier
+	a.mu.Unlock()
+	if notifier == nil {
+		return nil
+	}
+	return notifier.Notify(method, params)
 }
 
 func (a *App) Invoke(action string, params json.RawMessage) (any, error) {

@@ -56,11 +56,10 @@ func (w *Writer) Send(env Envelope) error {
 }
 
 type Server struct {
-	handler   contract.Handler
-	out       *Writer
-	pending   sync.Map
-	requestMu sync.Mutex
-	nextID    int64
+	handler contract.Handler
+	out     *Writer
+	pending sync.Map
+	nextID  int64
 }
 
 func NewServer(handler contract.Handler) *Server { return &Server{handler: handler} }
@@ -108,11 +107,7 @@ func (s *Server) handleFrame(frame []byte) {
 	}
 	switch {
 	case env.Method != "" && env.ID != nil:
-		go func() {
-			s.requestMu.Lock()
-			defer s.requestMu.Unlock()
-			s.handleRequest(env)
-		}()
+		go s.handleRequest(env)
 	case env.Method != "" && env.ID == nil:
 	case env.Method == "" && env.ID != nil:
 		s.handleReverseReply(env)
