@@ -159,7 +159,7 @@ async function startApplication() {
     resourcesRoot: app.isPackaged ? process.resourcesPath : join(app.getAppPath(), 'resources'),
     promptsRoot: app.isPackaged ? process.resourcesPath : join(app.getAppPath(), 'src'),
     nativePath: nativeBinaryPath(),
-    services: createShellServices(window),
+    services: createShellServices(window, libraryRoot),
     portable: !!portable,
     onEvent: e => {
      if (!window.isDestroyed()) window.webContents.send('assistant:event', e)

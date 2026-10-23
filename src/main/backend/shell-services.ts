@@ -1,4 +1,6 @@
-import {type BrowserWindow, dialog, safeStorage, session} from 'electron'
+import {type BrowserWindow, dialog, safeStorage, session, shell} from 'electron'
+import {lstat} from 'node:fs/promises'
+import {resolve, sep} from 'node:path'
 import {z} from 'zod'
 import {assertSecureStorage, systemProtect} from '@main/security/system-encryption'
 import type {ShellService} from '@main/backend/shell-service'
@@ -12,7 +14,7 @@ function domainOf(value: unknown) {
  return value === 'im' ? 'im' : 'media'
 }
 
-export function createShellServices(window: BrowserWindow): Record<string, ShellService> {
+export function createShellServices(window: BrowserWindow, libraryRoot: string): Record<string, ShellService> {
  return {
   'crypto.unprotect': params => {
    const value = params.value
@@ -42,6 +44,15 @@ export function createShellServices(window: BrowserWindow): Record<string, Shell
    } catch {}
    const token = /{i:\d+;s:\d+:"_token";i:\d+;s:\d+:"(.+?)";}/.exec(value)?.[1]
    return {cookie, authorization: token ? 'Bearer ' + token : ''}
+  },
+  'shell.trashItem': async params => {
+   const path = z.string().min(1).max(4096).parse(params.path),
+    target = resolve(path)
+   if (!target.startsWith(resolve(libraryRoot) + sep)) throw new Error('只能删除资料文件夹中的文件')
+   const info = await lstat(target)
+   if (info.isSymbolicLink() || !info.isFile()) throw new Error('只能删除资料文件夹中的文件')
+   await shell.trashItem(target)
+   return true
   },
   'shell.pickFile': async params => {
    const title = z.string().min(1).max(200).parse(params.title)

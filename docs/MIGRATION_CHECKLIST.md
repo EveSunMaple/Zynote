@@ -694,3 +694,8 @@ Zynote/
 
 - [x] `media:discussion-import`：讨论 ref 选择 → 证据文本 → 知识库导入（expectedGeneration 防覆盖）→ `Notes/<分类>/<标题>-<ref>.md` 写入并回读核验。
 - [x] 测试：证据选择/备注渲染、默认分类、笔记文件与知识库列表；capabilities 71 → **72**。
+
+## 1.34 library:delete 迁移 Go（2026-10-23）
+
+- [x] 壳侧 `shell.trashItem`（限定 libraryRoot、拒绝链接/目录）；Go 校验任务空闲与 confirmed、`ManagedFile` 边界、回收站调用、DB 事务清理（course_files/practice_sets/lecture ppt/transcript）并 checkpoint。
+- [x] 测试：未确认拒绝、文件记录与课次 PPT 字段清理；capabilities 72 → **73**。

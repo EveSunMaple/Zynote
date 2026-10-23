@@ -481,3 +481,37 @@ func (w *WriteDB) AppendMessage(courseID string, lectureID *string, role, conten
 	}
 	return tx.Commit()
 }
+
+func (w *WriteDB) DeleteManagedFile(path string) error {
+	tx, err := w.db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	rows, err := queryAllTx(tx, "SELECT id,course_id FROM course_files WHERE path=?", path)
+	if err != nil {
+		return err
+	}
+	for _, row := range rows {
+		if _, err := tx.Exec("DELETE FROM course_files WHERE id=? AND course_id=?",
+			toStringValue(row["id"]), toStringValue(row["course_id"])); err != nil {
+			return err
+		}
+		if _, err := tx.Exec(
+			"DELETE FROM practice_sets WHERE lecture_id IN (SELECT id FROM lectures WHERE course_id=?)",
+			toStringValue(row["course_id"]),
+		); err != nil {
+			return err
+		}
+	}
+	if _, err := tx.Exec("UPDATE lectures SET ppt_path='',ppt_text='' WHERE ppt_path=?", path); err != nil {
+		return err
+	}
+	if _, err := tx.Exec("UPDATE lectures SET transcript_path='',transcript_text='' WHERE transcript_path=?", path); err != nil {
+		return err
+	}
+	if err := tx.Commit(); err != nil {
+		return err
+	}
+	return w.Checkpoint()
+}
