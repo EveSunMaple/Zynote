@@ -96,7 +96,7 @@ func (inv *Invoker) handleMediaCatalog(store contract.StateStore, state *contrac
 	if err != nil {
 		return nil, err
 	}
-	source, ok := result.(bilibili.Source)
+	source, ok := result.(media.Source)
 	if !ok {
 		return result, nil
 	}

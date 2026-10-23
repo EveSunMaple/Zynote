@@ -576,3 +576,11 @@ Zynote/
 - [x] 修复：`media:retry` 原生任务此前只切状态不入队，现按 TS 语义先查活动任务、转 queued 后入队。
 - [x] 跨语言证据：`scripts/discussion-roundtrip.mts`（经 `ELECTRON_RUN_AS_NODE` 使用 Electron ABI 的 better-sqlite3）验证 canonical JSON/digest/packRef 与 SQLite 表结构在 Go↔TS 双向一致：Go 写 → TS select；TS 写 → Go select。新增 `pnpm parity:discussion`。
 - [x] 验证：`go test ./...`、`pnpm verify`、`pnpm build`、`pnpm smoke:go-core`、`pnpm parity:discussion` 全绿。
+
+## 1.17 P4d 平台目录基础（2026-10-23）
+
+- [x] `media/source.go`：`Catalog/MediaStream/SubtitleTrack/Chapter/Source` 提升为平台中立类型，`bilibili` 保留同名别名（零改动测试）。
+- [x] `internal/media/platform`：`Input`（BV/bilibili/YouTube/Vimeo/Dailymotion 网址识别与规范化，含播放列表/哈希歧义校验）+ Vimeo/Dailymotion 原生目录（域名白名单、进度/封面/字幕、格式校验、HLS 回退）。
+- [x] 测试：输入识别、Vimeo 目录/身份不一致/字幕、Dailymotion 目录、播放列表拒绝、format_ids 变化。
+- [ ] **媒体路由暂缓**（`dd501fe`）：Go 尚未覆盖 YouTube（youtubei.js + quickjs 签名），为避免下载回归 media/bili-resources 继续走 TS。
+- [ ] **下一步**：Rust `--mode youtube`（rustypipe spike，若签名不可用按 D3a 重新评估）；接入平台 dispatcher（catalog/create/runner 共用）；再恢复媒体域路由切换。

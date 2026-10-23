@@ -135,7 +135,7 @@ func (runner *Runner) Run(id string, ctx context.Context) (map[string]any, error
 		runner.fail(id, ctx, err)
 		return nil, err
 	}
-	source, ok := catalogResult.(bilibili.Source)
+	source, ok := catalogResult.(media.Source)
 	if !ok || source.Identity != job.Identity {
 		err := fmt.Errorf("分集身份已改变，请重新读取视频")
 		runner.fail(id, ctx, err)

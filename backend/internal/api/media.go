@@ -123,7 +123,7 @@ func (inv *Invoker) handleMediaRetry(store contract.StateStore, state *contract.
 	if err != nil {
 		return nil, err
 	}
-	fresh, ok := freshResult.(bilibili.Source)
+	fresh, ok := freshResult.(media.Source)
 	if !ok || fresh.Identity != recipe.Identity {
 		return nil, contract.InputInvalid("旧任务与当前站点分集身份不一致，原记录保留")
 	}
@@ -355,7 +355,7 @@ func (inv *Invoker) handleMediaCreate(store contract.StateStore, state *contract
 	if err != nil {
 		return nil, err
 	}
-	fresh, ok := freshResult.(bilibili.Source)
+	fresh, ok := freshResult.(media.Source)
 	if !ok || fresh.Identity != saved.source.Identity {
 		return nil, contract.InputInvalid("视频分集身份已改变，请重新读取")
 	}
