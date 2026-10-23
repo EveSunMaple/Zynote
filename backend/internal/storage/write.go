@@ -682,3 +682,25 @@ func (w *WriteDB) SavePractice(lectureID string, practice map[string]any) error 
 	)
 	return err
 }
+
+func (w *WriteDB) SaveNotes(lectureID string, notes any) error {
+	if _, err := w.Lecture(lectureID); err != nil {
+		return err
+	}
+	encoded, err := json.Marshal(notes)
+	if err != nil {
+		return err
+	}
+	tx, err := w.db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	if _, err := tx.Exec("INSERT OR REPLACE INTO lecture_notes(lecture_id,notes_json) VALUES(?,?)", lectureID, string(encoded)); err != nil {
+		return err
+	}
+	if _, err := tx.Exec("DELETE FROM practice_sets WHERE lecture_id=?", lectureID); err != nil {
+		return err
+	}
+	return tx.Commit()
+}

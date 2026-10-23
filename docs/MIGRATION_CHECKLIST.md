@@ -716,3 +716,8 @@ Zynote/
 
 - [x] `practice:submit/reset`：选项解析、答案字母核对、attempt 写入/清除、practice_sets 持久化。
 - [x] 测试：正确/错误判定、重置、缺题拒绝；capabilities 79 → **81**。
+
+## 1.38 notes:save（2026-10-23）
+
+- [x] 笔记结构校验、原文/时间邻近核验（关键词触发、不确定段排除、“学生”开头拒绝）、`lecture_notes` 保存与练习复位、Notes Markdown 落盘（等级/核验标记/课件引用）。
+- [x] 测试：核验真/假、Markdown 内容、练习清理；capabilities 81 → **82**。
