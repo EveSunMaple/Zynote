@@ -1,6 +1,6 @@
 {
  "schema": 1,
- "total": 112,
+ "total": 150,
  "actions": [
   {
    "action": "runtime:install",
@@ -673,6 +673,234 @@
    "source": "research.ts",
    "phase": 6,
    "backend": "go"
+  },
+  {
+   "action": "courses",
+   "source": "courses.ts",
+   "phase": 1,
+   "backend": "go"
+  },
+  {
+   "action": "sessions",
+   "source": "courses.ts",
+   "phase": 1,
+   "backend": "go"
+  },
+  {
+   "action": "pick",
+   "source": "courses.ts",
+   "phase": 1,
+   "backend": "shell"
+  },
+  {
+   "action": "cancel",
+   "source": "desktop.ts",
+   "phase": 1,
+   "backend": "go"
+  },
+  {
+   "action": "external",
+   "source": "desktop.ts",
+   "phase": 1,
+   "backend": "shell"
+  },
+  {
+   "action": "export",
+   "source": "desktop.ts",
+   "phase": 2,
+   "backend": "go"
+  },
+  {
+   "action": "chat",
+   "source": "learning.ts",
+   "phase": 2,
+   "backend": "go"
+  },
+  {
+   "action": "subtitle-sync:list",
+   "source": "courseware.ts",
+   "phase": 4,
+   "backend": "go"
+  },
+  {
+   "action": "subtitle-derived:list",
+   "source": "courseware.ts",
+   "phase": 4,
+   "backend": "go"
+  },
+  {
+   "action": "subtitle-derived:resume",
+   "source": "courseware.ts",
+   "phase": 4,
+   "backend": "go"
+  },
+  {
+   "action": "subtitle-derived:start",
+   "source": "courseware.ts",
+   "phase": 4,
+   "backend": "go"
+  },
+  {
+   "action": "subtitle-sync:attach",
+   "source": "courseware.ts",
+   "phase": 4,
+   "backend": "go"
+  },
+  {
+   "action": "subtitle-sync:resume",
+   "source": "courseware.ts",
+   "phase": 4,
+   "backend": "go"
+  },
+  {
+   "action": "subtitle-sync:start",
+   "source": "courseware.ts",
+   "phase": 4,
+   "backend": "go"
+  },
+  {
+   "action": "subtitle-sync:mixed",
+   "source": "courseware.ts",
+   "phase": 4,
+   "backend": "go"
+  },
+  {
+   "action": "video-ppt:pending",
+   "source": "courseware.ts",
+   "phase": 4,
+   "backend": "go"
+  },
+  {
+   "action": "video-ppt:restore",
+   "source": "courseware.ts",
+   "phase": 4,
+   "backend": "go"
+  },
+  {
+   "action": "video-ppt:series",
+   "source": "courseware.ts",
+   "phase": 4,
+   "backend": "go"
+  },
+  {
+   "action": "video-ppt:subtitle",
+   "source": "courseware.ts",
+   "phase": 4,
+   "backend": "go"
+  },
+  {
+   "action": "video-ppt:subtitle-import",
+   "source": "courseware.ts",
+   "phase": 4,
+   "backend": "go"
+  },
+  {
+   "action": "video-ppt:subtitle-save",
+   "source": "courseware.ts",
+   "phase": 4,
+   "backend": "go"
+  },
+  {
+   "action": "video-ppt:subtitle-export",
+   "source": "courseware.ts",
+   "phase": 4,
+   "backend": "go"
+  },
+  {
+   "action": "video-ppt:notes-export",
+   "source": "courseware.ts",
+   "phase": 4,
+   "backend": "go"
+  },
+  {
+   "action": "video-ppt:batch-subtitles",
+   "source": "courseware.ts",
+   "phase": 4,
+   "backend": "go"
+  },
+  {
+   "action": "video-ppt:summary",
+   "source": "courseware.ts",
+   "phase": 4,
+   "backend": "go"
+  },
+  {
+   "action": "video-ppt:subtitle-transcribe",
+   "source": "courseware.ts",
+   "phase": 4,
+   "backend": "go"
+  },
+  {
+   "action": "video-ppt:subtitle-transcribe-local",
+   "source": "courseware.ts",
+   "phase": 4,
+   "backend": "go"
+  },
+  {
+   "action": "video-ppt:resume-subtitle",
+   "source": "courseware.ts",
+   "phase": 4,
+   "backend": "go"
+  },
+  {
+   "action": "video-ppt:batch",
+   "source": "courseware.ts",
+   "phase": 4,
+   "backend": "go"
+  },
+  {
+   "action": "video-ppt:auto",
+   "source": "courseware.ts",
+   "phase": 4,
+   "backend": "go"
+  },
+  {
+   "action": "video-ppt:source",
+   "source": "courseware.ts",
+   "phase": 4,
+   "backend": "go"
+  },
+  {
+   "action": "video-ppt:extract",
+   "source": "courseware.ts",
+   "phase": 4,
+   "backend": "go"
+  },
+  {
+   "action": "video-ppt:export",
+   "source": "courseware.ts",
+   "phase": 4,
+   "backend": "go"
+  },
+  {
+   "action": "ppt-extract:analyze",
+   "source": "courseware.ts",
+   "phase": 4,
+   "backend": "go"
+  },
+  {
+   "action": "ppt-extract:export",
+   "source": "courseware.ts",
+   "phase": 4,
+   "backend": "go"
+  },
+  {
+   "action": "video-ppt:pick",
+   "source": "courseware.ts",
+   "phase": 4,
+   "backend": "shell"
+  },
+  {
+   "action": "video-ppt:reveal",
+   "source": "courseware.ts",
+   "phase": 4,
+   "backend": "shell"
+  },
+  {
+   "action": "ppt-extract:pick",
+   "source": "courseware.ts",
+   "phase": 4,
+   "backend": "shell"
   }
  ]
 }

@@ -37,6 +37,8 @@ jobs:
         run: pnpm verify
       - name: Go test
         run: pnpm backend:test
+      - name: Cross-language parity
+        run: pnpm parity:discussion && pnpm parity:knowledge
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
         with:

@@ -31,8 +31,9 @@
   "lint": "biome lint .",
   "format": "biome format --write .",
   "check": "biome check .",
+  "check:contract": "node scripts/check-contract.mts",
   "check:fix": "biome check --write .",
-  "verify": "pnpm typecheck && pnpm check"
+  "verify": "pnpm typecheck && pnpm check && pnpm check:contract"
  },
  "dependencies": {
   "@heroui/react": "^3.2.6",
