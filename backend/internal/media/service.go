@@ -7,11 +7,12 @@ import (
 
 type MediaService struct {
 	Jobs *DownloadJobs
+	Auth *MediaAuth
 	Root string
 }
 
 func NewMediaService(root string, crypt Crypt) *MediaService {
-	return &MediaService{Jobs: NewDownloadJobs(root, crypt), Root: root}
+	return &MediaService{Jobs: NewDownloadJobs(root, crypt), Auth: NewMediaAuth(root, crypt), Root: root}
 }
 
 func (service *MediaService) Options() (map[string]any, error) {

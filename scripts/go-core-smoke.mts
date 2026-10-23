@@ -112,7 +112,7 @@ const hello = (await call('core.hello', {
 })) as HelloResult
 check('hello protocol', hello.protocol === 1)
 check('hello platform', hello.platform === 'darwin')
-check('hello capabilities', hello.capabilities.length === 33)
+check('hello capabilities', hello.capabilities.length === 36)
 
 const bootstrap = (await call('db:bootstrap')) as {ok: boolean}
 check('bootstrap ok', bootstrap.ok === true)
@@ -189,6 +189,8 @@ check('media options defaults', mediaOptions.defaults.container === 'mkv')
 check('media options heights', mediaOptions.heights.length === 10)
 const mediaList = (await call('media:list')) as unknown[]
 check('media list empty', mediaList.length === 0)
+const authList = (await call('media:auth-list')) as unknown[]
+check('media auth list empty', authList.length === 0)
 
 await writeFile(join(dataRoot, 'smoke-note.md'), '课程笔记\n第二行')
 const markdownParse = (await call('document:parse', {path: join(dataRoot, 'smoke-note.md')})) as {text: string}

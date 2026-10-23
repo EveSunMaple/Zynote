@@ -4,7 +4,7 @@ import {existsSync} from 'node:fs'
 import {join} from 'node:path'
 import {z} from 'zod'
 import type {EventPayload} from '@shared/types'
-import {shellServices} from '@main/backend/shell-services'
+import type {ShellService} from '@main/backend/shell-service'
 
 const HELLO_TIMEOUT_MS = 8000
 const CALL_TIMEOUT_MS = 10000
@@ -27,6 +27,7 @@ export type GoCoreOptions = {
  promptsRoot: string
  nativePath: string
  portable: boolean
+ services: Record<string, ShellService>
  onEvent: (event: EventPayload) => void
  onFailed: (reason: string) => void
 }
@@ -197,7 +198,7 @@ export class GoCore {
  }
 
  private async handleReverse(id: string, method: string, params: unknown) {
-  const service = shellServices[method]
+  const service = this.options.services[method]
   if (!service) {
    this.send({jsonrpc: '2.0', id, error: {code: 'INPUT_INVALID', message: '未知壳服务: ' + method}})
    return

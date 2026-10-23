@@ -91,7 +91,8 @@ func (inv *Invoker) Invoke(store contract.StateStore, action string, params json
 			return nil, contract.Unavailable("后台尚未完成握手")
 		}
 		return inv.handleFilesRemove(state, params)
-	case "media:options", "media:list", "media:retry", "media:cancel", "media:file":
+	case "media:options", "media:list", "media:retry", "media:cancel", "media:file",
+		"media:auth-import", "media:auth-list", "media:auth-remove":
 		state := store.State()
 		if state == nil {
 			return nil, contract.Unavailable("后台尚未完成握手")
@@ -105,6 +106,12 @@ func (inv *Invoker) Invoke(store contract.StateStore, action string, params json
 			return inv.handleMediaRetry(store, state, params)
 		case "media:cancel":
 			return inv.handleMediaCancel(store, state, params)
+		case "media:auth-import":
+			return inv.handleMediaAuthImport(store, state, params)
+		case "media:auth-list":
+			return inv.handleMediaAuthList(store, state, params)
+		case "media:auth-remove":
+			return inv.handleMediaAuthRemove(store, state, params)
 		default:
 			return inv.handleMediaFile(store, state, params)
 		}

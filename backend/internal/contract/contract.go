@@ -66,6 +66,7 @@ var DefaultCapabilities = []string{
 	"pdf.text", "pdf.plainText", "pdf.inspect", "pdf.write",
 	"document:parse", "transcript:read", "files:add", "files:remove", "lecture:create", "lecture:transcript", "lecture:courseware", "questions:save",
 	"media:options", "media:list", "media:retry", "media:cancel", "media:file",
+	"media:auth-import", "media:auth-list", "media:auth-remove",
 }
 
 type HelloParams struct {
