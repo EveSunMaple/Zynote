@@ -615,3 +615,8 @@ Zynote/
 - [x] `bilibili.NewScopedResources(fetcher)`：目录读取走登录档案 scoped fetcher（nil Cookie 存储安全），WBI playurl 使用同一 fetcher 签名；dispatcher 与 `media:create` 重读在 `cookie_profile` 下使用 scoped catalog。
 - [x] 测试：假 fetcher 覆盖 nav（WBI 密钥）/view/playurl/player，断言请求带 `w_rid`/`wts` 且返回 `media.Source`。
 - [x] YouTube 网络探测：crates.io SSL 超时；直接 InnerTube（WEB legacy key）返回 `UNPLAYABLE`，无签名/会话不可用，确认仍需 rustypipe + 播放器签名，维持 TS 路由。
+
+## 1.23 运行时冒烟修复（2026-10-23）
+
+- [x] `scripts/runtime-smoke.mts` 的设置分区标签更新为当前 UI（搜索服务/提示词库/模型服务），修复自 UI 改名后一直失败的导航阶段。
+- [x] `pnpm runtime:smoke` 全绿：seed/restart（Electron safeStorage、生产媒体/IM 加密二进制、Cookie/IM 跨重启、加密日志恢复）+ 设置导航/窗口激活复验。

@@ -100,7 +100,7 @@ async function navigation() {
    original = await dialog.boundingBox(),
    positions = await dialog.getByRole('complementary', {name: '设置导航'}).boundingBox()
   if (!original || !positions) throw new Error('Settings layout is not visible')
-  for (const name of ['搜索', '提示词', '通义千问']) {
+  for (const name of ['搜索服务', '提示词库', '模型服务']) {
    await dialog.getByRole('button', {name, exact: true}).click()
    await dialog.getByRole('heading', {name, exact: true}).waitFor()
    if ((await dialog.getByRole('button', {name, exact: true}).getAttribute('aria-current')) !== 'page')
@@ -135,7 +135,7 @@ async function navigation() {
     )
      throw new Error('Mac activation must reuse the window and renderer')
    })
-   await dialog.getByRole('heading', {name: '通义千问', exact: true}).waitFor()
+   await dialog.getByRole('heading', {name: '模型服务', exact: true}).waitFor()
    checks.push('Mac close hides the window; activation restores the same window, renderer and settings section')
   }
   await page.screenshot({path: join(results, 'settings.png'), fullPage: true})
