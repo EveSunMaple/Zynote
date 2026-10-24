@@ -820,3 +820,10 @@ Zynote/
 - [x] `library.ReserveFile` 对齐 TS `reserveFile`（FolderName、扩展名保留、O_EXCL 递增）。
 - [x] capabilities 112 → **115**。
 - [ ] `video-ppt:subtitle`（站内字幕抓取）、`batch-subtitles`、`subtitle-transcribe*`、`notes-export`、series/extract/export 仍走 TS。
+
+## 1.52 video-ppt 分集与站内字幕（2026-10-24）
+
+- [x] `video-ppt:series`：B 站 pagelist 公开接口、BV/av、分 P 校验、标题清洗、分集 URL。
+- [x] `video-ppt:subtitle`：pagelist → player/v2 字幕目录、中文优先/自动字幕靠后、字幕地址信任校验、cue 清洗/排序/时长校验、SRT 生成。
+- [x] 测试：fake pagelist/player/subtitle；capabilities 115 → **117**。
+- [ ] 分集读取失败时的隐藏 BrowserWindow 回退仍属壳能力，暂未迁移。
