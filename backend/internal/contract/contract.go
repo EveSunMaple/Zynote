@@ -64,7 +64,8 @@ type State struct {
 var DefaultCapabilities = []string{
 	"app:info", "settings:get", "appearance:get", "appearance:save", "appearance:clear", "identity:get", "identity:save",
 	"db:health", "db:backup", "settings:save", "chat", "cancel", "job:current", "settings:models", "settings:probe", "settings:test", "zhiyun:search", "zhiyun:lessons",
-	"library:delete", "study:get", "study:save", "study:parse", "textbook:pick", "textbook:bytes", "textbook:open", "textbook:manual", "textbook:clear", "textbook:apply", "subtitles:generate", "subtitles:save", "subtitles:import", "questions:split", "practice:submit", "practice:reset", "practice:answer", "practice:prepare", "practice:generate", "notes:save", "notes:generate", "knowledge:list", "knowledge:generation", "knowledge:read", "knowledge:import",
+	"library:delete", "study:get", "study:save", "study:parse", "textbook:pick", "textbook:bytes", "textbook:open", "textbook:manual", "textbook:clear", "textbook:apply",
+	"textbook:analyze", "textbook:analyze-images", "textbook:ppt-source", "textbook:ppt-ocr", "subtitles:generate", "subtitles:save", "subtitles:import", "questions:split", "practice:submit", "practice:reset", "practice:answer", "practice:prepare", "practice:generate", "notes:save", "notes:generate", "knowledge:list", "knowledge:generation", "knowledge:read", "knowledge:import",
 	"knowledge:citation", "knowledge:delete", "knowledge:organize", "knowledge:rebuild",
 	"knowledge:search", "knowledge:vector-status", "knowledge:vector-enable", "knowledge:vector-rebuild", "knowledge:ask", "knowledge:classification-suggest", "knowledge:classification-options", "knowledge:classification-read",
 	"knowledge:classification-save",

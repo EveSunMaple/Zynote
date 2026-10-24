@@ -237,7 +237,8 @@ func (inv *Invoker) Invoke(store contract.StateStore, action string, params json
 			return inv.handleZhiyunSearch(store, state, params)
 		}
 		return inv.handleZhiyunLessons(store, state, params)
-	case "textbook:pick", "textbook:bytes", "textbook:open", "textbook:manual", "textbook:clear", "textbook:apply":
+	case "textbook:pick", "textbook:bytes", "textbook:open", "textbook:manual", "textbook:clear", "textbook:apply",
+		"textbook:analyze", "textbook:analyze-images", "textbook:ppt-source", "textbook:ppt-ocr":
 		state := store.State()
 		if state == nil {
 			return nil, contract.Unavailable("后台尚未完成握手")
@@ -253,8 +254,16 @@ func (inv *Invoker) Invoke(store contract.StateStore, action string, params json
 			return inv.handleTextbookManual(store, state, params)
 		case "textbook:clear":
 			return inv.handleTextbookClear(state, params)
-		default:
+		case "textbook:apply":
 			return inv.handleTextbookApply(state, params)
+		case "textbook:analyze":
+			return inv.handleTextbookAnalyze(store, state, params)
+		case "textbook:analyze-images":
+			return inv.handleTextbookAnalyzeImages(store, state, params)
+		case "textbook:ppt-source":
+			return inv.handleTextbookPptSource(state, params)
+		default:
+			return inv.handleTextbookPptOcr(store, state, params)
 		}
 	case "settings:models", "settings:probe", "settings:test", "settings:save":
 		state := store.State()

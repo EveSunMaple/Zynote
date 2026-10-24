@@ -785,3 +785,10 @@ Zynote/
 - [x] 测试：优先级裁切、选择/预览 Range/手动划线/清空/草稿应用、备份与写回；capabilities 91 → **97**。
 - [ ] `textbook:analyze/analyze-images/ppt-source/ppt-ocr` 仍走 TS；这些 action 与已迁移的选择状态耦合，切路由前必须整组 10 条一起切。
 - [ ] `textbook:pick` 的「课本」默认目录搜索尚未迁移（当前使用系统选择器默认目录）。
+
+## 1.47 textbook AI 划线（2026-10-24）
+
+- [x] `textbook:analyze`：Rust `pdf.text` 逐行坐标 + 四类来源（课堂/教师重点/PPT/学长笔记）+ 每页 AI 决策、逐字引文/来源核验、坐标换算、草稿合并。
+- [x] `textbook:analyze-images`：扫描页 JPEG 预览 → 视觉模型归一化坐标 → 页尺寸/旋转校验 → 草稿。
+- [x] `textbook:ppt-source`/`ppt-ocr`：课件缓存探测、扫描 PDF 取回、哈希复核、视觉 OCR 回写 `ppt_text`（ocr 来源 + 限制说明）。
+- [x] capabilities 97 → **101**；全部 textbook 10 条已具备 Go 实现，切路由可整组切换。

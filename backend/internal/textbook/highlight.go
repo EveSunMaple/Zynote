@@ -54,6 +54,10 @@ func sortHighlights(rows []Highlight) {
 	})
 }
 
+func PrioritizedHighlights(rows []Highlight) []Highlight {
+	return prioritizedHighlights(rows)
+}
+
 func prioritizedHighlights(rows []Highlight) []Highlight {
 	sorted := append([]Highlight(nil), rows...)
 	sortHighlights(sorted)

@@ -305,6 +305,16 @@ func (service *Service) AddDraft(bookID, hash string, rows []Highlight) string {
 	service.mu.Lock()
 	defer service.mu.Unlock()
 	id := ids.New()
-	service.drafts[id] = draft{bookID: bookID, hash: hash, rows: rows}
+	service.drafts[id] = draft{bookID: bookID, hash: hash, rows: prioritizedHighlights(rows)}
 	return id
+}
+
+func (service *Service) Snapshot(id string) (string, string, error) {
+	service.mu.Lock()
+	defer service.mu.Unlock()
+	item, ok := service.books[id]
+	if !ok {
+		return "", "", contract.InputInvalid("请重新选择教材")
+	}
+	return item.path, item.hash, nil
 }
