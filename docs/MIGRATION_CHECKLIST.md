@@ -730,3 +730,11 @@ Zynote/
 - [x] Go：`helper` 新增 embed 助手与 `--embed-model`；知识库 `vector-status/enable/rebuild`（inventory digest、批量嵌入、事务发布、索引过期回退）；`knowledge:search` 在索引就绪时走语义+关键词 RRF，否则关键词。
 - [x] 测试：向量状态/启用/发布/过期回退/语义检索、app 级状态与守卫、真实模型 enable→rebuild→search 集成；capabilities 82 → **85**。
 - [ ] ASR：docling-asr 适配当前 ONNX 导出的转写结果异常（"the" 重复/英文空段），依赖已移除；待改用 whisper.cpp/Rust 自研或修正导出后继续。
+
+## 1.40 M3 ASR 引擎（2026-10-24）
+
+- [x] 定位 ASR 失败原因：q8 **encoder** 与 docling 解码不兼容（fp16 encoder + q8 decoder 与 TS 输出一致：`機器學習課堂筆記,重點是特徵工程和數據清洗`，时间 0–5.12s）。
+- [x] 模型获取扩展：`encoder_model_fp16.onnx`（Go 路径）+ `decoder_model_quantized.onnx`（Go 路径），保留 q8 encoder/merged decoder 供 TS 回退；清单 16 文件、587MB。
+- [x] Rust `--mode asr`：docling-asr Whisper 解码（fp16 encoder + q8 decoder）、语言 zh/auto、f32le PCM、时长/片段输出；`asr.transcribe` 实测通过。
+- [x] Go `helper` 新增 ASR 助手与 `--asr-model`（resources/asr/onnx-small）；依赖说明（docling-asr MIT、whisper-small Apache-2.0）。
+- [ ] 尚未接入 `subtitles:generate`（需 VAD + LLM 校订 + PPT 上下文工作流）。

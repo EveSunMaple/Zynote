@@ -23,6 +23,9 @@ func main() {
 	embed := helper.NewNative("embed")
 	core.SetEmbedNative(embed)
 	defer embed.Dispose()
+	asr := helper.NewNative("asr")
+	core.SetAsrNative(asr)
+	defer asr.Dispose()
 	if err := server.Serve(context.Background(), os.Stdin, os.Stdout); err != nil {
 		os.Exit(1)
 	}

@@ -3,6 +3,7 @@ use serde_json::{json, Value};
 use std::io::{BufRead, Write};
 
 mod annotations;
+mod asr;
 mod embed;
 mod pdf;
 mod youtube;
@@ -16,7 +17,7 @@ enum Mode {
     Embed,
 }
 
-fn parse_mode() -> Result<(Mode, Option<String>, Option<String>, Option<String>), String> {
+fn parse_mode() -> Result<(Mode, Option<String>, Option<String>, Option<String>, Option<String>), String> {
     let args: Vec<String> = std::env::args().collect();
     let index = args
         .iter()
@@ -35,6 +36,10 @@ fn parse_mode() -> Result<(Mode, Option<String>, Option<String>, Option<String>)
         .iter()
         .position(|arg| arg == "--embed-model")
         .and_then(|i| args.get(i + 1).cloned());
+    let asr_model = args
+        .iter()
+        .position(|arg| arg == "--asr-model")
+        .and_then(|i| args.get(i + 1).cloned());
     let mode = match value.as_str() {
         "pdf" => Mode::Pdf,
         "asr" => Mode::Asr,
@@ -43,7 +48,7 @@ fn parse_mode() -> Result<(Mode, Option<String>, Option<String>, Option<String>)
         "embed" => Mode::Embed,
         other => return Err(format!("unknown mode {other}")),
     };
-    Ok((mode, pdfium, youtube_cache, embed_model))
+    Ok((mode, pdfium, youtube_cache, embed_model, asr_model))
 }
 
 #[derive(Deserialize)]
@@ -57,7 +62,7 @@ struct Envelope {
 }
 
 fn main() {
-    let (mode, pdfium_path, youtube_cache, embed_model) = match parse_mode() {
+    let (mode, pdfium_path, youtube_cache, embed_model, asr_model) = match parse_mode() {
         Ok(result) => result,
         Err(message) => {
             eprintln!("zynote-native: {message}");
@@ -86,6 +91,23 @@ fn main() {
             },
             None => {
                 eprintln!("zynote-native: missing --embed-model");
+                std::process::exit(1);
+            }
+        }
+    } else {
+        None
+    };
+    let asr_service = if matches!(mode, Mode::Asr) {
+        match asr_model.as_deref() {
+            Some(path) => match asr::AsrService::new(path) {
+                Ok(service) => Some(service),
+                Err(error) => {
+                    eprintln!("zynote-native: {error}");
+                    std::process::exit(1);
+                }
+            },
+            None => {
+                eprintln!("zynote-native: missing --asr-model");
                 std::process::exit(1);
             }
         }
@@ -134,6 +156,7 @@ fn main() {
             &pdf,
             &youtube_service,
             &embed_service,
+            &asr_service,
             &envelope.method,
             &envelope.params,
         );
@@ -155,6 +178,7 @@ fn dispatch(
     pdf: &Option<pdf::PdfService>,
     youtube: &Option<youtube::YoutubeService>,
     embed: &Option<embed::EmbedService>,
+    asr: &Option<asr::AsrService>,
     method: &str,
     params: &Value,
 ) -> Result<Value, String> {
@@ -242,6 +266,21 @@ fn dispatch(
                 .ok_or("embed service not ready")?
                 .encode_batch(&texts, query)?;
             Ok(json!({"vectors": vectors}))
+        }
+        (Mode::Asr, "asr.transcribe") => {
+            let path = params
+                .get("path")
+                .and_then(|value| value.as_str())
+                .ok_or("path missing")?;
+            let language = params
+                .get("language")
+                .and_then(|value| value.as_str())
+                .unwrap_or("auto");
+            let (duration, cues) = asr
+                .as_ref()
+                .ok_or("asr service not ready")?
+                .transcribe(path, language)?;
+            Ok(json!({"duration": duration, "cues": cues}))
         }
         (mode, other) => Err(format!("mode {} does not implement {other}", mode_name(mode))),
     }

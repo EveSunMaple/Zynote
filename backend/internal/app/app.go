@@ -47,6 +47,10 @@ func (a *App) SetEmbedNative(native *helper.Native) {
 	a.invoker.SetEmbedNative(native)
 }
 
+func (a *App) SetAsrNative(native *helper.Native) {
+	a.invoker.SetAsrNative(native)
+}
+
 func (a *App) State() *contract.State {
 	a.mu.Lock()
 	defer a.mu.Unlock()

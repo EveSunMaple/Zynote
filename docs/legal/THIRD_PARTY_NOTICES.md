@@ -6948,3 +6948,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 License: "GPL-3.0"
 
 用于原生（Rust）YouTube 目录与流地址解析（`zynote-native --mode youtube`）。rustypipe 以 GPL-3.0 发布；Zynote 以 AGPL-3.0-only 发布，按 GPLv3 与 AGPLv3 的兼容条款组合，网络分发仍以 AGPL 源码可得性为准。官方来源 https://codeberg.org/ThetaDev/rustypipe ，crate https://crates.io/crates/rustypipe/0.11.4 。不使用 rustypipe-botguard 外部二进制；播放器签名在进程内处理。
+
+## docling-asr（Whisper ONNX 解码）与 whisper-small 模型
+
+Zynote 的 Rust 助手使用 `docling-asr` 2.51.0（MIT，docling.rs 项目：https://github.com/docling-project/docling.rs ）中的 Whisper ONNX 编码/贪心解码与时间戳规则实现，处理本地 16 kHz 单声道 PCM。语音模型为 OpenAI Whisper small 的 ONNX 导出（onnx-community/whisper-small，Apache-2.0），随组件目录附 `MODEL-LICENSE.txt`（Apache 2.0 全文）；模型清单在 `resources/asr/onnx-small/acquisition.json`，按 SHA256 校验。

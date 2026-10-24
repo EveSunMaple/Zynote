@@ -36,6 +36,7 @@ type Native struct {
 	pdfiumPath string
 	cacheDir   string
 	embedModel string
+	asrModel   string
 	binaryPath string
 	child      *exec.Cmd
 	stdin      io.WriteCloser
@@ -47,13 +48,14 @@ func NewNative(mode string) *Native {
 	return &Native{mode: mode}
 }
 
-func (n *Native) Configure(binaryPath, pdfiumPath, cacheDir, embedModel string) {
+func (n *Native) Configure(binaryPath, pdfiumPath, cacheDir, embedModel, asrModel string) {
 	n.mu.Lock()
 	defer n.mu.Unlock()
 	n.binaryPath = binaryPath
 	n.pdfiumPath = pdfiumPath
 	n.cacheDir = cacheDir
 	n.embedModel = embedModel
+	n.asrModel = asrModel
 }
 
 func (n *Native) ensure() error {
@@ -76,6 +78,9 @@ func (n *Native) ensure() error {
 	}
 	if n.mode == "embed" && n.embedModel != "" {
 		args = append(args, "--embed-model", n.embedModel)
+	}
+	if n.mode == "asr" && n.asrModel != "" {
+		args = append(args, "--asr-model", n.asrModel)
 	}
 	child := exec.Command(n.binaryPath, args...)
 	stdin, err := child.StdinPipe()

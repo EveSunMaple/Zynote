@@ -46,9 +46,17 @@ const weights: Record<string, {size: number; sha256: string}> = {
   size: 92326160,
   sha256: 'a43a83f3c5361cd591cfa7c36f14b43cf7cb22f47a415cc14a8d557be800fa92'
  },
+ 'onnx/encoder_model_fp16.onnx': {
+  size: 176607756,
+  sha256: '5549cd8666ff4b694ceb128bfa48b95bdcceec29075cf2c2212f90002cc058de'
+ },
  'onnx/decoder_model_merged_quantized.onnx': {
   size: 156750845,
   sha256: 'ec07c3cbb64172c39791e26ee870a65ac22b458c36722bfe2776b3dbf741e0c9'
+ },
+ 'onnx/decoder_model_quantized.onnx': {
+  size: 155989346,
+  sha256: '0486afa8eb464bf2210d07aca0cb3f5d91d3f2f01cbe47f9f1e6ff9122abaaf6'
  }
 }
 const selected = [

@@ -24,6 +24,7 @@ type Invoker struct {
 	native        *helper.Native
 	youtube       *helper.Native
 	embed         *helper.Native
+	asr           *helper.Native
 	media         *media.MediaService
 	mediaRoot     string
 	bili          *bilibili.Resources
@@ -76,6 +77,10 @@ func (inv *Invoker) SetYoutubeNative(native *helper.Native) {
 
 func (inv *Invoker) SetEmbedNative(native *helper.Native) {
 	inv.embed = native
+}
+
+func (inv *Invoker) SetAsrNative(native *helper.Native) {
+	inv.asr = native
 }
 
 func (inv *Invoker) SetNotifier(notifier contract.Notifier) {
@@ -372,13 +377,16 @@ func (inv *Invoker) handleHello(store contract.StateStore, params json.RawMessag
 		return nil, contract.Unavailable("数据目录不可用")
 	}
 	if inv.native != nil {
-		inv.native.Configure(input.NativePath, filepath.Join(input.ResourcesRoot, "pdfium", pdfiumFilename()), "", "")
+		inv.native.Configure(input.NativePath, filepath.Join(input.ResourcesRoot, "pdfium", pdfiumFilename()), "", "", "")
 	}
 	if inv.youtube != nil {
-		inv.youtube.Configure(input.NativePath, "", filepath.Join(state.DataRoot, "cache", "youtube"), "")
+		inv.youtube.Configure(input.NativePath, "", filepath.Join(state.DataRoot, "cache", "youtube"), "", "")
 	}
 	if inv.embed != nil {
-		inv.embed.Configure(input.NativePath, "", "", filepath.Join(input.ResourcesRoot, "knowledge", "onnx-bge"))
+		inv.embed.Configure(input.NativePath, "", "", filepath.Join(input.ResourcesRoot, "knowledge", "onnx-bge"), "")
+	}
+	if inv.asr != nil {
+		inv.asr.Configure(input.NativePath, "", "", "", filepath.Join(input.ResourcesRoot, "asr", "onnx-small"))
 	}
 	store.SetState(state)
 	slog.Info("hello accepted", "dataRoot", state.DataRoot)
