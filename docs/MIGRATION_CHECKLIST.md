@@ -798,3 +798,11 @@ Zynote/
 - [x] `library:open/open-file/reveal`：资料目录打开、受管文件打开/定位、扩展名白名单；经壳侧 `shell.openPath`/`shell.showItemInFolder`。
 - [x] `media:open`：复用下载成果校验结果定位文件。
 - [x] capabilities 101 → **105**。
+
+## 1.49 visual 画面识别（2026-10-24）
+
+- [x] `visual:list/prepare/prepare-resume/recognize/recover-output`：任务存储、连接指纹、图片/视频取帧（coverage + balanced 画面变化选帧）、逐帧视觉识别、Markdown 成果、恢复日志/备份/原子替换、失败帧保留。
+- [x] ffmpeg/ffprobe 复用 `internal/media`（系统回退仅开发/显式开关），帧输出 1600px JPEG；识别失败/取消保留任务与已保存文字。
+- [x] 壳侧 `shell.pickFile` 支持 `defaultPath`；capabilities 105 → **110**。
+- [x] 测试：取帧时间、恢复分类、成果提交/日志恢复、列表倒序、app 级空列表/错误参数。
+- [ ] 真实视频 balanced 选帧与视觉模型端到端需在路由切换前补手测。

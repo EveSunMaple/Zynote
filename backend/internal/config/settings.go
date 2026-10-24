@@ -255,6 +255,20 @@ func ActiveProfile(dataRoot string, reverse contract.ReverseCaller) (RuntimeProf
 	}, nil
 }
 
+func CurrentConnectionFingerprint(dataRoot string) (string, error) {
+	stored, err := loadStored(dataRoot)
+	if err != nil {
+		return "", err
+	}
+	profile := defaultProfile
+	if raw, ok := stored["qwenProfile"]; ok {
+		if err := json.Unmarshal(raw, &profile); err != nil {
+			return "", contract.InputInvalid("模型配置无效")
+		}
+	}
+	return connectionFingerprint(profile), nil
+}
+
 func connectionFingerprint(profile StoredProfile) string {
 	encrypted := profile.EncryptedKey
 	if encrypted == "" {

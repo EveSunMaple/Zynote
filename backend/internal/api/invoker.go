@@ -222,6 +222,23 @@ func (inv *Invoker) Invoke(store contract.StateStore, action string, params json
 		default:
 			return inv.handleStudyParse(store, state, params)
 		}
+	case "visual:list", "visual:prepare", "visual:prepare-resume", "visual:recognize", "visual:recover-output":
+		state := store.State()
+		if state == nil {
+			return nil, contract.Unavailable("后台尚未完成握手")
+		}
+		switch action {
+		case "visual:list":
+			return inv.handleVisualList(state)
+		case "visual:prepare":
+			return inv.handleVisualPrepare(store, state, params)
+		case "visual:prepare-resume":
+			return inv.handleVisualPrepareResume(state, params)
+		case "visual:recognize":
+			return inv.handleVisualRecognize(store, state, params)
+		default:
+			return inv.handleVisualRecoverOutput(state, params)
+		}
 	case "library:open", "library:open-file", "library:reveal":
 		state := store.State()
 		if state == nil {

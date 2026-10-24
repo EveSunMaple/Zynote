@@ -77,8 +77,10 @@ export function createShellServices(window: BrowserWindow, libraryRoot: string):
     .array(z.string().min(1).max(20))
     .max(20)
     .parse(params.extensions || [])
+   const defaultPath = typeof params.defaultPath === 'string' ? z.string().max(4096).parse(params.defaultPath) : ''
    const picked = await dialog.showOpenDialog(window, {
     title,
+    ...(defaultPath ? {defaultPath} : {}),
     properties: ['openFile'],
     ...(extensions.length ? {filters: [{name: '文件', extensions}]} : {})
    })
