@@ -759,3 +759,12 @@ Zynote/
 - [x] 对齐：PPTX 页面文本拼接与提取限制对齐 TS；`correctionContext` 与 fingerprint 加入 TS golden 对比；app 级 fake LLM 覆盖文本/视觉图片/断点续订/缺原文。
 - [x] capabilities 86 → **87**；测试 `app` 新增字幕生成 3 例、`learning` 11 例、`asr` 5 例、Rust VAD 5 例。
 - [ ] 路由仍默认 TS（与 notes:generate 一致）；`video-ppt:subtitle-transcribe-local` 尚未接 Go ASR 管线，留待视频域迁移。
+
+## 1.44 practice:answer/prepare/generate（2026-10-24）
+
+- [x] 共享练习逻辑：选项/答案字母解析、作答对比、关键词候选、Tavily 与 Bing RSS 搜索（20s/45s 超时、来源过滤、正文 15k 截断）。
+- [x] `PrepareAnswer`：题库答案优先、同题搜索来源逐字核验（引文 ≥20 字、题干/答案同时命中）、AI 兜底、`correctOptionKeys`；`practice:answer`/`practice:prepare` 按题目/全量准备并落库。
+- [x] `practice:generate`：缺笔记时先复用 `generateNotes`；历年题按 30 条分批匹配、5 道自测题、Tavily 拓展来源核验（题干/答案必须出现在来源中）、答案准备、`shortage` 与 `practice_sets` 落库。
+- [x] 测试：`learning` 练习工具/PrepareAnswer/搜索 9 例；app 级 fake LLM + fake Tavily 覆盖 answer、generate、拓展题与持久化。
+- [x] capabilities 87 → **90**。
+- [ ] 路由仍默认 TS（与 subtitles/notes 一致）；`practice:generate` 的联网拓展需在切路由前做真实 Tavily 手测。

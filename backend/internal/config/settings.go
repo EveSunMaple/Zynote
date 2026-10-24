@@ -389,3 +389,19 @@ func Prompt(dataRoot, promptsRoot, name string) (string, error) {
 	}
 	return prompts[name], nil
 }
+
+func SearchKey(dataRoot string, reverse contract.ReverseCaller) (string, error) {
+	stored, err := loadStored(dataRoot)
+	if err != nil {
+		return "", err
+	}
+	encrypted := rawString(stored["encryptedSearchKey"])
+	if encrypted == "" || reverse == nil {
+		return "", contract.InputInvalid("未配置 Tavily 搜索密钥，将如实保留拓展题差额")
+	}
+	key, err := decryptValue(reverse, encrypted)
+	if err != nil || strings.TrimSpace(key) == "" {
+		return "", contract.InputInvalid("未配置 Tavily 搜索密钥，将如实保留拓展题差额")
+	}
+	return key, nil
+}

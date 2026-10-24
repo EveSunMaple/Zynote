@@ -170,15 +170,23 @@ func (inv *Invoker) Invoke(store contract.StateStore, action string, params json
 			return nil, contract.Unavailable("后台尚未完成握手")
 		}
 		return inv.handleNotesSave(store, state, params)
-	case "practice:submit", "practice:reset":
+	case "practice:submit", "practice:reset", "practice:answer", "practice:prepare", "practice:generate":
 		state := store.State()
 		if state == nil {
 			return nil, contract.Unavailable("后台尚未完成握手")
 		}
-		if action == "practice:submit" {
+		switch action {
+		case "practice:submit":
 			return inv.handlePracticeSubmit(store, state, params)
+		case "practice:reset":
+			return inv.handlePracticeReset(store, state, params)
+		case "practice:answer":
+			return inv.handlePracticeAnswer(store, state, params)
+		case "practice:prepare":
+			return inv.handlePracticePrepare(store, state, params)
+		default:
+			return inv.handlePracticeGenerate(store, state, params)
 		}
-		return inv.handlePracticeReset(store, state, params)
 	case "questions:split":
 		state := store.State()
 		if state == nil {

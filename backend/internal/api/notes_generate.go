@@ -42,7 +42,18 @@ func (inv *Invoker) handleNotesGenerate(store contract.StateStore, state *contra
 	if err := json.Unmarshal(params, &input); err != nil || !config.IsUUID(input.ID) {
 		return nil, contract.InputInvalid("课次标识无效")
 	}
-	detailAny, err := inv.lectureDetailOf(state, input.ID)
+	return inv.runJob("lecture:"+input.ID, func(ctx context.Context) (any, error) {
+		return inv.generateNotes(ctx, store, state, input.ID)
+	})
+}
+
+func (inv *Invoker) generateNotes(
+	ctx context.Context,
+	store contract.StateStore,
+	state *contract.State,
+	lectureID string,
+) (any, error) {
+	detailAny, err := inv.lectureDetailOf(state, lectureID)
 	if err != nil {
 		return nil, err
 	}
@@ -93,14 +104,14 @@ func (inv *Invoker) handleNotesGenerate(store contract.StateStore, state *contra
 		coursewareText = string([]rune(coursewareText)[:12000])
 		limitations = append(limitations, "用于笔记生成的课件文字超过 12,000 字，仅发送开头部分。")
 		inv.emit(map[string]any{"kind": "progress", "data": map[string]any{
-			"lectureId": input.ID, "stage": "课件文字受限",
+			"lectureId": lectureID, "stage": "课件文字受限",
 			"message": "笔记请求的课件文字限于前 12,000 字；已将截断情况告知模型",
 		}})
 	}
 	limitations = uniqueStrings(limitations)
 	if len(limitations) > 0 {
 		inv.emit(map[string]any{"kind": "progress", "data": map[string]any{
-			"lectureId": input.ID, "stage": "课件提取限制", "message": strings.Join(limitations, "；"),
+			"lectureId": lectureID, "stage": "课件提取限制", "message": strings.Join(limitations, "；"),
 		}})
 	}
 	prompt, err := config.Prompt(state.DataRoot, state.PromptsRoot, "notes")
@@ -120,51 +131,49 @@ func (inv *Invoker) handleNotesGenerate(store contract.StateStore, state *contra
 	})
 	full := strings.Join(lines, "\n")
 	parts := courseware.Chunks(full, 16000)
-	return inv.runJob("lecture:"+input.ID, func(ctx context.Context) (any, error) {
-		result := map[string]any{"keyPoints": []any{}, "notTested": []any{}, "uncertain": []any{}}
-		for index, part := range parts {
-			message := fmt.Sprintf("提取教师明确表态 %d/%d", index+1, len(parts))
-			if len(parts) == 1 {
-				message = "结合全课字幕一次提取教师重点、不考与含糊表态"
-			}
-			inv.emit(map[string]any{"kind": "progress", "data": map[string]any{
-				"lectureId": input.ID, "stage": "重点笔记", "message": message,
-			}})
-			raw, err := client.JSON(ctx, prompt, map[string]any{
-				"subtitles": part, "courseware": coursewareText, "coursewareLimitations": limitations,
-			}, func(value []byte) error {
-				var notes map[string]any
-				if err := json.Unmarshal(value, &notes); err != nil {
-					return contract.InputInvalid("笔记数据无效")
-				}
-				return validateNotes(notes)
-			})
-			if err != nil {
-				return nil, err
-			}
+	result := map[string]any{"keyPoints": []any{}, "notTested": []any{}, "uncertain": []any{}}
+	for index, part := range parts {
+		message := fmt.Sprintf("提取教师明确表态 %d/%d", index+1, len(parts))
+		if len(parts) == 1 {
+			message = "结合全课字幕一次提取教师重点、不考与含糊表态"
+		}
+		inv.emit(map[string]any{"kind": "progress", "data": map[string]any{
+			"lectureId": lectureID, "stage": "重点笔记", "message": message,
+		}})
+		raw, err := client.JSON(ctx, prompt, map[string]any{
+			"subtitles": part, "courseware": coursewareText, "coursewareLimitations": limitations,
+		}, func(value []byte) error {
 			var notes map[string]any
-			_ = json.Unmarshal(raw, &notes)
-			for _, key := range []string{"keyPoints", "notTested", "uncertain"} {
-				items, _ := notes[key].([]any)
-				existing, _ := result[key].([]any)
-				result[key] = append(existing, items...)
+			if err := json.Unmarshal(value, &notes); err != nil {
+				return contract.InputInvalid("笔记数据无效")
 			}
+			return validateNotes(notes)
+		})
+		if err != nil {
+			return nil, err
 		}
+		var notes map[string]any
+		_ = json.Unmarshal(raw, &notes)
 		for _, key := range []string{"keyPoints", "notTested", "uncertain"} {
-			result[key] = dedupeNotesItems(result[key].([]any))
+			items, _ := notes[key].([]any)
+			existing, _ := result[key].([]any)
+			result[key] = append(existing, items...)
 		}
-		segments := notesSegments(detail)
-		for _, item := range result["keyPoints"].([]any) {
-			verifyNotesPoint(item.(map[string]any), "key", segments)
-		}
-		for _, item := range result["notTested"].([]any) {
-			verifyNotesPoint(item.(map[string]any), "not", segments)
-		}
-		for _, item := range result["uncertain"].([]any) {
-			verifyNotesPoint(item.(map[string]any), "uncertain", segments)
-		}
-		return inv.persistNotes(state, input.ID, result)
-	})
+	}
+	for _, key := range []string{"keyPoints", "notTested", "uncertain"} {
+		result[key] = dedupeNotesItems(result[key].([]any))
+	}
+	segments := notesSegments(detail)
+	for _, item := range result["keyPoints"].([]any) {
+		verifyNotesPoint(item.(map[string]any), "key", segments)
+	}
+	for _, item := range result["notTested"].([]any) {
+		verifyNotesPoint(item.(map[string]any), "not", segments)
+	}
+	for _, item := range result["uncertain"].([]any) {
+		verifyNotesPoint(item.(map[string]any), "uncertain", segments)
+	}
+	return inv.persistNotes(state, lectureID, result)
 }
 
 func uniqueStrings(values []string) []string {
