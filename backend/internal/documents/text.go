@@ -169,7 +169,7 @@ func ParseCourseware(caller NativeCaller, path string) (CoursewareResult, error)
 	return CoursewareResult{
 		Text:      parsed.Text,
 		NeedsOcr:  parsed.NeedsOcr,
-		Images:    []coursewareImage{},
+		Images:    []CoursewareImage{},
 		Omissions: []string{},
 	}, nil
 }

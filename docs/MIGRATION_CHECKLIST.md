@@ -300,7 +300,7 @@ Zynote/
 
 ### P5 ASR、知识库、研究
 
-- [ ] PCM 提取、Silero VAD、Whisper 分片、时间戳合并。
+- [x] PCM 提取、Silero VAD、Whisper 分片、时间戳合并（Go `internal/asr` + Rust `--mode asr`；UI 路由见 1.43 待办）。
 - [ ] ONNX Runtime Go binding spike（cgo、动态库、macOS 签名、Windows/Linux 分发）。
 - [ ] tokenizer/feature extractor 与 `@huggingface/transformers` 输出对齐；否则保留独立 ASR/embedding sidecar。
 - [ ] 模型清单 SHA256、路径校验、离线加载、内存预算。
@@ -737,7 +737,7 @@ Zynote/
 - [x] 模型获取扩展：`encoder_model_fp16.onnx`（Go 路径）+ `decoder_model_quantized.onnx`（Go 路径），保留 q8 encoder/merged decoder 供 TS 回退；清单 16 文件、587MB。
 - [x] Rust `--mode asr`：docling-asr Whisper 解码（fp16 encoder + q8 decoder）、语言 zh/auto、f32le PCM、时长/片段输出；`asr.transcribe` 实测通过。
 - [x] Go `helper` 新增 ASR 助手与 `--asr-model`（resources/asr/onnx-small）；依赖说明（docling-asr MIT、whisper-small Apache-2.0）。
-- [ ] 尚未接入 `subtitles:generate`（需 VAD + LLM 校订 + PPT 上下文工作流）。
+- [x] 已接入 `subtitles:generate`（VAD 分段 ASR + LLM 校订 + PPT 上下文工作流，见 1.43）。
 
 ## 1.41 notes:generate（2026-10-24）
 
@@ -750,3 +750,12 @@ Zynote/
 - [x] `scripts/build-binaries.mts`：统一构建 Go core（trimpath/strip）与 Rust release，并复制到 `backend/bin/zynote-core(.exe)`、`zynote-native(.exe)`；`backend:build`、`dev` 引导、`release` 均复用。
 - [x] extraResources 与 `nativeBinaryPath/coreBinaryPath` 支持 Windows `.exe`。
 - [x] 验证：release 构建产出 core 12MB + native 25MB（含 ASR/embeddings）。
+
+## 1.43 subtitles:generate（2026-10-24）
+
+- [x] Rust `--mode asr`：Silero V6 VAD 推理（512 帧、64 上下文、h/c 状态批处理）、概率阈值/静音合并/区间填充；逐语音区间转写并累加时间戳；区间合并单测 + 真实语音冒烟（0–5.12s）。
+- [x] Go `internal/asr`：ffmpeg 16k mono f32le 提取、`asr-tasks/<uuid>/recovery.json`（decoding/transcribing/ready-to-save）、原生 `asr.transcribe` 上下文取消、cue 校验/排序/重叠裁切/SRT；fake ffmpeg 与取消/非法 cue 单测。
+- [x] Go 校订工作流 `subtitles:generate`：原文与课件读取、课件缓存保留/重写、与 TS 字节一致的 fingerprint、输出预算分批、按相关性择取课件文字与图片、最多 2 批并发且按原文顺序提交、连接重试/冷却/Retry-After、检查点与状态、进度/取消、`courses/<course>/transcript-results/<lecture>/校订字幕.srt`、详情回读。
+- [x] 对齐：PPTX 页面文本拼接与提取限制对齐 TS；`correctionContext` 与 fingerprint 加入 TS golden 对比；app 级 fake LLM 覆盖文本/视觉图片/断点续订/缺原文。
+- [x] capabilities 86 → **87**；测试 `app` 新增字幕生成 3 例、`learning` 11 例、`asr` 5 例、Rust VAD 5 例。
+- [ ] 路由仍默认 TS（与 notes:generate 一致）；`video-ppt:subtitle-transcribe-local` 尚未接 Go ASR 管线，留待视频域迁移。

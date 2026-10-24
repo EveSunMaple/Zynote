@@ -11,7 +11,7 @@ import (
 	"strings"
 )
 
-type coursewareImage struct {
+type CoursewareImage struct {
 	Label string `json:"label"`
 	URL   string `json:"url"`
 }
@@ -19,7 +19,7 @@ type coursewareImage struct {
 type CoursewareResult struct {
 	Text      string            `json:"text"`
 	NeedsOcr  bool              `json:"needsOcr"`
-	Images    []coursewareImage `json:"images"`
+	Images    []CoursewareImage `json:"images"`
 	Omissions []string          `json:"omissions"`
 }
 
@@ -94,7 +94,7 @@ func findEntry(archive *zip.Reader, name string) *zip.File {
 }
 
 func ParsePptx(data []byte) (CoursewareResult, error) {
-	result := CoursewareResult{Images: []coursewareImage{}, Omissions: []string{}}
+	result := CoursewareResult{Images: []CoursewareImage{}, Omissions: []string{}}
 	if int64(len(data)) > 200*1024*1024 {
 		return result, fmt.Errorf("PPTX 文件超过 200 MB 本地读取上限")
 	}
@@ -140,6 +140,7 @@ func ParsePptx(data []byte) (CoursewareResult, error) {
 		return result, fmt.Errorf("PPTX 页面数须在 1–500 页之间")
 	}
 	editableChars := 0
+	pages := make([]string, 0, len(slideNames))
 	for index, slideName := range slideNames {
 		slideXML, err := readZipEntry(archive, slideName, 5*1024*1024, fmt.Sprintf("PPTX 第 %d 页内容", index+1))
 		if err != nil {
@@ -155,10 +156,10 @@ func ParsePptx(data []byte) (CoursewareResult, error) {
 			remaining = 0
 		}
 		text := extracted
-		if len(text) > remaining {
-			text = text[:remaining]
+		if len([]rune(text)) > remaining {
+			text = string([]rune(text)[:remaining])
 		}
-		editableChars += len(text)
+		editableChars += len([]rune(text))
 		if len(text) < len(extracted) {
 			result.Omissions = append(result.Omissions, "课件可编辑文本超过 200,000 字，本地解析仅保留前段内容")
 		}
@@ -166,19 +167,39 @@ func ParsePptx(data []byte) (CoursewareResult, error) {
 		if pageText == "" {
 			pageText = "（未提取到可编辑文字）"
 		}
-		result.Text += fmt.Sprintf("\n[第 %d 页]\n%s", index+1, pageText)
+		pages = append(pages, fmt.Sprintf("[第 %d 页]\n%s", index+1, pageText))
+		imagesBefore := len(result.Images)
 		relsName := path.Join(path.Dir(slideName), "_rels", path.Base(slideName)+".rels")
 		slideRel, err := readZipEntry(archive, relsName, 5*1024*1024, fmt.Sprintf("PPTX 第 %d 页关系", index+1))
-		if err != nil {
-			continue
-		}
-		collectSlideImages(archive, slideXML, slideRel, slideName, index, &result)
-		if embeddedObjectPat.MatchString(slideXML) {
-			result.Omissions = append(result.Omissions, fmt.Sprintf("第 %d 页含图表、SmartArt 或嵌入对象；仅提取其中的可编辑文本，未进行完整页面渲染", index+1))
+		if err == nil {
+			collectSlideImages(archive, slideXML, slideRel, slideName, index, &result)
+			if embeddedObjectPat.MatchString(slideXML) {
+				result.Omissions = append(result.Omissions, fmt.Sprintf("第 %d 页含图表、SmartArt 或嵌入对象；仅提取其中的可编辑文本，未进行完整页面渲染", index+1))
+			}
+			if text == "" && len(result.Images) == imagesBefore {
+				result.Omissions = append(result.Omissions, fmt.Sprintf("第 %d 页没有提取到文字或可发送的图片", index+1))
+			}
 		}
 	}
+	result.Text = strings.Join(pages, "\n\n")
+	if len(result.Images) > 0 {
+		result.Omissions = append(result.Omissions, "PPTX 嵌入图片以原图附加；没有还原幻灯片版式、裁切、遮罩、动画或位置关系")
+	}
+	result.Omissions = uniqueOmissions(result.Omissions)
 	result.NeedsOcr = false
 	return result, nil
+}
+
+func uniqueOmissions(values []string) []string {
+	seen := map[string]bool{}
+	result := make([]string, 0, len(values))
+	for _, value := range values {
+		if !seen[value] {
+			seen[value] = true
+			result = append(result, value)
+		}
+	}
+	return result
 }
 
 func collectSlideImages(archive *zip.Reader, slideXML, slideRel, slideName string, index int, result *CoursewareResult) {
@@ -219,7 +240,7 @@ func collectSlideImages(archive *zip.Reader, slideXML, slideRel, slideName strin
 			result.Omissions = append(result.Omissions, fmt.Sprintf("第 %d 页嵌入图片因 40 张数量上限未发送", index+1))
 			continue
 		}
-		if int64(len(dataOf(entry))) > 4*1024*1024 {
+		if entry.UncompressedSize64 > 4*1024*1024 {
 			result.Omissions = append(result.Omissions, fmt.Sprintf("第 %d 页嵌入图片超过 4 MB 单张上限，未读取或发送", index+1))
 			continue
 		}
@@ -243,7 +264,7 @@ func collectSlideImages(archive *zip.Reader, slideXML, slideRel, slideName strin
 				count++
 			}
 		}
-		result.Images = append(result.Images, coursewareImage{
+		result.Images = append(result.Images, CoursewareImage{
 			Label: fmt.Sprintf("课件第 %d 页嵌入图片 %d", index+1, count),
 			URL:   "data:" + mime + ";base64," + base64.StdEncoding.EncodeToString(data),
 		})

@@ -102,6 +102,24 @@ func queryOneTx(tx *sql.Tx, query string, args ...any) (map[string]any, error) {
 
 func itoa(number int) string { return strconv.Itoa(number) }
 
+func toIntValue(value any) int {
+	switch number := value.(type) {
+	case int:
+		return number
+	case int64:
+		return int(number)
+	case float64:
+		return int(number)
+	case []byte:
+		parsed, _ := strconv.Atoi(string(number))
+		return parsed
+	case string:
+		parsed, _ := strconv.Atoi(number)
+		return parsed
+	}
+	return 0
+}
+
 func nilIfEmpty(value string) any {
 	if value == "" {
 		return nil

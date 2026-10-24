@@ -17,13 +17,26 @@ func (inv *Invoker) emit(payload map[string]any) {
 }
 
 func (inv *Invoker) runJob(key string, run func(context.Context) (any, error)) (any, error) {
-	result, err := inv.jobs.Run(key, "", run)
+	lectureID := strings.TrimPrefix(key, "lecture:")
+	if lectureID == key || !config.IsUUID(lectureID) {
+		lectureID = ""
+	}
+	result, err := inv.jobs.Run(key, lectureID, run)
 	event := map[string]any{"key": key, "state": "finished"}
+	if lectureID != "" {
+		event["lectureId"] = lectureID
+	}
 	if err != nil {
-		event["error"] = err.Error()
-		inv.emit(map[string]any{"kind": "progress", "data": map[string]any{
-			"stage": "任务停止", "message": err.Error(), "error": true,
-		}})
+		message := err.Error()
+		if appErr, ok := err.(*contract.AppError); ok {
+			message = appErr.Message
+		}
+		event["error"] = message
+		data := map[string]any{"stage": "任务停止", "message": message, "error": true}
+		if lectureID != "" {
+			data["lectureId"] = lectureID
+		}
+		inv.emit(map[string]any{"kind": "progress", "data": data})
 	}
 	inv.emit(map[string]any{"kind": "job", "data": event})
 	return result, err

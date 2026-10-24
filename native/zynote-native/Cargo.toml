@@ -14,3 +14,4 @@ tokio = { version = "1", features = ["rt-multi-thread", "macros"] }
 ort = "2.0.0-rc.15"
 tokenizers = { version = "0.21.4", default-features = false, features = ["fancy-regex"] }
 docling-asr = "2.51.0"
+docling-onnx = "2.51.0"

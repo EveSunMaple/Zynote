@@ -2,6 +2,7 @@ package helper
 
 import (
 	"bufio"
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -140,6 +141,10 @@ func (n *Native) failAll(message string) {
 }
 
 func (n *Native) Call(method string, params any, timeoutMS int) (json.RawMessage, error) {
+	return n.CallContext(context.Background(), method, params, timeoutMS)
+}
+
+func (n *Native) CallContext(ctx context.Context, method string, params any, timeoutMS int) (json.RawMessage, error) {
 	if err := n.ensure(); err != nil {
 		return nil, err
 	}
@@ -174,6 +179,9 @@ func (n *Native) Call(method string, params any, timeoutMS int) (json.RawMessage
 		return result, nil
 	case err := <-item.err:
 		return nil, err
+	case <-ctx.Done():
+		n.Dispose()
+		return nil, ctx.Err()
 	case <-timer.C:
 		return nil, fmt.Errorf("原生助手请求超时")
 	}

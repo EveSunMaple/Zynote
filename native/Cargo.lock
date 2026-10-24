@@ -3466,6 +3466,7 @@ name = "zynote-native"
 version = "0.0.1"
 dependencies = [
  "docling-asr",
+ "docling-onnx",
  "lopdf",
  "ort",
  "pdfium-render",

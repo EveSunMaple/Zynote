@@ -42,8 +42,9 @@ func TestParsePptx(t *testing.T) {
 	if !contains(result.Text, "第一页标题") || !contains(result.Text, "副标题") || !contains(result.Text, "第二页内容") {
 		t.Fatalf("pptx text broken: %q", result.Text)
 	}
-	if !contains(result.Text, "[第 1 页]") || !contains(result.Text, "[第 2 页]") {
-		t.Fatalf("page markers broken: %q", result.Text)
+	want := "[第 1 页]\n第一页标题\n副标题\n\n[第 2 页]\n第二页内容"
+	if result.Text != want {
+		t.Fatalf("page text mismatch: %q", result.Text)
 	}
 	if len(result.Omissions) != 1 || !contains(result.Omissions[0], "第 2 页含图表") {
 		t.Fatalf("graphicFrame omission missing: %+v", result.Omissions)

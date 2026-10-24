@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"math"
 	"strings"
+
+	"github.com/EveSunMaple/Zynote/backend/internal/documents"
 )
 
 func srtTime(ms float64) string {
@@ -39,4 +41,14 @@ func ToSrtMaps(segments []map[string]any) string {
 		return "\n"
 	}
 	return strings.Join(lines, "\n\n") + "\n"
+}
+
+func ToSrt(segments []documents.Segment) string {
+	maps := make([]map[string]any, 0, len(segments))
+	for _, segment := range segments {
+		maps = append(maps, map[string]any{
+			"start": float64(segment.Start), "end": float64(segment.End), "text": segment.Text,
+		})
+	}
+	return ToSrtMaps(maps)
 }

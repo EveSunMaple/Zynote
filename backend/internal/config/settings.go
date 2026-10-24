@@ -1,6 +1,8 @@
 package config
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"net/url"
 	"os"
@@ -214,6 +216,7 @@ type RuntimeProfile struct {
 	APIFormat   string
 	Key         string
 	Parameters  map[string]ModelParameters
+	Fingerprint string
 }
 
 func ActiveProfile(dataRoot string, reverse contract.ReverseCaller) (RuntimeProfile, error) {
@@ -248,8 +251,23 @@ func ActiveProfile(dataRoot string, reverse contract.ReverseCaller) (RuntimeProf
 	return RuntimeProfile{
 		BaseURL: strings.TrimRight(baseURL, "/"), Model: strings.TrimSpace(profile.Model),
 		VisionModel: strings.TrimSpace(profile.VisionModel), APIFormat: "chat_completions",
-		Key: key, Parameters: profile.Parameters,
+		Key: key, Parameters: profile.Parameters, Fingerprint: connectionFingerprint(profile),
 	}, nil
+}
+
+func connectionFingerprint(profile StoredProfile) string {
+	encrypted := profile.EncryptedKey
+	if encrypted == "" {
+		encrypted = "missing-key"
+	}
+	encoded, err := json.Marshal([]any{
+		profile.BaseURL, profile.Model, profile.VisionModel, profile.APIFormat, profile.Parameters, encrypted,
+	})
+	if err != nil {
+		return ""
+	}
+	sum := sha256.Sum256(encoded)
+	return hex.EncodeToString(sum[:])
 }
 
 type ProfileDraft struct {

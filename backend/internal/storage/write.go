@@ -3,6 +3,7 @@ package storage
 import (
 	"database/sql"
 	"encoding/json"
+	"fmt"
 	"path/filepath"
 	"strings"
 
@@ -584,6 +585,78 @@ func (w *WriteDB) SaveStudyEntries(entries []map[string]any) error {
 		}
 	}
 	return tx.Commit()
+}
+
+func (w *WriteDB) SetStatus(id, status string) error {
+	if _, err := w.Lecture(id); err != nil {
+		return err
+	}
+	_, err := w.db.Exec("UPDATE lectures SET status=? WHERE id=?", status, id)
+	return err
+}
+
+func (w *WriteDB) SetLecturePptText(id, text string) error {
+	_, err := w.db.Exec("UPDATE lectures SET ppt_text=? WHERE id=?", text, id)
+	return err
+}
+
+func (w *WriteDB) UpdateLectureCorrection(id, transcriptText string, estimated int, pptText string) error {
+	_, err := w.db.Exec(
+		"UPDATE lectures SET transcript_text=?,time_estimated=?,ppt_text=? WHERE id=?",
+		transcriptText, estimated, pptText, id,
+	)
+	return err
+}
+
+func (w *WriteDB) CorrectionCheckpoint(id string) (fingerprint string, total int, segmentsJSON string, err error) {
+	row, err := queryOne(
+		w.db,
+		"SELECT fingerprint,total,segments_json FROM correction_checkpoints WHERE lecture_id=?",
+		id,
+	)
+	if err != nil || row == nil {
+		return "", 0, "", err
+	}
+	return ToStringValue(row["fingerprint"]), toIntValue(row["total"]), ToStringValue(row["segments_json"]), nil
+}
+
+func (w *WriteDB) SaveCorrectionBatch(id, fingerprint string, total int, segments any, completed int) error {
+	if _, err := w.Lecture(id); err != nil {
+		return err
+	}
+	encoded, err := json.Marshal(segments)
+	if err != nil {
+		return err
+	}
+	tx, err := w.db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	if _, err := tx.Exec(
+		"INSERT OR REPLACE INTO correction_checkpoints(lecture_id,fingerprint,total,segments_json) VALUES(?,?,?,?)",
+		id, fingerprint, total, string(encoded),
+	); err != nil {
+		return err
+	}
+	for _, statement := range []string{
+		"DELETE FROM lecture_notes WHERE lecture_id=?",
+		"DELETE FROM practice_sets WHERE lecture_id=?",
+	} {
+		if _, execErr := tx.Exec(statement, id); execErr != nil {
+			return execErr
+		}
+	}
+	if _, err := tx.Exec(
+		"UPDATE lectures SET status=? WHERE id=?",
+		fmt.Sprintf("校订中（已保存 %d/%d 条）", completed, total), id,
+	); err != nil {
+		return err
+	}
+	if err := tx.Commit(); err != nil {
+		return err
+	}
+	return w.Checkpoint()
 }
 
 func (w *WriteDB) SaveSubtitles(lectureID, srt string, segments any) error {

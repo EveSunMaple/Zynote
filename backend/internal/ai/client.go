@@ -5,10 +5,12 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
 	"regexp"
+	"strconv"
 	"strings"
 	"time"
 
@@ -30,6 +32,60 @@ type ContentPart struct {
 
 type ImageURL struct {
 	URL string `json:"url"`
+}
+
+type Image struct {
+	Label string
+	URL   string
+}
+
+type RetryableError struct {
+	Message    string
+	RetryAfter time.Duration
+}
+
+func (value *RetryableError) Error() string { return value.Message }
+
+func IsRetryable(err error) bool {
+	var target *RetryableError
+	return errors.As(err, &target)
+}
+
+func RetryAfter(err error) time.Duration {
+	var target *RetryableError
+	if errors.As(err, &target) {
+		return target.RetryAfter
+	}
+	return 0
+}
+
+func parseRetryAfter(value string) time.Duration {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return 0
+	}
+	if seconds, err := strconv.ParseFloat(value, 64); err == nil && seconds > 0 {
+		return time.Duration(seconds * float64(time.Second))
+	}
+	for _, layout := range []string{http.TimeFormat, time.RFC1123, time.RFC1123Z} {
+		if parsed, err := time.Parse(layout, value); err == nil {
+			if wait := time.Until(parsed); wait > 0 {
+				return wait
+			}
+			return 0
+		}
+	}
+	return 0
+}
+
+func marshalNoEscape(value any) ([]byte, error) {
+	var buffer bytes.Buffer
+	encoder := json.NewEncoder(&buffer)
+	encoder.SetEscapeHTML(false)
+	if err := encoder.Encode(value); err != nil {
+		return nil, err
+	}
+	return bytes.TrimSuffix(buffer.Bytes(), []byte("\n")), nil
 }
 
 type Message struct {
@@ -96,7 +152,11 @@ func requestError(response *http.Response, nativeFile, hasFile bool) error {
 	} else if hasFile {
 		extra = "；此任务需要服务商与模型支持 PDF 文件输入"
 	}
-	return fmt.Errorf("API 请求失败（HTTP %d），%s%s", response.StatusCode, hint, extra)
+	message := fmt.Sprintf("API 请求失败（HTTP %d），%s%s", response.StatusCode, hint, extra)
+	if response.StatusCode == http.StatusTooManyRequests || response.StatusCode >= 500 {
+		return &RetryableError{Message: message, RetryAfter: parseRetryAfter(response.Header.Get("Retry-After"))}
+	}
+	return errors.New(message)
 }
 
 func (client *Client) Chat(ctx context.Context, messages []Message, onText func(string)) (string, error) {
@@ -197,7 +257,7 @@ func (client *Client) Chat(ctx context.Context, messages []Message, onText func(
 			body["reasoning_effort"] = *parameters.ReasoningEffort
 		}
 	}
-	encoded, err := json.Marshal(body)
+	encoded, err := marshalNoEscape(body)
 	if err != nil {
 		return "", err
 	}
@@ -216,7 +276,7 @@ func (client *Client) Chat(ctx context.Context, messages []Message, onText func(
 		if ctx.Err() != nil {
 			return "", fmt.Errorf("任务已取消")
 		}
-		return "", fmt.Errorf("API 连接失败，请检查网络或服务地址")
+		return "", &RetryableError{Message: "API 连接失败，请检查网络或服务地址"}
 	}
 	defer response.Body.Close()
 	if response.StatusCode < 200 || response.StatusCode >= 300 {
@@ -460,17 +520,42 @@ func stripJSONFence(value string) string {
 	return strings.TrimSpace(trimmed)
 }
 
+type JSONOptions struct {
+	Images  []Image
+	OnRetry func()
+}
+
 func (client *Client) JSON(ctx context.Context, prompt string, input any, validate func([]byte) error) ([]byte, error) {
-	encoded, err := json.Marshal(input)
+	return client.JSONWithOptions(ctx, prompt, input, validate, JSONOptions{})
+}
+
+func (client *Client) JSONWithOptions(
+	ctx context.Context,
+	prompt string,
+	input any,
+	validate func([]byte) error,
+	options JSONOptions,
+) ([]byte, error) {
+	encoded, err := marshalNoEscape(input)
 	if err != nil {
 		return nil, err
 	}
 	feedback := ""
 	var lastErr error
 	for attempt := 0; attempt < 2; attempt++ {
+		text := string(encoded) + feedback
+		var content any = text
+		if len(options.Images) > 0 {
+			parts := []ContentPart{{Type: "text", Text: text}}
+			for _, image := range options.Images {
+				parts = append(parts, ContentPart{Type: "text", Text: image.Label})
+				parts = append(parts, ContentPart{Type: "image_url", ImageURL: &ImageURL{URL: image.URL}})
+			}
+			content = parts
+		}
 		reply, err := client.Chat(ctx, []Message{
 			{Role: "system", Content: prompt},
-			{Role: "user", Content: string(encoded) + feedback},
+			{Role: "user", Content: content},
 		}, nil)
 		if err != nil {
 			return nil, err
@@ -485,6 +570,9 @@ func (client *Client) JSON(ctx context.Context, prompt string, input any, valida
 				return nil, err
 			}
 			feedback = "\n上次输出未通过格式校验。请严格返回指定结构的合法 JSON，不加说明。"
+			if options.OnRetry != nil {
+				options.OnRetry()
+			}
 			timer := time.NewTimer(1500 * time.Millisecond)
 			select {
 			case <-timer.C:
