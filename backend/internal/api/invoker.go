@@ -15,6 +15,7 @@ import (
 	"github.com/EveSunMaple/Zynote/backend/internal/media"
 	"github.com/EveSunMaple/Zynote/backend/internal/media/bilibili"
 	"github.com/EveSunMaple/Zynote/backend/internal/media/download"
+	"github.com/EveSunMaple/Zynote/backend/internal/textbook"
 )
 
 type handlerFunc func(store contract.StateStore, state *contract.State, params json.RawMessage) (any, error)
@@ -33,6 +34,7 @@ type Invoker struct {
 	downloadRoot  string
 	knowledge     *knowledge.Store
 	knowledgeRoot string
+	textbook      *textbook.Service
 	tokens        map[string]catalogToken
 	tokenMu       sync.Mutex
 	mediaMu       sync.Mutex
@@ -42,8 +44,9 @@ type Invoker struct {
 
 func NewInvoker() *Invoker {
 	return &Invoker{
-		native: nil,
-		jobs:   jobs.NewRegistry(),
+		native:   nil,
+		jobs:     jobs.NewRegistry(),
+		textbook: textbook.New(),
 		handlers: map[string]handlerFunc{
 			"app:info":         requireState(handleAppInfo),
 			"settings:get":     requireState(handleSettingsGet),
@@ -234,6 +237,25 @@ func (inv *Invoker) Invoke(store contract.StateStore, action string, params json
 			return inv.handleZhiyunSearch(store, state, params)
 		}
 		return inv.handleZhiyunLessons(store, state, params)
+	case "textbook:pick", "textbook:bytes", "textbook:open", "textbook:manual", "textbook:clear", "textbook:apply":
+		state := store.State()
+		if state == nil {
+			return nil, contract.Unavailable("后台尚未完成握手")
+		}
+		switch action {
+		case "textbook:pick":
+			return inv.handleTextbookPick(store, state)
+		case "textbook:bytes":
+			return inv.handleTextbookBytes(params)
+		case "textbook:open":
+			return inv.handleTextbookOpen(store, params)
+		case "textbook:manual":
+			return inv.handleTextbookManual(store, state, params)
+		case "textbook:clear":
+			return inv.handleTextbookClear(state, params)
+		default:
+			return inv.handleTextbookApply(state, params)
+		}
 	case "settings:models", "settings:probe", "settings:test", "settings:save":
 		state := store.State()
 		if state == nil {

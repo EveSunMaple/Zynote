@@ -60,6 +60,12 @@ export function createShellServices(window: BrowserWindow, libraryRoot: string):
    await shell.trashItem(target)
    return true
   },
+  'shell.openPath': async params => {
+   const path = z.string().min(1).max(4096).parse(params.path)
+   const error = await shell.openPath(path)
+   if (error) throw new Error(error)
+   return true
+  },
   'shell.pickFile': async params => {
    const title = z.string().min(1).max(200).parse(params.title)
    const extensions = z

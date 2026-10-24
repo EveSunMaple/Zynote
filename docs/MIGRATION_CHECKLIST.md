@@ -777,3 +777,11 @@ Zynote/
 - [x] 壳侧新增 `crypto.protect` 与 `tools.configure` 反向服务；Go 端新增 `config.SaveSettings`。
 - [x] 测试：config 5 例（加密合并/保留凭据/换址拒绝/忙碌守卫/校验）、app 级 settings:save 1 例；capabilities 90 → **91**。
 - [ ] 路由仍默认 TS；切 Go 主路径前补安全的真实 safeStorage 冒烟。
+
+## 1.46 textbook 文件生命周期（2026-10-24）
+
+- [x] `textbook:pick/bytes/open/manual/clear/apply`：PDF 选择与页数读取、SHA256 指纹、随机令牌 HTTP Range 预览、系统打开、手动划线、清空本软件划线、草稿按优先级合并后写回。
+- [x] Go `internal/textbook`：选区/草稿内存状态、`pdf.inspect`/`pdf.write` 原生调用、`prioritizedHighlights` 重叠裁切、临时文件/`.划线前备份.pdf`/原子替换/保存后复核；壳侧新增 `shell.openPath`。
+- [x] 测试：优先级裁切、选择/预览 Range/手动划线/清空/草稿应用、备份与写回；capabilities 91 → **97**。
+- [ ] `textbook:analyze/analyze-images/ppt-source/ppt-ocr` 仍走 TS；这些 action 与已迁移的选择状态耦合，切路由前必须整组 10 条一起切。
+- [ ] `textbook:pick` 的「课本」默认目录搜索尚未迁移（当前使用系统选择器默认目录）。
