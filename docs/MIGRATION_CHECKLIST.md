@@ -738,3 +738,9 @@ Zynote/
 - [x] Rust `--mode asr`：docling-asr Whisper 解码（fp16 encoder + q8 decoder）、语言 zh/auto、f32le PCM、时长/片段输出；`asr.transcribe` 实测通过。
 - [x] Go `helper` 新增 ASR 助手与 `--asr-model`（resources/asr/onnx-small）；依赖说明（docling-asr MIT、whisper-small Apache-2.0）。
 - [ ] 尚未接入 `subtitles:generate`（需 VAD + LLM 校订 + PPT 上下文工作流）。
+
+## 1.41 notes:generate（2026-10-24）
+
+- [x] 字幕上下文（`[HH:MM:SS]`）分块 + 课件缓存解析（来源身份/限制/扫描 PDF/12k 截断）+ `notes` 提示词 + 结构化校验；逐块进度、按 quote+timestamp 去重、原文核验、笔记落库与 Markdown。
+- [x] `courseware.ParseCacheWithIdentity` 对齐 TS 的 stale/verified/unknown 判定。
+- [x] 测试：生成/核验/落文件、缺失课次；capabilities 85 → **86**。

@@ -185,6 +185,29 @@ func splitParagraphs(text string) []string {
 	return result
 }
 
+func ParseCacheWithIdentity(value string, current *SourceIdentity) ParsedCache {
+	cache := ParseCache(value)
+	if cache.Metadata == nil {
+		return cache
+	}
+	textChanged := cache.State == "stale"
+	sourceChanged := current == nil
+	if current != nil {
+		currentPath, _ := filepath.Abs(current.Path)
+		metadataPath, _ := filepath.Abs(cache.Metadata.SourcePath)
+		sourceChanged = currentPath != metadataPath || current.Sha256 != cache.Metadata.SourceSha || current.Size != cache.Metadata.SourceSize
+	}
+	switch {
+	case textChanged || sourceChanged:
+		cache.State = "stale"
+	case current != nil:
+		cache.State = "verified"
+	default:
+		cache.State = "unknown"
+	}
+	return cache
+}
+
 func Chunks(text string, size int) []string {
 	if size == 0 {
 		size = 14000

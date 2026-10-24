@@ -219,22 +219,25 @@ func (inv *Invoker) handleNotesSave(_ contract.StateStore, state *contract.State
 	} else {
 		input.Notes["uncertain"] = []any{}
 	}
+	return inv.persistNotes(state, input.ID, input.Notes)
+}
+
+func (inv *Invoker) persistNotes(state *contract.State, lectureID string, notes map[string]any) (any, error) {
 	write, err := openWriteDB(state)
 	if err != nil {
 		return nil, err
 	}
-	lecture, err := write.Lecture(input.ID)
+	lecture, err := write.Lecture(lectureID)
 	if err != nil {
 		write.Close()
 		return nil, err
 	}
-	if err := write.SaveNotes(input.ID, input.Notes); err != nil {
+	if err := write.SaveNotes(lectureID, notes); err != nil {
 		write.Close()
 		return nil, err
 	}
 	write.Close()
-	courseID := textValue(lecture["course_id"])
-	course, err := inv.courseName(state, courseID)
+	course, err := inv.courseName(state, textValue(lecture["course_id"]))
 	if err != nil {
 		return nil, err
 	}
@@ -242,11 +245,11 @@ func (inv *Invoker) handleNotesSave(_ contract.StateStore, state *contract.State
 	if err != nil {
 		return nil, err
 	}
-	path := filepath.Join(directory, library.FolderName(textValue(lecture["title"]))+"-"+input.ID+"-notes.md")
-	if err := os.WriteFile(path, []byte(notesMarkdown(textValue(lecture["title"]), input.Notes)), 0o644); err != nil {
+	path := filepath.Join(directory, library.FolderName(textValue(lecture["title"]))+"-"+lectureID+"-notes.md")
+	if err := os.WriteFile(path, []byte(notesMarkdown(textValue(lecture["title"]), notes)), 0o644); err != nil {
 		return nil, contract.Unavailable("笔记保存失败")
 	}
-	return input.Notes, nil
+	return notes, nil
 }
 
 func (inv *Invoker) courseName(state *contract.State, courseID string) (string, error) {
