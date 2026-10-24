@@ -22,6 +22,12 @@ export function createShellServices(window: BrowserWindow, libraryRoot: string):
    assertSecureStorage()
    return {text: safeStorage.decryptString(Buffer.from(value, 'base64'))}
   },
+  'crypto.protect': params => {
+   const value = params.value
+   if (typeof value !== 'string' || !value || value.length > 1000000) throw new Error('凭据格式无效')
+   assertSecureStorage()
+   return {value: safeStorage.encryptString(value).toString('base64')}
+  },
   'crypto.protect-bytes': params => {
    assertSecureStorage()
    const raw = decodeBytes(params.value)

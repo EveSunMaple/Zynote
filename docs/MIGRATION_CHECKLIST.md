@@ -768,3 +768,12 @@ Zynote/
 - [x] 测试：`learning` 练习工具/PrepareAnswer/搜索 9 例；app 级 fake LLM + fake Tavily 覆盖 answer、generate、拓展题与持久化。
 - [x] capabilities 87 → **90**。
 - [ ] 路由仍默认 TS（与 subtitles/notes 一致）；`practice:generate` 的联网拓展需在切路由前做真实 Tavily 手测。
+
+## 1.45 settings:save（2026-10-24）
+
+- [x] 校验：视频限制、配置名称/Base URL、HTTP(S) 与凭据、查询参数/片段、temperature/topP/maxTokens 范围；换址且未填新 Key 时拒绝复用旧密钥。
+- [x] 加密与合并：经壳侧 `crypto.protect`（safeStorage）写入 API Key/Tavily Key；保留未知旧字段、prompts/provider/theme/宽度/限制，原子替换 `settings.json`；清空搜索密钥时删除字段。
+- [x] 守卫与重连：任务运行中且模型配置变化时拒绝保存；连接指纹变化后经 `tools.configure` 重配研究工具，未启动时跳过。
+- [x] 壳侧新增 `crypto.protect` 与 `tools.configure` 反向服务；Go 端新增 `config.SaveSettings`。
+- [x] 测试：config 5 例（加密合并/保留凭据/换址拒绝/忙碌守卫/校验）、app 级 settings:save 1 例；capabilities 90 → **91**。
+- [ ] 路由仍默认 TS；切 Go 主路径前补安全的真实 safeStorage 冒烟。

@@ -234,7 +234,7 @@ func (inv *Invoker) Invoke(store contract.StateStore, action string, params json
 			return inv.handleZhiyunSearch(store, state, params)
 		}
 		return inv.handleZhiyunLessons(store, state, params)
-	case "settings:models", "settings:probe", "settings:test":
+	case "settings:models", "settings:probe", "settings:test", "settings:save":
 		state := store.State()
 		if state == nil {
 			return nil, contract.Unavailable("后台尚未完成握手")
@@ -244,6 +244,8 @@ func (inv *Invoker) Invoke(store contract.StateStore, action string, params json
 			return inv.handleSettingsModels(store, state, params)
 		case "settings:probe":
 			return inv.handleSettingsProbe(store, state, params)
+		case "settings:save":
+			return inv.handleSettingsSave(store, state, params)
 		default:
 			return inv.handleSettingsTest(store, state, params)
 		}

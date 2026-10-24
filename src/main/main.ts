@@ -150,6 +150,7 @@ async function startApplication() {
  window.on('maximize', () => emit({kind: 'window', data: {maximized: true}}))
  window.on('unmaximize', () => emit({kind: 'window', data: {maximized: false}}))
  let goCore: GoCore | undefined
+ const shellServices = createShellServices(window, libraryRoot)
  if (process.env.ZYNOTE_BACKEND !== 'ts') {
   try {
    goCore = new GoCore({
@@ -159,7 +160,7 @@ async function startApplication() {
     resourcesRoot: app.isPackaged ? process.resourcesPath : join(app.getAppPath(), 'resources'),
     promptsRoot: app.isPackaged ? process.resourcesPath : join(app.getAppPath(), 'src'),
     nativePath: nativeBinaryPath(),
-    services: createShellServices(window, libraryRoot),
+    services: shellServices,
     portable: !!portable,
     onEvent: e => {
      if (!window.isDestroyed()) window.webContents.send('assistant:event', e)
@@ -226,6 +227,13 @@ async function startApplication() {
   },
   app.isPackaged ? process.resourcesPath : join(app.getAppPath(), 'resources')
  )
+ shellServices['tools.configure'] = async params => {
+  const connection = z.string().min(1).max(200).parse(params.connection)
+  const model = z.string().max(200).parse(params.model)
+  if (!toolsBackend.started) return false
+  await toolsBackend.request('configure', {connection, model})
+  return true
+ }
  const subtitleSync = new SubtitleSync(join(libraryRoot, '字幕同步记录'), libraryRoot)
  const subtitleDerived = new SubtitleDerived(join(libraryRoot, '笔记生成记录'), libraryRoot)
  const biliSession = session.fromPartition('persist:zynote-bili-resources')

@@ -31,6 +31,12 @@ func (reverse testReverse) Call(method string, params any, timeoutMS int) (json.
 	if method == "crypto.unprotect" {
 		return json.RawMessage(`{"text":"test-key"}`), nil
 	}
+	if method == "crypto.protect" {
+		return json.RawMessage(`{"value":"cHJvdGVjdGVk"}`), nil
+	}
+	if method == "tools.configure" {
+		return json.RawMessage(`true`), nil
+	}
 	if method == "shell.trashItem" {
 		return json.RawMessage(`true`), nil
 	}
@@ -163,7 +169,7 @@ func TestP0Contract(t *testing.T) {
 	if err := json.Unmarshal(state, &hello); err != nil {
 		t.Fatal(err)
 	}
-	if hello.Protocol != 1 || hello.Platform != "darwin" || len(hello.Capabilities) != 90 {
+	if hello.Protocol != 1 || hello.Platform != "darwin" || len(hello.Capabilities) != 91 {
 		t.Fatalf("unexpected hello: %+v", hello)
 	}
 
