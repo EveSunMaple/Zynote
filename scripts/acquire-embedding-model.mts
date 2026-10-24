@@ -2,9 +2,11 @@ import {readFile, writeFile, mkdir, rename, lstat} from 'node:fs/promises'
 import {createHash} from 'node:crypto'
 import {dirname, join, resolve} from 'node:path'
 import {fileURLToPath} from 'node:url'
+import {modelFetch} from './model-fetch.mts'
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..'),
- directory = join(root, 'resources/knowledge/onnx-bge')
+ directory = join(root, 'resources/knowledge/onnx-bge'),
+ endpoint = (process.env.HF_ENDPOINT || 'https://huggingface.co').replace(/\/+$/, '')
 const revision = '75c43b069aac4d136ba6bc1122f995fedcfd2781'
 const files = [
  ['README.md', 1057, 'e26ec7fcc01a7aff66171d44acff0a80fae865e1'],
@@ -26,8 +28,8 @@ for (const [name, size, expected] of files) {
   bytes = await readFile(path)
  } catch (error) {
   if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error
-  const response = await fetch(`https://huggingface.co/Xenova/bge-small-zh-v1.5/resolve/${revision}/${name}`, {
-   signal: AbortSignal.timeout(120000)
+  const response = await modelFetch(`${endpoint}/Xenova/bge-small-zh-v1.5/resolve/${revision}/${name}`, {
+   signal: AbortSignal.timeout(600000)
   })
   if (!response.ok) throw new Error(`模型下载失败：HTTP ${response.status}`)
   bytes = Buffer.from(await response.arrayBuffer())
@@ -51,8 +53,8 @@ try {
  license = await readFile(licensePath, 'utf8')
 } catch (error) {
  if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error
- const response = await fetch('https://raw.githubusercontent.com/FlagOpen/FlagEmbedding/master/LICENSE', {
-  signal: AbortSignal.timeout(30000)
+ const response = await modelFetch('https://raw.githubusercontent.com/FlagOpen/FlagEmbedding/master/LICENSE', {
+  signal: AbortSignal.timeout(60000)
  })
  if (!response.ok) throw new Error('官方模型许可读取失败')
  license = await response.text()

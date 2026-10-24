@@ -3,6 +3,9 @@ package api
 import (
 	"context"
 	"encoding/json"
+	"fmt"
+	"math"
+	"os"
 	"path/filepath"
 	"strings"
 
@@ -159,6 +162,18 @@ func (inv *Invoker) handleKnowledgeSearch(_ contract.StateStore, state *contract
 	service, err := inv.knowledgeStoreFor(state)
 	if err != nil {
 		return nil, err
+	}
+	status, err := service.VectorStatus()
+	if err == nil && status.Active && status.Index == "ready" {
+		vectors, embedErr := inv.embedBatch(state, []string{input.Query}, true)
+		if embedErr != nil {
+			return nil, embedErr
+		}
+		result, searchErr := service.SemanticSearch(input.Query, vectors[0], input.IDs)
+		if searchErr != nil {
+			return nil, contract.InputInvalid(searchErr.Error())
+		}
+		return result, nil
 	}
 	result, err := service.Search(input.Query, input.IDs)
 	if err != nil {
@@ -382,6 +397,128 @@ func (inv *Invoker) handleKnowledgeClassificationSuggest(store contract.StateSto
 		return map[string]any{
 			"token": draft["token"], "title": draft["title"], "text": draft["text"],
 			"excerpt": draft["excerpt"], "selection": selection,
+		}, nil
+	})
+}
+
+func (inv *Invoker) embedBundled(state *contract.State) bool {
+	info, err := os.Stat(filepath.Join(state.ResourcesRoot, "knowledge", "onnx-bge", "acquisition.json"))
+	return err == nil && info.Mode().IsRegular()
+}
+
+func (inv *Invoker) embedBatch(state *contract.State, texts []string, query bool) ([][]float64, error) {
+	if inv.embed == nil {
+		return nil, contract.Unavailable("本地语义模型不可用")
+	}
+	if !inv.embedBundled(state) {
+		return nil, contract.Unavailable("本地语义模型未安装，请在运行组件中安装同版本组件")
+	}
+	raw, err := inv.embed.Call("embed.batch", map[string]any{"texts": texts, "query": query}, 600000)
+	if err != nil {
+		return nil, contract.Unavailable(err.Error())
+	}
+	var payload struct {
+		Vectors [][]float64 `json:"vectors"`
+	}
+	if err := json.Unmarshal(raw, &payload); err != nil || len(payload.Vectors) != len(texts) {
+		return nil, contract.Unavailable("语义模型响应无效")
+	}
+	for _, vector := range payload.Vectors {
+		if len(vector) != 512 {
+			return nil, contract.Unavailable("中文语义模型维度不符")
+		}
+		for _, value := range vector {
+			if math.IsNaN(value) || math.IsInf(value, 0) {
+				return nil, contract.Unavailable("语义向量无效")
+			}
+		}
+	}
+	return payload.Vectors, nil
+}
+
+func (inv *Invoker) vectorStatusPayload(state *contract.State, status knowledge.VectorStatus) map[string]any {
+	return map[string]any{
+		"model": status.Model, "active": status.Active, "index": status.Index,
+		"vector_count": status.VectorCount, "bundled": inv.embedBundled(state),
+	}
+}
+
+func (inv *Invoker) handleKnowledgeVectorStatus(_ contract.StateStore, state *contract.State, _ json.RawMessage) (any, error) {
+	service, err := inv.knowledgeStoreFor(state)
+	if err != nil {
+		return nil, err
+	}
+	status, err := service.VectorStatus()
+	if err != nil {
+		return nil, err
+	}
+	return inv.vectorStatusPayload(state, status), nil
+}
+
+func (inv *Invoker) handleKnowledgeVectorEnable(_ contract.StateStore, state *contract.State, _ json.RawMessage) (any, error) {
+	service, err := inv.knowledgeStoreFor(state)
+	if err != nil {
+		return nil, err
+	}
+	if _, err := inv.embedBatch(state, []string{"语义模型校验"}, false); err != nil {
+		return nil, err
+	}
+	status, err := service.EnableVectors()
+	if err != nil {
+		return nil, err
+	}
+	return inv.vectorStatusPayload(state, status), nil
+}
+
+func (inv *Invoker) handleKnowledgeVectorRebuild(_ contract.StateStore, state *contract.State, _ json.RawMessage) (any, error) {
+	service, err := inv.knowledgeStoreFor(state)
+	if err != nil {
+		return nil, err
+	}
+	status, err := service.VectorStatus()
+	if err != nil {
+		return nil, err
+	}
+	if !status.Active {
+		return nil, contract.InputInvalid("请先启用本地语义模型")
+	}
+	return inv.runJob("语义索引", func(ctx context.Context) (any, error) {
+		inventory, err := service.Inventory()
+		if err != nil {
+			return nil, err
+		}
+		digest, err := service.InventoryDigest()
+		if err != nil {
+			return nil, err
+		}
+		rows := []knowledge.VectorRow{}
+		for offset := 0; offset < len(inventory); offset += 16 {
+			end := offset + 16
+			if end > len(inventory) {
+				end = len(inventory)
+			}
+			texts := []string{}
+			for _, item := range inventory[offset:end] {
+				texts = append(texts, item.Content)
+			}
+			inv.emit(map[string]any{"kind": "progress", "data": map[string]any{
+				"stage": "正在建立语义索引", "message": fmt.Sprintf("%d/%d", offset+len(texts), len(inventory)),
+			}})
+			vectors, err := inv.embedBatch(state, texts, false)
+			if err != nil {
+				return nil, err
+			}
+			for index, item := range inventory[offset:end] {
+				rows = append(rows, knowledge.VectorRow{EvidenceID: item.EvidenceID, Vector: vectors[index]})
+			}
+		}
+		updated, err := service.PublishVectors(digest, rows)
+		if err != nil {
+			return nil, contract.InputInvalid(err.Error())
+		}
+		return map[string]any{
+			"report": map[string]any{"indexed": len(rows)},
+			"status": inv.vectorStatusPayload(state, updated),
 		}, nil
 	})
 }

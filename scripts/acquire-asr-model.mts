@@ -4,10 +4,13 @@ import {createReadStream} from 'node:fs'
 import {dirname, join, resolve, sep} from 'node:path'
 import {fileURLToPath} from 'node:url'
 import {z} from 'zod'
+import {modelFetch} from './model-fetch.mts'
 
-const root = resolve(dirname(fileURLToPath(import.meta.url)), '..')
+const root = resolve(dirname(fileURLToPath(import.meta.url)), '..'),
+ endpoint = (process.env.HF_ENDPOINT || 'https://huggingface.co').replace(/\/+$/, '')
 const revision = '36050c46d777d46dc4b5f43f6d90574fc38f8732',
- repository = 'onnx-community/whisper-small'
+ repository = 'onnx-community/whisper-small',
+ vadCommit = '65882eee9f5cdbeeb2d877f1131d48cf241b327d'
 const target = join(root, 'resources/asr/onnx-small')
 if (process.argv.includes('--verify-local')) {
  const acquired = z
@@ -62,8 +65,8 @@ const selected = [
  'vocab.json',
  ...Object.keys(weights)
 ]
-const source = await fetch(`https://huggingface.co/api/models/${repository}/revision/${revision}?blobs=true`, {
- signal: AbortSignal.timeout(30000)
+const source = await modelFetch(`${endpoint}/api/models/${repository}/revision/${revision}?blobs=true`, {
+ signal: AbortSignal.timeout(60000)
 })
 if (!source.ok) throw new Error('模型元数据读取失败：HTTP ' + source.status)
 const metadata = z
@@ -124,8 +127,8 @@ for (const name of selected) {
  } catch (error) {
   if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error
  }
- const response = await fetch(`https://huggingface.co/${repository}/resolve/${revision}/${name}`, {
-  signal: AbortSignal.timeout(300000)
+ const response = await modelFetch(`${endpoint}/${repository}/resolve/${revision}/${name}`, {
+  signal: AbortSignal.timeout(900000)
  })
  if (!response.ok || !response.body) throw new Error('模型下载失败：HTTP ' + response.status)
  const handle = await open(partial, 'wx'),
@@ -156,7 +159,7 @@ for (const name of selected) {
  files.push({path: name, size, sha256: hash})
  console.log('模型文件已核验：' + name)
 }
-const base = await fetch('https://huggingface.co/api/models/openai/whisper-small', {signal: AbortSignal.timeout(30000)})
+const base = await modelFetch(`${endpoint}/api/models/openai/whisper-small`, {signal: AbortSignal.timeout(60000)})
 if (!base.ok) throw new Error('上游模型许可读取失败')
 const license = z
  .object({id: z.literal('openai/whisper-small'), cardData: z.object({license: z.literal('apache-2.0')})})
@@ -164,14 +167,39 @@ const license = z
 const licenseText = await readFile(join(root, 'node_modules/@huggingface/transformers/LICENSE'), 'utf8')
 if (!licenseText.includes('Apache License')) throw new Error('缺少 Apache 2.0 许可全文')
 await writeFile(join(target, 'MODEL-LICENSE.txt'), licenseText)
-// VAD is a standalone ONNX resource. Restoring a clean checkout uses the native release component,
-// never a Python wheel or an old interpreter directory.
-const vad = await readFile(join(target, 'silero-vad-v6.onnx'))
+// VAD is a standalone ONNX resource pinned to the SYSTRAN faster-whisper asset.
+// A clean checkout downloads it here; no Python wheel or old interpreter directory is used.
+async function remoteBytes(url: string, limit: number) {
+ const response = await modelFetch(url, {signal: AbortSignal.timeout(300000)})
+ if (!response.ok) throw new Error('语音检测资源下载失败：HTTP ' + response.status)
+ if (Number(response.headers.get('content-length') || 0) > limit) throw new Error('语音检测资源超过大小上限')
+ const bytes = Buffer.from(await response.arrayBuffer())
+ if (bytes.length > limit) throw new Error('语音检测资源超过大小上限')
+ return bytes
+}
+const vadPath = join(target, 'silero-vad-v6.onnx'),
+ licensePath = join(target, 'VAD-LICENSE.txt'),
+ vadSource = `https://raw.githubusercontent.com/SYSTRAN/faster-whisper/${vadCommit}/faster_whisper/assets/silero_vad_v6.onnx`,
+ licenseSource = `https://raw.githubusercontent.com/SYSTRAN/faster-whisper/${vadCommit}/LICENSE`
+let vad: Buffer
+try {
+ vad = await readFile(vadPath)
+} catch (error) {
+ if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error
+ vad = await remoteBytes(vadSource, 16 * 1024 * 1024)
+ await writeFile(vadPath, vad, {flag: 'wx'})
+}
 const vadHash = createHash('sha256').update(vad).digest('hex')
 if (vadHash !== '4cbf549b8326f60f80f2536d9eefeb450a9abe83365a098031c89719f1be17d2')
- throw new Error('已有语音检测模型校验失败')
-await writeFile(join(target, 'silero-vad-v6.onnx'), vad)
-const vadLicense = await readFile(join(target, 'VAD-LICENSE.txt'), 'utf8')
+ throw new Error('语音检测模型校验失败')
+let vadLicense: string
+try {
+ vadLicense = await readFile(licensePath, 'utf8')
+} catch (error) {
+ if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error
+ vadLicense = (await remoteBytes(licenseSource, 64 * 1024)).toString('utf8')
+ await writeFile(licensePath, vadLicense, {flag: 'wx'})
+}
 if (!vadLicense.includes('MIT License')) throw new Error('缺少独立语音检测模型许可，请恢复同版本原生模型组件')
 files.push({path: 'silero-vad-v6.onnx', size: vad.length, sha256: vadHash})
 await writeFile(

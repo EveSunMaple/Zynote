@@ -217,3 +217,61 @@ func TestClassificationReadAndSave(t *testing.T) {
 		t.Fatal("unknown selection key must fail")
 	}
 }
+
+func vector(direction int) []float64 {
+	result := make([]float64, 512)
+	result[direction] = 1
+	return result
+}
+
+func TestVectorStatusPublishAndSemanticSearch(t *testing.T) {
+	store := openTestStore(t)
+	first := importFixture(t, store, "https://example.com/v1", "向量一", "机器学习特征工程", nil)
+	second := importFixture(t, store, "https://example.com/v2", "向量二", "另一段内容", nil)
+	_ = first
+	status, err := store.EnableVectors()
+	if err != nil || !status.Active || status.Index != "not_built" {
+		t.Fatalf("enable mismatch: %+v %v", status, err)
+	}
+	inventory, err := store.Inventory()
+	if err != nil || len(inventory) != 2 {
+		t.Fatalf("inventory mismatch: %+v %v", inventory, err)
+	}
+	digest, err := store.InventoryDigest()
+	if err != nil {
+		t.Fatal(err)
+	}
+	rows := []VectorRow{}
+	for index, row := range inventory {
+		rows = append(rows, VectorRow{EvidenceID: row.EvidenceID, Vector: vector(index)})
+	}
+	_ = second
+	status, err = store.PublishVectors(digest, rows)
+	if err != nil || status.Index != "ready" || status.VectorCount != 2 {
+		t.Fatalf("publish mismatch: %+v %v", status, err)
+	}
+	result, err := store.SemanticSearch("机器学习特征工程", vector(0), nil)
+	if err != nil || len(result["hits"].([]any)) == 0 {
+		t.Fatalf("semantic search mismatch: %+v %v", result, err)
+	}
+	hit := result["hits"].([]any)[0].(map[string]any)
+	if hit["bvid"] != inventory[0].SourceID && hit["bvid"] != inventory[1].SourceID {
+		t.Fatalf("semantic hit mismatch: %+v", hit)
+	}
+	if _, err := store.PublishVectors("wrong", rows); err == nil {
+		t.Fatal("invalid digest must fail")
+	}
+	importFixture(t, store, "https://example.com/v3", "向量三", "新增内容", nil)
+	stale, err := store.VectorStatus()
+	if err != nil || stale.Index != "stale" {
+		t.Fatalf("stale mismatch: %+v %v", stale, err)
+	}
+	fallback, err := store.SemanticSearch("机器学习", vector(0), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	trace := fallback["trace"].(map[string]any)["vector"].(map[string]any)
+	if trace["state"] != "stale" {
+		t.Fatalf("fallback trace mismatch: %+v", fallback["trace"])
+	}
+}

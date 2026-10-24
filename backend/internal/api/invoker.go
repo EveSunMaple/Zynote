@@ -23,6 +23,7 @@ type Invoker struct {
 	handlers      map[string]handlerFunc
 	native        *helper.Native
 	youtube       *helper.Native
+	embed         *helper.Native
 	media         *media.MediaService
 	mediaRoot     string
 	bili          *bilibili.Resources
@@ -71,6 +72,10 @@ func (inv *Invoker) SetNative(native *helper.Native) {
 
 func (inv *Invoker) SetYoutubeNative(native *helper.Native) {
 	inv.youtube = native
+}
+
+func (inv *Invoker) SetEmbedNative(native *helper.Native) {
+	inv.embed = native
 }
 
 func (inv *Invoker) SetNotifier(notifier contract.Notifier) {
@@ -232,7 +237,8 @@ func (inv *Invoker) Invoke(store contract.StateStore, action string, params json
 		default:
 			return inv.handleJobCurrent(store, state, params)
 		}
-	case "knowledge:ask", "knowledge:classification-suggest", "knowledge:list", "knowledge:generation", "knowledge:read", "knowledge:import",
+	case "knowledge:ask", "knowledge:classification-suggest", "knowledge:vector-status",
+		"knowledge:vector-enable", "knowledge:vector-rebuild", "knowledge:list", "knowledge:generation", "knowledge:read", "knowledge:import",
 		"knowledge:citation", "knowledge:delete", "knowledge:organize", "knowledge:rebuild",
 		"knowledge:search", "knowledge:classification-options", "knowledge:classification-read",
 		"knowledge:classification-save":
@@ -263,6 +269,12 @@ func (inv *Invoker) Invoke(store contract.StateStore, action string, params json
 			return inv.handleKnowledgeRebuild(store, state, params)
 		case "knowledge:search":
 			return inv.handleKnowledgeSearch(store, state, params)
+		case "knowledge:vector-status":
+			return inv.handleKnowledgeVectorStatus(store, state, params)
+		case "knowledge:vector-enable":
+			return inv.handleKnowledgeVectorEnable(store, state, params)
+		case "knowledge:vector-rebuild":
+			return inv.handleKnowledgeVectorRebuild(store, state, params)
 		case "knowledge:classification-options":
 			return inv.handleKnowledgeClassificationOptions(store, state, params)
 		case "knowledge:classification-read":
@@ -360,10 +372,13 @@ func (inv *Invoker) handleHello(store contract.StateStore, params json.RawMessag
 		return nil, contract.Unavailable("数据目录不可用")
 	}
 	if inv.native != nil {
-		inv.native.Configure(input.NativePath, filepath.Join(input.ResourcesRoot, "pdfium", pdfiumFilename()), "")
+		inv.native.Configure(input.NativePath, filepath.Join(input.ResourcesRoot, "pdfium", pdfiumFilename()), "", "")
 	}
 	if inv.youtube != nil {
-		inv.youtube.Configure(input.NativePath, "", filepath.Join(state.DataRoot, "cache", "youtube"))
+		inv.youtube.Configure(input.NativePath, "", filepath.Join(state.DataRoot, "cache", "youtube"), "")
+	}
+	if inv.embed != nil {
+		inv.embed.Configure(input.NativePath, "", "", filepath.Join(input.ResourcesRoot, "knowledge", "onnx-bge"))
 	}
 	store.SetState(state)
 	slog.Info("hello accepted", "dataRoot", state.DataRoot)

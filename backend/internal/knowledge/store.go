@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"math"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -118,6 +119,7 @@ func sha256Hex(value string) string {
 
 type queryer interface {
 	QueryRow(query string, args ...any) *sql.Row
+	Query(query string, args ...any) (*sql.Rows, error)
 }
 
 func (store *Store) get(id string) (map[string]any, error) {
@@ -836,4 +838,270 @@ func (store *Store) Stats() (map[string]any, error) {
 		return nil, err
 	}
 	return list["stats"].(map[string]any), nil
+}
+
+type VectorStatus struct {
+	Model       string `json:"model"`
+	Active      bool   `json:"active"`
+	Index       string `json:"index"`
+	VectorCount int    `json:"vector_count"`
+}
+
+type VectorRow struct {
+	EvidenceID string
+	Vector     []float64
+}
+
+func (store *Store) Inventory() ([]StoredChunk, error) {
+	return inventoryFrom(store.db)
+}
+
+func inventoryFrom(db queryer) ([]StoredChunk, error) {
+	rows, err := db.Query(
+		"SELECT evidence_id,source_id,generation_id,source_revision_id,chunk_index,content,digest,locator " +
+			"FROM native_chunks WHERE chunk_index>=0 ORDER BY source_id,chunk_index")
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	result := []StoredChunk{}
+	for rows.Next() {
+		var row StoredChunk
+		if err := rows.Scan(&row.EvidenceID, &row.SourceID, &row.GenerationID, &row.SourceRevisionID,
+			&row.ChunkIndex, &row.Content, &row.Digest, &row.Locator); err != nil {
+			return nil, err
+		}
+		result = append(result, row)
+	}
+	return result, rows.Err()
+}
+
+func (store *Store) InventoryDigest() (string, error) {
+	return inventoryDigestFrom(store.db)
+}
+
+func inventoryDigestFrom(db queryer) (string, error) {
+	inventory, err := inventoryFrom(db)
+	if err != nil {
+		return "", err
+	}
+	pairs := make([][]string, 0, len(inventory))
+	for _, row := range inventory {
+		pairs = append(pairs, []string{row.EvidenceID, row.Digest})
+	}
+	encoded, err := json.Marshal(pairs)
+	if err != nil {
+		return "", err
+	}
+	return sha256Hex(string(encoded)), nil
+}
+
+func (store *Store) VectorStatus() (VectorStatus, error) {
+	status := VectorStatus{Model: "bge-small-zh-v1-5", Index: "not_built"}
+	var enabled string
+	if err := store.db.QueryRow("SELECT json FROM native_migrations WHERE name='vector-enabled'").Scan(&enabled); err == nil {
+		status.Active = strings.TrimSpace(enabled) != "" && strings.TrimSpace(enabled) != "false"
+	} else if err != sql.ErrNoRows {
+		return VectorStatus{}, err
+	}
+	var pointer string
+	if err := store.db.QueryRow("SELECT json FROM native_migrations WHERE name='vector-index'").Scan(&pointer); err == nil {
+		var state struct {
+			Digest string `json:"digest"`
+			Count  int    `json:"count"`
+		}
+		if err := json.Unmarshal([]byte(pointer), &state); err == nil {
+			digest, err := store.InventoryDigest()
+			if err != nil {
+				return VectorStatus{}, err
+			}
+			status.VectorCount = state.Count
+			if digest == state.Digest {
+				status.Index = "ready"
+			} else {
+				status.Index = "stale"
+			}
+		}
+	} else if err != sql.ErrNoRows {
+		return VectorStatus{}, err
+	}
+	return status, nil
+}
+
+func (store *Store) EnableVectors() (VectorStatus, error) {
+	if _, err := store.db.Exec("INSERT OR REPLACE INTO native_migrations VALUES('vector-enabled','true')"); err != nil {
+		return VectorStatus{}, err
+	}
+	return store.VectorStatus()
+}
+
+func (store *Store) PublishVectors(expectedDigest string, rows []VectorRow) (VectorStatus, error) {
+	transaction, err := store.db.Begin()
+	if err != nil {
+		return VectorStatus{}, err
+	}
+	defer func() { _ = transaction.Rollback() }()
+	inventory, err := inventoryFrom(transaction)
+	if err != nil {
+		return VectorStatus{}, err
+	}
+	digest, err := inventoryDigestFrom(transaction)
+	if err != nil {
+		return VectorStatus{}, err
+	}
+	if digest != expectedDigest || len(rows) != len(inventory) {
+		return VectorStatus{}, fmt.Errorf("建立索引期间资料发生变化，保留原索引")
+	}
+	known := map[string]bool{}
+	for _, row := range inventory {
+		known[row.EvidenceID] = true
+	}
+	seen := map[string]bool{}
+	for _, row := range rows {
+		if !known[row.EvidenceID] || seen[row.EvidenceID] || len(row.Vector) != 512 {
+			return VectorStatus{}, fmt.Errorf("建立索引期间资料发生变化，保留原索引")
+		}
+		for _, value := range row.Vector {
+			if math.IsNaN(value) || math.IsInf(value, 0) {
+				return VectorStatus{}, fmt.Errorf("建立索引期间资料发生变化，保留原索引")
+			}
+		}
+		seen[row.EvidenceID] = true
+	}
+	if _, err := transaction.Exec("DELETE FROM native_vectors"); err != nil {
+		return VectorStatus{}, err
+	}
+	for _, row := range rows {
+		encoded, err := json.Marshal(row.Vector)
+		if err != nil {
+			return VectorStatus{}, err
+		}
+		if _, err := transaction.Exec("INSERT INTO native_vectors VALUES(?,?)", row.EvidenceID, string(encoded)); err != nil {
+			return VectorStatus{}, err
+		}
+	}
+	pointer, err := json.Marshal(map[string]any{"digest": expectedDigest, "count": len(rows)})
+	if err != nil {
+		return VectorStatus{}, err
+	}
+	if _, err := transaction.Exec(
+		"INSERT OR REPLACE INTO native_migrations VALUES('vector-index',?)", string(pointer),
+	); err != nil {
+		return VectorStatus{}, err
+	}
+	if err := transaction.Commit(); err != nil {
+		return VectorStatus{}, err
+	}
+	return store.VectorStatus()
+}
+
+func (store *Store) SemanticSearch(query string, vector []float64, ids []string) (map[string]any, error) {
+	lexical, err := store.Search(query, ids)
+	if err != nil {
+		return nil, err
+	}
+	status, err := store.VectorStatus()
+	if err != nil {
+		return nil, err
+	}
+	if !status.Active || status.Index != "ready" {
+		trace := lexical["trace"].(map[string]any)
+		trace["vector"] = map[string]any{
+			"state": status.Index, "note": "资料或语义索引尚未就绪，本次使用当前关键词结果。",
+		}
+		return lexical, nil
+	}
+	if len(vector) != 512 {
+		return nil, fmt.Errorf("查询向量无效")
+	}
+	for _, value := range vector {
+		if math.IsNaN(value) || math.IsInf(value, 0) {
+			return nil, fmt.Errorf("查询向量无效")
+		}
+	}
+	scope := ""
+	args := []any{}
+	if ids != nil {
+		if len(ids) == 0 {
+			scope = " WHERE 0"
+		} else {
+			scope = " WHERE c.source_id IN (" + strings.TrimSuffix(strings.Repeat("?,", len(ids)), ",") + ")"
+			for _, id := range ids {
+				args = append(args, id)
+			}
+		}
+	}
+	rows, err := store.db.Query(
+		"SELECT v.evidence_id,v.vector,c.source_id FROM native_vectors v JOIN native_chunks c ON c.evidence_id=v.evidence_id"+scope,
+		args...)
+	if err != nil {
+		return nil, err
+	}
+	type semanticRow struct {
+		id     string
+		source string
+		score  float64
+	}
+	semantic := []semanticRow{}
+	sources := map[string]string{}
+	for rows.Next() {
+		var evidence, encoded, source string
+		if err := rows.Scan(&evidence, &encoded, &source); err != nil {
+			rows.Close()
+			return nil, err
+		}
+		var values []float64
+		if err := json.Unmarshal([]byte(encoded), &values); err != nil || len(values) != 512 {
+			rows.Close()
+			return nil, err
+		}
+		value := 0.0
+		for index := 0; index < 512; index++ {
+			value += values[index] * vector[index]
+		}
+		semantic = append(semantic, semanticRow{id: evidence, source: source, score: value})
+		sources[evidence] = source
+	}
+	rows.Close()
+	sort.SliceStable(semantic, func(left, right int) bool { return semantic[left].score > semantic[right].score })
+	if len(semantic) > 16 {
+		semantic = semantic[:16]
+	}
+	ranked := map[string]float64{}
+	for index, row := range semantic {
+		ranked[row.id] = 1 / float64(60+index)
+	}
+	hits := lexical["hits"].([]any)
+	for index, item := range hits {
+		hit := item.(map[string]any)
+		id := stringValue(hit["evidence_id"])
+		ranked[id] += 1 / float64(60+index)
+		sources[id] = stringValue(hit["bvid"])
+	}
+	type rankRow struct{ id, source string }
+	ordered := []rankRow{}
+	for id, source := range sources {
+		if _, ok := ranked[id]; ok {
+			ordered = append(ordered, rankRow{id: id, source: source})
+		}
+	}
+	sort.SliceStable(ordered, func(left, right int) bool { return ranked[ordered[left].id] > ranked[ordered[right].id] })
+	ordered = diverse(ordered, 8, func(row rankRow) string { return row.source })
+	result := []any{}
+	for _, row := range ordered {
+		citation, err := store.Citation(row.id)
+		if err != nil {
+			return nil, err
+		}
+		result = append(result, citation)
+	}
+	return map[string]any{
+		"hits": result,
+		"trace": map[string]any{
+			"keyword": lexical["trace"].(map[string]any)["keyword"],
+			"vector": map[string]any{
+				"state": "ready", "note": "本地中文语义与关键词合并检索；优先覆盖不同资料来源，引用已核验。",
+			},
+		},
+	}, nil
 }

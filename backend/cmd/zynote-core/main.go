@@ -20,6 +20,9 @@ func main() {
 	youtube := helper.NewNative("youtube")
 	core.SetYoutubeNative(youtube)
 	defer youtube.Dispose()
+	embed := helper.NewNative("embed")
+	core.SetEmbedNative(embed)
+	defer embed.Dispose()
 	if err := server.Serve(context.Background(), os.Stdin, os.Stdout); err != nil {
 		os.Exit(1)
 	}

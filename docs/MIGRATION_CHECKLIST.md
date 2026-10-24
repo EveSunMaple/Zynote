@@ -721,3 +721,12 @@ Zynote/
 
 - [x] 笔记结构校验、原文/时间邻近核验（关键词触发、不确定段排除、“学生”开头拒绝）、`lecture_notes` 保存与练习复位、Notes Markdown 落盘（等级/核验标记/课件引用）。
 - [x] 测试：核验真/假、Markdown 内容、练习清理；capabilities 81 → **82**。
+
+## 1.39 M3 语义向量（Rust ort + tokenizers，2026-10-24）
+
+- [x] 模型获取：`scripts/model-fetch.mts` 使用 undici `EnvHttpProxyAgent`（尊重 HTTP(S)_PROXY/NO_PROXY、关闭 H2）并对 429/5xx 重试；ASR/语义模型获取统一入口，新增 `acquire:asr`/`acquire:embedding` 脚本。
+- [x] Rust `--mode embed`：`ort` 2.0 + `tokenizers`，加载 `onnx/model_quantized.onnx`，320/400 字窗口、查询前缀、CLS 池化、L2 归一化；`embed.text`/`embed.batch`。
+- [x] `pnpm parity:embedding`：与 TS `KnowledgeEmbedding` 对比 3 组文本，余弦 ≥0.99（q8 量化与 fp32 本身约 0.9926；不同 ORT 版本量化内核约 1e-2 差异）。
+- [x] Go：`helper` 新增 embed 助手与 `--embed-model`；知识库 `vector-status/enable/rebuild`（inventory digest、批量嵌入、事务发布、索引过期回退）；`knowledge:search` 在索引就绪时走语义+关键词 RRF，否则关键词。
+- [x] 测试：向量状态/启用/发布/过期回退/语义检索、app 级状态与守卫、真实模型 enable→rebuild→search 集成；capabilities 82 → **85**。
+- [ ] ASR：docling-asr 适配当前 ONNX 导出的转写结果异常（"the" 重复/英文空段），依赖已移除；待改用 whisper.cpp/Rust 自研或修正导出后继续。

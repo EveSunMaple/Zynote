@@ -6,6 +6,7 @@ import {dirname, join, resolve} from 'node:path'
 import {tmpdir} from 'node:os'
 import {fileURLToPath} from 'node:url'
 import {z} from 'zod'
+import {modelFetch} from './model-fetch.mts'
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 const repository = 'onnx-community/whisper-small',
@@ -120,7 +121,7 @@ function sourceFor(name: string) {
 async function download(entry: Entry, path: string) {
  const source = sourceFor(entry.path)
  let url = source.url
- const signal = AbortSignal.timeout(300000)
+ const signal = AbortSignal.timeout(900000)
  for (let count = 0; count <= 5; count++) {
   const parsed = new URL(url)
   check(
@@ -133,7 +134,7 @@ async function download(entry: Entry, path: string) {
   )
   let response: Response
   try {
-   response = await fetch(url, {redirect: 'manual', signal, headers: {'accept-encoding': 'identity'}})
+   response = await modelFetch(url, {redirect: 'manual', signal, headers: {'accept-encoding': 'identity'}})
   } catch {
    throw new Error('Model request failed: ' + entry.path + ' at ' + parsed.hostname)
   }

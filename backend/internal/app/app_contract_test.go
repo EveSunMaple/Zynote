@@ -12,6 +12,7 @@ import (
 	"testing"
 
 	"github.com/EveSunMaple/Zynote/backend/internal/app"
+	"github.com/EveSunMaple/Zynote/backend/internal/helper"
 	"github.com/EveSunMaple/Zynote/backend/internal/transport"
 	_ "modernc.org/sqlite"
 )
@@ -47,12 +48,15 @@ func startCore(t *testing.T, dataRoot, resourcesRoot string) *fixture {
 	server := transport.NewServer(core)
 	core.Wire(testReverse{server: server})
 	core.SetNotifier(server)
+	embed := helper.NewNative("embed")
+	core.SetEmbedNative(embed)
 	serverInR, serverInW := io.Pipe()
 	serverOutR, serverOutW := io.Pipe()
 	go func() {
 		_ = server.Serve(context.Background(), serverInR, serverOutW)
 	}()
 	t.Cleanup(func() {
+		embed.Dispose()
 		_ = serverInW.Close()
 		_ = serverOutW.Close()
 	})
@@ -159,7 +163,7 @@ func TestP0Contract(t *testing.T) {
 	if err := json.Unmarshal(state, &hello); err != nil {
 		t.Fatal(err)
 	}
-	if hello.Protocol != 1 || hello.Platform != "darwin" || len(hello.Capabilities) != 82 {
+	if hello.Protocol != 1 || hello.Platform != "darwin" || len(hello.Capabilities) != 85 {
 		t.Fatalf("unexpected hello: %+v", hello)
 	}
 

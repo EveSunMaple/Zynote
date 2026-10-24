@@ -3,6 +3,7 @@ use serde_json::{json, Value};
 use std::io::{BufRead, Write};
 
 mod annotations;
+mod embed;
 mod pdf;
 mod youtube;
 
@@ -12,9 +13,10 @@ enum Mode {
     Asr,
     Youtube,
     Wechat,
+    Embed,
 }
 
-fn parse_mode() -> Result<(Mode, Option<String>, Option<String>), String> {
+fn parse_mode() -> Result<(Mode, Option<String>, Option<String>, Option<String>), String> {
     let args: Vec<String> = std::env::args().collect();
     let index = args
         .iter()
@@ -29,14 +31,19 @@ fn parse_mode() -> Result<(Mode, Option<String>, Option<String>), String> {
         .iter()
         .position(|arg| arg == "--youtube-cache")
         .and_then(|i| args.get(i + 1).cloned());
+    let embed_model = args
+        .iter()
+        .position(|arg| arg == "--embed-model")
+        .and_then(|i| args.get(i + 1).cloned());
     let mode = match value.as_str() {
         "pdf" => Mode::Pdf,
         "asr" => Mode::Asr,
         "youtube" => Mode::Youtube,
         "wechat" => Mode::Wechat,
+        "embed" => Mode::Embed,
         other => return Err(format!("unknown mode {other}")),
     };
-    Ok((mode, pdfium, youtube_cache))
+    Ok((mode, pdfium, youtube_cache, embed_model))
 }
 
 #[derive(Deserialize)]
@@ -50,7 +57,7 @@ struct Envelope {
 }
 
 fn main() {
-    let (mode, pdfium_path, youtube_cache) = match parse_mode() {
+    let (mode, pdfium_path, youtube_cache, embed_model) = match parse_mode() {
         Ok(result) => result,
         Err(message) => {
             eprintln!("zynote-native: {message}");
@@ -62,6 +69,23 @@ fn main() {
             Ok(service) => Some(service),
             Err(error) => {
                 eprintln!("zynote-native: {error}");
+                std::process::exit(1);
+            }
+        }
+    } else {
+        None
+    };
+    let embed_service = if matches!(mode, Mode::Embed) {
+        match embed_model.as_deref() {
+            Some(path) => match embed::EmbedService::new(path) {
+                Ok(service) => Some(service),
+                Err(error) => {
+                    eprintln!("zynote-native: {error}");
+                    std::process::exit(1);
+                }
+            },
+            None => {
+                eprintln!("zynote-native: missing --embed-model");
                 std::process::exit(1);
             }
         }
@@ -105,7 +129,14 @@ fn main() {
             continue;
         }
         let id = envelope.id.clone();
-        let result = dispatch(&mode, &pdf, &youtube_service, &envelope.method, &envelope.params);
+        let result = dispatch(
+            &mode,
+            &pdf,
+            &youtube_service,
+            &embed_service,
+            &envelope.method,
+            &envelope.params,
+        );
         let reply = match (id, result) {
             (Some(id), Ok(result)) => json!({"jsonrpc": "2.0", "id": id, "result": result}),
             (Some(id), Err(message)) => {
@@ -123,6 +154,7 @@ fn dispatch(
     mode: &Mode,
     pdf: &Option<pdf::PdfService>,
     youtube: &Option<youtube::YoutubeService>,
+    embed: &Option<embed::EmbedService>,
     method: &str,
     params: &Value,
 ) -> Result<Value, String> {
@@ -184,6 +216,33 @@ fn dispatch(
                 .ok_or("id missing")?;
             youtube.as_ref().ok_or("youtube service not ready")?.playlist(id)
         }
+        (Mode::Embed, "embed.text") => {
+            let text = params
+                .get("text")
+                .and_then(|value| value.as_str())
+                .ok_or("text missing")?;
+            let query = params.get("query").and_then(|value| value.as_bool()).unwrap_or(false);
+            let vector = embed
+                .as_ref()
+                .ok_or("embed service not ready")?
+                .encode(text, query)?;
+            Ok(json!({"vector": vector}))
+        }
+        (Mode::Embed, "embed.batch") => {
+            let texts = params
+                .get("texts")
+                .and_then(|value| value.as_array())
+                .ok_or("texts missing")?
+                .iter()
+                .map(|value| value.as_str().unwrap_or("").to_string())
+                .collect::<Vec<String>>();
+            let query = params.get("query").and_then(|value| value.as_bool()).unwrap_or(false);
+            let vectors = embed
+                .as_ref()
+                .ok_or("embed service not ready")?
+                .encode_batch(&texts, query)?;
+            Ok(json!({"vectors": vectors}))
+        }
         (mode, other) => Err(format!("mode {} does not implement {other}", mode_name(mode))),
     }
 }
@@ -194,5 +253,6 @@ fn mode_name(mode: &Mode) -> &'static str {
         Mode::Asr => "asr",
         Mode::Youtube => "youtube",
         Mode::Wechat => "wechat",
+        Mode::Embed => "embed",
     }
 }
