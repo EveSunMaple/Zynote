@@ -1,5 +1,6 @@
 // Full executables are rebuilt by electron-builder; never patch an old EXE.
 import {copyFile, mkdir, readFile, readdir, rm, writeFile} from 'node:fs/promises'
+import {spawnSync} from 'node:child_process'
 import {existsSync} from 'node:fs'
 import {createHash} from 'node:crypto'
 import {dirname, join, resolve} from 'node:path'
@@ -10,6 +11,8 @@ import {generate} from './runtime-manifest.mts'
 import type {RuntimeManifest} from '../src/shared/runtime.ts'
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..')
+const binaries = spawnSync('node', [join(root, 'scripts/build-binaries.mts')], {stdio: 'inherit'})
+if (binaries.status !== 0) throw new Error('后端二进制构建失败')
 const profile = z.enum(['full', 'lite', 'components', 'portable']).parse(process.argv[2])
 const requested = z
  .enum(['win', 'mac', 'linux'])

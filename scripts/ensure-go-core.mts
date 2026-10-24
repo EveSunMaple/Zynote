@@ -2,12 +2,10 @@ import {existsSync} from 'node:fs'
 import {spawnSync} from 'node:child_process'
 import {join} from 'node:path'
 
-const output = join('backend', 'bin', 'zynote-core')
-if (!existsSync(output)) {
- const result = spawnSync(
-  'go',
-  ['build', '-trimpath', '-ldflags=-s -w', '-o', join('bin', 'zynote-core'), './cmd/zynote-core'],
-  {stdio: 'inherit', cwd: 'backend'}
- )
+const extension = process.platform === 'win32' ? '.exe' : ''
+const core = join('backend', 'bin', 'zynote-core' + extension)
+const native = join('native', 'target', 'release', 'zynote-native' + extension)
+if (!existsSync(core) || !existsSync(native)) {
+ const result = spawnSync('node', ['scripts/build-binaries.mts'], {stdio: 'inherit'})
  process.exit(result.status ?? 1)
 }

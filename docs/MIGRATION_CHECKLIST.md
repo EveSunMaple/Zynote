@@ -744,3 +744,9 @@ Zynote/
 - [x] 字幕上下文（`[HH:MM:SS]`）分块 + 课件缓存解析（来源身份/限制/扫描 PDF/12k 截断）+ `notes` 提示词 + 结构化校验；逐块进度、按 quote+timestamp 去重、原文核验、笔记落库与 Markdown。
 - [x] `courseware.ParseCacheWithIdentity` 对齐 TS 的 stale/verified/unknown 判定。
 - [x] 测试：生成/核验/落文件、缺失课次；capabilities 85 → **86**。
+
+## 1.42 打包二进制链路（2026-10-24）
+
+- [x] `scripts/build-binaries.mts`：统一构建 Go core（trimpath/strip）与 Rust release，并复制到 `backend/bin/zynote-core(.exe)`、`zynote-native(.exe)`；`backend:build`、`dev` 引导、`release` 均复用。
+- [x] extraResources 与 `nativeBinaryPath/coreBinaryPath` 支持 Windows `.exe`。
+- [x] 验证：release 构建产出 core 12MB + native 25MB（含 ASR/embeddings）。

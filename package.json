@@ -16,7 +16,7 @@
   "typecheck": "tsc --noEmit && tsc -p tsconfig.migrations.json",
   "build": "pnpm typecheck && electron-vite build",
   "postinstall": "node node_modules/electron/install.js && electron-builder install-app-deps",
-  "backend:build": "cd backend && go build -trimpath -ldflags=\"-s -w\" -o bin/zynote-core ./cmd/zynote-core",
+  "backend:build": "node scripts/build-binaries.mts",
   "backend:test": "cd backend && go test ./...",
   "native:build": "cargo build --manifest-path native/Cargo.toml --release",
   "native:test": "cargo test --manifest-path native/Cargo.toml",
@@ -114,7 +114,9 @@
     "to": "bin",
     "filter": [
      "zynote-core",
-     "zynote-native"
+     "zynote-core.exe",
+     "zynote-native",
+     "zynote-native.exe"
     ]
    },
    {
