@@ -792,3 +792,9 @@ Zynote/
 - [x] `textbook:analyze-images`：扫描页 JPEG 预览 → 视觉模型归一化坐标 → 页尺寸/旋转校验 → 草稿。
 - [x] `textbook:ppt-source`/`ppt-ocr`：课件缓存探测、扫描 PDF 取回、哈希复核、视觉 OCR 回写 `ppt_text`（ocr 来源 + 限制说明）。
 - [x] capabilities 97 → **101**；全部 textbook 10 条已具备 Go 实现，切路由可整组切换。
+
+## 1.48 library/media 打开入口（2026-10-24）
+
+- [x] `library:open/open-file/reveal`：资料目录打开、受管文件打开/定位、扩展名白名单；经壳侧 `shell.openPath`/`shell.showItemInFolder`。
+- [x] `media:open`：复用下载成果校验结果定位文件。
+- [x] capabilities 101 → **105**。

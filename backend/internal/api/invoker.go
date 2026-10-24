@@ -222,6 +222,25 @@ func (inv *Invoker) Invoke(store contract.StateStore, action string, params json
 		default:
 			return inv.handleStudyParse(store, state, params)
 		}
+	case "library:open", "library:open-file", "library:reveal":
+		state := store.State()
+		if state == nil {
+			return nil, contract.Unavailable("后台尚未完成握手")
+		}
+		switch action {
+		case "library:open":
+			return inv.handleLibraryOpen(store, state)
+		case "library:open-file":
+			return inv.handleLibraryOpenFile(store, state, params)
+		default:
+			return inv.handleLibraryReveal(store, state, params)
+		}
+	case "media:open":
+		state := store.State()
+		if state == nil {
+			return nil, contract.Unavailable("后台尚未完成握手")
+		}
+		return inv.handleMediaOpen(store, state, params)
 	case "library:delete":
 		state := store.State()
 		if state == nil {
