@@ -806,3 +806,17 @@ Zynote/
 - [x] 壳侧 `shell.pickFile` 支持 `defaultPath`；capabilities 105 → **110**。
 - [x] 测试：取帧时间、恢复分类、成果提交/日志恢复、列表倒序、app 级空列表/错误参数。
 - [ ] 真实视频 balanced 选帧与视觉模型端到端需在路由切换前补手测。
+
+## 1.50 video-ppt 任务状态（2026-10-24）
+
+- [x] `video-ppt:pending/restore`：读取 `视频提取临时任务/<uuid>/task.json`、`source.json`、`frames.json`、`review.json`；字幕任务返回 `savedPath`；损坏/缺失/权限错误分类保留原文件。
+- [x] Go `internal/videoppt`：任务/分镜校验、页面与帧一致性、字幕任务识别、错误分类。
+- [x] capabilities 110 → **112**；测试覆盖正常任务、字幕任务、损坏任务、预览不一致。
+- [ ] `video-ppt` 其余动作（series/subtitle/extract/export/...) 仍走 TS；切路由前需整组迁移。
+
+## 1.51 video-ppt 字幕文件操作（2026-10-24）
+
+- [x] `video-ppt:subtitle-import/save/export`：SRT 选择/解析/4MB 限制、B 站分 P 命名 `BV…-P<n>-标题.srt`、同名自动 ` (n)`、txt/md/vtt 导出与回读校验。
+- [x] `library.ReserveFile` 对齐 TS `reserveFile`（FolderName、扩展名保留、O_EXCL 递增）。
+- [x] capabilities 112 → **115**。
+- [ ] `video-ppt:subtitle`（站内字幕抓取）、`batch-subtitles`、`subtitle-transcribe*`、`notes-export`、series/extract/export 仍走 TS。

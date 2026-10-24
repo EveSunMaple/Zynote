@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 	"unicode/utf8"
@@ -121,4 +122,27 @@ func walkLibrary(root, dir, category, course string, collected *[]walkEntry) err
 		})
 	}
 	return nil
+}
+
+func ReserveFile(directory, filename string) (string, error) {
+	if err := os.MkdirAll(directory, 0o755); err != nil {
+		return "", contract.Unavailable("资料目录不可创建")
+	}
+	extension := filepath.Ext(filename)
+	stem := FolderName(strings.TrimSuffix(filepath.Base(filename), extension))
+	for index := 1; ; index++ {
+		name := stem + extension
+		if index > 1 {
+			name = stem + " (" + strconv.Itoa(index) + ")" + extension
+		}
+		path := filepath.Join(directory, name)
+		file, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o644)
+		if err == nil {
+			file.Close()
+			return path, nil
+		}
+		if !os.IsExist(err) {
+			return "", contract.Unavailable("资料文件不可创建")
+		}
+	}
 }
