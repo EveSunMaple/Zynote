@@ -827,3 +827,10 @@ Zynote/
 - [x] `video-ppt:subtitle`：pagelist → player/v2 字幕目录、中文优先/自动字幕靠后、字幕地址信任校验、cue 清洗/排序/时长校验、SRT 生成。
 - [x] 测试：fake pagelist/player/subtitle；capabilities 115 → **117**。
 - [ ] 分集读取失败时的隐藏 BrowserWindow 回退仍属壳能力，暂未迁移。
+
+## 1.53 video-ppt 本地字幕转写（2026-10-24）
+
+- [x] `video-ppt:subtitle-transcribe-local`：本地视频复制到任务目录、Go ASR（VAD + PCM + recovery）、字幕保存到 `Transcripts`、任务记录 `saved{path,sha256}`、成功后清理临时视频/音频。
+- [x] `video-ppt:resume-subtitle`：已保存字幕按哈希校验并清理任务；未保存任务复用剩余视频继续转写；缺失视频给出明确提示。
+- [x] capabilities 117 → **119**；新增 app 级已保存字幕恢复测试。
+- [ ] `video-ppt:subtitle-transcribe`（B 站视频下载）与 `batch-subtitles` 仍依赖 SnapAny 壳，未迁。
