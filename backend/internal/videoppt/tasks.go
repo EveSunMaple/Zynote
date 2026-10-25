@@ -181,3 +181,27 @@ func SubtitleTitle(name string) string {
 	extension := filepath.Ext(name)
 	return strings.TrimSpace(strings.TrimSuffix(name, extension))
 }
+
+func (service *Service) VideoTask(id string) (CreatedTask, error) {
+	directory, err := service.location(id)
+	if err != nil {
+		return CreatedTask{}, err
+	}
+	raw, err := os.ReadFile(filepath.Join(directory, "task.json"))
+	if err != nil {
+		return CreatedTask{}, err
+	}
+	var meta struct {
+		ID   string `json:"id"`
+		Name string `json:"name"`
+		Kind string `json:"kind"`
+	}
+	if json.Unmarshal(raw, &meta) != nil || meta.ID != id || meta.Kind == "subtitle" || meta.Name == "" {
+		return CreatedTask{}, requestError("这不是视频提取任务")
+	}
+	video := filepath.Join(directory, "video.mp4")
+	if info, err := os.Stat(video); err != nil || !info.Mode().IsRegular() {
+		return CreatedTask{}, requestError("视频文件无效")
+	}
+	return CreatedTask{ID: id, Name: meta.Name, Dir: directory, Path: video}, nil
+}

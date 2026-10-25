@@ -834,3 +834,10 @@ Zynote/
 - [x] `video-ppt:resume-subtitle`：已保存字幕按哈希校验并清理任务；未保存任务复用剩余视频继续转写；缺失视频给出明确提示。
 - [x] capabilities 117 → **119**；新增 app 级已保存字幕恢复测试。
 - [ ] `video-ppt:subtitle-transcribe`（B 站视频下载）与 `batch-subtitles` 仍依赖 SnapAny 壳，未迁。
+
+## 1.54 video-ppt source/extract（2026-10-24）
+
+- [x] `video-ppt:source`：本地视频创建任务、ffprobe 时长/尺寸、4 帧采样、视觉模型归一化框选、`source.json`。
+- [x] `video-ppt:extract`：crop 后 1fps 灰度流、StableSlides 稳定页检测、全帧候选去重、`frames.json`、逐页视觉审核/重复合并、`review.json`（自动失败保留全部候选）。
+- [x] capabilities 119 → **121**；测试覆盖稳定页检测与框选校验。
+- [ ] `video-ppt:export/auto/batch` 仍需图片裁切与 PDF 生成；`source` 的 URL 下载依赖 SnapAny 壳。
