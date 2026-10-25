@@ -879,3 +879,10 @@ Zynote/
 - [x] `video-ppt:source/auto` 支持 URL（SnapAny + 下载）。
 - [x] capabilities 127 → **130**。
 - [ ] `video-ppt:pick/reveal`、`ppt-extract:pick` 仍为壳能力。
+
+## 1.60 subtitle-sync（2026-10-24）
+
+- [x] `subtitle-sync:list/start/mixed/resume/attach`：任务 JSON、分集定格、站内字幕获取/校验、知识库 `Import` 发布、代际与 unchanged、失败项保留、断点续跑、用户指定 SRT。
+- [x] 知识库 generation 复用；字幕保存复用 `saveVideoSubtitleFile`。
+- [x] capabilities 130 → **135**；服务单测覆盖创建/运行/列表。
+- [ ] `subtitle-derived:list/resume/start` 尚未迁移。

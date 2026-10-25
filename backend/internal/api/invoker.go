@@ -222,6 +222,23 @@ func (inv *Invoker) Invoke(store contract.StateStore, action string, params json
 		default:
 			return inv.handleStudyParse(store, state, params)
 		}
+	case "subtitle-sync:list", "subtitle-sync:start", "subtitle-sync:mixed", "subtitle-sync:resume", "subtitle-sync:attach":
+		state := store.State()
+		if state == nil {
+			return nil, contract.Unavailable("后台尚未完成握手")
+		}
+		switch action {
+		case "subtitle-sync:list":
+			return inv.handleSubtitleSyncList(state)
+		case "subtitle-sync:start":
+			return inv.handleSubtitleSyncStart(store, state, params)
+		case "subtitle-sync:mixed":
+			return inv.handleSubtitleSyncMixed(store, state, params)
+		case "subtitle-sync:resume":
+			return inv.handleSubtitleSyncResume(store, state, params)
+		default:
+			return inv.handleSubtitleSyncAttach(store, state, params)
+		}
 	case "video-ppt:pending", "video-ppt:restore", "video-ppt:subtitle-import", "video-ppt:subtitle-save", "video-ppt:subtitle-export", "video-ppt:series", "video-ppt:subtitle",
 		"video-ppt:subtitle-transcribe-local", "video-ppt:resume-subtitle", "video-ppt:source", "video-ppt:extract",
 		"video-ppt:export", "video-ppt:auto", "video-ppt:summary", "video-ppt:notes-export", "video-ppt:batch", "video-ppt:batch-subtitles", "video-ppt:subtitle-transcribe", "ppt-extract:analyze", "ppt-extract:export":
