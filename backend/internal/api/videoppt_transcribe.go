@@ -14,6 +14,7 @@ import (
 	"github.com/EveSunMaple/Zynote/backend/internal/documents"
 	"github.com/EveSunMaple/Zynote/backend/internal/library"
 	"github.com/EveSunMaple/Zynote/backend/internal/media"
+	"github.com/EveSunMaple/Zynote/backend/internal/media/bilibili"
 	"github.com/EveSunMaple/Zynote/backend/internal/videoppt"
 )
 
@@ -184,4 +185,51 @@ func (inv *Invoker) handleVideoResumeSubtitle(state *contract.State, params json
 			ID: meta.ID, Name: meta.Name, Dir: directory, Path: video,
 		})
 	})
+}
+
+func (inv *Invoker) handleVideoSubtitleTranscribe(store contract.StateStore, state *contract.State, params json.RawMessage) (any, error) {
+	var input struct {
+		URL      string `json:"url"`
+		CourseID string `json:"courseId"`
+	}
+	if err := json.Unmarshal(params, &input); err != nil || input.URL == "" {
+		return nil, contract.InputInvalid("视频网址无效")
+	}
+	videoID, page, _, err := biliTaskName(input.URL, "")
+	if err != nil {
+		return nil, err
+	}
+	courseName, err := inv.subtitleCourseName(state, input.CourseID)
+	if err != nil {
+		return nil, err
+	}
+	normalized, err := bilibili.VideoURL(input.URL)
+	if err != nil {
+		return nil, err
+	}
+	return inv.runJob("video-subtitle", func(ctx context.Context) (any, error) {
+		inv.videoProgress("正在下载视频用于离线字幕转写")
+		task, err := videoPptService(state).CreateBlankTask(videoID+"-P"+page+"-字幕转写", map[string]any{
+			"kind": "subtitle", "outputName": videoID + "-P" + page + "-离线转写.srt",
+			"courseName": courseName, "url": normalized, "page": atoiSafe(page),
+		})
+		if err != nil {
+			return nil, videoPptError(err)
+		}
+		if err := inv.downloadBiliVideo(store, ctx, normalized, task.Path); err != nil {
+			return nil, err
+		}
+		return inv.transcribeVideoTask(ctx, state, task)
+	})
+}
+
+func atoiSafe(value string) int {
+	number := 0
+	for _, char := range value {
+		if char < '0' || char > '9' {
+			return 0
+		}
+		number = number*10 + int(char-'0')
+	}
+	return number
 }

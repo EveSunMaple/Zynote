@@ -205,3 +205,24 @@ func (service *Service) VideoTask(id string) (CreatedTask, error) {
 	}
 	return CreatedTask{ID: id, Name: meta.Name, Dir: directory, Path: video}, nil
 }
+
+func (service *Service) CreateBlankTask(name string, meta map[string]any) (CreatedTask, error) {
+	if strings.TrimSpace(name) == "" {
+		return CreatedTask{}, requestError("任务名称无效")
+	}
+	id := ids.New()
+	directory := filepath.Join(service.Root, id)
+	if err := os.MkdirAll(directory, 0o755); err != nil {
+		return CreatedTask{}, requestError("任务目录不可创建")
+	}
+	record := map[string]any{"id": id, "name": name}
+	for key, value := range meta {
+		record[key] = value
+	}
+	encoded, _ := json.Marshal(record)
+	if err := os.WriteFile(filepath.Join(directory, "task.json"), encoded, 0o644); err != nil {
+		_ = os.RemoveAll(directory)
+		return CreatedTask{}, requestError("任务记录写入失败")
+	}
+	return CreatedTask{ID: id, Name: name, Dir: directory, Path: filepath.Join(directory, "video.mp4")}, nil
+}

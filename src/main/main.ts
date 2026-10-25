@@ -2,6 +2,7 @@ import {dispatch} from '@main/ipc/handler'
 import {GoCore, nativeBinaryPath} from '@main/backend/go-core'
 import {createRoutedDispatch} from '@main/backend/router'
 import {createShellServices} from '@main/backend/shell-services'
+import {snapanyDownload} from '@main/media/sources/snapany'
 import {RuntimeComponents} from '@main/app/runtime-components'
 import {diagnostic} from '@main/app/diagnostics'
 import {createKnowledgeHandler} from '@main/ipc/knowledge'
@@ -227,6 +228,12 @@ async function startApplication() {
   },
   app.isPackaged ? process.resourcesPath : join(app.getAppPath(), 'resources')
  )
+ shellServices['shell.snapanyDownload'] = async params => {
+  const url = z.string().min(1).parse(params.url)
+  const path = z.string().min(1).max(4096).parse(params.path)
+  await snapanyDownload(window, url, path, () => {}, AbortSignal.timeout(30 * 60 * 1000))
+  return true
+ }
  shellServices['tools.configure'] = async params => {
   const connection = z.string().min(1).max(200).parse(params.connection)
   const model = z.string().max(200).parse(params.model)

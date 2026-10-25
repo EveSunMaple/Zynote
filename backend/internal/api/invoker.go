@@ -224,7 +224,7 @@ func (inv *Invoker) Invoke(store contract.StateStore, action string, params json
 		}
 	case "video-ppt:pending", "video-ppt:restore", "video-ppt:subtitle-import", "video-ppt:subtitle-save", "video-ppt:subtitle-export", "video-ppt:series", "video-ppt:subtitle",
 		"video-ppt:subtitle-transcribe-local", "video-ppt:resume-subtitle", "video-ppt:source", "video-ppt:extract",
-		"video-ppt:export", "video-ppt:auto", "video-ppt:summary", "video-ppt:notes-export", "ppt-extract:analyze", "ppt-extract:export":
+		"video-ppt:export", "video-ppt:auto", "video-ppt:summary", "video-ppt:notes-export", "video-ppt:batch", "video-ppt:batch-subtitles", "video-ppt:subtitle-transcribe", "ppt-extract:analyze", "ppt-extract:export":
 		state := store.State()
 		if state == nil {
 			return nil, contract.Unavailable("后台尚未完成握手")
@@ -260,6 +260,12 @@ func (inv *Invoker) Invoke(store contract.StateStore, action string, params json
 			return inv.handleVideoSummary(store, state, params)
 		case "video-ppt:notes-export":
 			return inv.handleVideoNotesExport(store, state, params)
+		case "video-ppt:batch":
+			return inv.handleVideoBatch(store, state, params)
+		case "video-ppt:batch-subtitles":
+			return inv.handleVideoBatchSubtitles(store, state, params)
+		case "video-ppt:subtitle-transcribe":
+			return inv.handleVideoSubtitleTranscribe(store, state, params)
 		case "ppt-extract:analyze":
 			return inv.handlePptExtractAnalyze(store, state, params)
 		default:

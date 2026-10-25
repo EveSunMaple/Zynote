@@ -11,6 +11,7 @@ import (
 	"github.com/EveSunMaple/Zynote/backend/internal/contract"
 	"github.com/EveSunMaple/Zynote/backend/internal/library"
 	"github.com/EveSunMaple/Zynote/backend/internal/media"
+	mediaBilibili "github.com/EveSunMaple/Zynote/backend/internal/media/bilibili"
 	"github.com/EveSunMaple/Zynote/backend/internal/videoppt"
 )
 
@@ -54,17 +55,34 @@ func (inv *Invoker) handleVideoPptSource(store contract.StateStore, state *contr
 	if err := json.Unmarshal(params, &input); err != nil || (input.Path == "" && input.URL == "") {
 		return nil, contract.InputInvalid("视频来源无效")
 	}
-	if input.Path == "" {
-		return nil, contract.InputInvalid("当前版本请先选择本地视频")
-	}
 	return inv.runJob("video-ppt", func(ctx context.Context) (any, error) {
 		chat, err := inv.videoChat(store, state)
 		if err != nil {
 			return nil, err
 		}
-		task, err := videoProcessor(state).CreateTask(input.Path)
-		if err != nil {
-			return nil, videoPptError(err)
+		var task videoppt.CreatedTask
+		if input.Path != "" {
+			task, err = videoProcessor(state).CreateTask(input.Path)
+			if err != nil {
+				return nil, videoPptError(err)
+			}
+		} else {
+			videoID, page, _, nameErr := biliTaskName(input.URL, "")
+			if nameErr != nil {
+				return nil, nameErr
+			}
+			normalized, nameErr := mediaBilibili.VideoURL(input.URL)
+			if nameErr != nil {
+				return nil, nameErr
+			}
+			task, err = videoPptService(state).CreateBlankTask(videoID+"-P"+page, nil)
+			if err != nil {
+				return nil, videoPptError(err)
+			}
+			inv.videoProgress("正在下载视频")
+			if err := inv.downloadBiliVideo(store, ctx, normalized, task.Path); err != nil {
+				return nil, err
+			}
 		}
 		prepared, err := videoProcessor(state).Prepare(ctx, task, chat, inv.videoProgress)
 		if err != nil {
@@ -154,9 +172,6 @@ func (inv *Invoker) handleVideoPptAuto(store contract.StateStore, state *contrac
 	if err := json.Unmarshal(params, &input); err != nil || (input.Path == "" && input.URL == "") {
 		return nil, contract.InputInvalid("视频来源无效")
 	}
-	if input.Path == "" {
-		return nil, contract.InputInvalid("当前版本请先选择本地视频")
-	}
 	prompt := input.Prompt
 	if prompt == "" {
 		prompt = defaultVideoPrompt
@@ -170,9 +185,29 @@ func (inv *Invoker) handleVideoPptAuto(store contract.StateStore, state *contrac
 		if err != nil {
 			return nil, err
 		}
-		task, err := videoProcessor(state).CreateTask(input.Path)
-		if err != nil {
-			return nil, videoPptError(err)
+		var task videoppt.CreatedTask
+		if input.Path != "" {
+			task, err = videoProcessor(state).CreateTask(input.Path)
+			if err != nil {
+				return nil, videoPptError(err)
+			}
+		} else {
+			videoID, page, _, nameErr := biliTaskName(input.URL, "")
+			if nameErr != nil {
+				return nil, nameErr
+			}
+			normalized, nameErr := mediaBilibili.VideoURL(input.URL)
+			if nameErr != nil {
+				return nil, nameErr
+			}
+			task, err = videoPptService(state).CreateBlankTask(videoID+"-P"+page, nil)
+			if err != nil {
+				return nil, videoPptError(err)
+			}
+			inv.videoProgress("正在下载视频")
+			if err := inv.downloadBiliVideo(store, ctx, normalized, task.Path); err != nil {
+				return nil, err
+			}
 		}
 		prepared, err := videoProcessor(state).Prepare(ctx, task, chat, inv.videoProgress)
 		if err != nil {

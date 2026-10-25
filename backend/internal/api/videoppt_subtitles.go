@@ -141,42 +141,11 @@ func (inv *Invoker) handleVideoSubtitleSave(state *contract.State, params json.R
 	if err != nil {
 		return nil, err
 	}
-	if _, err := documents.ParseSrt(input.SRT); err != nil {
-		return nil, contract.InputInvalid(err.Error())
-	}
-	parsed, _ := url.Parse(normalized)
-	parts := strings.Split(strings.Trim(parsed.Path, "/"), "/")
-	videoID := ""
-	if len(parts) > 0 {
-		videoID = parts[len(parts)-1]
-	}
-	page := parsed.Query().Get("p")
-	if page == "" {
-		page = "1"
-	}
 	course, err := inv.subtitleCourseName(state, input.CourseID)
 	if err != nil {
 		return nil, err
 	}
-	directory, err := library.CourseDirectory(state.LibraryRoot, "Transcripts", course)
-	if err != nil {
-		return nil, err
-	}
-	name := videoID + "-P" + page + "-" + library.FolderName(input.Title) + ".srt"
-	path, err := library.ReserveFile(directory, name)
-	if err != nil {
-		return nil, err
-	}
-	if err := os.WriteFile(path, []byte(input.SRT), 0o644); err != nil {
-		_ = os.Remove(path)
-		return nil, contract.Unavailable("字幕保存失败")
-	}
-	check, err := os.ReadFile(path)
-	if err != nil || string(check) != input.SRT {
-		_ = os.Remove(path)
-		return nil, contract.Unavailable("字幕保存校验失败")
-	}
-	return path, nil
+	return saveVideoSubtitleFile(state, normalized, input.Title, input.SRT, course)
 }
 
 func (inv *Invoker) handleVideoSubtitleExport(state *contract.State, params json.RawMessage) (any, error) {
@@ -216,6 +185,41 @@ func (inv *Invoker) handleVideoSubtitleExport(state *contract.State, params json
 	if err != nil || string(check) != text {
 		_ = os.Remove(path)
 		return nil, contract.Unavailable("字幕导出校验失败")
+	}
+	return path, nil
+}
+
+func saveVideoSubtitleFile(state *contract.State, normalizedURL, title, srt, courseName string) (string, error) {
+	if _, err := documents.ParseSrt(srt); err != nil {
+		return "", contract.InputInvalid(err.Error())
+	}
+	parsed, _ := url.Parse(normalizedURL)
+	parts := strings.Split(strings.Trim(parsed.Path, "/"), "/")
+	videoID := ""
+	if len(parts) > 0 {
+		videoID = parts[len(parts)-1]
+	}
+	page := parsed.Query().Get("p")
+	if page == "" {
+		page = "1"
+	}
+	directory, err := library.CourseDirectory(state.LibraryRoot, "Transcripts", courseName)
+	if err != nil {
+		return "", err
+	}
+	name := videoID + "-P" + page + "-" + library.FolderName(title) + ".srt"
+	path, err := library.ReserveFile(directory, name)
+	if err != nil {
+		return "", err
+	}
+	if err := os.WriteFile(path, []byte(srt), 0o644); err != nil {
+		_ = os.Remove(path)
+		return "", contract.Unavailable("字幕保存失败")
+	}
+	check, err := os.ReadFile(path)
+	if err != nil || string(check) != srt {
+		_ = os.Remove(path)
+		return "", contract.Unavailable("字幕保存校验失败")
 	}
 	return path, nil
 }

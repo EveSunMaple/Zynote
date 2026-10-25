@@ -869,3 +869,13 @@ Zynote/
 - [x] `video-ppt:notes-export`：docx（最小 OOXML）、svg（要点分组图）、pdf（壳侧 `shell.printHtmlPdf`）；reserveFile、写后回读校验。
 - [x] capabilities 126 → **127**。
 - [ ] `batch/batch-subtitles/subtitle-transcribe` 与 URL 下载仍依赖 SnapAny 壳。
+
+## 1.59 video-ppt 批量与 B 站离线转写（2026-10-24）
+
+- [x] 壳侧 `shell.snapanyDownload`；Go `downloadBiliVideo`（30 分钟、文件核验）。
+- [x] `video-ppt:subtitle-transcribe`：B 站视频下载 → 任务 → Go ASR → 字幕保存/任务清理。
+- [x] `video-ppt:batch-subtitles`：分集站内字幕优先，缺失时下载并离线转写；逐项状态/路径/错误。
+- [x] `video-ppt:batch`：逐集下载 → 采样/框选 → 稳定页/审核 → PDF，`video-batch` 进度事件与失败继续。
+- [x] `video-ppt:source/auto` 支持 URL（SnapAny + 下载）。
+- [x] capabilities 127 → **130**。
+- [ ] `video-ppt:pick/reveal`、`ppt-extract:pick` 仍为壳能力。
