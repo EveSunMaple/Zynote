@@ -74,7 +74,7 @@ var DefaultCapabilities = []string{
 	"db:bootstrap", "course:delete", "session:delete", "lecture:delete", "lecture:detail",
 	"pdf.text", "pdf.plainText", "pdf.inspect", "pdf.write",
 	"document:parse", "transcript:read", "files:add", "files:remove", "lecture:create", "lecture:transcript", "lecture:courseware", "questions:save",
-	"visual:list", "visual:prepare", "visual:prepare-resume", "visual:recognize", "visual:recover-output", "video-ppt:pending", "video-ppt:restore", "video-ppt:subtitle-import", "video-ppt:subtitle-save", "video-ppt:subtitle-export", "video-ppt:series", "video-ppt:subtitle", "video-ppt:subtitle-transcribe-local", "video-ppt:resume-subtitle", "video-ppt:source", "video-ppt:extract", "media:options", "media:list", "media:retry", "media:cancel", "media:file",
+	"visual:list", "visual:prepare", "visual:prepare-resume", "visual:recognize", "visual:recover-output", "video-ppt:pending", "video-ppt:restore", "video-ppt:subtitle-import", "video-ppt:subtitle-save", "video-ppt:subtitle-export", "video-ppt:series", "video-ppt:subtitle", "video-ppt:subtitle-transcribe-local", "video-ppt:resume-subtitle", "video-ppt:source", "video-ppt:extract", "video-ppt:export", "video-ppt:auto", "media:options", "media:list", "media:retry", "media:cancel", "media:file",
 	"media:auth-import", "media:auth-list", "media:auth-remove",
 	"bili-resources:status", "bili-resources:browse", "bili-resources:qr", "bili-resources:poll",
 	"bili-resources:logout", "bili-resources:folders", "bili-resources:videos", "media:catalog", "media:create", "media:discussion", "media:discussion-import",

@@ -9,6 +9,7 @@ import (
 	"github.com/EveSunMaple/Zynote/backend/internal/ai"
 	"github.com/EveSunMaple/Zynote/backend/internal/config"
 	"github.com/EveSunMaple/Zynote/backend/internal/contract"
+	"github.com/EveSunMaple/Zynote/backend/internal/library"
 	"github.com/EveSunMaple/Zynote/backend/internal/media"
 	"github.com/EveSunMaple/Zynote/backend/internal/videoppt"
 )
@@ -100,5 +101,114 @@ func (inv *Invoker) handleVideoPptExtract(store contract.StateStore, state *cont
 			return nil, videoPptError(err)
 		}
 		return review, nil
+	})
+}
+
+func (inv *Invoker) handleVideoPptExport(store contract.StateStore, state *contract.State, params json.RawMessage) (any, error) {
+	var input struct {
+		ID       string            `json:"id"`
+		Checked  bool              `json:"checked"`
+		Pages    []videoppt.Choice `json:"pages"`
+		CourseID string            `json:"courseId"`
+	}
+	if err := json.Unmarshal(params, &input); err != nil || !config.IsUUID(input.ID) || !input.Checked {
+		return nil, contract.InputInvalid("请先检查课件预览，再确认导出")
+	}
+	courseName, err := inv.subtitleCourseName(state, input.CourseID)
+	if err != nil {
+		return nil, err
+	}
+	return inv.runJob("video-ppt", func(ctx context.Context) (any, error) {
+		task, err := videoPptService(state).VideoTask(input.ID)
+		if err != nil {
+			return nil, videoPptError(err)
+		}
+		directory, err := library.CourseDirectory(state.LibraryRoot, "PPT", courseName)
+		if err != nil {
+			return nil, err
+		}
+		result, _, err := videoProcessor(state).Export(ctx, task, input.Pages, directory)
+		if err != nil {
+			return nil, videoPptError(err)
+		}
+		cleaned := true
+		cleanupWarning := ""
+		if err := videoPptService(state).DiscardCompleted(input.ID); err != nil {
+			cleaned = false
+			cleanupWarning = err.Error()
+		}
+		return map[string]any{
+			"path": result.Path, "kept": result.Kept, "removed": result.Removed,
+			"cleaned": cleaned, "cleanupWarning": cleanupWarning,
+		}, nil
+	})
+}
+
+func (inv *Invoker) handleVideoPptAuto(store contract.StateStore, state *contract.State, params json.RawMessage) (any, error) {
+	var input struct {
+		Path     string `json:"path"`
+		URL      string `json:"url"`
+		CourseID string `json:"courseId"`
+		Prompt   string `json:"prompt"`
+	}
+	if err := json.Unmarshal(params, &input); err != nil || (input.Path == "" && input.URL == "") {
+		return nil, contract.InputInvalid("视频来源无效")
+	}
+	if input.Path == "" {
+		return nil, contract.InputInvalid("当前版本请先选择本地视频")
+	}
+	prompt := input.Prompt
+	if prompt == "" {
+		prompt = defaultVideoPrompt
+	}
+	courseName, err := inv.subtitleCourseName(state, input.CourseID)
+	if err != nil {
+		return nil, err
+	}
+	return inv.runJob("video-ppt", func(ctx context.Context) (any, error) {
+		chat, err := inv.videoChat(store, state)
+		if err != nil {
+			return nil, err
+		}
+		task, err := videoProcessor(state).CreateTask(input.Path)
+		if err != nil {
+			return nil, videoPptError(err)
+		}
+		prepared, err := videoProcessor(state).Prepare(ctx, task, chat, inv.videoProgress)
+		if err != nil {
+			return nil, videoPptError(err)
+		}
+		if prepared.Source.Warning != "" {
+			return nil, contract.InputInvalid(prepared.Source.Warning + " 可在“未完成的任务”继续检查；视频已保留。")
+		}
+		review, err := videoProcessor(state).Extract(ctx, task, prepared.Source.Crop, prompt, chat, inv.videoProgress)
+		if err != nil {
+			return nil, videoPptError(err)
+		}
+		if review.Warning != "" {
+			return nil, contract.InputInvalid(review.Warning + " 可在“未完成的任务”继续检查；视频已保留。")
+		}
+		choices := make([]videoppt.Choice, 0, len(review.Pages))
+		for _, page := range review.Pages {
+			choices = append(choices, videoppt.Choice{Page: page.Page, Keep: page.Keep, Crop: page.Crop})
+		}
+		directory, err := library.CourseDirectory(state.LibraryRoot, "PPT", courseName)
+		if err != nil {
+			return nil, err
+		}
+		result, _, err := videoProcessor(state).Export(ctx, task, choices, directory)
+		if err != nil {
+			return nil, videoPptError(err)
+		}
+		cleaned := true
+		cleanupWarning := ""
+		if err := videoPptService(state).DiscardCompleted(task.ID); err != nil {
+			cleaned = false
+			cleanupWarning = err.Error()
+		}
+		return map[string]any{
+			"path": result.Path, "kept": result.Kept, "removed": result.Removed,
+			"cleaned": cleaned, "cleanupWarning": cleanupWarning,
+		}, nil
 	})
 }

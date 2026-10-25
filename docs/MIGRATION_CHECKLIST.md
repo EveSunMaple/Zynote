@@ -841,3 +841,11 @@ Zynote/
 - [x] `video-ppt:extract`：crop 后 1fps 灰度流、StableSlides 稳定页检测、全帧候选去重、`frames.json`、逐页视觉审核/重复合并、`review.json`（自动失败保留全部候选）。
 - [x] capabilities 119 → **121**；测试覆盖稳定页检测与框选校验。
 - [ ] `video-ppt:export/auto/batch` 仍需图片裁切与 PDF 生成；`source` 的 URL 下载依赖 SnapAny 壳。
+
+## 1.55 video-ppt 导出与自动流程（2026-10-24）
+
+- [x] 图片裁切 + 无损 RGB Flate PDF（逐页尺寸、页面数复核、原子保存、同名 ` (n)`）。
+- [x] `video-ppt:export`：页面选择校验、PDF 写入 `PPT/<课程>`、任务目录清理与失败保留。
+- [x] `video-ppt:auto`：本地视频 → 采样/框选 → 稳定页/审核 → PDF → 清理；框选或审核警告时保留任务并中止。
+- [x] capabilities 121 → **123**；测试覆盖裁切尺寸、PDF 页数、文件名与选择校验。
+- [ ] `batch`/`batch-subtitles`/URL 下载依赖 SnapAny 壳；`notes-export`、`ppt-extract:*` 未迁。
