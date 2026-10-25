@@ -224,7 +224,7 @@ func (inv *Invoker) Invoke(store contract.StateStore, action string, params json
 		}
 	case "video-ppt:pending", "video-ppt:restore", "video-ppt:subtitle-import", "video-ppt:subtitle-save", "video-ppt:subtitle-export", "video-ppt:series", "video-ppt:subtitle",
 		"video-ppt:subtitle-transcribe-local", "video-ppt:resume-subtitle", "video-ppt:source", "video-ppt:extract",
-		"video-ppt:export", "video-ppt:auto":
+		"video-ppt:export", "video-ppt:auto", "video-ppt:summary":
 		state := store.State()
 		if state == nil {
 			return nil, contract.Unavailable("后台尚未完成握手")
@@ -254,8 +254,10 @@ func (inv *Invoker) Invoke(store contract.StateStore, action string, params json
 			return inv.handleVideoPptExtract(store, state, params)
 		case "video-ppt:export":
 			return inv.handleVideoPptExport(store, state, params)
-		default:
+		case "video-ppt:auto":
 			return inv.handleVideoPptAuto(store, state, params)
+		default:
+			return inv.handleVideoSummary(store, state, params)
 		}
 	case "visual:list", "visual:prepare", "visual:prepare-resume", "visual:recognize", "visual:recover-output":
 		state := store.State()

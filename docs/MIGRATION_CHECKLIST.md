@@ -849,3 +849,9 @@ Zynote/
 - [x] `video-ppt:auto`：本地视频 → 采样/框选 → 稳定页/审核 → PDF → 清理；框选或审核警告时保留任务并中止。
 - [x] capabilities 121 → **123**；测试覆盖裁切尺寸、PDF 页数、文件名与选择校验。
 - [ ] `batch`/`batch-subtitles`/URL 下载依赖 SnapAny 壳；`notes-export`、`ppt-extract:*` 未迁。
+
+## 1.56 video-ppt 字幕摘要（2026-10-24）
+
+- [x] `video-ppt:summary`：SRT 分块（15k）、四模式要点上限、AI 选点后逐条原话核验、时间戳/主题、Markdown + evidence JSON 保存与回读校验。
+- [x] capabilities 123 → **124**。
+- [ ] `notes-export`（docx/pdf/svg）与 `batch*`、`ppt-extract:*` 未迁。
