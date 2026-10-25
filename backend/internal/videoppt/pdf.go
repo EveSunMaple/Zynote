@@ -6,7 +6,9 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"image/png"
+	"image"
+	_ "image/gif"
+	_ "image/jpeg"
 	"math"
 	"os"
 	"path/filepath"
@@ -26,21 +28,21 @@ type ExportResult struct {
 	FileName string
 }
 
-type picture struct {
+type Picture struct {
 	width  int
 	height int
 	pixels []byte
 }
 
-func cropPicture(path string, crop Region) (picture, error) {
+func CropPicture(path string, crop Region) (Picture, error) {
 	file, err := os.Open(path)
 	if err != nil {
-		return picture{}, err
+		return Picture{}, err
 	}
 	defer file.Close()
-	source, err := png.Decode(file)
+	source, _, err := image.Decode(file)
 	if err != nil {
-		return picture{}, err
+		return Picture{}, err
 	}
 	bounds := source.Bounds()
 	width, height := bounds.Dx(), bounds.Dy()
@@ -63,9 +65,9 @@ func cropPicture(path string, crop Region) (picture, error) {
 		cropHeight = height - top
 	}
 	if left < 0 || top < 0 || cropWidth < 1 || cropHeight < 1 {
-		return picture{}, requestError("图片像素数据无效")
+		return Picture{}, requestError("图片像素数据无效")
 	}
-	result := picture{width: cropWidth, height: cropHeight, pixels: make([]byte, cropWidth*cropHeight*3)}
+	result := Picture{width: cropWidth, height: cropHeight, pixels: make([]byte, cropWidth*cropHeight*3)}
 	for y := 0; y < cropHeight; y++ {
 		for x := 0; x < cropWidth; x++ {
 			red, green, blue, alpha := source.At(bounds.Min.X+left+x, bounds.Min.Y+top+y).RGBA()
@@ -101,7 +103,7 @@ func deflateBytes(input []byte) ([]byte, error) {
 	return buffer.Bytes(), nil
 }
 
-func buildPDF(ctx context.Context, images []picture) ([]byte, error) {
+func BuildPDF(ctx context.Context, images []Picture) ([]byte, error) {
 	if len(images) == 0 {
 		return nil, requestError("没有可导出的页面")
 	}
@@ -158,7 +160,7 @@ func buildPDF(ctx context.Context, images []picture) ([]byte, error) {
 	return output.Bytes(), nil
 }
 
-func verifyPDF(data []byte, pages int) error {
+func VerifyPDF(data []byte, pages int) error {
 	if !bytes.HasPrefix(data, []byte("%PDF-")) || !bytes.Contains(data, []byte("%%EOF")) {
 		return requestError("PDF 保存校验失败")
 	}
@@ -198,22 +200,22 @@ func (processor Processor) Export(
 		}
 	}
 	sort.Slice(selected, func(left, right int) bool { return selected[left].Page < selected[right].Page })
-	images := make([]picture, 0, len(selected))
+	images := make([]Picture, 0, len(selected))
 	for _, choice := range selected {
 		if err := ctx.Err(); err != nil {
 			return ExportResult{}, nil, err
 		}
-		image, err := cropPicture(frameFiles[choice.Page], choice.Crop)
+		image, err := CropPicture(frameFiles[choice.Page], choice.Crop)
 		if err != nil {
 			return ExportResult{}, nil, err
 		}
 		images = append(images, image)
 	}
-	data, err := buildPDF(ctx, images)
+	data, err := BuildPDF(ctx, images)
 	if err != nil {
 		return ExportResult{}, nil, err
 	}
-	if err := verifyPDF(data, len(images)); err != nil {
+	if err := VerifyPDF(data, len(images)); err != nil {
 		return ExportResult{}, nil, err
 	}
 	if outputDirectory == "" {
@@ -253,7 +255,7 @@ func (processor Processor) Export(
 		_ = os.Remove(path)
 		return ExportResult{}, nil, requestError("PDF 保存校验失败")
 	}
-	if err := verifyPDF(check, len(images)); err != nil {
+	if err := VerifyPDF(check, len(images)); err != nil {
 		_ = os.Remove(path)
 		return ExportResult{}, nil, err
 	}

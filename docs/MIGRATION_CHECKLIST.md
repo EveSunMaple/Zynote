@@ -855,3 +855,11 @@ Zynote/
 - [x] `video-ppt:summary`：SRT 分块（15k）、四模式要点上限、AI 选点后逐条原话核验、时间戳/主题、Markdown + evidence JSON 保存与回读校验。
 - [x] capabilities 123 → **124**。
 - [ ] `notes-export`（docx/pdf/svg）与 `batch*`、`ppt-extract:*` 未迁。
+
+## 1.57 ppt-extract analyze/export（2026-10-24）
+
+- [x] PPTX 图片页读取：presentation/rels、单图页校验、srcRect、旋转/翻转拒绝、黑边裁切、200MB 上限、缺失/损坏页标记。
+- [x] `ppt-extract:analyze`：整份去重后视觉审核、重复联盟/内容分赢家、review 生成；32MB 图片保护。
+- [x] `ppt-extract:export`：按页裁切、无损 PDF、`PPT/<课程>` 保存、回读校验、临时草稿清理。
+- [x] capabilities 124 → **126**；测试覆盖单图页分析/导出与可编辑页拒绝。
+- [ ] 导出后不删除原 PPTX/不迁移课程资料引用（安全优先，需单独设计确认）；`ppt-extract:pick` 属壳能力。

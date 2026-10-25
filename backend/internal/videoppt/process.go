@@ -580,3 +580,7 @@ func jsonString(value any) string {
 	encoded, _ := json.Marshal(value)
 	return string(encoded)
 }
+
+func PreviewJPEG(path string, maxWidth, quality int) (string, error) {
+	return previewJPEG(path, maxWidth, quality)
+}
