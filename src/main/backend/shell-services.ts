@@ -1,5 +1,5 @@
-import {type BrowserWindow, dialog, safeStorage, session, shell} from 'electron'
-import {lstat} from 'node:fs/promises'
+import {BrowserWindow, dialog, safeStorage, session, shell} from 'electron'
+import {lstat, writeFile} from 'node:fs/promises'
 import {resolve, sep} from 'node:path'
 import {z} from 'zod'
 import {assertSecureStorage, systemProtect} from '@main/security/system-encryption'
@@ -59,6 +59,22 @@ export function createShellServices(window: BrowserWindow, libraryRoot: string):
    if (info.isSymbolicLink() || !info.isFile()) throw new Error('只能删除资料文件夹中的文件')
    await shell.trashItem(target)
    return true
+  },
+  'shell.printHtmlPdf': async params => {
+   const html = z.string().min(1).max(8000000).parse(params.html),
+    target = z.string().min(1).max(4096).parse(params.path)
+   const print = new BrowserWindow({
+    show: false,
+    webPreferences: {nodeIntegration: false, contextIsolation: true, sandbox: true}
+   })
+   try {
+    await print.loadURL('data:text/html;charset=utf-8,' + encodeURIComponent(html))
+    const bytes = await print.webContents.printToPDF({printBackground: true, pageSize: 'A4'})
+    await writeFile(target, bytes)
+    return true
+   } finally {
+    print.destroy()
+   }
   },
   'shell.showItemInFolder': async params => {
    const path = z.string().min(1).max(4096).parse(params.path)

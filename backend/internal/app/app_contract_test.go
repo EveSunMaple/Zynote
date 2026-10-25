@@ -37,6 +37,12 @@ func (reverse testReverse) Call(method string, params any, timeoutMS int) (json.
 	if method == "tools.configure" || method == "shell.openPath" || method == "shell.showItemInFolder" {
 		return json.RawMessage(`true`), nil
 	}
+	if method == "shell.printHtmlPdf" {
+		values, _ := params.(map[string]any)
+		path, _ := values["path"].(string)
+		_ = os.WriteFile(path, []byte("%PDF-1.4\n%%EOF\n"), 0o644)
+		return json.RawMessage(`true`), nil
+	}
 	if method == "shell.trashItem" {
 		return json.RawMessage(`true`), nil
 	}
@@ -169,7 +175,7 @@ func TestP0Contract(t *testing.T) {
 	if err := json.Unmarshal(state, &hello); err != nil {
 		t.Fatal(err)
 	}
-	if hello.Protocol != 1 || hello.Platform != "darwin" || len(hello.Capabilities) != 126 {
+	if hello.Protocol != 1 || hello.Platform != "darwin" || len(hello.Capabilities) != 127 {
 		t.Fatalf("unexpected hello: %+v", hello)
 	}
 

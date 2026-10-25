@@ -863,3 +863,9 @@ Zynote/
 - [x] `ppt-extract:export`：按页裁切、无损 PDF、`PPT/<课程>` 保存、回读校验、临时草稿清理。
 - [x] capabilities 124 → **126**；测试覆盖单图页分析/导出与可编辑页拒绝。
 - [ ] 导出后不删除原 PPTX/不迁移课程资料引用（安全优先，需单独设计确认）；`ppt-extract:pick` 属壳能力。
+
+## 1.58 video-ppt notes-export（2026-10-24）
+
+- [x] `video-ppt:notes-export`：docx（最小 OOXML）、svg（要点分组图）、pdf（壳侧 `shell.printHtmlPdf`）；reserveFile、写后回读校验。
+- [x] capabilities 126 → **127**。
+- [ ] `batch/batch-subtitles/subtitle-transcribe` 与 URL 下载仍依赖 SnapAny 壳。
