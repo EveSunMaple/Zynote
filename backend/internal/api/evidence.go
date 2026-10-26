@@ -301,13 +301,6 @@ func buildEvidenceBundle(course map[string]any, detail map[string]any, generated
 			})
 		}
 	}
-	filename := func(key string) any {
-		value := evidenceFilename(textValue(lecture[key]))
-		if value == "" {
-			return nil
-		}
-		return value
-	}
 	coverage := map[string]any{"segmentCount": len(segments), "partial": partial}
 	if len(segments) > 0 {
 		start := int64(numberValue(evidenceMap(segments[0])["start"]))
@@ -345,34 +338,67 @@ func buildEvidenceBundle(course map[string]any, detail map[string]any, generated
 		"course":            map[string]any{"id": textValue(course["id"]), "name": textValue(course["name"]), "createdAt": textValue(course["created_at"])},
 		"lecture":           map[string]any{"id": textValue(lecture["id"]), "title": textValue(lecture["title"]), "createdAt": textValue(lecture["created_at"]), "status": textValue(lecture["status"]), "coverage": coverage},
 		"sources": map[string]any{
-			"transcript": evidenceBlock(transcriptStatus, transcriptNote, map[string]any{
-				"filename": filename("transcript_path"), "textAvailable": transcriptAvailable,
-				"text": nullableString(transcriptText, transcriptAvailable),
-			}, transcriptHash),
-			"subtitles": evidenceBlock(subtitleStatus, subtitleNote, map[string]any{"segmentCount": len(segments), "complete": subtitlesComplete}, subtitleHash),
-			"courseware": evidenceBlock(coursewareStatus, coursewareNote, map[string]any{
-				"filename": filename("ppt_path"), "textAvailable": coursewareAvailable, "pageMarkers": pageMarkers,
-			}, coursewareHash),
-			"video": evidenceBlock(map[bool]string{true: "uncertain", false: "unavailable"}[textValue(lecture["video_path"]) != "" || textValue(lecture["source_video_path"]) != ""], "只记录数据库中是否关联视频文件；课次数据模型未保存对应的画面识别索引。", map[string]any{
-				"filename": firstFilename(lecture), "framesAvailable": false,
-			}, ""),
+			"transcript": evidenceBlock(transcriptStatus, transcriptNote, transcriptData(lecture, transcriptText, transcriptAvailable), transcriptHash),
+			"subtitles":  evidenceBlock(subtitleStatus, subtitleNote, map[string]any{"segmentCount": len(segments), "complete": subtitlesComplete}, subtitleHash),
+			"courseware": evidenceBlock(coursewareStatus, coursewareNote, coursewareData(lecture, coursewareAvailable, pageMarkers), coursewareHash),
+			"video":      videoData(lecture),
 		},
 		"evidence": map[string]any{
 			"subtitles": evidenceBlock(subtitleEvidenceStatus, map[bool]string{true: "当前为部分校订快照，必须结合 coverage.completed/total 阅读。", false: "verified 表示存在原文对照且应用未标记待核对，不代表独立人工听审。"}[partial], subtitleData, subtitleHash),
 			"notes": evidenceBlock(notesStatus, map[bool]string{true: "各类别保留独立状态及原句时间；verified 仅表示应用内匹配校验通过。", false: "当前课次没有已保存的课程笔记。"}[notesPresent], map[string]any{
 				"keyPoints": notesKeyPoints, "notTested": notesNotTested, "uncertain": notesUncertain,
 			}, noteHash),
-			"summary": evidenceBlock(textValue(notesKeyPoints["status"]), "摘要要点直接复用本节已保存的教师明确重点笔记，不另行生成视频摘要；每条保留原句时间与应用内核验状态。", notesKeyPoints["data"], textValue(notesKeyPoints["contentHash"])),
-			"courseware": evidenceBlock(coursewareStatus, map[bool]string{true: "提取文本可用，但不是逐页 OCR 核验记录；只有存储文本中已有页码标记才输出页索引。", false: "未保存可导出的课件文字。"}[coursewareAvailable], map[string]any{
-				"extractedText": nullableString(coursewareText, coursewareAvailable),
-				"pageIndex":     pageIndex(pageMarkers), "noteReferences": noteReferences,
-				"ocr": evidenceBlock("unavailable", "当前课次数据没有可关联的 OCR 结果或置信度记录。", []any{}, ""),
-			}, coursewareHash),
+			"summary":       evidenceBlock(textValue(notesKeyPoints["status"]), "摘要要点直接复用本节已保存的教师明确重点笔记，不另行生成视频摘要；每条保留原句时间与应用内核验状态。", notesKeyPoints["data"], textValue(notesKeyPoints["contentHash"])),
+			"courseware":    evidenceBlock(coursewareStatus, map[bool]string{true: "提取文本可用，但不是逐页 OCR 核验记录；只有存储文本中已有页码标记才输出页索引。", false: "未保存可导出的课件文字。"}[coursewareAvailable], evidenceCoursewareData(coursewareText, coursewareAvailable, pageMarkers, noteReferences), coursewareHash),
 			"frames":        evidenceBlock("unavailable", "当前课程数据模型没有与课次关联的画面帧/哈希索引；未生成画面证据。", []any{}, ""),
 			"knowledgeBase": evidenceBlock("unavailable", "当前课次数据没有持久化的知识库引用记录；未生成知识库引用。", []any{}, ""),
 			"practice":      evidenceBlock(map[bool]string{true: "uncertain", false: "unavailable"}[practicePresent && (len(evidenceList(practice["past"]))+len(evidenceList(practice["extended"]))+len(evidenceList(practice["generated"])) > 0)], map[bool]string{true: "作答结果是应用保存的本地判定记录，不等同于教师评分；题目和答案真实性未经本导出流程独立确认。", false: "当前课次没有已保存的练习题集。"}[practicePresent], practiceData, practiceHash),
 		},
 	}
+}
+
+func transcriptData(lecture map[string]any, text string, available bool) map[string]any {
+	data := map[string]any{"textAvailable": available}
+	if name := evidenceFilename(textValue(lecture["transcript_path"])); name != "" {
+		data["filename"] = name
+	}
+	if available {
+		data["text"] = text
+	}
+	return data
+}
+
+func coursewareData(lecture map[string]any, available bool, pages []int) map[string]any {
+	data := map[string]any{"textAvailable": available, "pageMarkers": pages}
+	if name := evidenceFilename(textValue(lecture["ppt_path"])); name != "" {
+		data["filename"] = name
+	}
+	return data
+}
+
+func videoData(lecture map[string]any) map[string]any {
+	path := textValue(lecture["source_video_path"])
+	if path == "" {
+		path = textValue(lecture["video_path"])
+	}
+	status := "unavailable"
+	data := map[string]any{"framesAvailable": false}
+	if path != "" {
+		status = "uncertain"
+		data["filename"] = evidenceFilename(path)
+	}
+	return evidenceBlock(status, "只记录数据库中是否关联视频文件；课次数据模型未保存对应的画面识别索引。", data, "")
+}
+
+func evidenceCoursewareData(text string, available bool, pages []int, references []any) map[string]any {
+	data := map[string]any{
+		"pageIndex": pageIndex(pages), "noteReferences": references,
+		"ocr": evidenceBlock("unavailable", "当前课次数据没有可关联的 OCR 结果或置信度记录。", []any{}, ""),
+	}
+	if available {
+		data["extractedText"] = text
+	}
+	return data
 }
 
 func filed(lecture map[string]any, key string) any {
@@ -383,22 +409,8 @@ func filed(lecture map[string]any, key string) any {
 	return value
 }
 
-func firstFilename(lecture map[string]any) any {
-	if value := filed(lecture, "source_video_path"); value != nil {
-		return value
-	}
-	return filed(lecture, "video_path")
-}
-
 func nullString(value string) any {
 	if value == "" {
-		return nil
-	}
-	return value
-}
-
-func nullableString(value string, present bool) any {
-	if !present {
 		return nil
 	}
 	return value
