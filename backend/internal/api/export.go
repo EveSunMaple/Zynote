@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"strings"
+	"time"
 
 	"github.com/EveSunMaple/Zynote/backend/internal/config"
 	"github.com/EveSunMaple/Zynote/backend/internal/contract"
@@ -139,9 +140,6 @@ func (inv *Invoker) handleExport(store contract.StateStore, state *contract.Stat
 	if !allowed {
 		return nil, contract.InputInvalid("不支持的导出格式")
 	}
-	if input.Kind == "evidence-bundle" {
-		return nil, contract.Unavailable("课程学习证据包导出尚未迁移")
-	}
 	detailAny, err := inv.lectureDetailOf(state, input.ID)
 	if err != nil {
 		return nil, err
@@ -166,7 +164,25 @@ func (inv *Invoker) handleExport(store contract.StateStore, state *contract.Stat
 		return nil, err
 	}
 	var data []byte
-	if input.Kind == "subtitles" {
+	if input.Kind == "evidence-bundle" {
+		courseID := textValue(lecture["course_id"])
+		course, err := inv.courseRecord(state, courseID)
+		if err != nil {
+			_ = os.Remove(path)
+			return nil, err
+		}
+		bundle := buildEvidenceBundle(course, detail, time.Now().UTC().Format(time.RFC3339Nano), state.AppVersion)
+		if input.Format == "md" {
+			data = []byte(evidenceMarkdown(bundle))
+		} else {
+			encoded, err := json.MarshalIndent(bundle, "", "  ")
+			if err != nil {
+				_ = os.Remove(path)
+				return nil, contract.Unavailable("证据包生成失败")
+			}
+			data = encoded
+		}
+	} else if input.Kind == "subtitles" {
 		segments, _ := detail["segments"].([]any)
 		if len(segments) == 0 {
 			_ = os.Remove(path)

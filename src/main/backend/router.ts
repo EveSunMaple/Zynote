@@ -78,6 +78,7 @@ export const goPrimaryActions = new Set([
  'notes:save',
  'chat',
  'cancel',
+ 'export',
  'job:current',
  'settings:models',
  'settings:probe',

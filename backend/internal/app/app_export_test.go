@@ -58,6 +58,8 @@ func TestExportSubtitlesNotesPractice(t *testing.T) {
 	}
 	db.Close()
 	for _, input := range []map[string]any{
+		{"id": lectureID, "kind": "evidence-bundle", "format": "json"},
+		{"id": lectureID, "kind": "evidence-bundle", "format": "md"},
 		{"id": lectureID, "kind": "subtitles", "format": "srt"},
 		{"id": lectureID, "kind": "subtitles", "format": "txt"},
 		{"id": lectureID, "kind": "notes", "format": "md"},
@@ -74,6 +76,11 @@ func TestExportSubtitlesNotesPractice(t *testing.T) {
 			t.Fatal(err)
 		}
 		switch input["format"] {
+		case "json":
+			var bundle map[string]any
+			if json.Unmarshal(body, &bundle) != nil || bundle["schemaVersion"] != "1.0.0" {
+				t.Fatalf("evidence json mismatch: %s", body)
+			}
 		case "srt":
 			if string(body) != srt {
 				t.Fatalf("srt mismatch: %q", body)
@@ -83,7 +90,7 @@ func TestExportSubtitlesNotesPractice(t *testing.T) {
 				t.Fatalf("txt mismatch: %q", body)
 			}
 		case "md":
-			if !strings.Contains(string(body), "教师明确重点") {
+			if !strings.Contains(string(body), "教师明确重点") && !strings.Contains(string(body), "课程学习证据包") {
 				t.Fatalf("md mismatch: %q", body)
 			}
 		case "docx":
