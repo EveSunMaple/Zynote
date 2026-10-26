@@ -1115,3 +1115,9 @@ Zynote/
 - [x] 修复 `internal/media/jobs.go` 的 Unix-only `syscall.Kill`，改为平台化 `processAlive`。
 - [x] `GOOS=windows GOARCH=amd64` 与 `GOOS=linux GOARCH=amd64` 的 core 交叉编译通过。
 - [x] CI 增加 cross-build；媒体进程锁回收测试通过。
+
+### 1.85 打包产物冒烟（2026-10-26）
+
+- [x] 新增 `package:smoke`：用 Playwright 启动已打包应用，检查 `app:info` 并经 Go 路由调用 `media:options`。
+- [x] release workflow 在生成安装包后执行 packaged smoke。
+- [x] 本机 portable 包实测通过（Go core 可用）。

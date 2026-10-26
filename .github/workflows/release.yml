@@ -24,12 +24,15 @@ jobs:
           - os: macos-14
             platform: mac
             artifact: mac-arm64
+            app: mac-arm64/Zynote.app/Contents/MacOS/Zynote
           - os: windows-2022
             platform: win
             artifact: windows-x64
+            app: win-unpacked/Zynote.exe
           - os: ubuntu-24.04
             platform: linux
             artifact: linux-x64
+            app: linux-unpacked/Zynote
     runs-on: ${{ matrix.os }}
     timeout-minutes: 90
     steps:
@@ -61,6 +64,8 @@ jobs:
           APPLE_APP_SPECIFIC_PASSWORD: ${{ matrix.platform == 'mac' && secrets.APPLE_APP_SPECIFIC_PASSWORD || '' }}
           APPLE_TEAM_ID: ${{ matrix.platform == 'mac' && secrets.APPLE_TEAM_ID || '' }}
         run: pnpm release ${{ inputs.profile }} --platform=${{ matrix.platform }} --prepared
+      - name: Packaged smoke
+        run: pnpm package:smoke --app "release/${{ inputs.profile }}/${{ matrix.app }}"
       - name: Checksums
         if: inputs.profile != 'portable'
         run: pnpm release:checksums release/${{ inputs.profile }} ${{ matrix.platform }}
