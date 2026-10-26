@@ -80,4 +80,12 @@ func TestResearchStorageActions(t *testing.T) {
 	if json.Unmarshal(raw, &imStatus) != nil || len(imStatus["connections"].([]any)) != 0 {
 		t.Fatalf("im status mismatch: %s", raw)
 	}
+	raw, errReply = f.call("runtime:status", map[string]any{})
+	if errReply != nil {
+		t.Fatalf("runtime status failed: %+v", errReply)
+	}
+	var runtimeStatus map[string]any
+	if json.Unmarshal(raw, &runtimeStatus) != nil || runtimeStatus["version"] != "0.0.1" {
+		t.Fatalf("runtime status mismatch: %s", raw)
+	}
 }

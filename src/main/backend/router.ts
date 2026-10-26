@@ -45,6 +45,9 @@ export const goPrimaryActions = new Set([
  'library:open',
  'library:open-file',
  'library:reveal',
+ 'im:draft',
+ 'runtime:install',
+ 'runtime:status',
  ...(process.platform === 'darwin' ? ['tools:request'] : [])
 ])
 

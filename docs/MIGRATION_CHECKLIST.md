@@ -1005,3 +1005,12 @@ Zynote/
 
 - [x] 无新清单时读取 `legacy:learning_mcp_catalog`，仅保留地址/工具说明，默认停用并要求重新发现与明确启用。
 - [x] 多身份、重复编号、无效地址拒绝自动迁移。
+
+### 1.71 runtime 与 im:draft（2026-10-24）
+
+- [x] `runtime:status`：schema 1/2 清单、目标匹配、文件摘要/大小/权限、缺失/不兼容/无效状态。
+- [x] `runtime:install`：Windows x64 组件包校验、暂存、逐文件 SHA-256、原子发布；非 Windows 明确拒绝。
+- [x] 新增 `shell.pickDirectory`，保持 Electron 目录选择。
+- [x] `im:draft` 迁移 Go：读取已保存消息、模型生成、二次读取比对，不发送。
+- [x] capabilities **152**（含 11 internal）；非 shell 150 条已全部覆盖；app 测试覆盖 runtime status。
+- [ ] Windows 本机微信读取与 NapCat 内置后台仍为 TS 回退。

@@ -81,58 +81,64 @@ func (inv *Invoker) imService(state *contract.State, reverse contract.ReverseCal
 	root := filepath.Join(state.LibraryRoot, "知识库数据")
 	inv.imMu.Lock()
 	defer inv.imMu.Unlock()
-	if inv.im != nil && inv.imRoot == root {
-		return inv.im, nil
-	}
-	if inv.im != nil {
-		_ = inv.im.Close()
-		inv.im = nil
-	}
-	crypt := func(data []byte, decrypt bool) ([]byte, error) {
-		if reverse == nil {
-			return nil, fmt.Errorf("系统加密桥不可用")
+	if inv.im == nil || inv.imRoot != root {
+		if inv.im != nil {
+			_ = inv.im.Close()
+			inv.im = nil
 		}
-		method := "crypto.protect-bytes"
-		if decrypt {
-			method = "crypto.unprotect-bytes"
+		crypt := func(data []byte, decrypt bool) ([]byte, error) {
+			if reverse == nil {
+				return nil, fmt.Errorf("系统加密桥不可用")
+			}
+			method := "crypto.protect-bytes"
+			if decrypt {
+				method = "crypto.unprotect-bytes"
+			}
+			raw, err := reverse.Call(method, map[string]any{
+				"value": base64.StdEncoding.EncodeToString(data), "domain": "im",
+			}, 30000)
+			if err != nil {
+				return nil, err
+			}
+			var reply struct {
+				Value string `json:"value"`
+			}
+			if json.Unmarshal(raw, &reply) != nil {
+				return nil, fmt.Errorf("系统加密响应无效")
+			}
+			return base64.StdEncoding.DecodeString(reply.Value)
 		}
-		raw, err := reverse.Call(method, map[string]any{
-			"value": base64.StdEncoding.EncodeToString(data), "domain": "im",
-		}, 30000)
+		service, err := im.NewService(root, state.ResourcesRoot, crypt)
 		if err != nil {
 			return nil, err
 		}
-		var reply struct {
-			Value string `json:"value"`
+		service.Model = func(ctx context.Context, system, user string) (string, error) {
+			profile, err := config.ActiveProfile(state.DataRoot, reverse)
+			if err != nil {
+				return "", err
+			}
+			client := ai.New(ai.Profile{
+				BaseURL: profile.BaseURL, Model: profile.Model, VisionModel: profile.VisionModel,
+				APIFormat: profile.APIFormat, Key: profile.Key, Parameters: profile.Parameters,
+			})
+			return client.Chat(ctx, []ai.Message{
+				{Role: "system", Content: system},
+				{Role: "user", Content: user},
+			}, nil)
 		}
-		if json.Unmarshal(raw, &reply) != nil {
-			return nil, fmt.Errorf("系统加密响应无效")
-		}
-		return base64.StdEncoding.DecodeString(reply.Value)
+		inv.im = service
+		inv.imRoot = root
 	}
-	service, err := im.NewService(root, state.ResourcesRoot, crypt)
-	if err != nil {
-		return nil, err
-	}
+	service := inv.im
 	if knowledgeStore, err := inv.knowledgeStoreFor(state); err == nil {
+		if rootID == "" {
+			if data, err := research.Open(root); err == nil {
+				rootID = data.RootID
+				_ = data.Close()
+			}
+		}
 		service.Knowledge = &im.Knowledge{ID: rootID, Sources: research.NewSources(knowledgeStore, rootID)}
 	}
-	service.Model = func(ctx context.Context, system, user string) (string, error) {
-		profile, err := config.ActiveProfile(state.DataRoot, reverse)
-		if err != nil {
-			return "", err
-		}
-		client := ai.New(ai.Profile{
-			BaseURL: profile.BaseURL, Model: profile.Model, VisionModel: profile.VisionModel,
-			APIFormat: profile.APIFormat, Key: profile.Key, Parameters: profile.Parameters,
-		})
-		return client.Chat(ctx, []ai.Message{
-			{Role: "system", Content: system},
-			{Role: "user", Content: user},
-		}, nil)
-	}
-	inv.im = service
-	inv.imRoot = root
 	return service, nil
 }
 

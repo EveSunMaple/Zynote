@@ -109,6 +109,16 @@ export function createShellServices(window: BrowserWindow, libraryRoot: string):
    if (error) throw new Error(error)
    return true
   },
+  'shell.pickDirectory': async params => {
+   const title = z.string().min(1).max(200).parse(params.title)
+   const defaultPath = typeof params.defaultPath === 'string' ? z.string().max(4096).parse(params.defaultPath) : ''
+   const picked = await dialog.showOpenDialog(window, {
+    title,
+    properties: ['openDirectory'],
+    defaultPath
+   })
+   return {path: picked.canceled ? '' : picked.filePaths[0] || ''}
+  },
   'shell.pickFile': async params => {
    const title = z.string().min(1).max(200).parse(params.title)
    const extensions = z

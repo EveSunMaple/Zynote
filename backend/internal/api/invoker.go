@@ -71,6 +71,8 @@ func NewInvoker() *Invoker {
 			"session:delete":   requireState(handleSessionDelete),
 			"lecture:delete":   requireState(handleLectureDelete),
 			"lecture:detail":   requireState(handleLectureDetail),
+			"runtime:status":   requireState(handleRuntimeStatus),
+			"runtime:install":  requireState(handleRuntimeInstall),
 		}}
 }
 
@@ -108,6 +110,12 @@ func (inv *Invoker) Invoke(store contract.StateStore, action string, params json
 	switch action {
 	case "core.hello":
 		return inv.handleHello(store, params)
+	case "im:draft":
+		state := store.State()
+		if state == nil {
+			return nil, contract.Unavailable("后台尚未完成握手")
+		}
+		return inv.handleImDraft(store, state, params)
 	case "pdf.text", "pdf.plainText", "pdf.inspect", "pdf.write":
 		state := store.State()
 		if state == nil {
