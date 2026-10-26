@@ -107,7 +107,30 @@ export const goPrimaryActions = new Set([
  'tools:skill-open',
  'runtime:install',
  'runtime:status',
- ...(process.platform === 'darwin' ? ['tools:request'] : [])
+ ...(process.platform === 'darwin'
+  ? [
+     'tools:request',
+     'media:options',
+     'media:list',
+     'media:retry',
+     'media:cancel',
+     'media:file',
+     'media:auth-import',
+     'media:auth-list',
+     'media:auth-remove',
+     'media:catalog',
+     'media:create',
+     'media:discussion',
+     'media:discussion-import',
+     'bili-resources:status',
+     'bili-resources:browse',
+     'bili-resources:qr',
+     'bili-resources:poll',
+     'bili-resources:logout',
+     'bili-resources:folders',
+     'bili-resources:videos'
+    ]
+  : [])
 ])
 
 const deleteSubjects = new Map([

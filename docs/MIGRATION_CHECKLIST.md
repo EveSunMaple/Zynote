@@ -1052,3 +1052,10 @@ Zynote/
 - [x] Go 媒体读取在 YouTube 前同步登录态；下载仍由 scoped Cookie fetcher 处理。
 - [x] 单测：翻译语言过滤与 `tlang` URL；Rust/Go 媒体测试通过。
 - [ ] 媒体路由继续 TS，待真实 B站/YouTube 登录与下载手测后切换。
+
+### 1.78 macOS 媒体域路由切换（2026-10-24）
+
+- [x] macOS 主路径：media options/list/retry/cancel/file/auth-import/list/remove、catalog/create/discussion/import，bili-resources 全组。
+- [x] 真实 B站公开视频 `media:catalog` 通过（标题/时长/格式）；YouTube 翻译字幕与登录态已补。
+- [x] app 测试覆盖 media options/list/auth-list；Electron runtime smoke 通过。
+- [ ] Windows 媒体仍走 TS（与 tools:request 同策略）；`/media` 下载仍建议真实下载手测。
