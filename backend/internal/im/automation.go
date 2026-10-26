@@ -33,6 +33,7 @@ type Automation struct {
 type autoRun struct {
 	cancel context.CancelFunc
 	done   chan struct{}
+	ctx    context.Context
 }
 
 func NewAutomation(service *Service) (*Automation, error) {
@@ -204,7 +205,7 @@ func (automation *Automation) Runs(input map[string]any) (any, error) {
 		}
 		automation.put("run", key, run)
 		ctx, cancel := context.WithCancel(context.Background())
-		active := &autoRun{cancel: cancel, done: make(chan struct{})}
+		active := &autoRun{cancel: cancel, done: make(chan struct{}), ctx: ctx}
 		automation.mu.Lock()
 		automation.active[key] = active
 		automation.mu.Unlock()
@@ -240,6 +241,23 @@ func (automation *Automation) pause(key string) {
 			job["state"] = "blocked"
 			job["error"] = "会话已暂停，未开始生成"
 			automation.job(job)
+		}
+	}
+}
+
+func (automation *Automation) Wait(timeout time.Duration) {
+	deadline := time.After(timeout)
+	automation.mu.Lock()
+	runs := []*autoRun{}
+	for _, active := range automation.active {
+		runs = append(runs, active)
+	}
+	automation.mu.Unlock()
+	for _, active := range runs {
+		select {
+		case <-active.done:
+		case <-deadline:
+			return
 		}
 	}
 }
@@ -699,6 +717,6 @@ func (automation *Automation) Jobs(input map[string]any) (any, error) {
 	job["state"] = "pending"
 	job["outcome_unknown"] = false
 	job = automation.job(job)
-	go automation.generate(context.Background(), job, run, scope, automation.effective(scope))
+	go automation.generate(active.ctx, job, run, scope, automation.effective(scope))
 	return job, nil
 }

@@ -69,6 +69,7 @@ func (service *Service) Close() error {
 	service.mu.Lock()
 	defer service.mu.Unlock()
 	service.automation.PauseAll()
+	service.automation.Wait(3 * time.Second)
 	for _, login := range service.logins {
 		login.Cancel()
 	}
