@@ -104,6 +104,7 @@ export const goPrimaryActions = new Set([
  'knowledge:classification-read',
  'knowledge:classification-save',
  'im:draft',
+ 'tools:skill-open',
  'runtime:install',
  'runtime:status',
  ...(process.platform === 'darwin' ? ['tools:request'] : [])
