@@ -1059,3 +1059,9 @@ Zynote/
 - [x] 真实 B站公开视频 `media:catalog` 通过（标题/时长/格式）；YouTube 翻译字幕与登录态已补。
 - [x] app 测试覆盖 media options/list/auth-list；Electron runtime smoke 通过。
 - [ ] Windows 媒体仍走 TS（与 tools:request 同策略）；`/media` 下载仍建议真实下载手测。
+
+### 1.79 macOS 视频提取路由切换（2026-10-24）
+
+- [x] macOS 主路径新增 video-ppt 全组（pending/restore/subtitle/source/extract/export/auto/summary/notes-export/batch/transcribe）。
+- [x] app 视频测试与 Electron runtime smoke 通过。
+- [ ] Windows 仍走 TS；真实长视频批量下载/转写仍需手测。

@@ -128,7 +128,25 @@ export const goPrimaryActions = new Set([
      'bili-resources:poll',
      'bili-resources:logout',
      'bili-resources:folders',
-     'bili-resources:videos'
+     'bili-resources:videos',
+     'video-ppt:pending',
+     'video-ppt:restore',
+     'video-ppt:subtitle-import',
+     'video-ppt:subtitle-save',
+     'video-ppt:subtitle-export',
+     'video-ppt:series',
+     'video-ppt:subtitle',
+     'video-ppt:subtitle-transcribe-local',
+     'video-ppt:resume-subtitle',
+     'video-ppt:source',
+     'video-ppt:extract',
+     'video-ppt:export',
+     'video-ppt:auto',
+     'video-ppt:summary',
+     'video-ppt:notes-export',
+     'video-ppt:batch',
+     'video-ppt:batch-subtitles',
+     'video-ppt:subtitle-transcribe'
     ]
   : [])
 ])
