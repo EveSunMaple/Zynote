@@ -156,6 +156,8 @@ func (inv *Invoker) handleToolsRequest(storeState contract.StateStore, state *co
 		return nil, contract.Unavailable(err.Error())
 	}
 	switch input.Action {
+	case "configure":
+		return true, nil
 	case "materials":
 		knowledgeStore, err := inv.knowledgeStoreFor(state)
 		if err != nil {
@@ -277,7 +279,14 @@ func (inv *Invoker) handleToolsRequest(storeState contract.StateStore, state *co
 		case "agent-create":
 			return engine.Create(context.Background(), input.Args)
 		case "agent-read":
-			return engine.Read(textValue(input.Args["id"]))
+			id := textValue(input.Args["id"])
+			task, err := engine.Read(id)
+			if err != nil {
+				if legacy, legacyErr := store.Read("legacy-task", id); legacyErr == nil {
+					return legacy, nil
+				}
+			}
+			return task, err
 		case "agent-stop":
 			return engine.Stop(textValue(input.Args["id"]))
 		case "agent-export":
@@ -315,7 +324,7 @@ func (inv *Invoker) handleToolsRequest(storeState contract.StateStore, state *co
 			"tasks": tasks, "workflows": workflows,
 			"migration": map[string]any{
 				"runtimeLanguage": "go", "legacyRuntimeRequired": false,
-				"externalAcceptance": "研究引擎/MCP/IM 尚未迁移，当前仅提供存储与资料目录",
+				"externalAcceptance": "研究引擎、外部检索、MCP、工作流与 IM 已迁移；Windows 本机微信/NapCat 后台尚未适配",
 			},
 			"runtime": map[string]any{"dependencies": []any{}},
 		}, nil

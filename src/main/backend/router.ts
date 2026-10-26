@@ -44,7 +44,8 @@ export const goPrimaryActions = new Set([
  'identity:avatar',
  'library:open',
  'library:open-file',
- 'library:reveal'
+ 'library:reveal',
+ ...(process.platform === 'darwin' ? ['tools:request'] : [])
 ])
 
 const deleteSubjects = new Map([

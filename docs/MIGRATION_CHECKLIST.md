@@ -992,3 +992,11 @@ Zynote/
 - [x] 接入 `im` 的 start/inspect/confirm/sync/directory/send。
 - [x] 测试：确认地址、登录 XML/DOCTYPE 拒绝、Cookie 会话往返。
 - [ ] 本机微信与 NapCat 内置后台尚未完成 Go 原生适配，status 明确标记不可用；`tools:request` 暂不切换。
+
+### 1.70 研究域路由切换（macOS，2026-10-24）
+
+- [x] 注册 `tools:request` capability（149）；macOS 主路径切换到 Go（`configure` 幂等）。
+- [x] 研究/工具/IM 数据仍共用原 SQLite；Go IM 服务持有登录状态，`im:draft` 保留 Electron 壳。
+- [x] Windows 暂继续走 TS，因本机微信读取与 NapCat 内置后台尚未完成 Go 适配。
+- [x] `agent-read` 兼容旧研究任务；overview 状态更新。
+- [ ] Windows IM、P7 删除 TS 研究后端待完成。
