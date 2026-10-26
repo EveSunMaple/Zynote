@@ -222,6 +222,19 @@ func (inv *Invoker) Invoke(store contract.StateStore, action string, params json
 		default:
 			return inv.handleStudyParse(store, state, params)
 		}
+	case "subtitle-derived:list", "subtitle-derived:resume", "subtitle-derived:start":
+		state := store.State()
+		if state == nil {
+			return nil, contract.Unavailable("后台尚未完成握手")
+		}
+		switch action {
+		case "subtitle-derived:list":
+			return inv.handleSubtitleDerivedList(state)
+		case "subtitle-derived:resume":
+			return inv.handleSubtitleDerivedResume(store, state, params)
+		default:
+			return inv.handleSubtitleDerivedStart(store, state, params)
+		}
 	case "subtitle-sync:list", "subtitle-sync:start", "subtitle-sync:mixed", "subtitle-sync:resume", "subtitle-sync:attach":
 		state := store.State()
 		if state == nil {

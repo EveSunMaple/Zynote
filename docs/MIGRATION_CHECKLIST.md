@@ -886,3 +886,9 @@ Zynote/
 - [x] 知识库 generation 复用；字幕保存复用 `saveVideoSubtitleFile`。
 - [x] capabilities 130 → **135**；服务单测覆盖创建/运行/列表。
 - [ ] `subtitle-derived:list/resume/start` 尚未迁移。
+
+## 1.61 subtitle-derived（2026-10-24）
+
+- [x] `subtitle-derived:list/start/resume`：从已完成同步分集创建任务、来源哈希/代际复核、分批摘要准备与断点、Markdown/JSON/SVG 成果、同名冲突拒绝、失败清理。
+- [x] 复用 `summarizeVideoText` 与 notes SVG；capabilities 135 → **138**。
+- [x] 服务单测覆盖创建/运行/多模式成果。
