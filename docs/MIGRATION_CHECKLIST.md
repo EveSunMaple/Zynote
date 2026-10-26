@@ -924,3 +924,10 @@ Zynote/
 - [x] `tools:skill-open`：Markdown 头部解析（name/description/正文）、名称规则、长度/控制字符校验、壳侧文件选择。
 - [x] capabilities 147 → **148**；app 测试覆盖学习方法导入。
 - [ ] `tools:request` 研究后端与 `im:draft`、Windows `runtime:*` 仍未迁移。
+
+## 1.67 研究域存储基础（2026-10-24）
+
+- [x] `internal/research`：`research-native.sqlite` 记录/幂等操作/记忆/会话/扩展目录/笔记读写与导出；知识资料目录、引用绑定与核验检索。
+- [x] `tools:request` 暂支持 `materials/conversations*/memories/memory-change/extension-change/skill-markdown/notes/note-read/note-revise/note-lifecycle/note-source/note-export/overview`；研究引擎/MCP/IM 明确返回未适配。
+- [x] app 测试覆盖会话、记忆、资料目录与未适配错误。
+- [ ] `tools:request` 尚未注册 capability/路由；研究引擎、工作流、MCP、IM、legacy baseline 未迁。
