@@ -84,7 +84,7 @@ func (service *Service) Capture(ctx context.Context, request CaptureRequest) (Ca
 	duration := 0.0
 	imageSource := extension == ".png" || extension == ".jpg" || extension == ".jpeg" || extension == ".webp"
 	if imageSource {
-		path := filepath.Join(directory, "frame-1.jpg")
+		path := filepath.Join(directory, "frame-1.png")
 		if err := service.command(ctx, "ffmpeg", []string{
 			"-hide_banner", "-loglevel", "error", "-nostdin", "-i", source, "-frames:v", "1",
 			"-vf", "scale=1600:1600:force_original_aspect_ratio=decrease", "-q:v", "2", "-y", path,
@@ -189,7 +189,7 @@ func (service *Service) Capture(ctx context.Context, request CaptureRequest) (Ca
 			if err := ctx.Err(); err != nil {
 				return Capture{}, err
 			}
-			path := filepath.Join(directory, fmt.Sprintf("frame-%d.jpg", index+1))
+			path := filepath.Join(directory, fmt.Sprintf("frame-%d.png", index+1))
 			if err := service.command(ctx, "ffmpeg", []string{
 				"-hide_banner", "-loglevel", "error", "-nostdin", "-ss", strconv.FormatFloat(time, 'f', -1, 64),
 				"-i", source, "-frames:v", "1", "-vf", "scale=1600:1600:force_original_aspect_ratio=decrease",

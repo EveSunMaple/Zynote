@@ -3,6 +3,9 @@ package api
 import (
 	"context"
 	"encoding/json"
+	"image"
+	_ "image/jpeg"
+	_ "image/png"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -13,6 +16,7 @@ import (
 	"github.com/EveSunMaple/Zynote/backend/internal/courseware"
 	"github.com/EveSunMaple/Zynote/backend/internal/documents"
 	"github.com/EveSunMaple/Zynote/backend/internal/library"
+	"github.com/EveSunMaple/Zynote/backend/internal/pptextract"
 	"github.com/EveSunMaple/Zynote/backend/internal/storage"
 	"github.com/EveSunMaple/Zynote/backend/internal/videoppt"
 	"github.com/EveSunMaple/Zynote/backend/internal/zhiyun"
@@ -33,6 +37,49 @@ func (inv *Invoker) findOrCreateZhiyunLecture(
 		return lecture, nil
 	}
 	return write.CreateLecture(courseID, title, "", "", "", "")
+}
+
+func zhiyunDeckAllBlack(path string) bool {
+	directory, err := os.MkdirTemp("", "zynote-zhiyun-deck-*")
+	if err != nil {
+		return true
+	}
+	defer os.RemoveAll(directory)
+	deck, err := pptextract.ReadDeck(path, directory)
+	if err != nil {
+		return !regexp.MustCompile(`纯图片型|编辑对象|旧版 PPT|分辨率|200 MB|500 页|多张图片`).MatchString(err.Error())
+	}
+	fallback := true
+	for _, page := range deck.Pages {
+		if page.Unavailable != "" {
+			continue
+		}
+		file, err := os.Open(page.ImagePath)
+		if err != nil {
+			continue
+		}
+		imageValue, _, decodeErr := image.Decode(file)
+		_ = file.Close()
+		if decodeErr != nil {
+			continue
+		}
+		bounds := imageValue.Bounds()
+		visible := false
+		for y := bounds.Min.Y; y < bounds.Max.Y && !visible; y++ {
+			for x := bounds.Min.X; x < bounds.Max.X; x++ {
+				red, green, blue, _ := imageValue.At(x, y).RGBA()
+				if red>>8 >= 42 || green>>8 >= 42 || blue>>8 >= 42 {
+					visible = true
+					break
+				}
+			}
+		}
+		if visible {
+			fallback = false
+			break
+		}
+	}
+	return fallback
 }
 
 func sanitizeZhiyunFilename(value string) string {
@@ -198,7 +245,11 @@ func (inv *Invoker) handleZhiyunExport(store contract.StateStore, state *contrac
 				_ = os.Remove(downloaded)
 				return nil, contract.Unavailable(err.Error())
 			}
+			fallback := false
 			if strings.ToLower(filepath.Ext(downloaded)) == ".pptx" {
+				fallback = zhiyunDeckAllBlack(downloaded)
+			}
+			if !fallback {
 				parsed, parseErr := documents.ParseCourseware(inv.native, downloaded)
 				if parseErr == nil && strings.TrimSpace(parsed.Text) != "" {
 					serialized, err := courseware.SerializeSourceCache(
@@ -222,7 +273,7 @@ func (inv *Invoker) handleZhiyunExport(store contract.StateStore, state *contrac
 		if videoURL == "" {
 			return nil, contract.InputInvalid("PPT 提取失败，且本课次暂无录像；已下载文件保留")
 		}
-		inv.videoProgress("智云课件无法读取，正在改用课程录像")
+		inv.videoProgress("智云课件无法读取或全黑，正在改用课程录像；全黑页未裁剪")
 		task, err := videoPptService(state).CreateBlankTask(title, nil)
 		if err != nil {
 			return nil, videoPptError(err)

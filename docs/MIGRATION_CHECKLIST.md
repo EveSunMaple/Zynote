@@ -1021,3 +1021,9 @@ Zynote/
 - [x] 主路径新增：chat/cancel/job:current、settings:models/probe/test、db:health/backup、knowledge 全组（含向量与问答）。
 - [x] app 测试（chat/knowledge/settings/export/notes/practice/questions/subtitles）与 Electron runtime smoke 通过。
 - [ ] media 仍走 TS（YouTube 翻译/签名缺口）；`export` 仍走 TS（证据包未迁）。
+
+### 1.73 视觉/智云补齐（2026-10-24）
+
+- [x] 视觉帧改为 PNG，与 TS `frame-1.png` / `frame-N.png` 对齐。
+- [x] 智云导出的 PPTX 增加逐页全黑/不可用判定；全黑或无法读取时回落录像提取，并保留原文件清理流程。
+- [x] 失败/全黑提示与 TS 对齐（“全黑页未裁剪”）。
