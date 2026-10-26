@@ -46,6 +46,7 @@ export const goPrimaryActions = new Set([
  'library:open-file',
  'library:reveal',
  'library:delete',
+ 'media:open',
  'textbook:pick',
  'textbook:bytes',
  'textbook:open',
