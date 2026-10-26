@@ -318,6 +318,12 @@ func (inv *Invoker) Invoke(store contract.StateStore, action string, params json
 		default:
 			return inv.handleVisualRecoverOutput(state, params)
 		}
+	case "tools:skill-open":
+		state := store.State()
+		if state == nil {
+			return nil, contract.Unavailable("后台尚未完成握手")
+		}
+		return inv.handleSkillOpen(store, state)
 	case "export":
 		state := store.State()
 		if state == nil {

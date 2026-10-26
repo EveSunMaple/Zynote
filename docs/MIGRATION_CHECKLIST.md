@@ -918,3 +918,9 @@ Zynote/
 - [x] 依据：对应 app 级/服务级测试已覆盖；Go core 不可用时仍回退 TS。
 - [x] `pnpm runtime:smoke` 通过；capabilities 保持 147。
 - [ ] 媒体/教材/视觉/智云/视频路由仍需真实手测后切换；研究/IM/Windows runtime 未迁。
+
+## 1.66 tools:skill-open（2026-10-24）
+
+- [x] `tools:skill-open`：Markdown 头部解析（name/description/正文）、名称规则、长度/控制字符校验、壳侧文件选择。
+- [x] capabilities 147 → **148**；app 测试覆盖学习方法导入。
+- [ ] `tools:request` 研究后端与 `im:draft`、Windows `runtime:*` 仍未迁移。
