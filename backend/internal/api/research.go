@@ -91,6 +91,9 @@ func (inv *Invoker) handleToolsRequest(storeState contract.StateStore, state *co
 		return nil, err
 	}
 	defer store.Close()
+	if _, err := store.BaselineLegacy(); err != nil {
+		return nil, contract.Unavailable(err.Error())
+	}
 	switch input.Action {
 	case "materials":
 		knowledgeStore, err := inv.knowledgeStoreFor(state)

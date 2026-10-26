@@ -43,6 +43,19 @@ func (store *Store) ContextSnapshot(channels []string, question string, conversa
 		return total
 	}
 	rows := []ContextRow{}
+	if contains(channels, "practice") {
+		questions, err := store.PracticeQuestions(question, "")
+		if err != nil {
+			return Context{}, err
+		}
+		for _, raw := range questions {
+			encoded, _ := json.Marshal(raw)
+			rows = append(rows, ContextRow{
+				Kind: "practice", ID: text(raw["question_id"]), Title: "练习题干（未读取答案、作答或成绩）",
+				Text: text(raw["question"]), Version: hashText(string(encoded)),
+			})
+		}
+	}
 	if contains(channels, "memory") {
 		memories, err := store.Memories()
 		if err != nil {
