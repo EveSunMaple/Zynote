@@ -37,6 +37,8 @@ const manifest: RuntimeManifest = process.argv.includes('--prepared')
  : await generate(root)
 if (manifest.schema !== 1 || manifest.productVersion !== pkg.version) throw new Error('运行清单与产品版本不一致')
 const output = join(root, 'release', profile)
+if (profile === 'full' && !manifest.components.length) throw new Error('完整发布缺少 runtime manifest 组件')
+if (profile === 'components' && !manifest.components.length) throw new Error('组件发布缺少 runtime manifest 组件')
 if (profile === 'components') {
  if (platform !== Platform.WINDOWS) throw new Error('当前组件包仅支持 Windows，未生成其他平台组件包')
  const sileroLicense = manifest.components.some(component => component.id === 'asr')

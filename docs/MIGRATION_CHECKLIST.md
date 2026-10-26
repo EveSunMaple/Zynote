@@ -1093,3 +1093,8 @@ Zynote/
 - [x] 新增 `release:checksums` 脚本。
 - [x] Windows IM 采用 Rust/Go helper 方案，实机相关实现冻结；说明见 `docs/tmp/WINDOWS_IM_HANDOFF.md`。
 - [ ] 公证/Developer ID/Windows 代码签名需证书与 secrets；macOS 全量组件（video/ffmpeg）仍需固定分发方案。
+
+### 1.83.1 发布保护（2026-10-26）
+
+- [x] `full/components` profile 在 runtime manifest 空时立即失败，避免打出无组件的“完整包”。
+- [x] lite/portable 显式跳过 knowledge/asr/video；实测 macOS lite/portable 可签名打包并生成 SHA256SUMS。
