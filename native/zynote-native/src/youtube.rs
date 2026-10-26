@@ -5,6 +5,7 @@ use serde_json::{json, Value};
 pub struct YoutubeService {
     runtime: tokio::runtime::Runtime,
     pipe: RustyPipe,
+    authenticated: std::sync::atomic::AtomicBool,
 }
 
 impl YoutubeService {
@@ -19,12 +20,41 @@ impl YoutubeService {
             .enable_all()
             .build()
             .map_err(|error| format!("YouTube 运行时初始化失败：{error}"))?;
-        Ok(Self { runtime, pipe })
+        Ok(Self { runtime, pipe, authenticated: std::sync::atomic::AtomicBool::new(false) })
+    }
+
+    pub fn auth(&self, cookie: &str) -> Result<Value, String> {
+        if cookie.is_empty() {
+            self.authenticated.store(false, std::sync::atomic::Ordering::SeqCst);
+            return Ok(json!({"authenticated": false}));
+        }
+        if cookie.len() > 20000 {
+            return Err("YouTube 登录 Cookie 无效".to_string());
+        }
+        match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            self.runtime.block_on(self.pipe.user_auth_set_cookie(cookie))
+        })) {
+            Ok(Ok(())) => {
+                self.authenticated.store(true, std::sync::atomic::Ordering::SeqCst);
+                Ok(json!({"authenticated": true}))
+            }
+            Ok(Err(error)) => Err(format!("YouTube 登录状态不可用：{error}")),
+            Err(_) => Err("YouTube 登录状态不可用：内部错误".to_string()),
+        }
+    }
+
+    fn query(&self) -> rustypipe::client::RustyPipeQuery {
+        let query = self.pipe.query();
+        if self.authenticated.load(std::sync::atomic::Ordering::SeqCst) {
+            query.authenticated()
+        } else {
+            query
+        }
     }
 
     pub fn video(&self, id: &str) -> Result<Value, String> {
         let player = match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-            self.runtime.block_on(self.pipe.query().player(id))
+            self.runtime.block_on(self.query().player(id))
         })) {
             Ok(Ok(player)) => player,
             Ok(Err(error)) => return Err(format!("YouTube 目录读取失败：{error}")),

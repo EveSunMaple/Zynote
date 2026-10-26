@@ -3,6 +3,7 @@ package platform
 import (
 	"context"
 	"encoding/json"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -231,5 +232,27 @@ func TestReadYoutubePlaylist(t *testing.T) {
 	if _, err := readYoutubePlaylistWith(context.Background(), "PL1234567890", empty); err == nil ||
 		!strings.Contains(err.Error(), "未取得可选择的公开视频") {
 		t.Fatalf("empty playlist mismatch: %v", err)
+	}
+}
+
+func TestYoutubeTranslatedSubtitles(t *testing.T) {
+	html := `<html><script>var ytInitialPlayerResponse = {"captions":{"playerCaptionsTracklistRenderer":{"captionTracks":[{"baseUrl":"https://www.youtube.com/api/timedtext?v=x&lang=en","languageCode":"en","isTranslatable":true}],"translationLanguages":[{"languageCode":"zh-Hans"},{"languageCode":"ja"}]}}};</script></html>`
+	fetcher := func(requestURL string, headers map[string]string, ctx context.Context) (*http.Response, error) {
+		if !strings.Contains(requestURL, "watch?v=dQw4w9WgXcQ") {
+			t.Fatalf("unexpected watch url: %s", requestURL)
+		}
+		return &http.Response{StatusCode: 200, Body: io.NopCloser(strings.NewReader(html))}, nil
+	}
+	source := media.Source{SubtitleTracks: []media.SubtitleTrack{
+		{Language: "en", URL: "https://www.youtube.com/api/timedtext?v=x&fmt=json3", Format: "youtube-json3"},
+	}}
+	options := mediaOptions()
+	options.TranslatedSubtitles = true
+	options.SubtitleLanguages = "ai-zh.*,ai-ja.*"
+	addYoutubeTranslations(context.Background(), &source, "dQw4w9WgXcQ", options, fetcher)
+	if len(source.SubtitleTracks) != 3 || source.SubtitleTracks[1].Language != "ai-zh-Hans" ||
+		!strings.Contains(source.SubtitleTracks[1].URL, "tlang=zh-Hans") ||
+		source.SubtitleTracks[2].Language != "ai-ja" {
+		t.Fatalf("translated tracks mismatch: %+v", source.SubtitleTracks)
 	}
 }

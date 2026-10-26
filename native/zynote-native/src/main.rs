@@ -226,6 +226,16 @@ fn dispatch(
             let rows = params.get("rows").cloned().unwrap_or(Value::Array(Vec::new()));
             annotations::write_annotations(path, output, &rows)
         }
+        (Mode::Youtube, "youtube.auth") => {
+            let cookie = params
+                .get("cookie")
+                .and_then(|value| value.as_str())
+                .ok_or("cookie missing")?;
+            youtube
+                .as_ref()
+                .ok_or("youtube service not ready")?
+                .auth(cookie)
+        }
         (Mode::Youtube, "youtube.video") => {
             let id = params
                 .get("id")

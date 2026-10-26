@@ -444,6 +444,19 @@ func (inv *Invoker) readCatalogSource(state *contract.State, reverse contract.Re
 	if selection.Platform == "bilibili" {
 		return bilibili.NewCatalogReader(bilibili.NewScopedResources(bilibili.ScopedFetcher(scoped))).Read(input, playlist, settings)
 	}
+	if selection.Platform == "youtube" {
+		cookie := ""
+		if settings.UseCookies && settings.CookieProfile != "" {
+			value, err := service.Auth.CookieHeader(settings.CookieProfile, "youtube")
+			if err != nil {
+				return nil, err
+			}
+			cookie = value
+		}
+		if _, err := inv.youtube.Call("youtube.auth", map[string]any{"cookie": cookie}, 30000); err != nil {
+			return nil, contract.Unavailable(err.Error())
+		}
+	}
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()
 	return platform.Read(ctx, selection, playlist, settings, scoped, inv.youtube)

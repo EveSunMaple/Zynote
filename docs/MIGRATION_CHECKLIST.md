@@ -1044,3 +1044,11 @@ Zynote/
 
 - [x] app 级测试：预置微信 Web 连接与消息 → `im:draft` 读取 → 模型 → 二次读取比对 → 返回草稿。
 - [x] 覆盖 Go IM 服务跨请求登录态/数据库复用与 `im:draft` 路由入口。
+
+### 1.77 YouTube 翻译字幕与登录 Cookie（2026-10-24）
+
+- [x] Go 读取 watch 页 `ytInitialPlayerResponse`，按 `translationLanguages` 生成 `ai-<lang>` 翻译字幕轨道，遵守语言过滤。
+- [x] Rust YouTube 支持 `youtube.auth`：注入导入档案 Cookie、按请求切换认证状态；清空 Cookie 即恢复匿名。
+- [x] Go 媒体读取在 YouTube 前同步登录态；下载仍由 scoped Cookie fetcher 处理。
+- [x] 单测：翻译语言过滤与 `tlang` URL；Rust/Go 媒体测试通过。
+- [ ] 媒体路由继续 TS，待真实 B站/YouTube 登录与下载手测后切换。

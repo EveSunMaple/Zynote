@@ -331,6 +331,37 @@ func (auth *MediaAuth) writeLocked(rows map[string]MediaProfile) error {
 
 type AuthFetcher func(requestURL string, headers map[string]string, ctx context.Context) (*http.Response, error)
 
+func (auth *MediaAuth) CookieHeader(profileID, site string) (string, error) {
+	if !mediaProfileIDPattern.MatchString(profileID) {
+		return "", contract.InputInvalid("登录档案标识无效")
+	}
+	auth.mu <- struct{}{}
+	rows, err := auth.readLocked()
+	<-auth.mu
+	if err != nil {
+		return "", err
+	}
+	selected := rows[profileID]
+	if selected.ID == "" {
+		return "", contract.InputInvalid("登录档案不属于当前视频站点")
+	}
+	if selected.Site != site {
+		return "", contract.InputInvalid("登录档案不属于当前视频站点")
+	}
+	parsed, err := ParseMediaCookies(selected.Cookies, selected.Site)
+	if err != nil {
+		return "", err
+	}
+	pairs := make([]string, 0, len(parsed.Cookies))
+	for _, cookie := range parsed.Cookies {
+		pairs = append(pairs, cookie.Name+"="+cookie.Value)
+	}
+	if len(pairs) == 0 {
+		return "", contract.InputInvalid("登录档案没有可用 Cookie")
+	}
+	return strings.Join(pairs, "; "), nil
+}
+
 func (auth *MediaAuth) Scoped(requestURL string, options NativeMediaOptions, base AuthFetcher) (AuthFetcher, error) {
 	if !options.UseCookies || options.CookieProfile == "" {
 		return base, nil

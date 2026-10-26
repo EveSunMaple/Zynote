@@ -195,6 +195,7 @@ func readYoutube(ctx context.Context, selection Selection, playlist bool, option
 	if source.Identity != "youtube:"+selection.ID {
 		return nil, fmt.Errorf("YouTube 目录与所选视频身份不一致")
 	}
+	addYoutubeTranslations(ctx, &source, selection.ID, options, fetcher)
 	if len(source.Streams) == 0 && !options.SubtitleOnly {
 		return nil, fmt.Errorf("YouTube 未返回可读取格式，请检查访问权限或站点验证要求")
 	}
@@ -205,6 +206,95 @@ func readYoutube(ctx context.Context, selection Selection, playlist bool, option
 		return nil, fmt.Errorf("YouTube 格式已改变，请重新读取")
 	}
 	return source, nil
+}
+
+func addYoutubeTranslations(ctx context.Context, source *media.Source, id string, options media.NativeMediaOptions, fetcher Fetcher) {
+	if !options.TranslatedSubtitles || fetcher == nil {
+		return
+	}
+	response, err := fetcher("https://www.youtube.com/watch?v="+id+"&hl=en", map[string]string{
+		"User-Agent":      "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 Chrome/120 Safari/537.36",
+		"Accept-Language": "en",
+	}, ctx)
+	if err != nil {
+		return
+	}
+	defer response.Body.Close()
+	if response.StatusCode < 200 || response.StatusCode >= 300 {
+		return
+	}
+	body, err := io.ReadAll(io.LimitReader(response.Body, 8*1024*1024+1))
+	if err != nil || len(body) > 8*1024*1024 {
+		return
+	}
+	html := string(body)
+	marker := strings.Index(html, "ytInitialPlayerResponse")
+	if marker < 0 {
+		return
+	}
+	equal := strings.Index(html[marker:], "=")
+	if equal < 0 {
+		return
+	}
+	start := strings.Index(html[marker+equal:], "{")
+	if start < 0 {
+		return
+	}
+	var page map[string]any
+	if json.NewDecoder(strings.NewReader(html[marker+equal+start:])).Decode(&page) != nil {
+		return
+	}
+	var renderer map[string]any
+	walkJSON(page, func(node map[string]any) {
+		if renderer != nil {
+			return
+		}
+		if value, ok := node["playerCaptionsTracklistRenderer"].(map[string]any); ok {
+			renderer = value
+		}
+	})
+	if renderer == nil {
+		return
+	}
+	original := ""
+	for _, raw := range arrayOf(renderer["captionTracks"]) {
+		track := objectOf(raw)
+		if track["isTranslatable"] == true {
+			original = stringOf(track["baseUrl"])
+			break
+		}
+	}
+	if original == "" {
+		return
+	}
+	seen := map[string]bool{}
+	for _, track := range source.SubtitleTracks {
+		seen[strings.ToLower(track.Language)] = true
+	}
+	for _, raw := range arrayOf(renderer["translationLanguages"]) {
+		language := stringOf(objectOf(raw)["languageCode"])
+		if !regexp.MustCompile(`^[A-Za-z-]{2,20}$`).MatchString(language) {
+			continue
+		}
+		name := "ai-" + language
+		if seen[strings.ToLower(name)] || !media.MatchesSubtitleLanguage(name, options.SubtitleLanguages) {
+			continue
+		}
+		target, err := url.Parse(original)
+		if err != nil || target.Scheme != "https" ||
+			!(target.Hostname() == "youtube.com" || strings.HasSuffix(target.Hostname(), ".youtube.com")) {
+			continue
+		}
+		query := target.Query()
+		query.Set("fmt", "json3")
+		query.Set("tlang", language)
+		target.RawQuery = query.Encode()
+		source.SubtitleTracks = append(source.SubtitleTracks, media.SubtitleTrack{
+			Language: name, URL: target.String(), Automatic: true, Format: "youtube-json3",
+		})
+		seen[strings.ToLower(name)] = true
+		source.Catalog.Subtitles = append(source.Catalog.Subtitles, name)
+	}
 }
 
 func requestJSON(ctx context.Context, fetcher Fetcher, endpoint string) (map[string]any, error) {
