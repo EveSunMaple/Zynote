@@ -898,3 +898,9 @@ Zynote/
 - [x] `courses`；`appearance:image`/`identity:avatar`（壳侧 `shell.imageDataUrl` 背景压缩/头像裁切）；`zhiyun:login/refresh/back/bounds`（壳侧窗口控制）。
 - [x] capabilities 138 → **145**；app 测试覆盖课程列表、图片选择、智云窗口。
 - [ ] 剩余 Go 目标：`runtime:*`（Windows）、`zhiyun:export`、`tools:*`、`im:draft`、`export`。
+
+## 1.63 export（2026-10-24）
+
+- [x] `export`：字幕 srt/txt、笔记/练习 md/docx/pdf；Markdown 结构、docx OOXML、壳侧 PDF；reserveFile/回读校验。
+- [x] capabilities 145 → **146**；app 测试覆盖字幕/笔记/练习导出。
+- [ ] `evidence-bundle` 暂未迁移（返回明确不可用）；剩余 `zhiyun:export`、`tools:*`、`im:draft`、`runtime:*`。
