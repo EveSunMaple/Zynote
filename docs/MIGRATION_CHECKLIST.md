@@ -1098,3 +1098,9 @@ Zynote/
 
 - [x] `full/components` profile 在 runtime manifest 空时立即失败，避免打出无组件的“完整包”。
 - [x] lite/portable 显式跳过 knowledge/asr/video；实测 macOS lite/portable 可签名打包并生成 SHA256SUMS。
+
+### 1.84 Windows Go 交叉编译修复（2026-10-26）
+
+- [x] 修复 `internal/media/jobs.go` 的 Unix-only `syscall.Kill`，改为平台化 `processAlive`。
+- [x] `GOOS=windows GOARCH=amd64` 与 `GOOS=linux GOARCH=amd64` 的 core 交叉编译通过。
+- [x] CI 增加 cross-build；媒体进程锁回收测试通过。

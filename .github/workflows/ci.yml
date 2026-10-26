@@ -41,6 +41,11 @@ jobs:
         run: pnpm backend:test
       - name: Go race (core packages)
         run: cd backend && go test -race ./internal/api ./internal/app ./internal/im ./internal/research ./internal/runtime -timeout 600s
+      - name: Go cross-build (Windows/Linux)
+        run: |
+          cd backend
+          GOOS=windows GOARCH=amd64 go build -o /tmp/zynote-core-windows.exe ./cmd/zynote-core
+          GOOS=linux GOARCH=amd64 go build -o /tmp/zynote-core-linux ./cmd/zynote-core
       - name: Cross-language parity
         run: pnpm parity:discussion && pnpm parity:knowledge
       - uses: dtolnay/rust-toolchain@stable

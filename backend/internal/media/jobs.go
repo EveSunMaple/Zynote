@@ -11,7 +11,6 @@ import (
 	"regexp"
 	"sort"
 	"strings"
-	"syscall"
 	"time"
 	"unicode/utf8"
 )
@@ -658,10 +657,7 @@ func RecoverDownloadLocks(directory, identity string) (*LockRecovery, error) {
 			result.Preserved = append(result.Preserved, name)
 			continue
 		}
-		dead := false
-		if err := syscall.Kill(owner.PID, 0); err != nil {
-			dead = err == syscall.ESRCH
-		}
+		dead := !processAlive(owner.PID)
 		if !dead {
 			result.Preserved = append(result.Preserved, name)
 			continue
