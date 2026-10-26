@@ -1077,3 +1077,9 @@ Zynote/
 - [x] 媒体域与 video-ppt 全组从 macOS 条件路由提升为全平台 Go 主路径。
 - [x] Windows 仅剩 `im` 的 IM 子动作走 TS（本机微信/NapCat 登录态）。
 - [x] Electron runtime smoke 通过。
+
+### 1.82 课程内部动作路由（2026-10-24）
+
+- [x] `lecture:create/transcript/courseware`、`files:add/remove`、`questions:save` 切 Go 主路径。
+- [x] 契约中非 shell action 已全部加入路由；Windows 仅 `tools:request` 的 `im` 子动作保留 TS。
+- [x] app 课程/文件/问题测试与 Electron runtime smoke 通过。
