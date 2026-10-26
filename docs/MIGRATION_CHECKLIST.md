@@ -1071,3 +1071,9 @@ Zynote/
 - [x] `tools:request` 在 Windows 也走 Go；仅 `args.action=im` 特判回 TS，保留本机微信/NapCat 登录态。
 - [x] `im:draft`、`tools:skill-open`、`runtime:*` 所有平台走 Go。
 - [ ] Windows IM 本机读取/NapCat 内置后台仍为 TS；媒体/视频仍走 TS。
+
+### 1.81 Windows 媒体/视频路由（2026-10-24）
+
+- [x] 媒体域与 video-ppt 全组从 macOS 条件路由提升为全平台 Go 主路径。
+- [x] Windows 仅剩 `im` 的 IM 子动作走 TS（本机微信/NapCat 登录态）。
+- [x] Electron runtime smoke 通过。
