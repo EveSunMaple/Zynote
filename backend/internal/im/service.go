@@ -5,7 +5,6 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
-	"runtime"
 	"strings"
 	"sync"
 	"time"
@@ -20,6 +19,7 @@ type Login struct {
 	Revision   string
 	Qq         *QqLogin
 	ILink      *ILinkSession
+	Web        *WeixinWebSession
 	QR         string
 	CreatedAt  int64
 	Cancel     context.CancelFunc
@@ -76,17 +76,13 @@ func (service *Service) Close() error {
 }
 
 func availability(platform string, fields map[string]string) (bool, string) {
-	native := platform == "weixin_local" || (platform == "qq_napcat" && fields["mode"] != "manual")
-	available := !native || (runtime.GOOS == "windows" && runtime.GOARCH == "amd64")
-	reason := ""
-	if !available {
-		if platform == "weixin_local" {
-			reason = "本机微信读取暂仅支持 Windows x64；仍可查看已保存消息。"
-		} else {
-			reason = "内置 QQ 后台暂仅支持 Windows x64；手工连接已有 QQ 服务不受此限制。"
-		}
+	if platform == "weixin_local" {
+		return false, "本机微信读取尚未完成 Go 原生适配；仍可查看已保存消息。"
 	}
-	return available, reason
+	if platform == "qq_napcat" && fields["mode"] != "manual" {
+		return false, "内置 QQ 后台尚未完成 Go 原生适配；手工连接已有 QQ 服务不受此限制。"
+	}
+	return true, ""
 }
 
 func requireAvailable(row Connection) error {
@@ -129,10 +125,10 @@ func (service *Service) Execute(ctx context.Context, action string, input map[st
 			"platforms": map[string]any{
 				"qq_napcat":    map[string]any{"label": "个人 QQ · 内置后台", "available": managedAvailable, "reason": managedReason},
 				"weixin_local": map[string]any{"label": "个人微信 · 本机只读", "available": localAvailable, "reason": localReason},
-				"weixin_web":   map[string]any{"label": "微信 Web · 实验", "available": false, "reason": "微信 Web 登录尚未完成原生适配"},
+				"weixin_web":   map[string]any{"label": "微信 Web · 实验", "available": true, "reason": ""},
 				"weixin_ilink": map[string]any{"label": "微信 Bot · iLink", "available": true, "reason": ""},
 			},
-			"qq_component": map[string]any{"available": runtime.GOOS == "windows" && runtime.GOARCH == "amd64", "state": "unavailable"},
+			"qq_component": map[string]any{"available": false, "state": "unavailable"},
 		}, nil
 	case "change":
 		platform := text(input["platform"])
@@ -296,11 +292,24 @@ func (service *Service) Start(ctx context.Context, input map[string]any) (any, e
 	service.mu.Unlock()
 	service.persist(login)
 	if row.Platform == "weixin_web" {
-		cancel()
-		login.Projection["state"] = "failed"
-		login.Projection["detail"] = map[string]any{"message": "微信 Web 登录尚未完成原生适配。"}
-		service.persist(login)
-		return nil, fmt.Errorf("微信 Web 登录尚未完成原生适配")
+		adapter, err := NewWeixinWebSession(nil)
+		if err != nil {
+			cancel()
+			return nil, err
+		}
+		login.Web = adapter
+		state, err := adapter.Start(loginCtx)
+		if err != nil {
+			cancel()
+			login.Projection["state"] = "failed"
+			login.Projection["detail"] = map[string]any{"message": "登录未完成，请检查所选连接状态。"}
+			service.persist(login)
+			return nil, err
+		}
+		login.QR = text(state["qr"])
+		login.Projection["state"] = text(state["state"])
+		login.Projection["has_qr"] = login.QR != ""
+		return service.persist(login), nil
 	}
 	if row.Platform == "weixin_ilink" {
 		adapter := &ILinkSession{Contexts: map[string]string{}}
@@ -487,6 +496,18 @@ func (service *Service) inspectLogin(ctx context.Context, login *Login) (any, er
 		if detail, ok := state["detail"]; ok {
 			login.Projection["detail"] = detail
 		}
+	} else if login.Web != nil {
+		state, err := login.Web.Poll(ctx)
+		if err != nil {
+			login.Projection["state"] = "failed"
+			login.Projection["has_qr"] = false
+			login.Projection["detail"] = map[string]any{"message": "登录未完成，请检查所选连接状态。"}
+			service.persist(login)
+			return nil, err
+		}
+		login.QR = text(state["qr"])
+		login.Projection["state"] = text(state["state"])
+		login.Projection["has_qr"] = login.QR != ""
 	} else {
 		return nil, fmt.Errorf("本次登录状态已中断")
 	}
@@ -515,6 +536,9 @@ func (service *Service) verifyLogin(ctx context.Context, login *Login) (map[stri
 	}
 	if login.ILink != nil {
 		return login.ILink.Verify(ctx, text(login.Projection["account"]))
+	}
+	if login.Web != nil {
+		return login.Web.Verify(ctx, text(login.Projection["account"]))
 	}
 	return nil, fmt.Errorf("本次登录状态已中断")
 }
@@ -553,6 +577,20 @@ func (service *Service) Sync(ctx context.Context, scope Scope) (any, error) {
 			return nil, err
 		}
 		return service.Store.SaveSessionAndMessages(scope, session.Session(), updates.Messages, private.Snapshot, nil)
+	}
+	if row.Platform == "weixin_web" {
+		session, err := NewWeixinWebSession(private.Session)
+		if err != nil {
+			return nil, err
+		}
+		if _, err := session.Verify(ctx, scope.Account); err != nil {
+			return nil, err
+		}
+		updates, err := session.Receive(ctx, scope.Peer, scope.Account)
+		if err != nil {
+			return nil, err
+		}
+		return service.Store.SaveSessionAndMessages(scope, updates.Session, updates.Messages, private.Snapshot, nil)
 	}
 	if row.Platform == "qq_napcat" {
 		session, err := NewQqSession(private.Session)
@@ -621,6 +659,21 @@ func (service *Service) scopeAction(ctx context.Context, action string, input ma
 				_, _ = service.Store.FinishSend(op, "unknown", "")
 				return map[string]any{"operation_id": op, "state": "unknown"}, nil
 			}
+		} else if row.Platform == "weixin_web" {
+			session, err := NewWeixinWebSession(private.Session)
+			if err != nil {
+				_, _ = service.Store.FinishSend(op, "unknown", "")
+				return map[string]any{"operation_id": op, "state": "unknown"}, nil
+			}
+			if _, err := session.Verify(ctx, scope.Account); err != nil {
+				_, _ = service.Store.FinishSend(op, "unknown", "")
+				return map[string]any{"operation_id": op, "state": "unknown"}, nil
+			}
+			mid, err = session.Send(ctx, scope.Peer, message, op)
+			if err != nil {
+				_, _ = service.Store.FinishSend(op, "unknown", "")
+				return map[string]any{"operation_id": op, "state": "unknown"}, nil
+			}
 		} else if row.Platform == "qq_napcat" {
 			session, err := NewQqSession(private.Session)
 			if err != nil {
@@ -656,6 +709,16 @@ func (service *Service) scopeAction(ctx context.Context, action string, input ma
 		if row.Platform == "weixin_ilink" {
 			session, err := NewILinkSession(private.Session)
 			if err != nil {
+				return nil, err
+			}
+			return session.Directory(ctx)
+		}
+		if row.Platform == "weixin_web" {
+			session, err := NewWeixinWebSession(private.Session)
+			if err != nil {
+				return nil, err
+			}
+			if _, err := session.Verify(ctx, scope.Account); err != nil {
 				return nil, err
 			}
 			return session.Directory(ctx)

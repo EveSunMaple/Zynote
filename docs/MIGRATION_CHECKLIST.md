@@ -984,3 +984,11 @@ Zynote/
 - [x] 修复 `tools:request` 的 `im`/`mcp-*` 接线；app 测试覆盖 `im` status。
 - [x] 测试：规则保存、后台启动/暂停、草稿生成。
 - [ ] 微信 Web、本机微信（Windows）、NapCat 内置后台未迁。
+
+### 1.69.2 微信 Web（2026-10-24）
+
+- [x] 微信 Web Cookie 会话（系统加密保存、域名白名单）、扫码/轮询、登录 XML/官方网页壳核验。
+- [x] `webwxinit` 身份核验、联系人分页、`webwxsync` 游标与消息、`webwxsendmsg` 显式发送。
+- [x] 接入 `im` 的 start/inspect/confirm/sync/directory/send。
+- [x] 测试：确认地址、登录 XML/DOCTYPE 拒绝、Cookie 会话往返。
+- [ ] 本机微信与 NapCat 内置后台尚未完成 Go 原生适配，status 明确标记不可用；`tools:request` 暂不切换。
