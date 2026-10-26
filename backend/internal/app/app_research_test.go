@@ -70,4 +70,14 @@ func TestResearchStorageActions(t *testing.T) {
 	if _, errReply := f.call("tools:request", map[string]any{"action": "agent-create"}); errReply == nil {
 		t.Fatal("unsupported research action must fail explicitly")
 	}
+	raw, errReply = f.call("tools:request", map[string]any{
+		"action": "im", "args": map[string]any{"action": "status", "value": map[string]any{}},
+	})
+	if errReply != nil {
+		t.Fatalf("im status failed: %+v", errReply)
+	}
+	var imStatus map[string]any
+	if json.Unmarshal(raw, &imStatus) != nil || len(imStatus["connections"].([]any)) != 0 {
+		t.Fatalf("im status mismatch: %s", raw)
+	}
 }

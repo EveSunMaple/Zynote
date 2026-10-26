@@ -253,7 +253,7 @@ func (session *QqSession) Receive(ctx context.Context, selected, account string)
 		if err != nil {
 			return nil, err
 		}
-		mid, err := qqAccount(item["message_id"])
+		mid, err := messageID(item["message_id"])
 		if err != nil {
 			return nil, fmt.Errorf("QQ 消息编号无效")
 		}
@@ -272,6 +272,21 @@ func (session *QqSession) Receive(ctx context.Context, selected, account string)
 		messages = append(messages, Message{MID: mid, TS: ts, Sender: sender, Text: string(textRunes), Kind: "text"})
 	}
 	return messages, nil
+}
+
+func messageID(value any) (string, error) {
+	switch typed := value.(type) {
+	case string:
+		if len([]rune(typed)) > 200 {
+			return "", fmt.Errorf("消息编号无效")
+		}
+		return typed, nil
+	case float64:
+		return fmt.Sprintf("%.0f", typed), nil
+	case json.Number:
+		return typed.String(), nil
+	}
+	return "", fmt.Errorf("消息编号无效")
 }
 
 func (session *QqSession) Send(ctx context.Context, selected, content string) (string, error) {

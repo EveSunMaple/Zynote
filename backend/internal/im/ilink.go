@@ -320,9 +320,8 @@ func (session *ILinkSession) Receive(ctx context.Context, selected, account stri
 		}
 		messages = append(messages, Message{MID: mid, TS: ts, Sender: from, Text: string(runes), Kind: "text"})
 	}
-	session.Cursor = text(value["get_updates_buf"])
-	if session.Cursor == "" {
-		session.Cursor = ""
+	if next := text(value["get_updates_buf"]); next != "" {
+		session.Cursor = next
 	}
 	session.Contexts = contexts
 	return ILinkUpdates{Messages: messages, Peers: peers}, nil

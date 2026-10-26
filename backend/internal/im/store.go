@@ -880,6 +880,24 @@ func number(value any) float64 {
 	return 0
 }
 
+func stringList(value any) []string {
+	rows, _ := value.([]any)
+	result := []string{}
+	for _, row := range rows {
+		if item, ok := row.(string); ok {
+			result = append(result, item)
+		}
+	}
+	return result
+}
+
+func scopeInput(scope Scope) map[string]any {
+	return map[string]any{
+		"connection_id": scope.ConnectionID, "revision": scope.Revision, "platform": scope.Platform,
+		"account": scope.Account, "login_epoch": scope.LoginEpoch, "peer": scope.Peer,
+	}
+}
+
 func sortMessages(messages []Message) {
 	sort.SliceStable(messages, func(left, right int) bool { return messages[left].TS > messages[right].TS })
 }

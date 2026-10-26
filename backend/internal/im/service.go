@@ -11,6 +11,8 @@ import (
 	"time"
 
 	qrcode "github.com/skip2/go-qrcode"
+
+	"github.com/EveSunMaple/Zynote/backend/internal/research"
 )
 
 type Login struct {
@@ -24,13 +26,21 @@ type Login struct {
 }
 
 type Service struct {
-	Store     *Store
-	Root      string
-	Resources string
-	mu        sync.Mutex
-	logins    map[string]*Login
-	syncing   map[string]bool
-	profile   string
+	Store      *Store
+	Root       string
+	Resources  string
+	mu         sync.Mutex
+	logins     map[string]*Login
+	syncing    map[string]bool
+	profile    string
+	Model      func(ctx context.Context, system, user string) (string, error)
+	Knowledge  *Knowledge
+	automation *Automation
+}
+
+type Knowledge struct {
+	ID      string
+	Sources *research.Sources
 }
 
 func NewService(root, resources string, crypt Crypt) (*Service, error) {
@@ -38,12 +48,27 @@ func NewService(root, resources string, crypt Crypt) (*Service, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &Service{Store: store, Root: root, Resources: resources, logins: map[string]*Login{}, syncing: map[string]bool{}}, nil
+	service := &Service{Store: store, Root: root, Resources: resources, logins: map[string]*Login{}, syncing: map[string]bool{}}
+	automation, err := NewAutomation(service)
+	if err != nil {
+		store.Close()
+		return nil, err
+	}
+	service.automation = automation
+	return service, nil
+}
+
+func (service *Service) serviceModelProfile() string {
+	if service.profile == "" {
+		return ""
+	}
+	return "native-" + service.profile
 }
 
 func (service *Service) Close() error {
 	service.mu.Lock()
 	defer service.mu.Unlock()
+	service.automation.PauseAll()
 	for _, login := range service.logins {
 		login.Cancel()
 	}
@@ -74,6 +99,7 @@ func requireAvailable(row Connection) error {
 func (service *Service) Execute(ctx context.Context, action string, input map[string]any, profile string) (any, error) {
 	service.mu.Lock()
 	if profile != "" && profile != service.profile {
+		service.automation.PauseAll()
 		service.profile = profile
 	}
 	service.mu.Unlock()
@@ -118,9 +144,13 @@ func (service *Service) Execute(ctx context.Context, action string, input map[st
 		}
 		return service.Store.Change(input)
 	case "model":
-		return map[string]any{"profile_id": map[bool]string{true: "native-" + service.profile, false: ""}[service.profile != ""], "model": "Zynote当前连接"}, nil
+		return map[string]any{"profile_id": service.serviceModelProfile(), "model": "Zynote当前连接"}, nil
 	case "libraries":
-		return map[string]any{"libraries": []any{map[string]any{"library_id": service.Root, "label": "当前知识库", "available": true}}}, nil
+		libraries := []any{}
+		if service.Knowledge != nil {
+			libraries = append(libraries, map[string]any{"library_id": service.Knowledge.ID, "label": "当前知识库", "available": true})
+		}
+		return map[string]any{"libraries": libraries}, nil
 	case "saved-directory":
 		return service.Store.SavedDirectory(input)
 	case "read":
@@ -138,11 +168,11 @@ func (service *Service) Execute(ctx context.Context, action string, input map[st
 	case "personal-processes", "personal-probe", "personal-confirm":
 		return nil, fmt.Errorf("本机微信读取暂仅支持 Windows x64")
 	case "rules":
-		return map[string]any{"rules": []any{}}, nil
+		return service.automation.Rules(input)
 	case "runs":
-		return map[string]any{"runs": []any{}}, nil
+		return service.automation.Runs(input)
 	case "reply-jobs":
-		return map[string]any{"jobs": []any{}}, nil
+		return service.automation.Jobs(input)
 	}
 	if strings.HasPrefix(action, "personal-") {
 		return nil, fmt.Errorf("本机微信读取暂仅支持 Windows x64")
@@ -489,6 +519,58 @@ func (service *Service) verifyLogin(ctx context.Context, login *Login) (map[stri
 	return nil, fmt.Errorf("本次登录状态已中断")
 }
 
+func (service *Service) Sync(ctx context.Context, scope Scope) (any, error) {
+	row, err := service.Store.Capture(scope.ConnectionID, scope.Revision)
+	if err != nil {
+		return nil, err
+	}
+	private, err := service.Store.PrivateState(scope.ConnectionID, scope.Revision)
+	if err != nil {
+		return nil, err
+	}
+	service.mu.Lock()
+	if service.syncing[scope.ConnectionID] {
+		service.mu.Unlock()
+		return nil, fmt.Errorf("此账号正在同步，请待本次完成后再试")
+	}
+	service.syncing[scope.ConnectionID] = true
+	service.mu.Unlock()
+	defer func() {
+		service.mu.Lock()
+		delete(service.syncing, scope.ConnectionID)
+		service.mu.Unlock()
+	}()
+	if err := service.Store.RequireRead(scope); err != nil {
+		return nil, err
+	}
+	if row.Platform == "weixin_ilink" {
+		session, err := NewILinkSession(private.Session)
+		if err != nil {
+			return nil, err
+		}
+		updates, err := session.Receive(ctx, scope.Peer, scope.Account)
+		if err != nil {
+			return nil, err
+		}
+		return service.Store.SaveSessionAndMessages(scope, session.Session(), updates.Messages, private.Snapshot, nil)
+	}
+	if row.Platform == "qq_napcat" {
+		session, err := NewQqSession(private.Session)
+		if err != nil {
+			return nil, err
+		}
+		if _, err := session.Verify(ctx, scope.Account); err != nil {
+			return nil, err
+		}
+		messages, err := session.Receive(ctx, scope.Peer, scope.Account)
+		if err != nil {
+			return nil, err
+		}
+		return service.Store.SaveMessages(scope, messages)
+	}
+	return nil, fmt.Errorf("此平台的原生通讯会话仍在迁移")
+}
+
 func (service *Service) scopeAction(ctx context.Context, action string, input map[string]any) (any, error) {
 	scope, row, err := service.Store.CheckScope(input)
 	if err != nil {
@@ -565,47 +647,7 @@ func (service *Service) scopeAction(ctx context.Context, action string, input ma
 		return receipt, nil
 	}
 	if action == "sync" {
-		service.mu.Lock()
-		if service.syncing[scope.ConnectionID] {
-			service.mu.Unlock()
-			return nil, fmt.Errorf("此账号正在同步，请待本次完成后再试")
-		}
-		service.syncing[scope.ConnectionID] = true
-		service.mu.Unlock()
-		defer func() {
-			service.mu.Lock()
-			delete(service.syncing, scope.ConnectionID)
-			service.mu.Unlock()
-		}()
-		if err := service.Store.RequireRead(scope); err != nil {
-			return nil, err
-		}
-		if row.Platform == "weixin_ilink" {
-			session, err := NewILinkSession(private.Session)
-			if err != nil {
-				return nil, err
-			}
-			updates, err := session.Receive(ctx, scope.Peer, scope.Account)
-			if err != nil {
-				return nil, err
-			}
-			return service.Store.SaveSessionAndMessages(scope, session.Session(), updates.Messages, private.Snapshot, nil)
-		}
-		if row.Platform == "qq_napcat" {
-			session, err := NewQqSession(private.Session)
-			if err != nil {
-				return nil, err
-			}
-			if _, err := session.Verify(ctx, scope.Account); err != nil {
-				return nil, err
-			}
-			messages, err := session.Receive(ctx, scope.Peer, scope.Account)
-			if err != nil {
-				return nil, err
-			}
-			return service.Store.SaveMessages(scope, messages)
-		}
-		return nil, fmt.Errorf("此平台的原生通讯会话仍在迁移")
+		return service.Sync(ctx, scope)
 	}
 	if action == "directory" {
 		if err := service.Store.RequireRead(scope); err != nil {

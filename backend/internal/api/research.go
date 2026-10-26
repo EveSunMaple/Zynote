@@ -77,7 +77,7 @@ func (inv *Invoker) researchEngine(store contract.StateStore, state *contract.St
 	}, nil
 }
 
-func (inv *Invoker) imService(state *contract.State, reverse contract.ReverseCaller) (*im.Service, error) {
+func (inv *Invoker) imService(state *contract.State, reverse contract.ReverseCaller, rootID string) (*im.Service, error) {
 	root := filepath.Join(state.LibraryRoot, "知识库数据")
 	inv.imMu.Lock()
 	defer inv.imMu.Unlock()
@@ -113,6 +113,23 @@ func (inv *Invoker) imService(state *contract.State, reverse contract.ReverseCal
 	service, err := im.NewService(root, state.ResourcesRoot, crypt)
 	if err != nil {
 		return nil, err
+	}
+	if knowledgeStore, err := inv.knowledgeStoreFor(state); err == nil {
+		service.Knowledge = &im.Knowledge{ID: rootID, Sources: research.NewSources(knowledgeStore, rootID)}
+	}
+	service.Model = func(ctx context.Context, system, user string) (string, error) {
+		profile, err := config.ActiveProfile(state.DataRoot, reverse)
+		if err != nil {
+			return "", err
+		}
+		client := ai.New(ai.Profile{
+			BaseURL: profile.BaseURL, Model: profile.Model, VisionModel: profile.VisionModel,
+			APIFormat: profile.APIFormat, Key: profile.Key, Parameters: profile.Parameters,
+		})
+		return client.Chat(ctx, []ai.Message{
+			{Role: "system", Content: system},
+			{Role: "user", Content: user},
+		}, nil)
 	}
 	inv.im = service
 	inv.imRoot = root
@@ -180,6 +197,26 @@ func (inv *Invoker) handleToolsRequest(storeState contract.StateStore, state *co
 			return nil, contract.InputInvalid(err.Error())
 		}
 		return result, nil
+	case "mcp-change":
+		result, err := (&research.Mcp{Store: store}).Change(input.Args)
+		if err != nil {
+			return nil, contract.InputInvalid(err.Error())
+		}
+		return result, nil
+	case "mcp-discover":
+		result, err := (&research.Mcp{Store: store}).Discover(context.Background(), input.Args)
+		if err != nil {
+			return nil, contract.InputInvalid(err.Error())
+		}
+		return result, nil
+	case "im":
+		service, err := inv.imService(state, storeState.Reverse(), store.RootID)
+		if err != nil {
+			return nil, err
+		}
+		value, _ := input.Args["value"].(map[string]any)
+		profile, _ := config.CurrentConnectionFingerprint(state.DataRoot)
+		return service.Execute(context.Background(), textValue(input.Args["action"]), value, profile)
 	case "skill-markdown":
 		result, err := research.ParseSkillMarkdown(textValue(input.Args["text"]))
 		if err != nil {

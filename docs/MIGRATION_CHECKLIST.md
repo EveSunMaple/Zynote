@@ -974,3 +974,13 @@ Zynote/
 - [x] `tools:request` 的 `im` 动作接通 status/change/start/inspect/cancel/confirm/qr/read/sync/send/directory/cleanup 等；登录状态跨请求保留。
 - [x] 测试：连接创建/绑定、QQ 同步/读取/发送/清理、本机地址校验。
 - [ ] 微信 Web、本机微信（Windows 只读）、NapCat 内置后台、自动化 rules/runs/reply-jobs 未迁。
+
+### 1.69.1 IM 自动化与工具接线（2026-10-24）
+
+- [x] 会话规则持久化（draft/auto_reply、间隔、每小时上限、模型/知识库校验）；`libraries` 返回当前知识库。
+- [x] 后台运行：显式 start/pause、基线提取、新消息待办、每小时限流、模型草稿/自动发送、发送回执核对、失败暂停。
+- [x] 回复待办 list/reconcile/retry_generation；自动发送走既有幂等发送回执。
+- [x] 知识库检索（最多3条、逐字核验）进入回复提示词；清理保护覆盖未完成待办。
+- [x] 修复 `tools:request` 的 `im`/`mcp-*` 接线；app 测试覆盖 `im` status。
+- [x] 测试：规则保存、后台启动/暂停、草稿生成。
+- [ ] 微信 Web、本机微信（Windows）、NapCat 内置后台未迁。

@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 func testCrypt(data []byte, decrypt bool) ([]byte, error) {
@@ -142,5 +143,117 @@ func TestLocalJSONRejectsRemote(t *testing.T) {
 	}
 	if value, err := Loopback("http://127.0.0.1:1234"); err != nil || !strings.HasPrefix(value, "http://") {
 		t.Fatalf("loopback mismatch: %v", err)
+	}
+}
+
+func TestAutomationRulesAndRun(t *testing.T) {
+	root, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	server := httptest.NewServer(http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
+		var data any
+		switch request.URL.Path {
+		case "/get_login_info":
+			data = map[string]any{"user_id": 10001}
+		case "/get_status":
+			data = map[string]any{"online": true, "good": true}
+		case "/get_friend_msg_history":
+			data = map[string]any{"messages": []any{}}
+		default:
+			data = map[string]any{}
+		}
+		encoded, _ := json.Marshal(map[string]any{"status": "ok", "retcode": 0, "data": data})
+		response.Header().Set("Content-Type", "application/json")
+		_, _ = response.Write(encoded)
+	}))
+	defer server.Close()
+	service, err := NewService(root, "", testCrypt)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer service.Close()
+	service.Model = func(context.Context, string, string) (string, error) { return "草稿正文", nil }
+	if _, err := service.Execute(context.Background(), "model", nil, "conn"); err != nil {
+		t.Fatal(err)
+	}
+	initial, _ := service.Store.Listing()
+	created, err := service.Execute(context.Background(), "change", map[string]any{
+		"action": "create", "expected_revision": initial["revision"], "name": "QQ", "platform": "qq_napcat",
+		"fields": map[string]any{"mode": "manual", "webui_url": server.URL, "onebot_url": server.URL},
+	}, "conn")
+	if err != nil {
+		t.Fatal(err)
+	}
+	connection := created.(map[string]any)["connections"].([]Connection)[0]
+	bound, err := service.Store.Bind(connection.ID, connection.Revision, "10001", map[string]any{
+		"onebot": map[string]any{"url": server.URL, "token": "", "account": "10001"},
+	}, map[string]any{"identity": "personal_qq"}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	scope := scopeMap(Scope{
+		ConnectionID: bound.ID, Revision: bound.Revision, Platform: bound.Platform,
+		Account: bound.Account, LoginEpoch: bound.LoginEpoch, Peer: "private:20002",
+	})
+	rulesInput := map[string]any{}
+	for key, value := range scope {
+		rulesInput[key] = value
+	}
+	rulesInput["level"] = "conversation"
+	rulesInput["expected_revision"] = strings.Repeat("0", 32)
+	rulesInput["value"] = map[string]any{
+		"identity": "助手", "mode": "draft", "interval_seconds": 5, "reply_limit_hour": 10,
+		"profile_id": "native-conn", "knowledge_ids": []any{}, "images": false, "agent_enabled": false,
+	}
+	saved, err := service.Execute(context.Background(), "rules", rulesInput, "conn")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if saved.(map[string]any)["effective"].(Policy).Identity != "助手" {
+		t.Fatalf("rules mismatch: %+v", saved)
+	}
+	scopeValue := Scope{
+		ConnectionID: bound.ID, Revision: bound.Revision, Platform: bound.Platform,
+		Account: bound.Account, LoginEpoch: bound.LoginEpoch, Peer: "private:20002",
+	}
+	conversation := saved.(map[string]any)["conversation"].(map[string]any)
+	run := map[string]any{
+		"scope": scopeValue, "state": "running", "baseline": []string{},
+		"rule_revision": conversation["revision"], "profile": "native-conn",
+	}
+	service.automation.put("run", scopeKey(scopeValue), run)
+	job := map[string]any{
+		"id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "scope": scopeValue, "scope_key": scopeKey(scopeValue),
+		"rule_revision": conversation["revision"], "profile": "native-conn", "state": "pending",
+		"revision": 0, "createdAt": float64(time.Now().UnixMilli()), "message_id": "1001", "outcome_unknown": false,
+	}
+	service.automation.generate(context.Background(), job, run, scopeValue, service.automation.effective(scopeValue))
+	stored := service.automation.get("job", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa")
+	if text(stored["state"]) != "draft" || text(stored["output"].(map[string]any)["text"]) != "草稿正文" {
+		t.Fatalf("automation draft mismatch: %+v", stored)
+	}
+	start := map[string]any{}
+	for key, value := range scope {
+		start[key] = value
+	}
+	start["action"] = "start"
+	start["peers"] = []any{"private:20002"}
+	start["resume_on_restart"] = false
+	if _, err := service.Execute(context.Background(), "runs", start, "conn"); err != nil {
+		t.Fatal(err)
+	}
+	time.Sleep(200 * time.Millisecond)
+	pause := map[string]any{}
+	for key, value := range scope {
+		pause[key] = value
+	}
+	pause["action"] = "pause"
+	status, err := service.Execute(context.Background(), "runs", pause, "conn")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(status.(map[string]any)["runs"].([]map[string]any)) != 1 {
+		t.Fatalf("runs mismatch: %+v", status)
 	}
 }
