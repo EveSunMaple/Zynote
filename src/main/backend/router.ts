@@ -109,7 +109,6 @@ export const goPrimaryActions = new Set([
  'runtime:status',
  ...(process.platform === 'darwin'
   ? [
-     'tools:request',
      'media:options',
      'media:list',
      'media:retry',
@@ -148,7 +147,8 @@ export const goPrimaryActions = new Set([
      'video-ppt:batch-subtitles',
      'video-ppt:subtitle-transcribe'
     ]
-  : [])
+  : []),
+ 'tools:request'
 ])
 
 const deleteSubjects = new Map([
@@ -184,6 +184,12 @@ export function createRoutedDispatch(
   const subject = deleteSubjects.get(action)
   if (subject && activeJobs()) throw new Error('请等待当前任务完成后再删除' + subject)
   if (!goCore || goCore.currentStatus !== 'ready') return dispatch(handlers, action, object)
+  if (
+   process.platform === 'win32' &&
+   action === 'tools:request' &&
+   (object as {args?: {action?: unknown}}).args?.action === 'im'
+  )
+   return dispatch(handlers, action, object)
   if (goPrimaryActions.has(action)) return goCore.call(action, object)
   if (!goShadowActions.has(action)) return dispatch(handlers, action, object)
   const [goSettled, tsSettled] = await Promise.all([

@@ -1065,3 +1065,9 @@ Zynote/
 - [x] macOS 主路径新增 video-ppt 全组（pending/restore/subtitle/source/extract/export/auto/summary/notes-export/batch/transcribe）。
 - [x] app 视频测试与 Electron runtime smoke 通过。
 - [ ] Windows 仍走 TS；真实长视频批量下载/转写仍需手测。
+
+### 1.80 Windows 研究域非 IM 路由（2026-10-24）
+
+- [x] `tools:request` 在 Windows 也走 Go；仅 `args.action=im` 特判回 TS，保留本机微信/NapCat 登录态。
+- [x] `im:draft`、`tools:skill-open`、`runtime:*` 所有平台走 Go。
+- [ ] Windows IM 本机读取/NapCat 内置后台仍为 TS；媒体/视频仍走 TS。
