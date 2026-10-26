@@ -931,3 +931,11 @@ Zynote/
 - [x] `tools:request` 暂支持 `materials/conversations*/memories/memory-change/extension-change/skill-markdown/notes/note-read/note-revise/note-lifecycle/note-source/note-export/overview`；研究引擎/MCP/IM 明确返回未适配。
 - [x] app 测试覆盖会话、记忆、资料目录与未适配错误。
 - [ ] `tools:request` 尚未注册 capability/路由；研究引擎、工作流、MCP、IM、legacy baseline 未迁。
+
+## 1.68 研究引擎与工作流（2026-10-24）
+
+- [x] Go 研究引擎：库/记忆/笔记/会话上下文、同步模型调用、来源绑定、引用编号校验、失败任务、记忆建议、成果导出。
+- [x] 笔记预览/保存（研究回执哈希）、记忆采纳、研究工作流两步生成与来源复核。
+- [x] `tools:request` 支持 agent-*、note-preview/save、memory-accept、workflow-*；资料目录/会话/记忆/扩展/笔记。
+- [x] 单测覆盖引擎创建+笔记、两步工作流+导出；app 测试覆盖存储动作。
+- [ ] 外部检索/正文、MCP、IM、legacy baseline 未迁；`tools:request` 尚未注册 capability。

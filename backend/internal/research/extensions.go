@@ -323,3 +323,109 @@ func ParseSkillMarkdown(input string) (map[string]any, error) {
 	}
 	return map[string]any{"name": name, "description": description, "body": body, "enabled": false}, nil
 }
+
+type SkillSelection struct {
+	Revision int      `json:"revision"`
+	IDs      []string `json:"ids"`
+}
+
+type ExtensionSnapshot struct {
+	Revision     int      `json:"revision"`
+	Skills       []Skill  `json:"skills"`
+	Instructions string   `json:"instructions"`
+	Channels     []string `json:"channels"`
+}
+
+func (store *Store) SnapshotExtensions(selection *SkillSelection, channels []string) (ExtensionSnapshot, error) {
+	catalog, err := store.extensionCatalog()
+	if err != nil {
+		return ExtensionSnapshot{}, err
+	}
+	if selection != nil && selection.Revision != catalog.Revision {
+		return ExtensionSnapshot{}, fmt.Errorf("学习方法已改变，请重新选择")
+	}
+	ids := []string{}
+	if selection != nil {
+		ids = selection.IDs
+	}
+	seen := map[string]bool{}
+	skills := []Skill{}
+	total := 0
+	for _, id := range ids {
+		if seen[id] {
+			return ExtensionSnapshot{}, fmt.Errorf("所选学习方法重复")
+		}
+		seen[id] = true
+		found := false
+		for _, skill := range catalog.Skills {
+			if skill.ID == id && skill.Enabled {
+				found = true
+				skills = append(skills, skill)
+				total += len([]rune(skill.Body))
+				for _, resource := range skill.Resources {
+					total += len([]rune(resource.Content))
+				}
+				break
+			}
+		}
+		if !found {
+			return ExtensionSnapshot{}, fmt.Errorf("所选学习方法已停用或删除")
+		}
+	}
+	if len(skills) > 5 || total > 36000 {
+		return ExtensionSnapshot{}, fmt.Errorf("本轮最多选择5个方法，含附属资料合计不超过36000字")
+	}
+	for _, channel := range channels {
+		group := ""
+		for _, plugin := range extensionPlugins {
+			for _, item := range plugin.Channels {
+				if item == channel {
+					group = plugin.ID
+					break
+				}
+			}
+			if group != "" {
+				break
+			}
+		}
+		if group == "" {
+			return ExtensionSnapshot{}, fmt.Errorf("本次所需工具组已停用")
+		}
+		for _, disabled := range catalog.DisabledPlugins {
+			if disabled == group {
+				return ExtensionSnapshot{}, fmt.Errorf("本次所需工具组已停用")
+			}
+		}
+	}
+	if contains(channels, "organize") {
+		for _, disabled := range catalog.DisabledPlugins {
+			if disabled == "library" {
+				return ExtensionSnapshot{}, fmt.Errorf("分类建议需启用资料库阅读")
+			}
+		}
+	}
+	instructions := ""
+	if catalog.StandingInstructions.Enabled {
+		instructions = catalog.StandingInstructions.Body
+	}
+	return ExtensionSnapshot{
+		Revision: catalog.Revision, Skills: skills, Instructions: instructions, Channels: channels,
+	}, nil
+}
+
+func (store *Store) VerifyExtensions(snapshot ExtensionSnapshot) error {
+	selection := &SkillSelection{Revision: snapshot.Revision, IDs: []string{}}
+	for _, skill := range snapshot.Skills {
+		selection.IDs = append(selection.IDs, skill.ID)
+	}
+	current, err := store.SnapshotExtensions(selection, snapshot.Channels)
+	if err != nil {
+		return fmt.Errorf("研究期间学习要求或方法已改变，旧结果未发布")
+	}
+	left, _ := json.Marshal(current)
+	right, _ := json.Marshal(snapshot)
+	if string(left) != string(right) {
+		return fmt.Errorf("研究期间学习要求或方法已改变，旧结果未发布")
+	}
+	return nil
+}

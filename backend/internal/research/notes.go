@@ -248,3 +248,87 @@ func (store *Store) ExportNote(id string) (any, error) {
 	}
 	return path, nil
 }
+
+func (engine *Engine) PreviewNote(id string) (map[string]any, error) {
+	task, err := engine.VerifyResult(id)
+	if err != nil {
+		return nil, err
+	}
+	type sourceRef struct {
+		ID      string   `json:"id"`
+		Binding *Binding `json:"binding"`
+		Hash    string   `json:"hash"`
+	}
+	refs := []sourceRef{}
+	for _, source := range task.Sources {
+		refs = append(refs, sourceRef{ID: source.SourceID, Binding: source.Binding, Hash: source.SourceHash})
+	}
+	encodedRefs, _ := json.Marshal(refs)
+	sourceDigest := hashText(string(encodedRefs))
+	markdown := "# " + task.Question + "\n\n" + task.Note + "\n\n## 范围与限制\n\n" + task.Limitations + "\n\n## 来源版本\n\n"
+	sourceLines := []string{}
+	for _, source := range task.Sources {
+		generation := "external-snapshot"
+		if source.Binding != nil && source.Binding.GenerationID != "" {
+			generation = source.Binding.GenerationID
+		}
+		sourceLines = append(sourceLines, fmt.Sprintf("- [%s] %s\n  来源：%s\n  代际：%s\n  原文 SHA256：%s",
+			source.SourceID, source.Title, source.URL, generation, source.SourceHash))
+	}
+	markdown += strings.Join(sourceLines, "\n") + "\n"
+	return map[string]any{
+		"kb_root_id": engine.Store.RootID, "task_id": id, "note_sha256": hashText(markdown),
+		"sources_sha256": sourceDigest, "markdown": markdown,
+	}, nil
+}
+
+func (engine *Engine) SaveNote(id string, expected map[string]any) (any, error) {
+	if text(expected["kb_root_id"]) == "" || !shaPattern.MatchString(text(expected["note_sha256"])) ||
+		!shaPattern.MatchString(text(expected["sources_sha256"])) {
+		return nil, fmt.Errorf("笔记保存参数无效")
+	}
+	preview, err := engine.PreviewNote(id)
+	if err != nil {
+		return nil, err
+	}
+	if text(expected["kb_root_id"]) != text(preview["kb_root_id"]) ||
+		text(expected["note_sha256"]) != text(preview["note_sha256"]) ||
+		text(expected["sources_sha256"]) != text(preview["sources_sha256"]) {
+		return nil, fmt.Errorf("预览之后研究内容或来源已改变，请重新预览")
+	}
+	operation := hashText(string(mustJSON([]any{"save-research-note", id, expected})))[:32]
+	result, err := engine.Store.Operation(operation, map[string]any{"id": id, "value": expected}, func() (any, error) {
+		task, err := engine.VerifyResult(id)
+		if err != nil {
+			return nil, err
+		}
+		noteID := randomID()
+		taskID := id
+		answerHash := text(task.AnswerHash)
+		value := note{
+			Receipt: noteReceipt{
+				NoteID: noteID, Title: task.Question, BodySHA256: text(preview["note_sha256"]),
+				CreatedAt: time.Now().UTC().Format(time.RFC3339Nano),
+			},
+			Markdown: text(preview["markdown"]), Lifecycle: noteLifecycle{Revision: 0, State: "active"},
+			TaskID: &taskID, TaskHash: &answerHash, SourceDigest: func() *string {
+				value := text(preview["sources_sha256"])
+				return &value
+			}(),
+		}
+		if err := engine.Store.putNote(value); err != nil {
+			return nil, err
+		}
+		return map[string]any{"id": noteID}, nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	noteID := text(result.(map[string]any)["id"])
+	return engine.Store.readNote(noteID)
+}
+
+func mustJSON(value any) []byte {
+	encoded, _ := json.Marshal(value)
+	return encoded
+}

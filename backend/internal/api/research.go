@@ -1,9 +1,12 @@
 package api
 
 import (
+	"context"
 	"encoding/json"
 	"path/filepath"
 
+	"github.com/EveSunMaple/Zynote/backend/internal/ai"
+	"github.com/EveSunMaple/Zynote/backend/internal/config"
 	"github.com/EveSunMaple/Zynote/backend/internal/contract"
 	"github.com/EveSunMaple/Zynote/backend/internal/research"
 )
@@ -16,7 +19,35 @@ func (inv *Invoker) researchStore(state *contract.State) (*research.Store, error
 	return store, nil
 }
 
-func (inv *Invoker) handleToolsRequest(state *contract.State, params json.RawMessage) (any, error) {
+func (inv *Invoker) researchEngine(store contract.StateStore, state *contract.State, data *research.Store) (*research.Engine, error) {
+	knowledgeStore, err := inv.knowledgeStoreFor(state)
+	if err != nil {
+		return nil, err
+	}
+	connection, err := config.CurrentConnectionFingerprint(state.DataRoot)
+	if err != nil {
+		return nil, err
+	}
+	return &research.Engine{
+		Store: data, Sources: research.NewSources(knowledgeStore, data.RootID), Connection: connection,
+		Model: func(ctx context.Context, system, user string) (string, error) {
+			profile, err := config.ActiveProfile(state.DataRoot, store.Reverse())
+			if err != nil {
+				return "", err
+			}
+			client := ai.New(ai.Profile{
+				BaseURL: profile.BaseURL, Model: profile.Model, VisionModel: profile.VisionModel,
+				APIFormat: profile.APIFormat, Key: profile.Key, Parameters: profile.Parameters,
+			})
+			return client.Chat(ctx, []ai.Message{
+				{Role: "system", Content: system},
+				{Role: "user", Content: user},
+			}, nil)
+		},
+	}, nil
+}
+
+func (inv *Invoker) handleToolsRequest(storeState contract.StateStore, state *contract.State, params json.RawMessage) (any, error) {
 	var input struct {
 		Action string         `json:"action"`
 		Args   map[string]any `json:"args"`
@@ -124,11 +155,48 @@ func (inv *Invoker) handleToolsRequest(state *contract.State, params json.RawMes
 			return nil, contract.InputInvalid(err.Error())
 		}
 		return result, nil
+	case "agent-create", "agent-read", "agent-stop", "agent-export", "memory-accept", "note-preview", "note-save",
+		"workflow-create", "workflow-action", "workflow-export":
+		engine, err := inv.researchEngine(storeState, state, store)
+		if err != nil {
+			return nil, err
+		}
+		switch input.Action {
+		case "agent-create":
+			return engine.Create(context.Background(), input.Args)
+		case "agent-read":
+			return engine.Read(textValue(input.Args["id"]))
+		case "agent-stop":
+			return engine.Stop(textValue(input.Args["id"]))
+		case "agent-export":
+			return engine.Export(textValue(input.Args["id"]))
+		case "memory-accept":
+			value, _ := input.Args["value"].(map[string]any)
+			return engine.AcceptMemory(textValue(input.Args["id"]), value)
+		case "note-preview":
+			return engine.PreviewNote(textValue(input.Args["id"]))
+		case "note-save":
+			value, _ := input.Args["expected"].(map[string]any)
+			return engine.SaveNote(textValue(input.Args["id"]), value)
+		case "workflow-create":
+			return engine.CreateWorkflow(context.Background(), input.Args)
+		case "workflow-action":
+			return engine.ActionWorkflow(context.Background(), input.Args)
+		default:
+			return engine.ExportWorkflow(textValue(input.Args["id"]))
+		}
 	case "overview":
 		extensions, _ := store.Extensions()
+		engine, _ := inv.researchEngine(storeState, state, store)
+		tasks := []any{}
+		workflows := []any{}
+		if engine != nil {
+			tasks = engine.List()
+			workflows = engine.ListWorkflows()
+		}
 		return map[string]any{
 			"root": store.RootID, "extensions": extensions, "mcp": map[string]any{"revision": 0, "servers": []any{}},
-			"tasks": []any{}, "workflows": []any{},
+			"tasks": tasks, "workflows": workflows,
 			"migration": map[string]any{
 				"runtimeLanguage": "go", "legacyRuntimeRequired": false,
 				"externalAcceptance": "研究引擎/MCP/IM 尚未迁移，当前仅提供存储与资料目录",
