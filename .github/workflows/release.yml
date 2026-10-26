@@ -1,0 +1,78 @@
+name: Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      profile:
+        description: Release profile
+        required: true
+        type: choice
+        default: lite
+        options:
+          - lite
+          - portable
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-14
+            platform: mac
+            artifact: mac-arm64
+          - os: windows-2022
+            platform: win
+            artifact: windows-x64
+          - os: ubuntu-24.04
+            platform: linux
+            artifact: linux-x64
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: backend/go.mod
+          cache-dependency-path: backend/go.sum
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: native
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+      - name: Verify
+        run: pnpm verify
+      - name: Build renderer
+        run: pnpm build
+      - name: Build release
+        env:
+          CSC_LINK: ${{ matrix.platform == 'mac' && secrets.MAC_CSC_LINK || matrix.platform == 'win' && secrets.WIN_CSC_LINK || '' }}
+          CSC_KEY_PASSWORD: ${{ matrix.platform == 'mac' && secrets.MAC_CSC_KEY_PASSWORD || matrix.platform == 'win' && secrets.WIN_CSC_KEY_PASSWORD || '' }}
+          APPLE_ID: ${{ matrix.platform == 'mac' && secrets.APPLE_ID || '' }}
+          APPLE_APP_SPECIFIC_PASSWORD: ${{ matrix.platform == 'mac' && secrets.APPLE_APP_SPECIFIC_PASSWORD || '' }}
+          APPLE_TEAM_ID: ${{ matrix.platform == 'mac' && secrets.APPLE_TEAM_ID || '' }}
+        run: pnpm release ${{ inputs.profile }} --platform=${{ matrix.platform }} --prepared
+      - name: Checksums
+        if: inputs.profile != 'portable'
+        run: pnpm release:checksums release/${{ inputs.profile }} ${{ matrix.platform }}
+      - uses: actions/upload-artifact@v4
+        with:
+          name: zynote-${{ inputs.profile }}-${{ matrix.artifact }}
+          path: |
+            release/${{ inputs.profile }}/*.dmg
+            release/${{ inputs.profile }}/*.zip
+            release/${{ inputs.profile }}/*.exe
+            release/${{ inputs.profile }}/*.AppImage
+            release/${{ inputs.profile }}/*.deb
+            release/${{ inputs.profile }}/SHA256SUMS-*.txt
+            release/${{ inputs.profile }}/release-info.json
+          if-no-files-found: error

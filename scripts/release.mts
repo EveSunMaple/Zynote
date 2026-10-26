@@ -91,7 +91,7 @@ if (profile === 'components') {
   throw new Error('完整发布仅支持 Windows；macOS/Linux 请使用 lite')
  // The v1 optional payload is reviewed for Windows only; directory presence is not a target check.
  const omitOptional = profile === 'lite' || platform !== Platform.WINDOWS
- const optional = new Set(manifest.components.map(component => component.directory))
+ const optional = new Set(['knowledge', 'asr', 'video', ...manifest.components.map(component => component.directory)])
  const entries = pkg.build.extraResources
  if (!Array.isArray(entries)) throw new Error('发布资源配置必须为数组')
  const missing = new Set(

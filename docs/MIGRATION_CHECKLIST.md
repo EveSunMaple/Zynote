@@ -1083,3 +1083,13 @@ Zynote/
 - [x] `lecture:create/transcript/courseware`、`files:add/remove`、`questions:save` 切 Go 主路径。
 - [x] 契约中非 shell action 已全部加入路由；Windows 仅 `tools:request` 的 `im` 子动作保留 TS。
 - [x] app 课程/文件/问题测试与 Electron runtime smoke 通过。
+
+### 1.83 发布硬化与 Windows IM 交接（2026-10-26）
+
+- [x] CI 增加 `go vet ./...` 与核心包 `go test -race`。
+- [x] 新增手动 `release.yml`：mac/win/linux lite/portable、工件上传、SHA256SUMS、签名环境变量占位。
+- [x] macOS 启用 hardened runtime + entitlements；Apple Development 签名下 portable/lite 打包通过。
+- [x] 修复空 runtime manifest 时 lite/portable 仍打入 asr/knowledge 的问题；可选组件目录固定跳过。
+- [x] 新增 `release:checksums` 脚本。
+- [x] Windows IM 采用 Rust/Go helper 方案，实机相关实现冻结；说明见 `docs/tmp/WINDOWS_IM_HANDOFF.md`。
+- [ ] 公证/Developer ID/Windows 代码签名需证书与 secrets；macOS 全量组件（video/ffmpeg）仍需固定分发方案。

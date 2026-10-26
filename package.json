@@ -30,6 +30,7 @@
   "pack": "pnpm build && pnpm release full",
   "release": "node scripts/release.mts",
   "release:source": "node scripts/source-package.mts",
+  "release:checksums": "node scripts/release-checksums.mts",
   "runtime:smoke": "node scripts/runtime-smoke.mts",
   "lint": "biome lint .",
   "format": "biome format --write .",
@@ -207,7 +208,11 @@
     "zip"
    ],
    "icon": "resources/icon.png",
-   "category": "public.app-category.education"
+   "category": "public.app-category.education",
+   "hardenedRuntime": true,
+   "gatekeeperAssess": false,
+   "entitlements": "resources/entitlements.mac.plist",
+   "entitlementsInherit": "resources/entitlements.mac.plist"
   },
   "linux": {
    "target": [
