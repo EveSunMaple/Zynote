@@ -15,6 +15,17 @@
 6. **B1：全功能对齐才发版。** 每个域的黄金样本对比通过才能切默认后端；YouTube 对齐口径 = 同画质档位可解析可下载（D3a）。首版 0.0.1（macOS 能力矩阵口径）。
 7. **数据迁移必须可回滚。** 切换前备份，首次启动做完整性检查，旧版本至少保留一个可运行版本。
 
+## 0.1 当前状态快照（2026-10-26）
+
+> 下面较早章节保留为历史记录；其中未勾选项不代表当前仍未完成。以本节和 1.69–1.84 为准。
+
+- 契约 150 actions / shell 9；Go capabilities 152（含 11 internal）；非 shell action 已全部进入 Go 路由。
+- macOS 全量走 Go；Windows 除 `tools:request` 的 `im` 子动作外均走 Go（媒体/视频已切）。
+- 已迁：研究/外部检索/MCP/工作流/IM（QQ 手工、微信 Web/iLink、自动化、清理）、证据包、runtime、教材/视觉/智云/知识/聊天/媒体/视频、课程内部动作。
+- 剩余迁移阻塞：Windows 本机微信读取、NapCat 内置后台（SQLCipher + Windows 内存扫描/Job Object）；方案与实机清单见 `docs/tmp/WINDOWS_IM_HANDOFF.md`，待 Windows 实机。
+- 发布阻塞：`resources/video` 缺失、runtime manifest 为空、macOS 全量组件与公证/签名未定；见 `docs/tmp/RELEASE_HANDOFF.md`。
+- 门禁：`pnpm verify`、`pnpm backend:test`、`pnpm native:test`、`pnpm smoke:go-core`、`pnpm runtime:smoke`、`pnpm build`；CI 已有 macOS + 交叉编译，release workflow 为手动。
+
 ## 1. 迁移边界（全部已锁定）
 
 - [x] 后端语言为 Go（业务核心）+ Rust（原生硬模块）。
