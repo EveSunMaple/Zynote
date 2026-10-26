@@ -182,6 +182,30 @@ async function startApplication() {
  const zhiyunBrowser = new ZhiyunBrowser(window, message =>
   emit({kind: 'progress', data: {stage: '智云登录', message, error: true}})
  )
+ shellServices['zhiyun.login'] = async () => {
+  await zhiyunBrowser.home()
+  return true
+ }
+ shellServices['zhiyun.refresh'] = async () => {
+  zhiyunBrowser.refresh()
+  return true
+ }
+ shellServices['zhiyun.back'] = async () => {
+  zhiyunBrowser.back()
+  return true
+ }
+ shellServices['zhiyun.bounds'] = async params => {
+  const bounds = z
+   .object({
+    x: z.number().min(0).max(10000),
+    y: z.number().min(0).max(10000),
+    width: z.number().min(0).max(10000),
+    height: z.number().min(0).max(10000)
+   })
+   .parse(params.bounds)
+  zhiyunBrowser.bounds(bounds, z.boolean().parse(params.visible))
+  return true
+ }
  const zhiyun = new Zhiyun(
   async (url, init) => {
    const headers = new Headers(init?.headers)

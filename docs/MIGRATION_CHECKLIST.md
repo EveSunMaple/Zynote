@@ -892,3 +892,9 @@ Zynote/
 - [x] `subtitle-derived:list/start/resume`：从已完成同步分集创建任务、来源哈希/代际复核、分批摘要准备与断点、Markdown/JSON/SVG 成果、同名冲突拒绝、失败清理。
 - [x] 复用 `summarizeVideoText` 与 notes SVG；capabilities 135 → **138**。
 - [x] 服务单测覆盖创建/运行/多模式成果。
+
+## 1.62 零散入口与智云窗口（2026-10-24）
+
+- [x] `courses`；`appearance:image`/`identity:avatar`（壳侧 `shell.imageDataUrl` 背景压缩/头像裁切）；`zhiyun:login/refresh/back/bounds`（壳侧窗口控制）。
+- [x] capabilities 138 → **145**；app 测试覆盖课程列表、图片选择、智云窗口。
+- [ ] 剩余 Go 目标：`runtime:*`（Windows）、`zhiyun:export`、`tools:*`、`im:draft`、`export`。

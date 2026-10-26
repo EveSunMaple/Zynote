@@ -318,6 +318,28 @@ func (inv *Invoker) Invoke(store contract.StateStore, action string, params json
 		default:
 			return inv.handleVisualRecoverOutput(state, params)
 		}
+	case "courses":
+		state := store.State()
+		if state == nil {
+			return nil, contract.Unavailable("后台尚未完成握手")
+		}
+		return inv.handleCourses(state)
+	case "appearance:image", "identity:avatar":
+		state := store.State()
+		if state == nil {
+			return nil, contract.Unavailable("后台尚未完成握手")
+		}
+		kind := "background"
+		if action == "identity:avatar" {
+			kind = "avatar"
+		}
+		return inv.handleImagePick(store, state, kind)
+	case "zhiyun:login", "zhiyun:refresh", "zhiyun:back", "zhiyun:bounds":
+		state := store.State()
+		if state == nil {
+			return nil, contract.Unavailable("后台尚未完成握手")
+		}
+		return inv.handleZhiyunControl(store, action, params)
 	case "library:open", "library:open-file", "library:reveal":
 		state := store.State()
 		if state == nil {

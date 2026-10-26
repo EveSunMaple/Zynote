@@ -27,6 +27,8 @@ type fixture struct {
 
 type testReverse struct{ server *transport.Server }
 
+var testPickPath string
+
 func (reverse testReverse) Call(method string, params any, timeoutMS int) (json.RawMessage, error) {
 	if method == "crypto.unprotect" {
 		return json.RawMessage(`{"text":"test-key"}`), nil
@@ -35,6 +37,15 @@ func (reverse testReverse) Call(method string, params any, timeoutMS int) (json.
 		return json.RawMessage(`{"value":"cHJvdGVjdGVk"}`), nil
 	}
 	if method == "tools.configure" || method == "shell.openPath" || method == "shell.showItemInFolder" {
+		return json.RawMessage(`true`), nil
+	}
+	if method == "shell.pickFile" {
+		return json.Marshal(map[string]any{"path": testPickPath})
+	}
+	if method == "shell.imageDataUrl" {
+		return json.RawMessage(`{"value":"data:image/png;base64,eHh4"}`), nil
+	}
+	if strings.HasPrefix(method, "zhiyun.") {
 		return json.RawMessage(`true`), nil
 	}
 	if method == "shell.printHtmlPdf" {
@@ -175,7 +186,7 @@ func TestP0Contract(t *testing.T) {
 	if err := json.Unmarshal(state, &hello); err != nil {
 		t.Fatal(err)
 	}
-	if hello.Protocol != 1 || hello.Platform != "darwin" || len(hello.Capabilities) != 138 {
+	if hello.Protocol != 1 || hello.Platform != "darwin" || len(hello.Capabilities) != 145 {
 		t.Fatalf("unexpected hello: %+v", hello)
 	}
 
