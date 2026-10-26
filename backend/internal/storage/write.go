@@ -777,3 +777,16 @@ func (w *WriteDB) SaveNotes(lectureID string, notes any) error {
 	}
 	return tx.Commit()
 }
+
+func (w *WriteDB) DeleteCorrectionCheckpoint(id string) error {
+	_, err := w.db.Exec("DELETE FROM correction_checkpoints WHERE lecture_id=?", id)
+	return err
+}
+
+func (w *WriteDB) CourseByName(name string) (map[string]any, error) {
+	return queryOne(w.db, "SELECT * FROM courses WHERE name=? LIMIT 1", name)
+}
+
+func (w *WriteDB) LectureByTitle(courseID, title string) (map[string]any, error) {
+	return queryOne(w.db, "SELECT * FROM lectures WHERE course_id=? AND title=? LIMIT 1", courseID, title)
+}

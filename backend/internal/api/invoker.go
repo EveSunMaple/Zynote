@@ -340,6 +340,12 @@ func (inv *Invoker) Invoke(store contract.StateStore, action string, params json
 			kind = "avatar"
 		}
 		return inv.handleImagePick(store, state, kind)
+	case "zhiyun:export":
+		state := store.State()
+		if state == nil {
+			return nil, contract.Unavailable("后台尚未完成握手")
+		}
+		return inv.handleZhiyunExport(store, state, params)
 	case "zhiyun:login", "zhiyun:refresh", "zhiyun:back", "zhiyun:bounds":
 		state := store.State()
 		if state == nil {

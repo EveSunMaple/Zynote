@@ -3,10 +3,14 @@ package zhiyun
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
+	"os"
 	"regexp"
 	"strconv"
 	"strings"
@@ -21,9 +25,15 @@ type Session struct {
 }
 
 type Client struct {
-	Base    string
-	Session Session
-	HTTP    *http.Client
+	Base     string
+	Session  Session
+	HTTP     *http.Client
+	Progress func(string)
+}
+
+type Resource struct {
+	URL      string
+	Filename string
 }
 
 func New(base string, session Session) *Client {
@@ -291,4 +301,259 @@ func (client *Client) Lessons(ctx context.Context, courseID string) ([]Lesson, e
 		})
 	}
 	return lessons, nil
+}
+
+func mediaURL(base, value string) (string, error) {
+	parsed, err := url.Parse(value)
+	if err != nil {
+		return "", fmt.Errorf("智云课堂返回的资源地址不受支持")
+	}
+	if !parsed.IsAbs() {
+		root, err := url.Parse(base)
+		if err != nil {
+			return "", fmt.Errorf("智云课堂返回的资源地址不受支持")
+		}
+		parsed = root.ResolveReference(parsed)
+	}
+	host := parsed.Hostname()
+	if (parsed.Scheme != "http" && parsed.Scheme != "https") ||
+		!(host == "cmc.zju.edu.cn" || strings.HasSuffix(host, ".cmc.zju.edu.cn")) ||
+		parsed.User != nil {
+		return "", fmt.Errorf("智云课堂返回的资源地址不受支持")
+	}
+	return parsed.String(), nil
+}
+
+func (client *Client) lessonVideoURLs(ctx context.Context, courseID string) (map[string]string, error) {
+	data, err := client.request(ctx, "/courseapi/v2/course/catalogue", map[string]string{
+		"course_id": courseID, "tenant_code": "112",
+	})
+	if err != nil {
+		return nil, err
+	}
+	result, _ := data["result"].(map[string]any)
+	rows, _ := result["data"].([]any)
+	urls := map[string]string{}
+	for _, item := range rows {
+		row, _ := item.(map[string]any)
+		if row == nil {
+			continue
+		}
+		id := stringValue(row["sub_id"])
+		if id == "" {
+			id = stringValue(row["id"])
+		}
+		content := map[string]any{}
+		if raw, ok := row["content"].(string); ok {
+			if json.Unmarshal([]byte(raw), &content) != nil {
+				continue
+			}
+		} else if value, ok := row["content"].(map[string]any); ok {
+			content = value
+		}
+		url := ""
+		if playback, ok := content["save_playback"].(map[string]any); ok {
+			url = stringValue(playback["contents"])
+		}
+		if url == "" {
+			if playback, ok := content["playback"].(map[string]any); ok {
+				url = stringValue(playback["url"])
+			}
+		}
+		if id != "" && url != "" {
+			if checked, err := mediaURL(client.Base, url); err == nil {
+				urls[id] = checked
+			}
+		}
+	}
+	return urls, nil
+}
+
+func (client *Client) LessonVideoURL(ctx context.Context, courseID, subID string) (string, error) {
+	urls, err := client.lessonVideoURLs(ctx, courseID)
+	if err != nil {
+		return "", err
+	}
+	return urls[subID], nil
+}
+
+func extensionAllowed(filename, kind string) bool {
+	lower := strings.ToLower(filename)
+	if kind == "ppt" {
+		return strings.HasSuffix(lower, ".ppt") || strings.HasSuffix(lower, ".pptx")
+	}
+	return strings.HasSuffix(lower, ".docx") || strings.HasSuffix(lower, ".txt") || strings.HasSuffix(lower, ".srt")
+}
+
+func (client *Client) Resource(ctx context.Context, courseID, subID, kind string) (Resource, error) {
+	lessons, err := client.Lessons(ctx, courseID)
+	if err != nil {
+		return Resource{}, err
+	}
+	var lesson *Lesson
+	for index := range lessons {
+		if lessons[index].ID == subID {
+			lesson = &lessons[index]
+			break
+		}
+	}
+	if lesson == nil {
+		return Resource{}, fmt.Errorf("没有找到所选课次，请重新选择")
+	}
+	label := "语音识别原文"
+	exportType := "2"
+	if kind == "ppt" {
+		label = "PPT"
+		exportType = "1"
+	}
+	created := false
+	for attempt := 0; attempt < 60; attempt++ {
+		if err := ctx.Err(); err != nil {
+			return Resource{}, err
+		}
+		data, err := client.request(ctx, "/courseapi/v2/export/get-courseware-status", map[string]string{
+			"type": exportType, "sub_id": subID, "get_source_url": "1",
+		})
+		if err != nil {
+			return Resource{}, err
+		}
+		code := int(numberValue(data["code"]))
+		if code == 0 {
+			result, _ := data["data"].(map[string]any)
+			if result != nil && stringValue(result["path_name"]) != "" {
+				filename := stringValue(result["file_name"])
+				if filename == "" {
+					filename = lesson.Title
+					if kind == "ppt" {
+						filename += ".pptx"
+					} else {
+						filename += ".docx"
+					}
+				}
+				if !extensionAllowed(filename, kind) {
+					return Resource{}, fmt.Errorf("官网返回的文件格式暂不支持")
+				}
+				checked, err := mediaURL(client.Base, stringValue(result["path_name"]))
+				if err != nil {
+					return Resource{}, err
+				}
+				return Resource{URL: checked, Filename: filename}, nil
+			}
+		}
+		if code != 1 && code != 200 {
+			return Resource{}, fmt.Errorf("本课次暂无可导出的%s", label)
+		}
+		if !created {
+			result, err := client.request(ctx, "/courseapi/v2/export/export-async", map[string]string{
+				"sub_id": subID, "export_type": "courseware", "type": exportType,
+			})
+			if err != nil {
+				return Resource{}, err
+			}
+			if int(numberValue(result["code"])) != 0 {
+				return Resource{}, fmt.Errorf("智云课堂未能生成%s", label)
+			}
+			created = true
+		}
+		if client.Progress != nil {
+			client.Progress(fmt.Sprintf("智云课堂正在生成%s…", label))
+		}
+		timer := time.NewTimer(10 * time.Second)
+		select {
+		case <-timer.C:
+		case <-ctx.Done():
+			timer.Stop()
+			return Resource{}, ctx.Err()
+		}
+	}
+	return Resource{}, fmt.Errorf("%s生成超时，请稍后再试", label)
+}
+
+func (client *Client) Download(ctx context.Context, value, destination string) error {
+	checked, err := mediaURL(client.Base, value)
+	if err != nil {
+		return err
+	}
+	partial := destination + ".part-" + strings.ReplaceAll(NewSessionID(), "-", "")
+	request, err := http.NewRequestWithContext(ctx, http.MethodGet, checked, nil)
+	if err != nil {
+		return fmt.Errorf("资源下载失败")
+	}
+	if client.Session.Cookie != "" {
+		request.Header.Set("Cookie", client.Session.Cookie)
+	}
+	if client.Session.Authorization != "" {
+		request.Header.Set("Authorization", client.Session.Authorization)
+	}
+	request.Header.Set("User-Agent", "Mozilla/5.0")
+	downloader := &http.Client{Transport: client.HTTP.Transport}
+	response, err := downloader.Do(request)
+	if err != nil {
+		return fmt.Errorf("资源下载失败")
+	}
+	defer response.Body.Close()
+	if response.StatusCode < 200 || response.StatusCode >= 300 {
+		return fmt.Errorf("资源下载失败（%d）", response.StatusCode)
+	}
+	contentType := strings.ToLower(response.Header.Get("Content-Type"))
+	if strings.Contains(contentType, "text/html") || strings.Contains(contentType, "application/json") {
+		return fmt.Errorf("资源返回了登录页，请先登录智云课堂")
+	}
+	file, err := os.OpenFile(partial, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o644)
+	if err != nil {
+		return fmt.Errorf("资源下载失败")
+	}
+	total := response.ContentLength
+	written := int64(0)
+	buffer := make([]byte, 256*1024)
+	last := time.Time{}
+	for {
+		read, readErr := response.Body.Read(buffer)
+		if read > 0 {
+			if _, writeErr := file.Write(buffer[:read]); writeErr != nil {
+				file.Close()
+				_ = os.Remove(partial)
+				return fmt.Errorf("资源下载失败")
+			}
+			written += int64(read)
+			if client.Progress != nil && time.Since(last) > 500*time.Millisecond {
+				last = time.Now()
+				message := fmt.Sprintf("已下载 %.1f MB", float64(written)/1048576)
+				if total > 0 {
+					message += fmt.Sprintf(" / %.1f MB", float64(total)/1048576)
+				}
+				client.Progress(message)
+			}
+		}
+		if readErr != nil {
+			if readErr.Error() == "EOF" {
+				break
+			}
+			file.Close()
+			_ = os.Remove(partial)
+			return fmt.Errorf("资源下载失败")
+		}
+	}
+	if err := file.Close(); err != nil {
+		_ = os.Remove(partial)
+		return fmt.Errorf("资源下载失败")
+	}
+	if written == 0 || (total > 0 && written != total) {
+		_ = os.Remove(partial)
+		return fmt.Errorf("下载文件不完整，请重试")
+	}
+	if err := os.Rename(partial, destination); err != nil {
+		_ = os.Remove(partial)
+		return fmt.Errorf("资源下载失败")
+	}
+	if client.Progress != nil {
+		client.Progress("导出完成")
+	}
+	return nil
+}
+
+func NewSessionID() string {
+	sum := sha256.Sum256([]byte(strconv.FormatInt(time.Now().UnixNano(), 10)))
+	value := hex.EncodeToString(sum[:16])
+	return value[0:8] + "-" + value[8:12] + "-4" + value[13:16] + "-8" + value[17:20] + "-" + value[20:32]
 }

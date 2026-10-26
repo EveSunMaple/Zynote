@@ -904,3 +904,10 @@ Zynote/
 - [x] `export`：字幕 srt/txt、笔记/练习 md/docx/pdf；Markdown 结构、docx OOXML、壳侧 PDF；reserveFile/回读校验。
 - [x] capabilities 145 → **146**；app 测试覆盖字幕/笔记/练习导出。
 - [ ] `evidence-bundle` 暂未迁移（返回明确不可用）；剩余 `zhiyun:export`、`tools:*`、`im:draft`、`runtime:*`。
+
+## 1.64 zhiyun:export（2026-10-24）
+
+- [x] 智云资源导出：课件/原文异步生成轮询、媒体地址信任校验、流式下载/长度校验、课件/原文解析入课次、学习计划课次匹配。
+- [x] PPT 失败回退：课次录像下载 → 视频采样/稳定页/PDF → 写课件缓存；原文/课件路径写库并清校订检查点。
+- [x] capabilities 146 → **147**；客户端单测覆盖资源获取、下载、录像 URL、媒体地址拒绝。
+- [ ] 全黑 PPTX 的本地图片判定未实现（直接解析失败才回退）；`runtime:*`、`tools:*`、`im:draft` 未迁。
