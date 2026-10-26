@@ -10,6 +10,7 @@ import (
 	"net"
 	"net/http"
 	"net/url"
+	"os"
 	"regexp"
 	"strings"
 	"time"
@@ -30,7 +31,8 @@ type ExternalEvidence struct {
 }
 
 type External struct {
-	Client *http.Client
+	Client  *http.Client
+	PDFPage func(path string, page int) (string, int, error)
 }
 
 func NewExternal() *External {
@@ -164,12 +166,13 @@ func (external *External) get(ctx context.Context, target string) ([]byte, error
 	return body, err
 }
 
-func (external *External) ReadPages(ctx context.Context, choices []FulltextChoice) ([]ExternalEvidence, error) {
+func (external *External) ReadFulltext(ctx context.Context, channels []string, choices []FulltextChoice) ([]ExternalEvidence, error) {
 	if len(choices) == 0 || len(choices) > 4 {
 		return nil, fmt.Errorf("正文选择无效")
 	}
 	seen := map[string]bool{}
 	rows := []ExternalEvidence{}
+	pdfCount := 0
 	for _, choice := range choices {
 		if seen[choice.URL] {
 			return nil, fmt.Errorf("正文网址重复，请合并所选页码")
@@ -179,8 +182,75 @@ func (external *External) ReadPages(ctx context.Context, choices []FulltextChoic
 		if err != nil {
 			return nil, err
 		}
-		if len(choice.Pages) > 0 {
-			return nil, fmt.Errorf("公开网页正文不设置PDF页码")
+		arxiv := parsed.Hostname() == "arxiv.org" &&
+			regexp.MustCompile(`^/(?:abs|pdf)/(?:\d{4}\.\d{4,5}|[a-z-]+/\d{7})v\d+$`).MatchString(parsed.Path)
+		if arxiv {
+			if !containsChannel(channels, "arxiv_fulltext") || !containsChannel(channels, "arxiv") {
+				return nil, fmt.Errorf("arXiv 正文需同时勾选 arXiv 及正文渠道")
+			}
+			if len(choice.Pages) == 0 || len(choice.Pages) > 4 || uniqueInts(choice.Pages) != len(choice.Pages) ||
+				parsed.RawQuery != "" || pdfCount >= 2 {
+				return nil, fmt.Errorf("每次最多两篇固定版本论文，每篇明确选择至多四个物理页")
+			}
+			if external.PDFPage == nil {
+				return nil, fmt.Errorf("PDF 阅读组件不可用")
+			}
+			pdfCount++
+			target := "https://arxiv.org/pdf/" + strings.TrimPrefix(strings.TrimPrefix(parsed.Path, "/abs/"), "/pdf/")
+			body, _, err := external.getResponse(ctx, target)
+			if err != nil {
+				return nil, err
+			}
+			if len(body) < 5 || string(body[:5]) != "%PDF-" {
+				return nil, fmt.Errorf("论文接口未返回 PDF")
+			}
+			if len(body) > 8*1024*1024 {
+				return nil, fmt.Errorf("论文正文超过大小上限")
+			}
+			file, err := os.CreateTemp("", "zynote-arxiv-*.pdf")
+			if err != nil {
+				return nil, fmt.Errorf("论文正文暂存失败")
+			}
+			path := file.Name()
+			_, writeErr := file.Write(body)
+			closeErr := file.Close()
+			if writeErr != nil || closeErr != nil {
+				_ = os.Remove(path)
+				return nil, fmt.Errorf("论文正文暂存失败")
+			}
+			responseSHA := hashBytes(body)
+			name := parsed.Path[strings.LastIndex(parsed.Path, "/")+1:]
+			for _, page := range choice.Pages {
+				text, total, err := external.PDFPage(path, page)
+				if err != nil {
+					_ = os.Remove(path)
+					return nil, err
+				}
+				if total > 64 || page > total {
+					_ = os.Remove(path)
+					return nil, fmt.Errorf("论文页数超出预算或所选物理页不存在")
+				}
+				text = strings.TrimSpace(text)
+				if text == "" {
+					_ = os.Remove(path)
+					return nil, fmt.Errorf("所选论文页未取得文字，当前不会自动OCR或宣称读完")
+				}
+				truncated := len([]rune(text)) > 12000
+				text = trimText(text, 12000)
+				value := ExternalEvidence{
+					Provider: "arxiv", Title: fmt.Sprintf("%s · 第%d页", name, page), URL: target,
+					Text: text, Scope: "pdf_page", ObtainedAt: time.Now().UTC().Format(time.RFC3339Nano),
+					Page: page, TotalPages: total, Truncated: truncated, ResponseSHA256: responseSHA,
+				}
+				encoded, _ := json.Marshal(value)
+				value.SHA256 = hashText(string(encoded))
+				rows = append(rows, value)
+			}
+			_ = os.Remove(path)
+			continue
+		}
+		if !containsChannel(channels, "web_pages") || !containsChannel(channels, "web") || len(choice.Pages) > 0 {
+			return nil, fmt.Errorf("公开网页正文需同时勾选网页搜索与正文渠道，且不设置PDF页码")
 		}
 		body, contentType, err := external.getResponse(ctx, parsed.String())
 		if err != nil {
@@ -219,6 +289,23 @@ func (external *External) ReadPages(ctx context.Context, choices []FulltextChoic
 		rows = append(rows, value)
 	}
 	return rows, nil
+}
+
+func containsChannel(channels []string, name string) bool {
+	for _, channel := range channels {
+		if channel == name {
+			return true
+		}
+	}
+	return false
+}
+
+func uniqueInts(values []int) int {
+	seen := map[int]bool{}
+	for _, value := range values {
+		seen[value] = true
+	}
+	return len(seen)
 }
 
 func hashBytes(value []byte) string {

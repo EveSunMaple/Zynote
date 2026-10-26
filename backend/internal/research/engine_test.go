@@ -188,3 +188,27 @@ func TestExternalSearchAndVerify(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+func TestArxivFulltextPages(t *testing.T) {
+	external := &External{
+		Client: &http.Client{Transport: externalRoundTrip(func(request *http.Request) (*http.Response, error) {
+			return &http.Response{
+				StatusCode: 200, Header: http.Header{"Content-Type": []string{"application/pdf"}},
+				Body: io.NopCloser(strings.NewReader("%PDF-fake")), Request: request,
+			}, nil
+		})},
+		PDFPage: func(string, int) (string, int, error) { return "论文正文段落", 10, nil },
+	}
+	rows, err := external.ReadFulltext(context.Background(), []string{"arxiv", "arxiv_fulltext"}, []FulltextChoice{
+		{URL: "https://arxiv.org/abs/2401.12345v1", Pages: []int{1, 3}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(rows) != 2 || rows[0].Scope != "pdf_page" || rows[0].Page != 1 || rows[1].Page != 3 {
+		t.Fatalf("arxiv fulltext mismatch: %+v", rows)
+	}
+	if err := external.Verify(rows); err != nil {
+		t.Fatal(err)
+	}
+}

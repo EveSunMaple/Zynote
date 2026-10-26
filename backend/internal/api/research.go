@@ -3,7 +3,9 @@ package api
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"path/filepath"
+	"strings"
 
 	"github.com/EveSunMaple/Zynote/backend/internal/ai"
 	"github.com/EveSunMaple/Zynote/backend/internal/config"
@@ -28,8 +30,34 @@ func (inv *Invoker) researchEngine(store contract.StateStore, state *contract.St
 	if err != nil {
 		return nil, err
 	}
+	external := research.NewExternal()
+	external.PDFPage = func(path string, page int) (string, int, error) {
+		raw, err := inv.native.Call("pdf.text", map[string]any{"path": path, "page": page}, 120000)
+		if err != nil {
+			return "", 0, err
+		}
+		var value struct {
+			NumPages int `json:"numPages"`
+			Pages    []struct {
+				Items []struct {
+					Text string `json:"text"`
+				} `json:"items"`
+			} `json:"pages"`
+		}
+		if err := json.Unmarshal(raw, &value); err != nil || len(value.Pages) == 0 {
+			return "", 0, fmt.Errorf("论文页文字读取失败")
+		}
+		parts := []string{}
+		for _, item := range value.Pages[0].Items {
+			if strings.TrimSpace(item.Text) != "" {
+				parts = append(parts, item.Text)
+			}
+		}
+		return strings.Join(parts, "\n"), value.NumPages, nil
+	}
 	return &research.Engine{
-		Store: data, Sources: research.NewSources(knowledgeStore, data.RootID), Connection: connection,
+		Store: data, Sources: research.NewSources(knowledgeStore, data.RootID), Connection: connection, External: external,
+		MCP: &research.Mcp{Store: data},
 		Model: func(ctx context.Context, system, user string) (string, error) {
 			profile, err := config.ActiveProfile(state.DataRoot, store.Reverse())
 			if err != nil {
@@ -194,8 +222,12 @@ func (inv *Invoker) handleToolsRequest(storeState contract.StateStore, state *co
 			tasks = engine.List()
 			workflows = engine.ListWorkflows()
 		}
+		mcpCatalog, err := (&research.Mcp{Store: store}).List()
+		if err != nil {
+			return nil, err
+		}
 		return map[string]any{
-			"root": store.RootID, "extensions": extensions, "mcp": map[string]any{"revision": 0, "servers": []any{}},
+			"root": store.RootID, "extensions": extensions, "mcp": mcpCatalog,
 			"tasks": tasks, "workflows": workflows,
 			"migration": map[string]any{
 				"runtimeLanguage": "go", "legacyRuntimeRequired": false,

@@ -947,3 +947,13 @@ Zynote/
 - [x] 外部来源占用独立预算（60k 字符，每条 12k），结论需引用 `[S*]`，任务核验覆盖外部来源。
 - [x] 单测：外部检索 → 任务 → `VerifyResult`。
 - [ ] arXiv PDF 页级正文、MCP、IM 未迁。
+
+### 1.68.2 MCP 与 arXiv 正文（2026-10-24）
+
+- [x] MCP 清单/版本、增删改、只读工具发现、分页、快照校验、工具调用幂等与未知状态防重放。
+- [x] MCP JSON-RPC over HTTPS：initialize/tools list/tools call、JSON 与 SSE 响应、会话头校验；默认拒绝本地/私网目标。
+- [x] MCP 工具 schema 与参数本地校验；只允许声明只读且经用户启用的工具；调用结果作为未核实线索。
+- [x] 研究引擎接入 MCP：按工具准备参数、调用、结果入提示词，发布前复核快照。
+- [x] arXiv 固定版本 PDF 页级正文（原生 `pdf.text`），最多两篇、每篇四页，页号与快照回执核验。
+- [x] 测试：MCP 发现→启用→快照→调用→幂等；arXiv 页级正文。
+- [ ] IM 域、legacy baseline 未迁。
