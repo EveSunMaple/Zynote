@@ -47,6 +47,8 @@ type Task struct {
 	UpdatedAt        string             `json:"updated_at"`
 	MemoryCandidates []MemoryCandidate  `json:"memory_candidates"`
 	Context          *Context           `json:"context,omitempty"`
+	External         []ExternalEvidence `json:"external,omitempty"`
+	WebSearch        any                `json:"webSearch,omitempty"`
 }
 
 type Engine struct {
@@ -54,6 +56,7 @@ type Engine struct {
 	Sources    *Sources
 	Model      func(ctx context.Context, system, user string) (string, error)
 	Connection string
+	External   *External
 	initOnce   sync.Once
 }
 
@@ -175,13 +178,25 @@ func (engine *Engine) Create(ctx context.Context, input map[string]any) (any, er
 		}
 		seen[channel] = true
 		switch channel {
-		case "library", "memory", "notes", "conversations", "practice", "organize":
+		case "library", "memory", "notes", "conversations", "practice", "organize",
+			"crossref", "semantic", "arxiv", "web", "arxiv_fulltext", "web_pages":
 		default:
 			return nil, fmt.Errorf("所选外部研究渠道尚未完成原生适配")
 		}
 	}
-	if !seen["library"] && !seen["notes"] {
+	remote := seen["crossref"] || seen["semantic"] || seen["arxiv"] || seen["web"]
+	if !seen["library"] && !seen["notes"] && !remote {
 		return nil, fmt.Errorf("至少选择知识库或笔记作为本次资料范围")
+	}
+	if (seen["arxiv_fulltext"] && !seen["arxiv"]) || (seen["web_pages"] && !seen["web"]) {
+		return nil, fmt.Errorf("正文阅读需同时启用相应检索渠道")
+	}
+	fulltextChoices := parseFulltextChoices(input["fulltext"])
+	if (seen["arxiv_fulltext"] || seen["web_pages"]) && len(fulltextChoices) == 0 {
+		return nil, fmt.Errorf("请明确填写本轮正文网址与论文物理页")
+	}
+	if seen["arxiv_fulltext"] {
+		return nil, fmt.Errorf("arXiv 正文阅读尚未完成原生适配")
 	}
 	materials := parseBindings(input["materials"])
 	if len(materials) > 0 && !seen["library"] {
@@ -234,11 +249,38 @@ func (engine *Engine) Create(ctx context.Context, input map[string]any) (any, er
 				}
 			}
 		}
+		engineExternal := engine.External
+		externalRows := []ExternalEvidence{}
+		if remote {
+			if engineExternal == nil {
+				engineExternal = NewExternal()
+			}
+			remoteChannels := []string{}
+			for _, channel := range []string{"crossref", "semantic", "arxiv", "web"} {
+				if seen[channel] {
+					remoteChannels = append(remoteChannels, channel)
+				}
+			}
+			externalRows, err = engineExternal.Search(ctx, remoteChannels, question, input["web_search"])
+			if err != nil {
+				return nil, err
+			}
+			if seen["web_pages"] {
+				pages, err := engineExternal.ReadPages(ctx, fulltextChoices)
+				if err != nil {
+					return nil, err
+				}
+				externalRows = append(externalRows, pages...)
+			}
+			if err := engineExternal.Verify(externalRows); err != nil {
+				return nil, err
+			}
+		}
 		contextSnapshot, err := engine.Store.ContextSnapshot(channels, question, conversation, "")
 		if err != nil {
 			return nil, err
 		}
-		if len(selected) == 0 && !contextHasNote(contextSnapshot) {
+		if len(selected) == 0 && len(externalRows) == 0 && !contextHasNote(contextSnapshot) {
 			return nil, fmt.Errorf("未找到可核验资料，请明确选择本次研究材料")
 		}
 		if err := engine.Sources.Verify(selected); err != nil {
@@ -250,6 +292,7 @@ func (engine *Engine) Create(ctx context.Context, input map[string]any) (any, er
 			Events: []map[string]any{}, Materials: selected, Connection: engine.Connection,
 			Extensions: &snapshot, Revision: 0, CreatedAt: now, UpdatedAt: now,
 			MemoryCandidates: []MemoryCandidate{}, Context: &contextSnapshot,
+			External: externalRows, WebSearch: input["web_search"],
 		}
 		if conversation != nil {
 			task.ConversationID = conversation.ID
@@ -281,9 +324,42 @@ func (engine *Engine) Create(ctx context.Context, input map[string]any) (any, er
 				clipped = true
 			}
 		}
+		externalStart := len(task.Sources)
+		remainingExternal := 60000
+		for index, source := range externalRows {
+			limit := 12000
+			if remainingExternal/len(externalRows) < limit {
+				limit = remainingExternal / len(externalRows)
+			}
+			if limit <= 0 {
+				break
+			}
+			fullText := externalEvidenceText(source)
+			value := []rune(fullText)
+			if len(value) > limit {
+				value = value[:limit]
+			}
+			remainingExternal -= len(value)
+			task.Sources = append(task.Sources, TaskSource{
+				SourceID: "S" + itoa(externalStart+index+1), Title: source.Title, URL: source.URL,
+				Text: string(value), Read: len(value) > 0, SourceHash: source.SHA256,
+				Truncated: len(value) < len([]rune(fullText)),
+			})
+		}
 		task.Limitations = "仅依据当前所选知识库原文，不将模型记忆当作来源。"
 		if clipped {
 			task.Limitations = "部分资料超出本次上下文，仅依据显示片段生成，不代表全文核对。"
+		}
+		if len(externalRows) > 0 {
+			task.Limitations += " 外部资料仅是取得时的快照；阅读范围逐项标明，页码是PDF物理页，不代表整篇或整个网站均已核对。"
+			task.Events = append(task.Events, map[string]any{
+				"kind": "external-search", "message": "仅查询明确勾选的公开渠道，读取题录、摘要或搜索片段",
+			})
+		}
+		if len(task.Sources) > externalStart {
+			task.External = externalRows[:len(task.Sources)-externalStart]
+		} else {
+			task.External = []ExternalEvidence{}
 		}
 		task.Events = append(task.Events, map[string]any{
 			"kind": "sources", "message": fmt.Sprintf("已核验%d份资料的当前版本；%s", len(task.Sources), map[bool]string{true: "上下文仅含截取片段", false: "读取完整已选正文"}[clipped]),
@@ -434,15 +510,35 @@ func (engine *Engine) VerifyResult(id string) (Task, error) {
 	if err := engine.Sources.Verify(task.Materials); err != nil {
 		return Task{}, err
 	}
-	if len(task.Sources) != len(task.Materials) {
+	if len(task.Sources) < len(task.Materials) {
 		return Task{}, fmt.Errorf("研究阅读清单与原文回执不一致")
 	}
-	for index, source := range task.Sources {
+	if len(task.External) > 0 {
+		if engine.External == nil {
+			return Task{}, fmt.Errorf("外部来源校验器缺失")
+		}
+		if err := engine.External.Verify(task.External); err != nil {
+			return Task{}, err
+		}
+	}
+	for index, source := range task.Sources[:len(task.Materials)] {
 		local := task.Materials[index]
 		if source.SourceID != "S"+itoa(index+1) || !source.Read || source.Text == "" ||
 			source.Title != local.Title || source.URL != local.Locator || source.SourceHash != local.SourceHash ||
 			!strings.HasPrefix(local.Text, source.Text) {
 			return Task{}, fmt.Errorf("研究阅读片段不属于保存的原文")
+		}
+	}
+	for index, external := range task.External {
+		sourceIndex := len(task.Materials) + index
+		if sourceIndex >= len(task.Sources) {
+			return Task{}, fmt.Errorf("外部来源阅读清单与快照不一致")
+		}
+		source := task.Sources[sourceIndex]
+		fullText := externalEvidenceText(external)
+		if source.SourceID != "S"+itoa(sourceIndex+1) || !source.Read || source.SourceHash != external.SHA256 ||
+			source.URL != external.URL || source.Title != external.Title || !strings.HasPrefix(fullText, source.Text) {
+			return Task{}, fmt.Errorf("外部来源阅读片段与快照不一致")
 		}
 	}
 	return task, nil

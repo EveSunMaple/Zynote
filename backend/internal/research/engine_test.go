@@ -2,8 +2,11 @@ package research
 
 import (
 	"context"
+	"io"
+	"net/http"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/EveSunMaple/Zynote/backend/internal/knowledge"
@@ -65,7 +68,7 @@ func TestEngineCreateAndNote(t *testing.T) {
 	}
 	if _, err := engine.Create(context.Background(), map[string]any{
 		"op": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", "question": "无资料问题",
-		"channels": []any{"web"}, "materials": []any{},
+		"channels": []any{"bogus"}, "materials": []any{},
 	}); err == nil {
 		t.Fatal("external channel must fail explicitly")
 	}
@@ -133,5 +136,55 @@ func TestWorkflowCreateResumeExport(t *testing.T) {
 	if path, err := engine.ExportWorkflow(completed.WorkflowID); err != nil ||
 		!filepath.IsAbs(path.(string)) {
 		t.Fatalf("workflow export mismatch: %v %v", path, err)
+	}
+}
+
+type externalRoundTrip func(*http.Request) (*http.Response, error)
+
+func (fn externalRoundTrip) RoundTrip(request *http.Request) (*http.Response, error) {
+	return fn(request)
+}
+
+func TestExternalSearchAndVerify(t *testing.T) {
+	root, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	store, err := Open(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	knowledgeStore, err := knowledge.Open(filepath.Join(root, "knowledge_base"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer knowledgeStore.Close()
+	engine := &Engine{
+		Store: store, Sources: NewSources(knowledgeStore, store.RootID), Connection: "conn",
+		External: &External{Client: &http.Client{Transport: externalRoundTrip(func(request *http.Request) (*http.Response, error) {
+			body := `{"status":"ok","message":{"items":[{"DOI":"10.1000/xyz123","title":["特征工程方法"],"abstract":"摘要正文"}]}}`
+			return &http.Response{
+				StatusCode: 200, Header: http.Header{"Content-Type": []string{"application/json"}},
+				Body: io.NopCloser(strings.NewReader(body)), Request: request,
+			}, nil
+		})}},
+		Model: func(context.Context, string, string) (string, error) {
+			return "特征工程方法值得参考 [S1]", nil
+		},
+	}
+	created, err := engine.Create(context.Background(), map[string]any{
+		"op": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee", "question": "特征工程",
+		"channels": []any{"crossref"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	task := created.(Task)
+	if len(task.External) != 1 || task.External[0].Provider != "crossref" || len(task.Sources) != 1 {
+		t.Fatalf("external task mismatch: %+v", task)
+	}
+	if _, err := engine.VerifyResult(task.TaskID); err != nil {
+		t.Fatal(err)
 	}
 }

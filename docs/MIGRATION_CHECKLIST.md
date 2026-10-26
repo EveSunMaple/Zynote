@@ -939,3 +939,11 @@ Zynote/
 - [x] `tools:request` 支持 agent-*、note-preview/save、memory-accept、workflow-*；资料目录/会话/记忆/扩展/笔记。
 - [x] 单测覆盖引擎创建+笔记、两步工作流+导出；app 测试覆盖存储动作。
 - [ ] 外部检索/正文、MCP、IM、legacy baseline 未迁；`tools:request` 尚未注册 capability。
+
+### 1.68.1 外部检索（2026-10-24）
+
+- [x] Go 外部检索：Crossref、Semantic Scholar、arXiv Atom、网页（DuckDuckGo/SearXNG），HTTPS 公开地址限制、2 MiB 响应上限。
+- [x] 外部快照 SHA-256 回执、去重与数量上限；`agent-create` 支持 `crossref/semantic/arxiv/web` 及 `web_pages` 正文。
+- [x] 外部来源占用独立预算（60k 字符，每条 12k），结论需引用 `[S*]`，任务核验覆盖外部来源。
+- [x] 单测：外部检索 → 任务 → `VerifyResult`。
+- [ ] arXiv PDF 页级正文、MCP、IM 未迁。
