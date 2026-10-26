@@ -24,6 +24,7 @@ type McpServer struct {
 	Enabled      bool      `json:"enabled"`
 	AllowedTools []string  `json:"allowed_tools"`
 	Tools        []McpTool `json:"tools"`
+	Migration    string    `json:"migration,omitempty"`
 }
 
 type McpCatalog struct {
@@ -299,7 +300,52 @@ func mcpEndpoint(input string) (string, error) {
 func (mcp *Mcp) List() (McpCatalog, error) {
 	row, err := mcp.Store.Read("mcp", "catalog")
 	if err != nil {
-		return McpCatalog{Revision: 0, Servers: []McpServer{}}, nil
+		legacy, legacyErr := mcp.Store.List("legacy:learning_mcp_catalog")
+		if legacyErr != nil || len(legacy) == 0 {
+			return McpCatalog{Revision: 0, Servers: []McpServer{}}, nil
+		}
+		if len(legacy) > 1 {
+			return McpCatalog{}, fmt.Errorf("旧 MCP 清单包含多个资料身份，未自动启用不确定版本")
+		}
+		var rawServers []map[string]any
+		if json.Unmarshal([]byte(text(legacy[0]["content_json"])), &rawServers) != nil || len(rawServers) > 16 {
+			return McpCatalog{}, fmt.Errorf("旧 MCP 清单无效")
+		}
+		catalog := McpCatalog{Revision: int(number(legacy[0]["revision"])), Servers: []McpServer{}}
+		seen := map[string]bool{}
+		for _, raw := range rawServers {
+			id := text(raw["id"])
+			if !opPattern.MatchString(id) || seen[id] {
+				return McpCatalog{}, fmt.Errorf("旧 MCP 连接编号重复")
+			}
+			seen[id] = true
+			endpoint, err := mcpEndpoint(text(raw["endpoint"]))
+			if err != nil {
+				return McpCatalog{}, fmt.Errorf("旧 MCP 地址无效")
+			}
+			tools := []McpTool{}
+			rows, _ := raw["tools"].([]any)
+			for _, item := range rows {
+				tool, _ := item.(map[string]any)
+				schema := map[string]any{"type": "object"}
+				if value, ok := tool["input_schema"].(map[string]any); ok {
+					schema = value
+				}
+				tools = append(tools, McpTool{
+					Name: text(tool["name"]), Description: text(tool["description"]),
+					InputSchema: schema, ReadOnlyDeclared: false,
+				})
+			}
+			catalog.Servers = append(catalog.Servers, McpServer{
+				ID: id, Name: text(raw["name"]), Endpoint: endpoint, Enabled: false,
+				AllowedTools: []string{}, Tools: tools,
+				Migration: "旧地址与工具说明已保留，请重新读取清单并明确启用",
+			})
+		}
+		if err := mcp.Store.Put("mcp", "catalog", catalog.Revision, catalog); err != nil {
+			return McpCatalog{}, err
+		}
+		return catalog, nil
 	}
 	encoded, _ := json.Marshal(row)
 	var catalog McpCatalog

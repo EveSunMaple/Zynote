@@ -1000,3 +1000,8 @@ Zynote/
 - [x] Windows 暂继续走 TS，因本机微信读取与 NapCat 内置后台尚未完成 Go 适配。
 - [x] `agent-read` 兼容旧研究任务；overview 状态更新。
 - [ ] Windows IM、P7 删除 TS 研究后端待完成。
+
+### 1.70.1 旧 MCP 清单（2026-10-24）
+
+- [x] 无新清单时读取 `legacy:learning_mcp_catalog`，仅保留地址/工具说明，默认停用并要求重新发现与明确启用。
+- [x] 多身份、重复编号、无效地址拒绝自动迁移。
