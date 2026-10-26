@@ -45,7 +45,9 @@ jobs:
         run: |
           cd backend
           GOOS=windows GOARCH=amd64 go build -o /tmp/zynote-core-windows.exe ./cmd/zynote-core
+          GOOS=windows GOARCH=amd64 go build ./...
           GOOS=linux GOARCH=amd64 go build -o /tmp/zynote-core-linux ./cmd/zynote-core
+          GOOS=linux GOARCH=amd64 go build ./...
       - name: Cross-language parity
         run: pnpm parity:discussion && pnpm parity:knowledge
       - uses: dtolnay/rust-toolchain@stable
