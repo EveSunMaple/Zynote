@@ -1014,3 +1014,10 @@ Zynote/
 - [x] `im:draft` 迁移 Go：读取已保存消息、模型生成、二次读取比对，不发送。
 - [x] capabilities **152**（含 11 internal）；非 shell 150 条已全部覆盖；app 测试覆盖 runtime status。
 - [ ] Windows 本机微信读取与 NapCat 内置后台仍为 TS 回退。
+
+### 1.72 教材/视觉/智云/知识/聊天路由切换（2026-10-24）
+
+- [x] 主路径新增：textbook 10 条、visual 5 条、ppt-extract 2 条、zhiyun 7 条、practice:submit/reset、subtitles:save/import、questions:split、notes:save。
+- [x] 主路径新增：chat/cancel/job:current、settings:models/probe/test、db:health/backup、knowledge 全组（含向量与问答）。
+- [x] app 测试（chat/knowledge/settings/export/notes/practice/questions/subtitles）与 Electron runtime smoke 通过。
+- [ ] media 仍走 TS（YouTube 翻译/签名缺口）；`export` 仍走 TS（证据包未迁）。
