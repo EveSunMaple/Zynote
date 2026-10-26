@@ -2,6 +2,7 @@ package api
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"path/filepath"
@@ -10,6 +11,7 @@ import (
 	"github.com/EveSunMaple/Zynote/backend/internal/ai"
 	"github.com/EveSunMaple/Zynote/backend/internal/config"
 	"github.com/EveSunMaple/Zynote/backend/internal/contract"
+	"github.com/EveSunMaple/Zynote/backend/internal/im"
 	"github.com/EveSunMaple/Zynote/backend/internal/research"
 )
 
@@ -73,6 +75,48 @@ func (inv *Invoker) researchEngine(store contract.StateStore, state *contract.St
 			}, nil)
 		},
 	}, nil
+}
+
+func (inv *Invoker) imService(state *contract.State, reverse contract.ReverseCaller) (*im.Service, error) {
+	root := filepath.Join(state.LibraryRoot, "知识库数据")
+	inv.imMu.Lock()
+	defer inv.imMu.Unlock()
+	if inv.im != nil && inv.imRoot == root {
+		return inv.im, nil
+	}
+	if inv.im != nil {
+		_ = inv.im.Close()
+		inv.im = nil
+	}
+	crypt := func(data []byte, decrypt bool) ([]byte, error) {
+		if reverse == nil {
+			return nil, fmt.Errorf("系统加密桥不可用")
+		}
+		method := "crypto.protect-bytes"
+		if decrypt {
+			method = "crypto.unprotect-bytes"
+		}
+		raw, err := reverse.Call(method, map[string]any{
+			"value": base64.StdEncoding.EncodeToString(data), "domain": "im",
+		}, 30000)
+		if err != nil {
+			return nil, err
+		}
+		var reply struct {
+			Value string `json:"value"`
+		}
+		if json.Unmarshal(raw, &reply) != nil {
+			return nil, fmt.Errorf("系统加密响应无效")
+		}
+		return base64.StdEncoding.DecodeString(reply.Value)
+	}
+	service, err := im.NewService(root, state.ResourcesRoot, crypt)
+	if err != nil {
+		return nil, err
+	}
+	inv.im = service
+	inv.imRoot = root
+	return service, nil
 }
 
 func (inv *Invoker) handleToolsRequest(storeState contract.StateStore, state *contract.State, params json.RawMessage) (any, error) {

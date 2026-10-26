@@ -10,6 +10,7 @@ import (
 
 	"github.com/EveSunMaple/Zynote/backend/internal/contract"
 	"github.com/EveSunMaple/Zynote/backend/internal/helper"
+	"github.com/EveSunMaple/Zynote/backend/internal/im"
 	"github.com/EveSunMaple/Zynote/backend/internal/jobs"
 	"github.com/EveSunMaple/Zynote/backend/internal/knowledge"
 	"github.com/EveSunMaple/Zynote/backend/internal/media"
@@ -40,6 +41,9 @@ type Invoker struct {
 	mediaMu       sync.Mutex
 	notifier      contract.Notifier
 	jobs          *jobs.Registry
+	im            *im.Service
+	imRoot        string
+	imMu          sync.Mutex
 }
 
 func NewInvoker() *Invoker {

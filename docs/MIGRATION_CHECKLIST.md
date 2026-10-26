@@ -965,3 +965,12 @@ Zynote/
 - [x] `practice` 上下文：仅检索题干，不读取答案/成绩；研究渠道实际生效。
 - [x] 测试：基线导入、旧会话/记忆、练习题干上下文。
 - [ ] IM 域（约 3.6k 行，含 QQ/微信运行时）未迁；`tools:request` 仍未注册。
+
+### 1.69 IM 核心（2026-10-24）
+
+- [x] Go IM 存储：连接/注册版本、DPAPI/系统加密桥（domain im）、只读消息保存、容量与读取权限、发送幂等回执、清理预览。
+- [x] QQ OneBot：账号/状态核验、好友/群目录、历史读取、显式发送；手工 WebUI 登录（NapCat 内置后台仍限 Windows）。
+- [x] 微信 iLink：扫码/验证码轮询、`getconfig` 核验、`getupdates` 同步/游标、目录、带 `context_token` 的显式发送。
+- [x] `tools:request` 的 `im` 动作接通 status/change/start/inspect/cancel/confirm/qr/read/sync/send/directory/cleanup 等；登录状态跨请求保留。
+- [x] 测试：连接创建/绑定、QQ 同步/读取/发送/清理、本机地址校验。
+- [ ] 微信 Web、本机微信（Windows 只读）、NapCat 内置后台、自动化 rules/runs/reply-jobs 未迁。
