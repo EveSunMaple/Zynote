@@ -21,7 +21,30 @@ export const goPrimaryActions = new Set([
  'db:bootstrap',
  'course:delete',
  'session:delete',
- 'lecture:delete'
+ 'lecture:delete',
+ 'courses',
+ 'study:get',
+ 'study:save',
+ 'study:parse',
+ 'subtitles:generate',
+ 'notes:generate',
+ 'practice:generate',
+ 'practice:answer',
+ 'practice:prepare',
+ 'subtitle-sync:list',
+ 'subtitle-sync:start',
+ 'subtitle-sync:mixed',
+ 'subtitle-sync:resume',
+ 'subtitle-sync:attach',
+ 'subtitle-derived:list',
+ 'subtitle-derived:resume',
+ 'subtitle-derived:start',
+ 'settings:save',
+ 'appearance:image',
+ 'identity:avatar',
+ 'library:open',
+ 'library:open-file',
+ 'library:reveal'
 ])
 
 const deleteSubjects = new Map([

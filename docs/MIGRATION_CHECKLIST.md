@@ -911,3 +911,10 @@ Zynote/
 - [x] PPT 失败回退：课次录像下载 → 视频采样/稳定页/PDF → 写课件缓存；原文/课件路径写库并清校订检查点。
 - [x] capabilities 146 → **147**；客户端单测覆盖资源获取、下载、录像 URL、媒体地址拒绝。
 - [ ] 全黑 PPTX 的本地图片判定未实现（直接解析失败才回退）；`runtime:*`、`tools:*`、`im:draft` 未迁。
+
+## 1.65 学习/字幕域路由切换（2026-10-24）
+
+- [x] `goPrimaryActions` 新增：`courses`、`study:*`、`subtitles:generate`、`notes:generate`、`practice:generate/answer/prepare`、`subtitle-sync:*`、`subtitle-derived:*`、`settings:save`、`appearance:image`、`identity:avatar`、`library:open/open-file/reveal`。
+- [x] 依据：对应 app 级/服务级测试已覆盖；Go core 不可用时仍回退 TS。
+- [x] `pnpm runtime:smoke` 通过；capabilities 保持 147。
+- [ ] 媒体/教材/视觉/智云/视频路由仍需真实手测后切换；研究/IM/Windows runtime 未迁。
