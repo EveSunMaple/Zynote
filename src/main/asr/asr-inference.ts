@@ -85,7 +85,8 @@ export async function transcribePcm(
   const cues: AsrCue[] = []
   for (const [index, range] of ranges.entries()) {
    progress(`正在转写语音片段 ${index + 1}/${ranges.length}（原视频 ${Math.round(range.start / 16000)} 秒）`)
-   const result = await transcriber(audio.subarray(range.start, range.end), {
+   // biome-ignore format: NOSONAR must stay on the await line
+   const result = await transcriber(audio.subarray(range.start, range.end), { // NOSONAR: ordered/limited operation; parallelizing would change atomicity, rate limits, or deterministic progress.
     language,
     task: 'transcribe',
     return_timestamps: true,

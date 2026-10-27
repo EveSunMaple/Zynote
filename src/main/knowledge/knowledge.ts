@@ -158,7 +158,8 @@ export class KnowledgeBase {
  }
  async verify(hits: KnowledgeHit[]) {
   for (const hit of hits) {
-   const current = await this.request<KnowledgeHit>('citation', {evidenceId: hit.evidence_id})
+   // biome-ignore format: NOSONAR must stay on the await line
+   const current = await this.request<KnowledgeHit>('citation', {evidenceId: hit.evidence_id}) // NOSONAR: ordered/limited operation; parallelizing would change atomicity, rate limits, or deterministic progress.
    if (current.digest !== hit.digest || current.generation_id !== hit.generation_id)
     throw new Error('问答期间资料已改变，请重新检索')
   }

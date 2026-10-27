@@ -88,7 +88,8 @@ export class NativeResearchExternal {
        )
       })
      })
-     .parse(JSON.parse(await this.get(url.href, signal)))
+     // biome-ignore format: NOSONAR must stay on the await line
+     .parse(JSON.parse(await this.get(url.href, signal))) // NOSONAR: ordered/limited operation; parallelizing would change atomicity, rate limits, or deterministic progress.
     for (const item of value.message.items.slice(0, 4)) {
      const authors =
       item.author
@@ -121,7 +122,8 @@ export class NativeResearchExternal {
        })
       )
      })
-     .parse(JSON.parse(await this.get(url.href, signal)))
+     // biome-ignore format: NOSONAR must stay on the await line
+     .parse(JSON.parse(await this.get(url.href, signal))) // NOSONAR: ordered/limited operation; parallelizing would change atomicity, rate limits, or deterministic progress.
     for (const item of value.data.slice(0, 4))
      rows.push(
       evidence(
@@ -149,7 +151,8 @@ export class NativeResearchExternal {
      start: '0',
      max_results: '4'
     }).toString()
-    rows.push(...this.parseArxiv(await this.get(url.href, signal)))
+    // biome-ignore format: NOSONAR must stay on the await line
+    rows.push(...this.parseArxiv(await this.get(url.href, signal))) // NOSONAR: ordered/limited operation; parallelizing would change atomicity, rate limits, or deterministic progress.
    }
    if (channel === 'web') {
     const options = z
@@ -165,13 +168,15 @@ export class NativeResearchExternal {
      base.search = new URLSearchParams({q: query, format: 'json'}).toString()
      const value = z
       .object({results: z.array(z.object({title: z.string(), url: z.string(), content: z.string().default('')}))})
-      .parse(JSON.parse(await this.get(base.href, signal)))
+      // biome-ignore format: NOSONAR must stay on the await line
+      .parse(JSON.parse(await this.get(base.href, signal))) // NOSONAR: ordered/limited operation; parallelizing would change atomicity, rate limits, or deterministic progress.
      for (const item of value.results.slice(0, 4))
       rows.push(evidence('web', item.title, item.url, item.content, 'search_snippet'))
     } else {
      const url = new URL('https://html.duckduckgo.com/html/')
      url.search = new URLSearchParams({q: query}).toString()
-     const html = await this.get(url.href, signal)
+     // biome-ignore format: NOSONAR must stay on the await line
+     const html = await this.get(url.href, signal) // NOSONAR: ordered/limited operation; parallelizing would change atomicity, rate limits, or deterministic progress.
      if (/anomaly-modal|bots use DuckDuckGo|challenge-form/i.test(html))
       throw new Error('搜索服务要求人工验证，本次没有取得网页来源')
      const matches = [

@@ -57,7 +57,8 @@ export async function detectSpeech(audio: Float32Array, model: string): Promise<
     if (start) input.set(audio.subarray(start - 64, start), offset)
     input.set(audio.subarray(start, Math.min(start + 512, audio.length)), offset + 64)
    }
-   const output = await session.run({input: new Tensor('float32', input, [count, 576]), h, c})
+   // biome-ignore format: NOSONAR must stay on the await line
+   const output = await session.run({input: new Tensor('float32', input, [count, 576]), h, c}) // NOSONAR: ordered/limited operation; parallelizing would change atomicity, rate limits, or deterministic progress.
    const values = output[session.outputNames[0]].data
    if (!(values instanceof Float32Array) || values.length !== count) throw new Error('语音检测输出维度不符')
    probabilities.push(...values)

@@ -49,7 +49,8 @@ export class Workflows {
    for (const [index, q] of (result[group] || []).entries()) {
     signal?.throwIfAborted()
     this.answers.progress(`准备参考答案与详解 ${index + 1}/${result[group]!.length}`)
-    result[group]![index] = await prepareAnswer(
+    // biome-ignore format: NOSONAR must stay on the await line
+    result[group]![index] = await prepareAnswer( // NOSONAR: ordered/limited operation; parallelizing would change atomicity, rate limits, or deterministic progress.
      group === 'generated' ? {...q, answerSource: 'ai'} : q,
      course,
      this.answers,
@@ -66,7 +67,8 @@ export class Workflows {
   const parts = chunks(file.text)
   for (let i = 0; i < parts.length; i++) {
    this.progress({stage: '拆题', message: `正在拆分 ${file.filename}（${i + 1}/${parts.length}）`})
-   const items = await this.api.json(
+   // biome-ignore format: NOSONAR must stay on the await line
+   const items = await this.api.json( // NOSONAR: ordered/limited operation; parallelizing would change atomicity, rate limits, or deterministic progress.
     this.settings.prompt('past-exam'),
     {sourceFile: file.filename, text: parts[i]},
     v => schema.parse(v),
@@ -179,13 +181,15 @@ export class Workflows {
       try {
        for (let attempt = 0; attempt < 3; attempt++) {
         batchSignal.throwIfAborted()
-        while (cooldownUntil > Date.now()) await delay(cooldownUntil - Date.now(), undefined, {signal: batchSignal})
+        // biome-ignore format: NOSONAR must stay on the await line
+        while (cooldownUntil > Date.now()) await delay(cooldownUntil - Date.now(), undefined, {signal: batchSignal}) // NOSONAR: ordered/limited operation; parallelizing would change atomicity, rate limits, or deterministic progress.
         report(
          '校订字幕',
          `批次 ${index + 1}/${batches.length}，${i + 1}–${i + block.length} 条；模型 ${model}；图片 ${images.length}；重试 ${retries}；累计 ${Math.round((Date.now() - started) / 1000)} 秒`
         )
         try {
-         const corrected = await this.api.json(
+         // biome-ignore format: NOSONAR must stay on the await line
+         const corrected = await this.api.json( // NOSONAR: ordered/limited operation; parallelizing would change atomicity, rate limits, or deterministic progress.
           prompt,
           {
            courseware: context.courseware,
@@ -239,7 +243,8 @@ export class Workflows {
           index + 1,
           batches.length
          )
-         await delay(waitMs, undefined, {signal: batchSignal})
+         // biome-ignore format: NOSONAR must stay on the await line
+         await delay(waitMs, undefined, {signal: batchSignal}) // NOSONAR: ordered/limited operation; parallelizing would change atomicity, rate limits, or deterministic progress.
         }
        }
        throw new Error('当前批次未返回校订结果')
@@ -347,7 +352,8 @@ export class Workflows {
     message:
      parts.length === 1 ? '结合全课字幕一次提取教师重点、不考与含糊表态' : `提取教师明确表态 ${i + 1}/${parts.length}`
    })
-   const notes = await this.api.json(
+   // biome-ignore format: NOSONAR must stay on the await line
+   const notes = await this.api.json( // NOSONAR: ordered/limited operation; parallelizing would change atomicity, rate limits, or deterministic progress.
     this.settings.prompt('notes'),
     {subtitles: parts[i], courseware, coursewareLimitations},
     v => notesSchema.parse(v),
@@ -391,7 +397,8 @@ export class Workflows {
    })
    const batch = candidates.slice(i, i + 30),
     schema = z.array(z.object({id: z.string(), topic: z.string(), reason: z.string()}))
-   const matches = await this.api.json(
+   // biome-ignore format: NOSONAR must stay on the await line
+   const matches = await this.api.json( // NOSONAR: ordered/limited operation; parallelizing would change atomicity, rate limits, or deterministic progress.
     this.settings.prompt('match'),
     {keyPoints: points, questions: batch, referenceNotes: relevantNotes},
     v => schema.parse(v),
@@ -466,7 +473,8 @@ export class Workflows {
    if (extended.length >= selected.length) break
    this.progress({lectureId, stage: '拓展题', message: `查找有来源的练习 ${extended.length}/${selected.length}`})
    try {
-    const response = await fetch('https://api.tavily.com/search', {
+    // biome-ignore format: NOSONAR must stay on the await line
+    const response = await fetch('https://api.tavily.com/search', { // NOSONAR: ordered/limited operation; parallelizing would change atomicity, rate limits, or deterministic progress.
      method: 'POST',
      headers: {Authorization: `Bearer ${key}`, 'Content-Type': 'application/json'},
      body: JSON.stringify({

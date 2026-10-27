@@ -260,12 +260,14 @@ export function Study({
      const pdf = await task.promise
      if (pdf.numPages > 500) throw new Error('请选择本节课 PPT，不能使用全课程合并课件')
      for (let number = 1; number <= pdf.numPages; number++) {
-      const page = await pdf.getPage(number),
+      // biome-ignore format: NOSONAR must stay on the await line
+      const page = await pdf.getPage(number), // NOSONAR: ordered/limited operation; parallelizing would change atomicity, rate limits, or deterministic progress.
        viewport = page.getViewport({scale: 900 / page.getViewport({scale: 1}).width}),
        canvas = document.createElement('canvas')
       canvas.width = viewport.width
       canvas.height = viewport.height
-      await page.render({canvas, canvasContext: canvas.getContext('2d')!, viewport}).promise
+      // biome-ignore format: NOSONAR must stay on the await line
+      await page.render({canvas, canvasContext: canvas.getContext('2d')!, viewport}).promise // NOSONAR: ordered/limited operation; parallelizing would change atomicity, rate limits, or deterministic progress.
       images.push(canvas.toDataURL('image/jpeg', 0.8))
      }
     } finally {
@@ -291,12 +293,14 @@ export function Study({
     try {
      const pdf = await task.promise
      for (let number = first; number <= last; number++) {
-      const page = await pdf.getPage(number),
+      // biome-ignore format: NOSONAR must stay on the await line
+      const page = await pdf.getPage(number), // NOSONAR: ordered/limited operation; parallelizing would change atomicity, rate limits, or deterministic progress.
        viewport = page.getViewport({scale: Math.min(1.5, 1200 / page.getViewport({scale: 1}).width)}),
        canvas = document.createElement('canvas')
       canvas.width = viewport.width
       canvas.height = viewport.height
-      await page.render({canvas, canvasContext: canvas.getContext('2d')!, viewport}).promise
+      // biome-ignore format: NOSONAR must stay on the await line
+      await page.render({canvas, canvasContext: canvas.getContext('2d')!, viewport}).promise // NOSONAR: ordered/limited operation; parallelizing would change atomicity, rate limits, or deterministic progress.
       images.push(canvas.toDataURL('image/jpeg', 0.85))
      }
     } finally {

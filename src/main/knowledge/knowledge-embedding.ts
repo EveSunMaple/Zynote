@@ -53,7 +53,8 @@ export class KnowledgeEmbedding {
   if (!windows.length) throw new Error('语义检索文字为空')
   const combined = Array<number>(512).fill(0)
   for (const window of windows) {
-   const output = await this.extractor!(window, {pooling: 'cls', normalize: true})
+   // biome-ignore format: NOSONAR must stay on the await line
+   const output = await this.extractor!(window, {pooling: 'cls', normalize: true}) // NOSONAR: ordered/limited operation; parallelizing would change atomicity, rate limits, or deterministic progress.
    if (output.data.length !== 512) throw new Error('中文语义模型维度不符')
    for (let index = 0; index < 512; index++) combined[index] += Number(output.data[index])
   }

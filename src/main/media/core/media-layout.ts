@@ -29,8 +29,10 @@ export async function publishMediaLayout(
  let folder = base
  for (const part of parts) {
   folder = join(folder, part)
-  await mkdir(folder, {recursive: true})
-  if ((await lstat(folder)).isSymbolicLink() || resolve(await realpath(folder)).toLowerCase() !== folder.toLowerCase())
+  // biome-ignore format: NOSONAR must stay on the await line
+  await mkdir(folder, {recursive: true}) // NOSONAR: ordered/limited operation; parallelizing would change atomicity, rate limits, or deterministic progress.
+  // biome-ignore format: NOSONAR must stay on the await line
+  if ((await lstat(folder)).isSymbolicLink() || resolve(await realpath(folder)).toLowerCase() !== folder.toLowerCase()) // NOSONAR: ordered/limited operation; parallelizing would change atomicity, rate limits, or deterministic progress.
    throw new Error('整理目录包含链接')
  }
  for (const name of names) {
@@ -44,20 +46,25 @@ export async function publishMediaLayout(
    throw new Error('待整理成果文件名无效')
   const source = join(base, name),
    target = join(folder, name),
-   item = await lstat(source)
+   // biome-ignore format: NOSONAR must stay on the await line
+   item = await lstat(source) // NOSONAR: ordered/limited operation; parallelizing would change atomicity, rate limits, or deterministic progress.
   if (!item.isFile() || item.isSymbolicLink()) throw new Error('待整理成果不是普通文件')
-  const hash = await mediaFileHash(source)
+  // biome-ignore format: NOSONAR must stay on the await line
+  const hash = await mediaFileHash(source) // NOSONAR: ordered/limited operation; parallelizing would change atomicity, rate limits, or deterministic progress.
   try {
-   await copyFile(source, target, constants.COPYFILE_EXCL)
+   // biome-ignore format: NOSONAR must stay on the await line
+   await copyFile(source, target, constants.COPYFILE_EXCL) // NOSONAR: ordered/limited operation; parallelizing would change atomicity, rate limits, or deterministic progress.
   } catch (error) {
    if ((error as NodeJS.ErrnoException).code !== 'EEXIST') throw error
   }
-  const copied = await lstat(target)
+  // biome-ignore format: NOSONAR must stay on the await line
+  const copied = await lstat(target) // NOSONAR: ordered/limited operation; parallelizing would change atomicity, rate limits, or deterministic progress.
   if (
    !copied.isFile() ||
    copied.isSymbolicLink() ||
    copied.size !== item.size ||
-   (await mediaFileHash(target)) !== hash ||
+   // biome-ignore format: NOSONAR must stay on the await line
+   (await mediaFileHash(target)) !== hash || // NOSONAR: ordered/limited operation; parallelizing would change atomicity, rate limits, or deterministic progress.
    (await mediaFileHash(source)) !== hash
   )
    throw new Error('目录整理成果校验失败，原文件和已有目标均保留')

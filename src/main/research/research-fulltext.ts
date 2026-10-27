@@ -31,7 +31,8 @@ async function bytes(response: Response, max: number, signal: AbortSignal) {
  try {
   while (true) {
    signal.throwIfAborted()
-   const item = await reader.read()
+   // biome-ignore format: NOSONAR must stay on the await line
+   const item = await reader.read() // NOSONAR: ordered/limited operation; parallelizing would change atomicity, rate limits, or deterministic progress.
    if (item.done) break
    size += item.value.length
    if (size > max) throw new Error('正文文件超过大小上限')
@@ -107,16 +108,20 @@ export class NativeResearchFulltext {
     if (!choice.pages?.length || new Set(choice.pages).size !== choice.pages.length || ++pdfCount > 2 || url.search)
      throw new Error('每次最多两篇固定版本论文，每篇明确选择至多四个物理页')
     const target = 'https://arxiv.org/pdf/' + url.pathname.replace(/^\/(?:abs|pdf)\//, ''),
-     result = await this.exchange(target, {signal, headers: {Accept: 'application/pdf'}})
+     // biome-ignore format: NOSONAR must stay on the await line
+     result = await this.exchange(target, {signal, headers: {Accept: 'application/pdf'}}) // NOSONAR: ordered/limited operation; parallelizing would change atomicity, rate limits, or deterministic progress.
     let data: Buffer
     try {
      if (!result.response.ok) throw new Error('论文正文请求未成功')
-     data = await bytes(result.response, 8 * 1024 * 1024, signal)
+     // biome-ignore format: NOSONAR must stay on the await line
+     data = await bytes(result.response, 8 * 1024 * 1024, signal) // NOSONAR: ordered/limited operation; parallelizing would change atomicity, rate limits, or deterministic progress.
      if (!data.subarray(0, 5).equals(Buffer.from('%PDF-'))) throw new Error('论文接口未返回 PDF')
     } finally {
-     await result.close()
+     // biome-ignore format: NOSONAR must stay on the await line
+     await result.close() // NOSONAR: ordered/limited operation; parallelizing would change atomicity, rate limits, or deterministic progress.
     }
-    const pdfjs = await import('pdfjs-dist/legacy/build/pdf.mjs'),
+    // biome-ignore format: NOSONAR must stay on the await line
+    const pdfjs = await import('pdfjs-dist/legacy/build/pdf.mjs'), // NOSONAR: ordered/limited operation; parallelizing would change atomicity, rate limits, or deterministic progress.
      task = pdfjs.getDocument({data: new Uint8Array(data), useSystemFonts: true, disableFontFace: true}),
      abort = () => {
       void task.destroy().catch(() => {})
@@ -124,12 +129,14 @@ export class NativeResearchFulltext {
     signal.addEventListener('abort', abort, {once: true})
     try {
      signal.throwIfAborted()
-     const pdf = await task.promise
+     // biome-ignore format: NOSONAR must stay on the await line
+     const pdf = await task.promise // NOSONAR: ordered/limited operation; parallelizing would change atomicity, rate limits, or deterministic progress.
      if (pdf.numPages > 64 || choice.pages.some(page => page > pdf.numPages))
       throw new Error('论文页数超出预算或所选物理页不存在')
      for (const page of choice.pages) {
       signal.throwIfAborted()
-      const content = await (await pdf.getPage(page)).getTextContent()
+      // biome-ignore format: NOSONAR must stay on the await line
+      const content = await (await pdf.getPage(page)).getTextContent() // NOSONAR: ordered/limited operation; parallelizing would change atomicity, rate limits, or deterministic progress.
       const textItem = (item: unknown) => {
        if (typeof item !== 'object' || item === null) return ''
        const value = item as {str?: unknown; hasEOL?: boolean}

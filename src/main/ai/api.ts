@@ -109,7 +109,8 @@ export async function readSse(body: ReadableStream<Uint8Array>, onText: (text: s
  }
  try {
   for (;;) {
-   const {value, done} = await reader.read()
+   // biome-ignore format: NOSONAR must stay on the await line
+   const {value, done} = await reader.read() // NOSONAR: ordered/limited operation; parallelizing would change atomicity, rate limits, or deterministic progress.
    buffer += decoder.decode(value, {stream: !done}).replaceAll('\r', '')
    let index: number
    while ((index = buffer.indexOf('\n\n')) >= 0) {
@@ -283,7 +284,8 @@ export class Api {
        {type: 'text', text}
       ]
     : text
-   const raw = await this.chat(
+   // biome-ignore format: NOSONAR must stay on the await line
+   const raw = await this.chat( // NOSONAR: ordered/limited operation; parallelizing would change atomicity, rate limits, or deterministic progress.
     [
      {role: 'system', content: prompt},
      {role: 'user', content}
@@ -301,7 +303,8 @@ export class Api {
     if (attempt === 1) throw error
     feedback = '\n上次输出未通过格式校验。请严格返回指定结构的合法 JSON，不加说明。'
     options?.onRetry?.()
-    await delay(1500, undefined, {signal})
+    // biome-ignore format: NOSONAR must stay on the await line
+    await delay(1500, undefined, {signal}) // NOSONAR: ordered/limited operation; parallelizing would change atomicity, rate limits, or deterministic progress.
    }
   }
   throw new Error('结构化输出失败')

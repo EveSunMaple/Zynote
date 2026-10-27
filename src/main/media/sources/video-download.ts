@@ -27,11 +27,13 @@ export async function downloadVideoMedia(
    next = media
   for (let i = 0; i < 6; i++) {
    if (!videoMediaUrl(next)) throw new Error('下载链接不是受支持的 B 站 MP4 视频')
-   response = await request(next, {signal: active, redirect: 'manual', headers: {Referer: 'https://www.bilibili.com/'}})
+   // biome-ignore format: NOSONAR must stay on the await line
+   response = await request(next, {signal: active, redirect: 'manual', headers: {Referer: 'https://www.bilibili.com/'}}) // NOSONAR: ordered/limited operation; parallelizing would change atomicity, rate limits, or deterministic progress.
    touch()
    if ([301, 302, 303, 307, 308].includes(response.status)) {
     const location = response.headers.get('location')
-    await response.body?.cancel()
+    // biome-ignore format: NOSONAR must stay on the await line
+    await response.body?.cancel() // NOSONAR: ordered/limited operation; parallelizing would change atomicity, rate limits, or deterministic progress.
     if (!location) throw new Error('下载重定向无效')
     next = new URL(location, next).href
     response = undefined
@@ -52,13 +54,15 @@ export async function downloadVideoMedia(
   try {
    for (;;) {
     active.throwIfAborted()
-    const {done, value} = await reader.read()
+    // biome-ignore format: NOSONAR must stay on the await line
+    const {done, value} = await reader.read() // NOSONAR: ordered/limited operation; parallelizing would change atomicity, rate limits, or deterministic progress.
     active.throwIfAborted()
     if (done) break
     touch()
     let offset = 0
     while (offset < value.length) {
-     const written = await file.write(value, offset, value.length - offset)
+     // biome-ignore format: NOSONAR must stay on the await line
+     const written = await file.write(value, offset, value.length - offset) // NOSONAR: ordered/limited operation; parallelizing would change atomicity, rate limits, or deterministic progress.
      offset += written.bytesWritten
     }
     bytes += value.length

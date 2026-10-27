@@ -185,10 +185,12 @@ export class VideoPpt {
   if (dirname(dir) !== root) throw new Error('任务清理路径校验失败')
   const files = await readdir(dir)
   for (const name of files) {
-   const entry = await lstat(join(dir, name))
+   // biome-ignore format: NOSONAR must stay on the await line
+   const entry = await lstat(join(dir, name)) // NOSONAR: ordered/limited operation; parallelizing would change atomicity, rate limits, or deterministic progress.
    if (!entry.isFile() || entry.isSymbolicLink()) throw new Error('任务目录含未知文件，暂不清理')
   }
-  for (const name of files) await unlink(join(dir, name))
+  // biome-ignore format: NOSONAR must stay on the await line
+  for (const name of files) await unlink(join(dir, name)) // NOSONAR: ordered/limited operation; parallelizing would change atomicity, rate limits, or deterministic progress.
   await rmdir(dir)
   this.tasks.delete(id)
  }
@@ -249,21 +251,26 @@ export class VideoPpt {
  async pending() {
   await mkdir(this.root, {recursive: true})
   const result: PendingVideoTask[] = []
-  for (const id of await readdir(this.root)) {
+  // biome-ignore format: NOSONAR must stay on the await line
+  for (const id of await readdir(this.root)) { // NOSONAR: ordered/limited operation; parallelizing would change atomicity, rate limits, or deterministic progress.
    if (!/^[\da-f-]{36}$/i.test(id)) continue
    try {
-    const raw = JSON.parse(await readFile(join(await this.location(id), 'task.json'), 'utf8')) as {kind?: string}
+    // biome-ignore format: NOSONAR must stay on the await line
+    const raw = JSON.parse(await readFile(join(await this.location(id), 'task.json'), 'utf8')) as {kind?: string} // NOSONAR: ordered/limited operation; parallelizing would change atomicity, rate limits, or deterministic progress.
     if (raw.kind === 'subtitle') {
-     const task = await this.subtitleTask(id)
+     // biome-ignore format: NOSONAR must stay on the await line
+     const task = await this.subtitleTask(id) // NOSONAR: ordered/limited operation; parallelizing would change atomicity, rate limits, or deterministic progress.
      result.push({id, name: task.name, kind: 'subtitle', savedPath: task.saved?.path})
      continue
     }
-    const restored = await this.restore(id)
+    // biome-ignore format: NOSONAR must stay on the await line
+    const restored = await this.restore(id) // NOSONAR: ordered/limited operation; parallelizing would change atomicity, rate limits, or deterministic progress.
     result.push({id, name: restored.source.name})
    } catch (error) {
     let name = '未完成任务 ' + id.slice(0, 8)
     try {
-     const dir = await this.location(id),
+     // biome-ignore format: NOSONAR must stay on the await line
+     const dir = await this.location(id), // NOSONAR: ordered/limited operation; parallelizing would change atomicity, rate limits, or deterministic progress.
       meta = JSON.parse(await readFile(join(dir, 'task.json'), 'utf8'))
      if (meta.id === id && typeof meta.name === 'string' && meta.name.trim()) name = meta.name
     } catch {

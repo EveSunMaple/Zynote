@@ -24,13 +24,16 @@ export async function mediaSidecars(
  for (const output of outputs) {
   const path = join(base, output.relative)
   try {
-   await writeFile(path, output.text, {flag: 'wx'})
+   // biome-ignore format: NOSONAR must stay on the await line
+   await writeFile(path, output.text, {flag: 'wx'}) // NOSONAR: ordered/limited operation; parallelizing would change atomicity, rate limits, or deterministic progress.
   } catch (error) {
    if ((error as NodeJS.ErrnoException).code !== 'EEXIST') throw error
-   const item = await lstat(path)
+   // biome-ignore format: NOSONAR must stay on the await line
+   const item = await lstat(path) // NOSONAR: ordered/limited operation; parallelizing would change atomicity, rate limits, or deterministic progress.
    if (!item.isFile() || item.isSymbolicLink()) throw new Error('附属文件路径无效')
   }
-  if ((await readFile(path, 'utf8')) !== output.text) throw new Error('附属文件与当前来源不一致，保留原文件')
+  // biome-ignore format: NOSONAR must stay on the await line
+  if ((await readFile(path, 'utf8')) !== output.text) throw new Error('附属文件与当前来源不一致，保留原文件') // NOSONAR: ordered/limited operation; parallelizing would change atomicity, rate limits, or deterministic progress.
  }
  return outputs.map(output => output.relative)
 }

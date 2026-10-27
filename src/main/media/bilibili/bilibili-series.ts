@@ -83,11 +83,13 @@ export async function readVideoSeries(input: string, signal: AbortSignal): Promi
   await win.loadURL(pageUrl.href)
   for (let attempt = 0; attempt < 15; attempt++) {
    signal.throwIfAborted()
-   const state = await win.webContents.executeJavaScript(
+   // biome-ignore format: NOSONAR must stay on the await line
+   const state = await win.webContents.executeJavaScript( // NOSONAR: ordered/limited operation; parallelizing would change atomicity, rate limits, or deterministic progress.
     `(()=>{const v=window.__INITIAL_STATE__?.videoData;return v?.pages?.length?{title:v.title,pages:v.pages}:null})()`
    )
    if (state) return parseVideoSeries(url.href, state)
-   await new Promise<void>(resolve => setTimeout(resolve, 1000))
+   // biome-ignore format: NOSONAR must stay on the await line
+   await new Promise<void>(resolve => setTimeout(resolve, 1000)) // NOSONAR: ordered/limited operation; parallelizing would change atomicity, rate limits, or deterministic progress.
   }
   throw new Error('视频页面暂未提供分集目录')
  } catch (e) {

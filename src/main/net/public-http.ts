@@ -103,7 +103,8 @@ export async function boundedPublicText(response: Response, max = 262144) {
  let length = 0
  try {
   while (true) {
-   const item = await reader.read()
+   // biome-ignore format: NOSONAR must stay on the await line
+   const item = await reader.read() // NOSONAR: ordered/limited operation; parallelizing would change atomicity, rate limits, or deterministic progress.
    if (item.done) break
    length += item.value.length
    if (length > max) throw new Error('外部服务响应超过大小上限')

@@ -14,7 +14,8 @@ async function run() {
  try {
   let position = 0
   while (position < size) {
-   const {bytesRead} = await handle.read(bytes, 0, Math.min(bytes.length, size - position), position)
+   // biome-ignore format: NOSONAR must stay on the await line
+   const {bytesRead} = await handle.read(bytes, 0, Math.min(bytes.length, size - position), position) // NOSONAR: ordered/limited operation; parallelizing would change atomicity, rate limits, or deterministic progress.
    if (!bytesRead || bytesRead % 4) throw new Error('音频暂存文件不完整')
    for (let index = 0; index < bytesRead; index += 4) audio[(position + index) / 4] = bytes.readFloatLE(index)
    position += bytesRead

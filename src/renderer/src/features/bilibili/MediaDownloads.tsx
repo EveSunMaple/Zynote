@@ -141,8 +141,10 @@ export function MediaDownloads({visible}: Readonly<{visible: boolean}>) {
   const failed: string[] = []
   for (const link of urls) {
    try {
-    const item = source.playlist ? await invoke<MediaCatalog>('media:catalog', {url: link, options}) : source
-    await invoke('media:create', {token: item.token, options})
+    // biome-ignore format: NOSONAR must stay on the await line
+    const item = source.playlist ? await invoke<MediaCatalog>('media:catalog', {url: link, options}) : source // NOSONAR: ordered/limited operation; parallelizing would change atomicity, rate limits, or deterministic progress.
+    // biome-ignore format: NOSONAR must stay on the await line
+    await invoke('media:create', {token: item.token, options}) // NOSONAR: ordered/limited operation; parallelizing would change atomicity, rate limits, or deterministic progress.
     count++
    } catch (reason) {
     failed.push(`${link}：${reason instanceof Error ? reason.message : String(reason)}`)

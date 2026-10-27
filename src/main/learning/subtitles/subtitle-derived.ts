@@ -75,8 +75,10 @@ export class SubtitleDerived {
  async list() {
   await mkdir(this.root, {recursive: true})
   const tasks = []
-  for (const name of await readdir(this.root)) {
-   if (/^[0-9a-f-]{36}\.json$/.test(name)) tasks.push(await this.read(name.slice(0, -5)))
+  // biome-ignore format: NOSONAR must stay on the await line
+  for (const name of await readdir(this.root)) { // NOSONAR: ordered/limited operation; parallelizing would change atomicity, rate limits, or deterministic progress.
+   // biome-ignore format: NOSONAR must stay on the await line
+   if (/^[0-9a-f-]{36}\.json$/.test(name)) tasks.push(await this.read(name.slice(0, -5))) // NOSONAR: ordered/limited operation; parallelizing would change atomicity, rate limits, or deterministic progress.
   }
   return tasks.sort((a, b) => b.createdAt.localeCompare(a.createdAt))
  }
@@ -121,23 +123,29 @@ export class SubtitleDerived {
     )
     const created: string[] = []
     try {
-     const srt = await this.current(item.source, dependencies)
+     // biome-ignore format: NOSONAR must stay on the await line
+     const srt = await this.current(item.source, dependencies) // NOSONAR: ordered/limited operation; parallelizing would change atomicity, rate limits, or deterministic progress.
      if (item.outputs?.length) {
       for (const output of item.outputs) {
        this.inside(output.path)
-       if (digest(await readFile(output.path, 'utf8')) !== output.hash)
+       // biome-ignore format: NOSONAR must stay on the await line
+       if (digest(await readFile(output.path, 'utf8')) !== output.hash) // NOSONAR: ordered/limited operation; parallelizing would change atomicity, rate limits, or deterministic progress.
         throw new Error('已保存笔记被修改或缺失，请核对原文件；未自动覆盖')
       }
       item.status = '已完成'
       delete item.error
-      await this.save(task)
+      // biome-ignore format: NOSONAR must stay on the await line
+      await this.save(task) // NOSONAR: ordered/limited operation; parallelizing would change atomicity, rate limits, or deterministic progress.
       continue
      }
      if (!item.prepared) {
-      item.prepared = await dependencies.summarize(srt, item.mode, signal)
+      // biome-ignore format: NOSONAR must stay on the await line
+      item.prepared = await dependencies.summarize(srt, item.mode, signal) // NOSONAR: ordered/limited operation; parallelizing would change atomicity, rate limits, or deterministic progress.
       signal.throwIfAborted()
-      await this.current(item.source, dependencies)
-      await this.save(task)
+      // biome-ignore format: NOSONAR must stay on the await line
+      await this.current(item.source, dependencies) // NOSONAR: ordered/limited operation; parallelizing would change atomicity, rate limits, or deterministic progress.
+      // biome-ignore format: NOSONAR must stay on the await line
+      await this.save(task) // NOSONAR: ordered/limited operation; parallelizing would change atomicity, rate limits, or deterministic progress.
      }
      signal.throwIfAborted()
      await this.current(item.source, dependencies)

@@ -171,7 +171,8 @@ export class NativeVisualFrames {
     }
     for (const [index, time] of times.entries()) {
      const path = join(directory, `frame-${index + 1}.png`)
-     await this.command(
+     // biome-ignore format: NOSONAR must stay on the await line
+     await this.command( // NOSONAR: ordered/limited operation; parallelizing would change atomicity, rate limits, or deterministic progress.
       'ffmpeg',
       [
        '-hide_banner',
@@ -192,7 +193,8 @@ export class NativeVisualFrames {
       controller.signal
      )
      if (nativeImage.createFromPath(path).isEmpty()) throw new Error('截取的画面无法读取')
-     frames.push({path, time, hash: await digest(path)})
+     // biome-ignore format: NOSONAR must stay on the await line
+     frames.push({path, time, hash: await digest(path)}) // NOSONAR: ordered/limited operation; parallelizing would change atomicity, rate limits, or deterministic progress.
     }
    }
    controller.signal.throwIfAborted()

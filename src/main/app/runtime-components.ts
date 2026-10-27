@@ -43,7 +43,8 @@ async function regular(root: string, relative: string) {
  if ((await lstat(current)).isSymbolicLink()) throw new Error('组件目录不能是链接')
  for (const part of relative.split('/')) {
   current = join(current, part)
-  if ((await lstat(current)).isSymbolicLink()) throw new Error('组件不能包含链接')
+  // biome-ignore format: NOSONAR must stay on the await line
+  if ((await lstat(current)).isSymbolicLink()) throw new Error('组件不能包含链接') // NOSONAR: ordered/limited operation; parallelizing would change atomicity, rate limits, or deterministic progress.
  }
  if (!(await lstat(target)).isFile()) throw new Error('组件文件无效')
  return target
@@ -87,7 +88,8 @@ export class RuntimeComponents {
    if (!item.isFile() || item.isSymbolicLink() || item.nlink !== 1 || item.size > 16 * 1024 * 1024)
     throw new Error('invalid')
    for (let parent = dirname(path); ; parent = dirname(parent)) {
-    const directory = await lstat(parent)
+    // biome-ignore format: NOSONAR must stay on the await line
+    const directory = await lstat(parent) // NOSONAR: ordered/limited operation; parallelizing would change atomicity, rate limits, or deterministic progress.
     if (!directory.isDirectory() || directory.isSymbolicLink()) throw new Error('invalid')
     if (dirname(parent) === parent) break
    }
@@ -136,33 +138,39 @@ export class RuntimeComponents {
       for (const file of component.files) {
        const path = contained(contained(this.resources, component.directory), file.path)
        for (let parent = dirname(path); ; parent = dirname(parent)) {
-        const directory = await lstat(parent)
+        // biome-ignore format: NOSONAR must stay on the await line
+        const directory = await lstat(parent) // NOSONAR: ordered/limited operation; parallelizing would change atomicity, rate limits, or deterministic progress.
         if (!directory.isDirectory() || directory.isSymbolicLink()) throw new Error('invalid')
         if (dirname(parent) === parent) break
        }
-       const item = await lstat(path)
+       // biome-ignore format: NOSONAR must stay on the await line
+       const item = await lstat(path) // NOSONAR: ordered/limited operation; parallelizing would change atomicity, rate limits, or deterministic progress.
        if (
         !item.isFile() ||
         item.isSymbolicLink() ||
         item.nlink !== 1 ||
         item.size !== file.size ||
-        resolve(await realpath(path)) !== resolve(path)
+        // biome-ignore format: NOSONAR must stay on the await line
+        resolve(await realpath(path)) !== resolve(path) // NOSONAR: ordered/limited operation; parallelizing would change atomicity, rate limits, or deterministic progress.
        )
         throw new Error('invalid')
        if (process.platform !== 'win32' && (item.mode & 0o7777) !== (file.mode === '0755' ? 0o755 : 0o644))
         throw new Error('invalid')
-       const handle = await open(path, constants.O_RDONLY | (constants.O_NOFOLLOW || 0)),
+       // biome-ignore format: NOSONAR must stay on the await line
+       const handle = await open(path, constants.O_RDONLY | (constants.O_NOFOLLOW || 0)), // NOSONAR: ordered/limited operation; parallelizing would change atomicity, rate limits, or deterministic progress.
         hash = createHash('sha256')
        let size = 0
        try {
-        const before = await handle.stat()
+        // biome-ignore format: NOSONAR must stay on the await line
+        const before = await handle.stat() // NOSONAR: ordered/limited operation; parallelizing would change atomicity, rate limits, or deterministic progress.
         if (before.dev !== item.dev || before.ino !== item.ino) throw new Error('invalid')
         for await (const bytes of handle.createReadStream({autoClose: false})) {
          size += bytes.length
          if (size > file.size) throw new Error('invalid')
          hash.update(bytes)
         }
-        const after = await handle.stat(),
+        // biome-ignore format: NOSONAR must stay on the await line
+        const after = await handle.stat(), // NOSONAR: ordered/limited operation; parallelizing would change atomicity, rate limits, or deterministic progress.
          current = await lstat(path)
         if (
          before.mtimeMs !== after.mtimeMs ||

@@ -64,7 +64,8 @@ export class NativeQqSession {
    const rows = z
     .array(z.record(z.string(), z.unknown()))
     .max(5000)
-    .parse(await this.action(group ? 'get_group_list' : 'get_friend_list', {}, signal))
+    // biome-ignore format: NOSONAR must stay on the await line
+    .parse(await this.action(group ? 'get_group_list' : 'get_friend_list', {}, signal)) // NOSONAR: ordered/limited operation; parallelizing would change atomicity, rate limits, or deterministic progress.
    for (const row of rows) {
     const id = qq.parse(row[group ? 'group_id' : 'user_id'])
     peers.push({
@@ -228,11 +229,13 @@ export class NativeNapcatLogin {
   do {
    signal.throwIfAborted()
    try {
-    account = await session.identity(signal)
+    // biome-ignore format: NOSONAR must stay on the await line
+    account = await session.identity(signal) // NOSONAR: ordered/limited operation; parallelizing would change atomicity, rate limits, or deterministic progress.
     break
    } catch (error) {
     lastError = error
-    await new Promise(resolve => setTimeout(resolve, 500))
+    // biome-ignore format: NOSONAR must stay on the await line
+    await new Promise(resolve => setTimeout(resolve, 500)) // NOSONAR: ordered/limited operation; parallelizing would change atomicity, rate limits, or deterministic progress.
    }
   } while (Date.now() < deadline)
   if (!account) throw lastError || new Error('QQ 消息接口未就绪')

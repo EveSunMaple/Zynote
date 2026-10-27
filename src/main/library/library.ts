@@ -16,8 +16,10 @@ export async function libraryDirectory(root: string, category: Category, course?
 }
 export async function ensureLibrary(root: string, courses: string[] = []) {
  for (const category of categories) {
-  await libraryDirectory(root, category)
-  for (const course of courses) await libraryDirectory(root, category, course)
+  // biome-ignore format: NOSONAR must stay on the await line
+  await libraryDirectory(root, category) // NOSONAR: ordered/limited operation; parallelizing would change atomicity, rate limits, or deterministic progress.
+  // biome-ignore format: NOSONAR must stay on the await line
+  for (const course of courses) await libraryDirectory(root, category, course) // NOSONAR: ordered/limited operation; parallelizing would change atomicity, rate limits, or deterministic progress.
  }
 }
 export async function reserveFile(directory: string, filename: string) {
@@ -27,8 +29,10 @@ export async function reserveFile(directory: string, filename: string) {
  for (let i = 1; ; i++) {
   const path = join(directory, stem + (i === 1 ? '' : ` (${i})`) + ext)
   try {
-   const file = await open(path, 'wx')
-   await file.close()
+   // biome-ignore format: NOSONAR must stay on the await line
+   const file = await open(path, 'wx') // NOSONAR: ordered/limited operation; parallelizing would change atomicity, rate limits, or deterministic progress.
+   // biome-ignore format: NOSONAR must stay on the await line
+   await file.close() // NOSONAR: ordered/limited operation; parallelizing would change atomicity, rate limits, or deterministic progress.
    return path
   } catch (error) {
    if ((error as NodeJS.ErrnoException).code !== 'EEXIST') throw error

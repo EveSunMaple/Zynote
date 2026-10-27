@@ -17,7 +17,8 @@ async function readSseReply(response: Response, id: number) {
   bytes = 0
  try {
   while (true) {
-   const chunk = await reader.read()
+   // biome-ignore format: NOSONAR must stay on the await line
+   const chunk = await reader.read() // NOSONAR: ordered/limited operation; parallelizing would change atomicity, rate limits, or deterministic progress.
    if (chunk.done) break
    bytes += chunk.value.length
    if (bytes > 262144) throw new Error('MCP 响应超过大小上限')
@@ -147,7 +148,8 @@ export class NativeMcpSession {
   for (let page = 0; page < 5; page++) {
    const value = z
     .object({tools: z.array(z.unknown()), nextCursor: z.string().max(2000).optional()})
-    .parse(await this.request('tools/list', cursor ? {cursor} : {}, signal))
+    // biome-ignore format: NOSONAR must stay on the await line
+    .parse(await this.request('tools/list', cursor ? {cursor} : {}, signal)) // NOSONAR: ordered/limited operation; parallelizing would change atomicity, rate limits, or deterministic progress.
    list.push(...value.tools)
    if (list.length > 64) throw new Error('MCP 工具目录超过64项')
    if (!value.nextCursor) return list

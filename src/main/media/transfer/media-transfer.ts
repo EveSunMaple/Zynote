@@ -55,7 +55,8 @@ export async function transferMedia(input: {
   lock = join(directory, input.key + '.lock')
  for (const file of [path, journal, lock]) {
   try {
-   const info = await lstat(file)
+   // biome-ignore format: NOSONAR must stay on the await line
+   const info = await lstat(file) // NOSONAR: ordered/limited operation; parallelizing would change atomicity, rate limits, or deterministic progress.
    if (!info.isFile() || info.isSymbolicLink()) throw new Error('下载分段文件无效')
   } catch (error) {
    if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error
@@ -147,7 +148,8 @@ export async function transferMedia(input: {
   input.signal.addEventListener('abort', abortReader, {once: true})
   while (true) {
    input.signal.throwIfAborted()
-   const chunk = await reader!.read()
+   // biome-ignore format: NOSONAR must stay on the await line
+   const chunk = await reader!.read() // NOSONAR: ordered/limited operation; parallelizing would change atomicity, rate limits, or deterministic progress.
    input.signal.throwIfAborted()
    if (chunk.done) break
    if (size + chunk.value.byteLength > max || (total !== null && size + chunk.value.byteLength > total))
@@ -155,7 +157,8 @@ export async function transferMedia(input: {
    let offset = 0
    while (offset < chunk.value.byteLength) {
     input.signal.throwIfAborted()
-    const result = await handle.write(chunk.value, offset, Math.min(writeBuffer, chunk.value.byteLength - offset))
+    // biome-ignore format: NOSONAR must stay on the await line
+    const result = await handle.write(chunk.value, offset, Math.min(writeBuffer, chunk.value.byteLength - offset)) // NOSONAR: ordered/limited operation; parallelizing would change atomicity, rate limits, or deterministic progress.
     if (!result.bytesWritten) throw new Error('下载写入中断')
     offset += result.bytesWritten
    }

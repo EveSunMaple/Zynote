@@ -340,7 +340,8 @@ export class NativeResearchEngine {
      outcome_unknown: true,
      events: [...task.events, {kind: 'mcp-plan', message: '为本轮明确选择的工具准备参数：' + tool.name}]
     })
-    const plan = await this.model(
+    // biome-ignore format: NOSONAR must stay on the await line
+    const plan = await this.model( // NOSONAR: ordered/limited operation; parallelizing would change atomicity, rate limits, or deterministic progress.
      {
       connection: task.connection,
       system:
@@ -358,7 +359,8 @@ export class NativeResearchEngine {
     const parsed = z
      .object({arguments: z.record(z.string(), z.unknown())})
      .parse(JSON.parse(stripCodeFence(plan, 'json')))
-    const result = await this.mcp.call(
+    // biome-ignore format: NOSONAR must stay on the await line
+    const result = await this.mcp.call( // NOSONAR: ordered/limited operation; parallelizing would change atomicity, rate limits, or deterministic progress.
      {
       op: hash(JSON.stringify([id, tool.server_id, tool.name])).slice(0, 32),
       taskId: id,

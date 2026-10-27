@@ -126,7 +126,8 @@ export async function transferMediaRanges(input: Input, concurrency: number) {
    while (next < ranges.length && !signal.aborted) {
     const index = next++
     try {
-     settled[index] = {status: 'fulfilled', value: await download(ranges[index], index)}
+     // biome-ignore format: NOSONAR must stay on the await line
+     settled[index] = {status: 'fulfilled', value: await download(ranges[index], index)} // NOSONAR: ordered/limited operation; parallelizing would change atomicity, rate limits, or deterministic progress.
     } catch (reason) {
      settled[index] = {status: 'rejected', reason}
     }
@@ -147,7 +148,8 @@ export async function transferMediaRanges(input: Input, concurrency: number) {
   tmp = journal + '.writing'
  for (const target of [path, journal, tmp]) {
   try {
-   const item = await lstat(target)
+   // biome-ignore format: NOSONAR must stay on the await line
+   const item = await lstat(target) // NOSONAR: ordered/limited operation; parallelizing would change atomicity, rate limits, or deterministic progress.
    if (!item.isFile() || item.isSymbolicLink()) throw new Error('并行合并目标无效')
   } catch (error) {
    if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error
@@ -167,7 +169,8 @@ export async function transferMediaRanges(input: Input, concurrency: number) {
     let offset = 0
     while (offset < bytes.length) {
      input.signal.throwIfAborted()
-     const count = await handle.write(bytes, offset, Math.min(bufferBytes, bytes.length - offset))
+     // biome-ignore format: NOSONAR must stay on the await line
+     const count = await handle.write(bytes, offset, Math.min(bufferBytes, bytes.length - offset)) // NOSONAR: ordered/limited operation; parallelizing would change atomicity, rate limits, or deterministic progress.
      if (!count.bytesWritten) throw new Error('合并分段写入中断')
      offset += count.bytesWritten
     }

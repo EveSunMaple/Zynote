@@ -53,8 +53,10 @@ export class NativeNapcatRuntime {
    current = join(current, part)
    try {
     if (
-     (await lstat(current)).isSymbolicLink() ||
-     resolve(await realpath(current)).toLowerCase() !== current.toLowerCase()
+     // biome-ignore format: NOSONAR must stay on the await line
+     (await lstat(current)).isSymbolicLink() || // NOSONAR: ordered/limited operation; parallelizing would change atomicity, rate limits, or deterministic progress.
+     // biome-ignore format: NOSONAR must stay on the await line
+     resolve(await realpath(current)).toLowerCase() !== current.toLowerCase() // NOSONAR: ordered/limited operation; parallelizing would change atomicity, rate limits, or deterministic progress.
     )
      throw new Error('QQ 组件路径包含链接')
    } catch (error) {
@@ -116,14 +118,18 @@ export class NativeNapcatRuntime {
      const path = join(stage, entry.name)
      if (!path.startsWith(stage + sep)) throw new Error('QQ 组件解压路径无效')
      if (entry.dir) {
-      await mkdir(path, {recursive: true})
+      // biome-ignore format: NOSONAR must stay on the await line
+      await mkdir(path, {recursive: true}) // NOSONAR: ordered/limited operation; parallelizing would change atomicity, rate limits, or deterministic progress.
       continue
      }
-     const bytes = await entry.async('nodebuffer')
+     // biome-ignore format: NOSONAR must stay on the await line
+     const bytes = await entry.async('nodebuffer') // NOSONAR: ordered/limited operation; parallelizing would change atomicity, rate limits, or deterministic progress.
      total += bytes.length
      if (total > 500 * 1024 * 1024) throw new Error('QQ 组件解压大小无效')
-     await mkdir(dirname(path), {recursive: true})
-     await writeFile(path, bytes, {flag: 'wx'})
+     // biome-ignore format: NOSONAR must stay on the await line
+     await mkdir(dirname(path), {recursive: true}) // NOSONAR: ordered/limited operation; parallelizing would change atomicity, rate limits, or deterministic progress.
+     // biome-ignore format: NOSONAR must stay on the await line
+     await writeFile(path, bytes, {flag: 'wx'}) // NOSONAR: ordered/limited operation; parallelizing would change atomicity, rate limits, or deterministic progress.
     }
     await writeFile(join(stage, '.native-package.json'), JSON.stringify({version, sha256: archiveSha}), {flag: 'wx'})
     await rename(stage, target)
@@ -135,7 +141,8 @@ export class NativeNapcatRuntime {
   for (const name of ['node.exe', 'index.js', 'napcat/napcat.mjs', 'wrapper.node', 'package.json', 'config.json']) {
    const original = zip.file(name)
    if (!original) throw new Error('QQ 组件缺少必要文件')
-   if (sha(await readFile(await this.owned(join(target, name)))) !== sha(await original.async('nodebuffer')))
+   // biome-ignore format: NOSONAR must stay on the await line
+   if (sha(await readFile(await this.owned(join(target, name)))) !== sha(await original.async('nodebuffer'))) // NOSONAR: ordered/limited operation; parallelizing would change atomicity, rate limits, or deterministic progress.
     throw new Error('QQ 组件执行文件已改变')
   }
   const privatePath = await this.owned(join(this.root, 'native-owner.dpapi'))

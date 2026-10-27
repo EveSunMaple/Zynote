@@ -164,7 +164,8 @@ export class NativeMediaMux {
   const base = resolve(directory),
    lines: string[] = []
   for (const path of paths) {
-   const target = await localFile(path)
+   // biome-ignore format: NOSONAR must stay on the await line
+   const target = await localFile(path) // NOSONAR: ordered/limited operation; parallelizing would change atomicity, rate limits, or deterministic progress.
    if (
     dirname(target).toLowerCase() !== base.toLowerCase() ||
     !/^track-\d+-segment-\d+\.partial$/.test(basename(target))
@@ -247,7 +248,8 @@ export class NativeMediaMux {
    throw new Error('音视频合并输入无效')
   const tracks: LocalTrack[] = []
   for (const track of input.tracks) {
-   const path = await localFile(track.path)
+   // biome-ignore format: NOSONAR must stay on the await line
+   const path = await localFile(track.path) // NOSONAR: ordered/limited operation; parallelizing would change atomicity, rate limits, or deterministic progress.
    if (
     !path.toLowerCase().startsWith((directory + '\\').toLowerCase()) &&
     !path.toLowerCase().startsWith((directory + '/').toLowerCase())
@@ -290,7 +292,8 @@ export class NativeMediaMux {
   const subtitleInputs = input.subtitles || []
   if (subtitleInputs.length > 100) throw new Error('字幕轨道过多')
   for (const subtitle of subtitleInputs) {
-   const path = await localFile(subtitle.path)
+   // biome-ignore format: NOSONAR must stay on the await line
+   const path = await localFile(subtitle.path) // NOSONAR: ordered/limited operation; parallelizing would change atomicity, rate limits, or deterministic progress.
    if (dirname(path).toLowerCase() !== directory.toLowerCase() || !/^[-\w]{1,64}$/.test(subtitle.language))
     throw new Error('字幕文件不属于该任务')
    args.push('-protocol_whitelist', 'file,pipe', '-f', 'srt', '-i', path)

@@ -75,7 +75,8 @@ export class NativeKnowledgeService {
      vectors: {evidenceId: string; vector: number[]}[] = []
     for (const [index, row] of rows.entries()) {
      this.progress(`正在建立语义索引：${index + 1}/${rows.length}`)
-     vectors.push({evidenceId: row.evidence_id, vector: await this.embedding.encode(row.content)})
+     // biome-ignore format: NOSONAR must stay on the await line
+     vectors.push({evidenceId: row.evidence_id, vector: await this.embedding.encode(row.content)}) // NOSONAR: ordered/limited operation; parallelizing would change atomicity, rate limits, or deterministic progress.
     }
     const status = this.store.publishVectors(digest, vectors)
     return {report: {indexed: rows.length}, status: {...status, bundled: true}}

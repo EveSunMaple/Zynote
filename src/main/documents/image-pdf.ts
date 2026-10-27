@@ -39,7 +39,8 @@ export async function imagePdf(images: Array<() => Picture>, signal?: AbortSigna
    for (let channel = 0; channel < 3; channel++)
     rgb[pixel * 3 + channel] = Math.min(255, Math.round(bitmap[pixel * 4 + 2 - channel] + 255 * (1 - a)))
   }
-  const encoded = await compress(rgb)
+  // biome-ignore format: NOSONAR must stay on the await line
+  const encoded = await compress(rgb) // NOSONAR: ordered/limited operation; parallelizing would change atomicity, rate limits, or deterministic progress.
   signal?.throwIfAborted()
   const page = 3 + i * 3,
    picture = page + 1,

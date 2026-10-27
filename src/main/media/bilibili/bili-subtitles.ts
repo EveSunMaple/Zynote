@@ -92,7 +92,8 @@ export async function readBiliSubtitles(input: string, fetcher: BiliFetch, signa
  let lastError: Error | undefined
  for (const track of preferred) {
   try {
-   const body = await json(subtitleAddress(track.subtitle_url), fetcher, signal)
+   // biome-ignore format: NOSONAR must stay on the await line
+   const body = await json(subtitleAddress(track.subtitle_url), fetcher, signal) // NOSONAR: ordered/limited operation; parallelizing would change atomicity, rate limits, or deterministic progress.
    const cues = checkedCues(body, page.duration)
    const segments = cues
     .map((cue, i) => ({

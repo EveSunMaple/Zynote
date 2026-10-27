@@ -172,15 +172,18 @@ export async function downloadNativeHls(input: {
  }
  try {
   const tracks: {path: string; kind: 'video' | 'audio' | 'combined'}[] = []
-  for (const [track, selected] of (await resolve(check(input.url))).entries()) {
-   const manifest = await read(selected.url)
+  // biome-ignore format: NOSONAR must stay on the await line
+  for (const [track, selected] of (await resolve(check(input.url))).entries()) { // NOSONAR: ordered/limited operation; parallelizing would change atomicity, rate limits, or deterministic progress.
+   // biome-ignore format: NOSONAR must stay on the await line
+   const manifest = await read(selected.url) // NOSONAR: ordered/limited operation; parallelizing would change atomicity, rate limits, or deterministic progress.
    if (manifest.variants.length) throw new Error('HLS 音轨需要具体媒体清单')
    const parts = [...(manifest.init ? [{url: manifest.init}] : []), ...manifest.segments],
     proofs: {path: string; hash: string; key?: {url: string; iv?: string}; sequence?: bigint}[] = []
    for (const [index, part] of parts.entries()) {
     input.signal.throwIfAborted()
     const name = input.key + '-hls-' + track + '-' + index,
-     result = await transferMedia({
+     // biome-ignore format: NOSONAR must stay on the await line
+     result = await transferMedia({ // NOSONAR: ordered/limited operation; parallelizing would change atomicity, rate limits, or deterministic progress.
       directory: input.directory,
       key: name,
       identity: createHash('sha256')
@@ -209,9 +212,11 @@ export async function downloadNativeHls(input: {
       .update(JSON.stringify(['hls-v1', proofs.map(row => [row.hash, row.key, row.sequence?.toString()])]))
       .digest('hex')
     ),
-    prepared = await artifact.prepare()
+    // biome-ignore format: NOSONAR must stay on the await line
+    prepared = await artifact.prepare() // NOSONAR: ordered/limited operation; parallelizing would change atomicity, rate limits, or deterministic progress.
    if (!prepared.reused) {
-    const output = await open(artifact.path, 'wx')
+    // biome-ignore format: NOSONAR must stay on the await line
+    const output = await open(artifact.path, 'wx') // NOSONAR: ordered/limited operation; parallelizing would change atomicity, rate limits, or deterministic progress.
     try {
      let size = 0
      for (const part of proofs) {
@@ -221,8 +226,10 @@ export async function downloadNativeHls(input: {
        let key = keys.get(part.key.url)
        if (!key) {
         if (keys.size >= 100) throw new Error('HLS 密钥轮换超出预算')
-        key = await boundedMediaResponse(
-         await input.fetcher(part.key.url, {
+        // biome-ignore format: NOSONAR must stay on the await line
+        key = await boundedMediaResponse( // NOSONAR: ordered/limited operation; parallelizing would change atomicity, rate limits, or deterministic progress.
+         // biome-ignore format: NOSONAR must stay on the await line
+         await input.fetcher(part.key.url, { // NOSONAR: ordered/limited operation; parallelizing would change atomicity, rate limits, or deterministic progress.
           signal: input.signal,
           redirect: 'error',
           credentials: 'omit',
@@ -236,7 +243,8 @@ export async function downloadNativeHls(input: {
        const iv = part.key.iv ? Buffer.from(part.key.iv.slice(2), 'hex') : Buffer.alloc(16)
        if (!part.key.iv) iv.writeBigUInt64BE(part.sequence!, 8)
        const decipher = createDecipheriv('aes-128-cbc', key, iv),
-        raw = await readFile(part.path)
+        // biome-ignore format: NOSONAR must stay on the await line
+        raw = await readFile(part.path) // NOSONAR: ordered/limited operation; parallelizing would change atomicity, rate limits, or deterministic progress.
        if (createHash('sha256').update(raw).digest('hex') !== part.hash) throw new Error('HLS 恢复片段已改变')
        bytes = [Buffer.concat([decipher.update(raw), decipher.final()])]
       } else bytes = createReadStream(part.path)

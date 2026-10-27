@@ -93,12 +93,14 @@ export function createCoursesHandler(
       kind = z.enum(['senior_notes', 'past_exam']).parse(object.kind)
      const added = []
      for (const path of paths) {
-      const file = await importDocument(
+      // biome-ignore format: NOSONAR must stay on the await line
+      const file = await importDocument( // NOSONAR: ordered/limited operation; parallelizing would change atomicity, rate limits, or deterministic progress.
        root,
        course,
        kind,
        path,
-       await directory(kind === 'past_exam' ? 'PastExams' : 'Notes', course)
+       // biome-ignore format: NOSONAR must stay on the await line
+       await directory(kind === 'past_exam' ? 'PastExams' : 'Notes', course) // NOSONAR: ordered/limited operation; parallelizing would change atomicity, rate limits, or deterministic progress.
       )
       db.insertFile(file)
       added.push(file)

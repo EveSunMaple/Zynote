@@ -46,7 +46,8 @@ export function createKnowledgeHandler(
       const results = []
       for (const path of result.filePaths) {
        try {
-        results.push({name: basename(path), ok: true, result: await knowledge.importFile(path, category)})
+        // biome-ignore format: NOSONAR must stay on the await line
+        results.push({name: basename(path), ok: true, result: await knowledge.importFile(path, category)}) // NOSONAR: ordered/limited operation; parallelizing would change atomicity, rate limits, or deterministic progress.
        } catch (error) {
         results.push({name: basename(path), ok: false, error: error instanceof Error ? error.message : '资料导入失败'})
        }

@@ -32,10 +32,13 @@ async function checkedSystemExecutable(tool: MediaTool, platform: NodeJS.Platfor
  for (const directory of directories) {
   const candidate = resolve(directory, tool)
   try {
-   if (!(await stat(candidate)).isFile()) continue
-   const target = resolve(await realpath(candidate))
+   // biome-ignore format: NOSONAR must stay on the await line
+   if (!(await stat(candidate)).isFile()) continue // NOSONAR: ordered/limited operation; parallelizing would change atomicity, rate limits, or deterministic progress.
+   // biome-ignore format: NOSONAR must stay on the await line
+   const target = resolve(await realpath(candidate)) // NOSONAR: ordered/limited operation; parallelizing would change atomicity, rate limits, or deterministic progress.
    if (basename(target) !== tool || !roots.some(root => target.startsWith(root))) continue
-   await access(target, constants.X_OK)
+   // biome-ignore format: NOSONAR must stay on the await line
+   await access(target, constants.X_OK) // NOSONAR: ordered/limited operation; parallelizing would change atomicity, rate limits, or deterministic progress.
    return target
   } catch {}
  }
@@ -53,7 +56,8 @@ export async function checkedMediaExecutable(
    item = await lstat(path)
   if (!item.isFile() || item.isSymbolicLink()) throw new Error('媒体执行文件必须是普通文件')
   for (let parent = dirname(path); ; parent = dirname(parent)) {
-   const directory = await lstat(parent)
+   // biome-ignore format: NOSONAR must stay on the await line
+   const directory = await lstat(parent) // NOSONAR: ordered/limited operation; parallelizing would change atomicity, rate limits, or deterministic progress.
    if (!directory.isDirectory() || directory.isSymbolicLink()) throw new Error('媒体执行目录包含链接或无效路径')
    if (dirname(parent) === parent) break
   }

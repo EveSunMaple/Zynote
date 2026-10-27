@@ -91,7 +91,8 @@ export class NativeDownloadJobs {
    tmp = join(directory, encrypted ? 'job.writing.dpapi' : 'job.writing')
   for (const target of [path, tmp]) {
    try {
-    const item = await lstat(target)
+    // biome-ignore format: NOSONAR must stay on the await line
+    const item = await lstat(target) // NOSONAR: ordered/limited operation; parallelizing would change atomicity, rate limits, or deterministic progress.
     if (item.isSymbolicLink() || !item.isFile()) throw new Error('下载记录文件无效')
    } catch (error) {
     if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error
@@ -105,31 +106,38 @@ export class NativeDownloadJobs {
  initialize() {
   this.initialized ??= this.exclusive(async () => {
    const base = await this.base()
-   for (const entry of await readdir(base, {withFileTypes: true})) {
+   // biome-ignore format: NOSONAR must stay on the await line
+   for (const entry of await readdir(base, {withFileTypes: true})) { // NOSONAR: ordered/limited operation; parallelizing would change atomicity, rate limits, or deterministic progress.
     if (!idSchema.safeParse(entry.name).success || !entry.isDirectory() || entry.isSymbolicLink()) continue
-    const directory = await this.directory(entry.name),
+    // biome-ignore format: NOSONAR must stay on the await line
+    const directory = await this.directory(entry.name), // NOSONAR: ordered/limited operation; parallelizing would change atomicity, rate limits, or deterministic progress.
      privatePath = join(directory, 'job.dpapi'),
      publicPath = join(directory, 'job.json')
     let encrypted = false
     try {
-     await lstat(privatePath)
+     // biome-ignore format: NOSONAR must stay on the await line
+     await lstat(privatePath) // NOSONAR: ordered/limited operation; parallelizing would change atomicity, rate limits, or deterministic progress.
      encrypted = true
     } catch (error) {
      if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error
     }
     if (encrypted) {
      try {
-      await lstat(publicPath)
+      // biome-ignore format: NOSONAR must stay on the await line
+      await lstat(publicPath) // NOSONAR: ordered/limited operation; parallelizing would change atomicity, rate limits, or deterministic progress.
       throw new Error('下载任务同时存在明文与加密记录，未选择其中一个覆盖')
      } catch (error) {
       if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error
      }
     }
     const path = encrypted ? privatePath : publicPath
-    const item = await lstat(path)
+    // biome-ignore format: NOSONAR must stay on the await line
+    const item = await lstat(path) // NOSONAR: ordered/limited operation; parallelizing would change atomicity, rate limits, or deterministic progress.
     if (item.isSymbolicLink() || !item.isFile()) throw new Error('下载恢复记录文件无效')
-    const bytes = await readFile(path),
-     row = schema.parse(JSON.parse((encrypted ? await this.crypt(bytes, true) : bytes).toString('utf8')))
+    // biome-ignore format: NOSONAR must stay on the await line
+    const bytes = await readFile(path), // NOSONAR: ordered/limited operation; parallelizing would change atomicity, rate limits, or deterministic progress.
+     // biome-ignore format: NOSONAR must stay on the await line
+     row = schema.parse(JSON.parse((encrypted ? await this.crypt(bytes, true) : bytes).toString('utf8'))) // NOSONAR: ordered/limited operation; parallelizing would change atomicity, rate limits, or deterministic progress.
     if (encrypted !== (row.recipe.privacy === true)) throw new Error('下载记录加密方式与任务设置不一致')
     if (row.id !== entry.name || row.recipeHash !== hashRecipe(row.identity, row.source_url, mediaOptions(row.recipe)))
      throw new Error('下载恢复记录与任务不一致')

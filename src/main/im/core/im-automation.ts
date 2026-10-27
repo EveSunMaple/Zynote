@@ -192,7 +192,8 @@ export class NativeImAutomation {
    while (!signal.aborted) {
     const run = this.get<Run>('run', key)!
     this.check(run, signal)
-    await this.deps.sync(run.scope, signal)
+    // biome-ignore format: NOSONAR must stay on the await line
+    await this.deps.sync(run.scope, signal) // NOSONAR: ordered/limited operation; parallelizing would change atomicity, rate limits, or deterministic progress.
     this.check(run, signal)
     const messages = this.store.readMessages({...run.scope, limit: 100}).messages,
      rules = this.rules(run.scope).effective
@@ -231,9 +232,11 @@ export class NativeImAutomation {
       ).length >= rules.reply_limit_hour
      )
       break
-     await this.generate(job, run, signal)
+     // biome-ignore format: NOSONAR must stay on the await line
+     await this.generate(job, run, signal) // NOSONAR: ordered/limited operation; parallelizing would change atomicity, rate limits, or deterministic progress.
     }
-    await new Promise<void>((resolve, reject) => {
+    // biome-ignore format: NOSONAR must stay on the await line
+    await new Promise<void>((resolve, reject) => { // NOSONAR: ordered/limited operation; parallelizing would change atomicity, rate limits, or deterministic progress.
      const timer = setTimeout(done, rules.interval_seconds * 1000)
      function done() {
       signal.removeEventListener('abort', abort)

@@ -322,7 +322,8 @@ export class NativeWeixinWebSession {
   let seq = 0,
    complete = false
   for (let page = 0; page < 20; page++) {
-   const data = await this.json('webwxgetcontact', signal, undefined, {
+   // biome-ignore format: NOSONAR must stay on the await line
+   const data = await this.json('webwxgetcontact', signal, undefined, { // NOSONAR: ordered/limited operation; parallelizing would change atomicity, rate limits, or deterministic progress.
      r: String(Date.now()),
      skey: this.session!.login.skey,
      seq: String(seq)

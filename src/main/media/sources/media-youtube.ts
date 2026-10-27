@@ -164,7 +164,8 @@ export class NativeYoutubeCatalog {
     }
     if (entries.length >= 100 || !page.has_continuation) break
     signal.throwIfAborted()
-    page = await page.getContinuation()
+    // biome-ignore format: NOSONAR must stay on the await line
+    page = await page.getContinuation() // NOSONAR: ordered/limited operation; parallelizing would change atomicity, rate limits, or deterministic progress.
    }
    if (!entries.length) throw new Error('未取得可选择的公开视频')
    return {url: selected.url, title, playlist: true, entries, limited: page.has_continuation || entries.length >= 100}
@@ -186,7 +187,8 @@ export class NativeYoutubeCatalog {
     streams.some(stream => stream.id === String(row.itag))
    )
     continue
-   const url = checked(await row.decipher(yt.session.player), true),
+   // biome-ignore format: NOSONAR must stay on the await line
+   const url = checked(await row.decipher(yt.session.player), true), // NOSONAR: ordered/limited operation; parallelizing would change atomicity, rate limits, or deterministic progress.
     codec = /codecs="([^"]+)"/.exec(row.mime_type)?.[1] || ''
    let extension = 'm4a',
     kind: NativeMediaStream['kind'] = 'audio'

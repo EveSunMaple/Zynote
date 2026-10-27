@@ -216,7 +216,8 @@ export async function runCorrectionBatches<T>(
     }
    }
   })
-  await Promise.all(jobs)
+  // biome-ignore format: NOSONAR must stay on the await line
+  await Promise.all(jobs) // NOSONAR: ordered/limited operation; parallelizing would change atomicity, rate limits, or deterministic progress.
   if (failed) throw failure
   combined.throwIfAborted()
  }

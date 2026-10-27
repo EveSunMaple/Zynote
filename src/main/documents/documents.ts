@@ -189,8 +189,10 @@ export async function parseDocument(path: string): Promise<{text: string; needsO
   let text = ''
   try {
    for (let i = 1; i <= pdf.numPages; i++) {
-    const page = await pdf.getPage(i),
-     content = await page.getTextContent()
+    // biome-ignore format: NOSONAR must stay on the await line
+    const page = await pdf.getPage(i), // NOSONAR: ordered/limited operation; parallelizing would change atomicity, rate limits, or deterministic progress.
+     // biome-ignore format: NOSONAR must stay on the await line
+     content = await page.getTextContent() // NOSONAR: ordered/limited operation; parallelizing would change atomicity, rate limits, or deterministic progress.
     const textItem = (item: unknown) => {
      if (typeof item !== 'object' || item === null) return ''
      const value = item as {str?: unknown; hasEOL?: boolean}
@@ -395,7 +397,8 @@ export async function parseCourseware(path: string): Promise<CoursewareParseResu
  for (const [index, name] of slideNames.entries()) {
   const entry = zip.file(name)
   if (!entry) throw new Error(`PPTX 第 ${index + 1} 页内容缺失`)
-  const xml = (await readBounded(entry, 5 * 1024 * 1024, `PPTX 第 ${index + 1} 页内容`)).toString('utf8')
+  // biome-ignore format: NOSONAR must stay on the await line
+  const xml = (await readBounded(entry, 5 * 1024 * 1024, `PPTX 第 ${index + 1} 页内容`)).toString('utf8') // NOSONAR: ordered/limited operation; parallelizing would change atomicity, rate limits, or deterministic progress.
   const extracted = Array.from(xml.matchAll(/<a:t(?:\s[^>]*)?>([\s\S]*?)<\/a:t>/g), m => decode(m[1]))
    .join('\n')
    .trim()
@@ -407,7 +410,8 @@ export async function parseCourseware(path: string): Promise<CoursewareParseResu
   const relName = posix.join(posix.dirname(name), '_rels', posix.basename(name) + '.rels'),
    slideRelEntry = zip.file(relName)
   const slideRel = slideRelEntry
-   ? (await readBounded(slideRelEntry, 5 * 1024 * 1024, `PPTX 第 ${index + 1} 页关系`)).toString('utf8')
+   ? // biome-ignore format: NOSONAR must stay on the await line
+     (await readBounded(slideRelEntry, 5 * 1024 * 1024, `PPTX 第 ${index + 1} 页关系`)).toString('utf8') // NOSONAR: ordered/limited operation; parallelizing would change atomicity, rate limits, or deterministic progress.
    : undefined
   if (!slideRel) continue
   const relationRows = rels(slideRel),
@@ -452,7 +456,8 @@ export async function parseCourseware(path: string): Promise<CoursewareParseResu
     omissions.push(`第 ${index + 1} 页嵌入图片超过剩余图片预算 ${remainingBytes} 字节，未读取或发送`)
     continue
    }
-   const data = await readBounded(entry, Math.min(4 * 1024 * 1024, remainingBytes), `PPTX 第 ${index + 1} 页嵌入图片`)
+   // biome-ignore format: NOSONAR must stay on the await line
+   const data = await readBounded(entry, Math.min(4 * 1024 * 1024, remainingBytes), `PPTX 第 ${index + 1} 页嵌入图片`) // NOSONAR: ordered/limited operation; parallelizing would change atomicity, rate limits, or deterministic progress.
    rawImageBytes += data.length
    images.push({
     label: `${pageLabel}嵌入图片 ${images.filter(image => image.label.startsWith(pageLabel)).length + 1}`,

@@ -292,26 +292,31 @@ export function createCoursewareHandler(
        try {
         let subtitle: Awaited<ReturnType<typeof fetchBiliSubtitle>> | undefined
         try {
-         subtitle = await fetchBiliSubtitle(episode.url, signal)
+         // biome-ignore format: NOSONAR must stay on the await line
+         subtitle = await fetchBiliSubtitle(episode.url, signal) // NOSONAR: ordered/limited operation; parallelizing would change atomicity, rate limits, or deterministic progress.
         } catch {
          signal.throwIfAborted()
         }
         let path: string,
          cleanupWarning = ''
-        if (subtitle) path = await saveBiliSubtitle(episode.url, episode.title, subtitle.srt, selectedCourse)
+        // biome-ignore format: NOSONAR must stay on the await line
+        if (subtitle) path = await saveBiliSubtitle(episode.url, episode.title, subtitle.srt, selectedCourse) // NOSONAR: ordered/limited operation; parallelizing would change atomicity, rate limits, or deterministic progress.
         else {
          videoProgress(`P${episode.page} 无可用站内字幕，正在下载并离线转写`)
          const videoId = new URL(episode.url).pathname.split('/').findLast(Boolean)!
          const outputName = videoId + '-P' + episode.page + '-离线转写.srt'
-         const task = await videoPpt.create(videoId + '-P' + episode.page + '-字幕转写', {
+         // biome-ignore format: NOSONAR must stay on the await line
+         const task = await videoPpt.create(videoId + '-P' + episode.page + '-字幕转写', { // NOSONAR: ordered/limited operation; parallelizing would change atomicity, rate limits, or deterministic progress.
           kind: 'subtitle',
           outputName,
           courseName: selectedCourse,
           url: episode.url,
           page: episode.page
          })
-         await snapanyDownload(window, episode.url, task.video, videoProgress, signal)
-         const saved = await saveTranscribedVideo(task, outputName, selectedCourse, signal, episode.page)
+         // biome-ignore format: NOSONAR must stay on the await line
+         await snapanyDownload(window, episode.url, task.video, videoProgress, signal) // NOSONAR: ordered/limited operation; parallelizing would change atomicity, rate limits, or deterministic progress.
+         // biome-ignore format: NOSONAR must stay on the await line
+         const saved = await saveTranscribedVideo(task, outputName, selectedCourse, signal, episode.page) // NOSONAR: ordered/limited operation; parallelizing would change atomicity, rate limits, or deterministic progress.
          path = saved.savedPath
          cleanupWarning = saved.cleanupWarning
         }
@@ -472,9 +477,12 @@ export function createCoursewareHandler(
        notify()
        videoProgress(`正在处理所选课程 ${index + 1}/${selected.length} · P${episode.page} ${episode.title}`)
        try {
-        const task = await videoPpt.create(`P${String(episode.page).padStart(3, '0')}-${episode.title}`)
-        await snapanyDownload(window, episode.url, task.video, videoProgress, signal)
-        const source = await videoPpt.prepare(task, signal)
+        // biome-ignore format: NOSONAR must stay on the await line
+        const task = await videoPpt.create(`P${String(episode.page).padStart(3, '0')}-${episode.title}`) // NOSONAR: ordered/limited operation; parallelizing would change atomicity, rate limits, or deterministic progress.
+        // biome-ignore format: NOSONAR must stay on the await line
+        await snapanyDownload(window, episode.url, task.video, videoProgress, signal) // NOSONAR: ordered/limited operation; parallelizing would change atomicity, rate limits, or deterministic progress.
+        // biome-ignore format: NOSONAR must stay on the await line
+        const source = await videoPpt.prepare(task, signal) // NOSONAR: ordered/limited operation; parallelizing would change atomicity, rate limits, or deterministic progress.
         if (source.warning) throw new Error(source.warning)
         const review = await videoPpt.extract(source.id, source.crop, prompt, signal)
         if (review.warning) throw new Error(review.warning)

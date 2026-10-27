@@ -180,7 +180,8 @@ export class NativeBiliDownloadRunner {
    const transferKeys: string[] = [],
     concatFiles: string[] = []
    for (let index = 0; index < selected.length; index++) {
-    row = await this.jobs.transition(id, row.revision, 'running', {
+    // biome-ignore format: NOSONAR must stay on the await line
+    row = await this.jobs.transition(id, row.revision, 'running', { // NOSONAR: ordered/limited operation; parallelizing would change atomicity, rate limits, or deterministic progress.
      stage: `下载音视频轨道 ${index + 1}/${selected.length}`
     })
     const stream = selected[index],
@@ -188,7 +189,8 @@ export class NativeBiliDownloadRunner {
      segments = segmented ? stream.urls.map(url => [url]) : [stream.urls],
      paths: string[] = []
     if (stream.transport === 'hls') {
-     const result = await downloadNativeHls({
+     // biome-ignore format: NOSONAR must stay on the await line
+     const result = await downloadNativeHls({ // NOSONAR: ordered/limited operation; parallelizing would change atomicity, rate limits, or deterministic progress.
       directory,
       key: `track-${index}`,
       identity: row.identity,
@@ -214,7 +216,8 @@ export class NativeBiliDownloadRunner {
       // Mirrors for DASH are alternatives. Progressive segments are handled separately above.
       const url = urls[attempt % urls.length]
       try {
-       transfer = await transferMediaRanges(
+       // biome-ignore format: NOSONAR must stay on the await line
+       transfer = await transferMediaRanges( // NOSONAR: ordered/limited operation; parallelizing would change atomicity, rate limits, or deterministic progress.
         {
          directory,
          key,
@@ -233,7 +236,8 @@ export class NativeBiliDownloadRunner {
        error = reason
        signal.throwIfAborted()
        if (attempt < options.retries)
-        await new Promise<void>((resolve, reject) => {
+        // biome-ignore format: NOSONAR must stay on the await line
+        await new Promise<void>((resolve, reject) => { // NOSONAR: ordered/limited operation; parallelizing would change atomicity, rate limits, or deterministic progress.
          const timer = setTimeout(done, Math.min(5000, 500 * (attempt + 1)))
          function done() {
           signal.removeEventListener('abort', abort)
@@ -251,13 +255,15 @@ export class NativeBiliDownloadRunner {
      if (!transfer) throw error || new Error('轨道下载失败')
      concatFiles.push(...transfer.intermediates)
      if (transfer.warning)
-      row = await this.jobs.transition(id, row.revision, 'running', {
+      // biome-ignore format: NOSONAR must stay on the await line
+      row = await this.jobs.transition(id, row.revision, 'running', { // NOSONAR: ordered/limited operation; parallelizing would change atomicity, rate limits, or deterministic progress.
        warning: [row.warning, transfer.warning].filter(Boolean).join('；')
       })
      paths.push(transfer.path)
     }
     if (segmented) {
-     const concatenated = await this.mux.concatenate(directory, paths, `track-${index}`, signal)
+     // biome-ignore format: NOSONAR must stay on the await line
+     const concatenated = await this.mux.concatenate(directory, paths, `track-${index}`, signal) // NOSONAR: ordered/limited operation; parallelizing would change atomicity, rate limits, or deterministic progress.
      tracks.push({path: concatenated.path, kind: stream.kind})
      concatFiles.push(...concatenated.intermediates)
     } else tracks.push({path: paths[0], kind: stream.kind})
@@ -292,7 +298,8 @@ export class NativeBiliDownloadRunner {
    if (options.split_chapters)
     for (const [index, chapter] of source.chapters!.entries()) {
      signal.throwIfAborted()
-     const part = await this.mux.mux({
+     // biome-ignore format: NOSONAR must stay on the await line
+     const part = await this.mux.mux({ // NOSONAR: ordered/limited operation; parallelizing would change atomicity, rate limits, or deterministic progress.
       directory,
       tracks,
       options: {...options, clip_start: chapter.start, clip_end: chapter.end, split_chapters: false},

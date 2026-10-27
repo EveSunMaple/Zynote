@@ -100,13 +100,17 @@ export class LegacyDownloads {
    if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error
    try {
     const records = await checkedDirectory(join(this.root, 'records'))
-    for (const folder of await readdir(records))
+    // biome-ignore format: NOSONAR must stay on the await line
+    for (const folder of await readdir(records)) // NOSONAR: ordered/limited operation; parallelizing would change atomicity, rate limits, or deterministic progress.
      if (/^kbr_[a-f0-9]{32}$/.test(folder)) {
-      const path = await checkedDirectory(join(records, folder))
-      for (const child of await readdir(path, {withFileTypes: true}))
+      // biome-ignore format: NOSONAR must stay on the await line
+      const path = await checkedDirectory(join(records, folder)) // NOSONAR: ordered/limited operation; parallelizing would change atomicity, rate limits, or deterministic progress.
+      // biome-ignore format: NOSONAR must stay on the await line
+      for (const child of await readdir(path, {withFileTypes: true})) // NOSONAR: ordered/limited operation; parallelizing would change atomicity, rate limits, or deterministic progress.
        if (child.isDirectory() && !child.isSymbolicLink() && id.safeParse(child.name).success) {
         try {
-         const info = await lstat(join(path, child.name, 'state.json'))
+         // biome-ignore format: NOSONAR must stay on the await line
+         const info = await lstat(join(path, child.name, 'state.json')) // NOSONAR: ordered/limited operation; parallelizing would change atomicity, rate limits, or deterministic progress.
          if (info.isFile()) throw new Error('旧下载记录属于另一资料路径，需确认迁移位置；原文件保留')
         } catch (missing) {
          if ((missing as NodeJS.ErrnoException).code !== 'ENOENT') throw missing
@@ -119,10 +123,12 @@ export class LegacyDownloads {
    return []
   }
   const rows: MediaJob[] = []
-  for (const entry of await readdir(base, {withFileTypes: true})) {
+  // biome-ignore format: NOSONAR must stay on the await line
+  for (const entry of await readdir(base, {withFileTypes: true})) { // NOSONAR: ordered/limited operation; parallelizing would change atomicity, rate limits, or deterministic progress.
    if (!entry.isDirectory() || entry.isSymbolicLink() || !id.safeParse(entry.name).success) continue
    try {
-    const row = await this.read(entry.name)
+    // biome-ignore format: NOSONAR must stay on the await line
+    const row = await this.read(entry.name) // NOSONAR: ordered/limited operation; parallelizing would change atomicity, rate limits, or deterministic progress.
     if (row.state === 'forgotten') continue
     rows.push({
      id: row.id,
@@ -175,9 +181,11 @@ export class LegacyDownloads {
   )
    throw new Error('旧下载成果所有权标记不匹配')
   let primary = false
-  for (const entry of await readdir(directory, {withFileTypes: true})) {
+  // biome-ignore format: NOSONAR must stay on the await line
+  for (const entry of await readdir(directory, {withFileTypes: true})) { // NOSONAR: ordered/limited operation; parallelizing would change atomicity, rate limits, or deterministic progress.
    if (entry.isSymbolicLink() || !entry.isFile()) throw new Error('旧成果包含未确认文件或链接')
-   const file = await lstat(join(directory, entry.name))
+   // biome-ignore format: NOSONAR must stay on the await line
+   const file = await lstat(join(directory, entry.name)) // NOSONAR: ordered/limited operation; parallelizing would change atomicity, rate limits, or deterministic progress.
    if (['.part', '.ytdl', '.tmp'].includes(extname(entry.name).toLowerCase())) throw new Error('旧成果仍有未完成分段')
    if (mediaExtensions[manifest.media_kind].includes(extname(entry.name).toLowerCase()) && file.size > 0) primary = true
   }

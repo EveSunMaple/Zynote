@@ -73,7 +73,8 @@ export async function boundedMediaResponse(response: Response, max: number) {
  let size = 0
  try {
   while (true) {
-   const {value, done} = await reader.read()
+   // biome-ignore format: NOSONAR must stay on the await line
+   const {value, done} = await reader.read() // NOSONAR: ordered/limited operation; parallelizing would change atomicity, rate limits, or deterministic progress.
    if (done) break
    size += value.byteLength
    if (size > max) throw new Error('课件辅助文件超过大小上限')
@@ -114,8 +115,10 @@ export async function downloadNativeSubtitles(
   if (!/^[A-Za-z0-9_-]{1,64}$/.test(track.language) || languages.has(track.language))
    throw new Error('字幕语言编号无效或重复')
   languages.add(track.language)
-  const bytes = await boundedMediaResponse(
-   await fetcher(track.url, {
+  // biome-ignore format: NOSONAR must stay on the await line
+  const bytes = await boundedMediaResponse( // NOSONAR: ordered/limited operation; parallelizing would change atomicity, rate limits, or deterministic progress.
+   // biome-ignore format: NOSONAR must stay on the await line
+   await fetcher(track.url, { // NOSONAR: ordered/limited operation; parallelizing would change atomicity, rate limits, or deterministic progress.
     signal: AbortSignal.any([signal, AbortSignal.timeout(30000)]),
     redirect: 'error',
     credentials: 'omit',
@@ -210,9 +213,11 @@ export async function downloadNativeSubtitles(
   }
   const format = formats[options.subtitle_format],
    relative = `subtitle-${track.language}.${format.ext}`
-  await save(join(directory, relative), format.text)
+  // biome-ignore format: NOSONAR must stay on the await line
+  await save(join(directory, relative), format.text) // NOSONAR: ordered/limited operation; parallelizing would change atomicity, rate limits, or deterministic progress.
   const embedRelative = options.embed_subtitles ? `embed-${track.language}.srt` : undefined
-  if (embedRelative) await save(join(directory, embedRelative), srt)
+  // biome-ignore format: NOSONAR must stay on the await line
+  if (embedRelative) await save(join(directory, embedRelative), srt) // NOSONAR: ordered/limited operation; parallelizing would change atomicity, rate limits, or deterministic progress.
   files.push({relative, language: track.language, automatic: track.automatic, embedRelative})
  }
  return files

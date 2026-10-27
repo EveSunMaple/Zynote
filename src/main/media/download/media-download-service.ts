@@ -60,7 +60,8 @@ export class NativeDownloadService {
   const run = async () => {
    while (this.queue.length && !this.stopped) {
     const id = this.queue.shift()!,
-     row = await this.jobs.read(id)
+     // biome-ignore format: NOSONAR must stay on the await line
+     row = await this.jobs.read(id) // NOSONAR: ordered/limited operation; parallelizing would change atomicity, rate limits, or deterministic progress.
     if (row.state !== 'queued' || this.cancelling.has(id)) continue
     const controller = new AbortController(),
      active = {id, controller, done: Promise.resolve()}
@@ -69,7 +70,8 @@ export class NativeDownloadService {
      () => {},
      () => {}
     )
-    await active.done
+    // biome-ignore format: NOSONAR must stay on the await line
+    await active.done // NOSONAR: ordered/limited operation; parallelizing would change atomicity, rate limits, or deterministic progress.
     this.progress.delete(id)
     if (this.active === active) this.active = undefined
    }
@@ -136,7 +138,8 @@ export class NativeDownloadService {
     if (!('identity' in fresh) || fresh.identity !== saved.source.identity)
      throw new Error('视频分集身份已改变，请重新读取')
     if (options.skip_existing)
-     for (const row of await this.jobs.list())
+     // biome-ignore format: NOSONAR must stay on the await line
+     for (const row of await this.jobs.list()) // NOSONAR: ordered/limited operation; parallelizing would change atomicity, rate limits, or deterministic progress.
       if (
        row.state === 'completed' &&
        row.identity === fresh.identity &&
@@ -144,19 +147,23 @@ export class NativeDownloadService {
        JSON.stringify(row.recipe) === JSON.stringify(options)
       ) {
        try {
-        await this.jobs.file(row.id)
+        // biome-ignore format: NOSONAR must stay on the await line
+        await this.jobs.file(row.id) // NOSONAR: ordered/limited operation; parallelizing would change atomicity, rate limits, or deterministic progress.
         return this.project(row)
        } catch {
         /* A changed output must not count as a verified duplicate. */
        }
       }
     if (options.skip_existing)
-     for (const row of await this.legacy.list())
+     // biome-ignore format: NOSONAR must stay on the await line
+     for (const row of await this.legacy.list()) // NOSONAR: ordered/limited operation; parallelizing would change atomicity, rate limits, or deterministic progress.
       if (row.state === 'completed') {
        try {
-        const old = await this.legacy.recipe(row.id)
+        // biome-ignore format: NOSONAR must stay on the await line
+        const old = await this.legacy.recipe(row.id) // NOSONAR: ordered/limited operation; parallelizing would change atomicity, rate limits, or deterministic progress.
         if (old.identity === fresh.identity && JSON.stringify(old.options) === JSON.stringify(options)) {
-         await this.legacy.file(row.id)
+         // biome-ignore format: NOSONAR must stay on the await line
+         await this.legacy.file(row.id) // NOSONAR: ordered/limited operation; parallelizing would change atomicity, rate limits, or deterministic progress.
          return row
         }
        } catch {

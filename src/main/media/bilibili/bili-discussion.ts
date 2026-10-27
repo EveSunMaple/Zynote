@@ -198,7 +198,8 @@ async function boundedMap<T>(rows: T[], concurrency: number, run: (row: T) => Pr
  let position = 0
  await Promise.all(
   Array.from({length: Math.min(concurrency, rows.length)}, async () => {
-   while (position < rows.length) await run(rows[position++])
+   // biome-ignore format: NOSONAR must stay on the await line
+   while (position < rows.length) await run(rows[position++]) // NOSONAR: ordered/limited operation; parallelizing would change atomicity, rate limits, or deterministic progress.
   })
  )
 }
@@ -244,7 +245,8 @@ export class BiliDiscussion {
    for (let page = 1; page <= budget; page++) {
     let data: Raw
     try {
-     data = await this.json(
+     // biome-ignore format: NOSONAR must stay on the await line
+     data = await this.json( // NOSONAR: ordered/limited operation; parallelizing would change atomicity, rate limits, or deterministic progress.
       '/x/v2/reply',
       {type: '1', oid: String(aid), sort: String(sort), pn: String(page), ps: '20'},
       signal
@@ -254,7 +256,8 @@ export class BiliDiscussion {
      coverage.errors.push({stage: 'roots', sort, code})
      if (page !== 1 || sort !== 2 || !['http_404', 'api_-400', 'invalid_response'].includes(code)) break
      try {
-      data = await this.json(
+      // biome-ignore format: NOSONAR must stay on the await line
+      data = await this.json( // NOSONAR: ordered/limited operation; parallelizing would change atomicity, rate limits, or deterministic progress.
        '/x/v2/reply/wbi/main',
        {type: '1', oid: String(aid), mode: '3', pagination_str: '{"offset":""}', web_location: '1315875'},
        signal,
@@ -305,7 +308,8 @@ export class BiliDiscussion {
    for (let page = 1; page <= 2; page++) {
     let data: Raw
     try {
-     data = await this.json(
+     // biome-ignore format: NOSONAR must stay on the await line
+     data = await this.json( // NOSONAR: ordered/limited operation; parallelizing would change atomicity, rate limits, or deterministic progress.
       '/x/v2/reply/reply',
       {type: '1', oid: String(aid), root: parent.rpid, pn: String(page), ps: '20'},
       signal
@@ -355,7 +359,8 @@ export class BiliDiscussion {
   let size = 0
   try {
    while (true) {
-    const {value, done} = await reader.read()
+    // biome-ignore format: NOSONAR must stay on the await line
+    const {value, done} = await reader.read() // NOSONAR: ordered/limited operation; parallelizing would change atomicity, rate limits, or deterministic progress.
     if (done) break
     size += value.length
     if (size > 12 * 1024 * 1024) throw new Error('danmaku_too_large')

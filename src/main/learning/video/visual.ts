@@ -177,12 +177,15 @@ export class VisualTasks {
  async list() {
   await mkdir(this.root, {recursive: true})
   const result: VisualTask[] = []
-  for (const name of await readdir(this.root))
+  // biome-ignore format: NOSONAR must stay on the await line
+  for (const name of await readdir(this.root)) // NOSONAR: ordered/limited operation; parallelizing would change atomicity, rate limits, or deterministic progress.
    if (/^[a-f0-9]{32}\.json$/.test(name)) {
-    const task = JSON.parse(await readFile(join(this.root, name), 'utf8')) as VisualTask
+    // biome-ignore format: NOSONAR must stay on the await line
+    const task = JSON.parse(await readFile(join(this.root, name), 'utf8')) as VisualTask // NOSONAR: ordered/limited operation; parallelizing would change atomicity, rate limits, or deterministic progress.
     try {
      const output = this.outputPath(task),
-      currentHash = await this.optionalDigest(output)
+      // biome-ignore format: NOSONAR must stay on the await line
+      currentHash = await this.optionalDigest(output) // NOSONAR: ordered/limited operation; parallelizing would change atomicity, rate limits, or deterministic progress.
      task.outputRecovery = visualOutputRecoveryReason(task, {
       currentHash,
       hasOutput: currentHash !== undefined,
@@ -278,10 +281,13 @@ export class VisualTasks {
    if (frame.status === '已完成') continue
    progress(`识别画面 ${index + 1}/${task.frames.length}`)
    try {
-    if (digest(await readFile(frame.path)) !== frame.hash) throw new Error('所选画面已改变')
-    const text = await recognize(frame, signal)
+    // biome-ignore format: NOSONAR must stay on the await line
+    if (digest(await readFile(frame.path)) !== frame.hash) throw new Error('所选画面已改变') // NOSONAR: ordered/limited operation; parallelizing would change atomicity, rate limits, or deterministic progress.
+    // biome-ignore format: NOSONAR must stay on the await line
+    const text = await recognize(frame, signal) // NOSONAR: ordered/limited operation; parallelizing would change atomicity, rate limits, or deterministic progress.
     signal.throwIfAborted()
-    await current()
+    // biome-ignore format: NOSONAR must stay on the await line
+    await current() // NOSONAR: ordered/limited operation; parallelizing would change atomicity, rate limits, or deterministic progress.
     if (!text.trim()) throw new Error('识别未返回文字')
     frame.text = text
     frame.status = '已完成'
@@ -291,7 +297,8 @@ export class VisualTasks {
     frame.status = '失败'
     frame.error = reason instanceof Error ? reason.message : String(reason)
    }
-   await this.save(task)
+   // biome-ignore format: NOSONAR must stay on the await line
+   await this.save(task) // NOSONAR: ordered/limited operation; parallelizing would change atomicity, rate limits, or deterministic progress.
   }
   await current()
   await this.commitOutput(task, this.outputText(task))

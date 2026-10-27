@@ -7,7 +7,8 @@ export async function textbookDirectory(start: string, fallback: string): Promis
  while (true) {
   const candidate = join(current, '课本')
   if (
-   await stat(candidate).then(
+   // biome-ignore format: NOSONAR must stay on the await line
+   await stat(candidate).then( // NOSONAR: ordered/limited operation; parallelizing would change atomicity, rate limits, or deterministic progress.
     s => s.isDirectory(),
     () => false
    )

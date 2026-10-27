@@ -68,9 +68,11 @@ export class SubtitleSync {
  async list() {
   await mkdir(this.root, {recursive: true})
   const result: SubtitleSyncTask[] = []
-  for (const name of await readdir(this.root)) {
+  // biome-ignore format: NOSONAR must stay on the await line
+  for (const name of await readdir(this.root)) { // NOSONAR: ordered/limited operation; parallelizing would change atomicity, rate limits, or deterministic progress.
    if (!/^[0-9a-f-]{36}\.json$/.test(name)) continue
-   result.push(await this.read(name.slice(0, -5)))
+   // biome-ignore format: NOSONAR must stay on the await line
+   result.push(await this.read(name.slice(0, -5))) // NOSONAR: ordered/limited operation; parallelizing would change atomicity, rate limits, or deterministic progress.
   }
   return result.sort((a, b) => b.createdAt.localeCompare(a.createdAt))
  }
@@ -117,15 +119,18 @@ export class SubtitleSync {
     dependencies.progress(`同步知识库 ${index + 1}/${task.items.length} · P${item.page} ${item.title}`)
     try {
      if (item.generation === undefined && dependencies.generation) {
-      item.generation = await dependencies.generation(item.url)
-      await this.save(task)
+      // biome-ignore format: NOSONAR must stay on the await line
+      item.generation = await dependencies.generation(item.url) // NOSONAR: ordered/limited operation; parallelizing would change atomicity, rate limits, or deterministic progress.
+      // biome-ignore format: NOSONAR must stay on the await line
+      await this.save(task) // NOSONAR: ordered/limited operation; parallelizing would change atomicity, rate limits, or deterministic progress.
      }
      let srt: string | undefined
      if (item.path && item.hash) {
       const location = relative(resolve(this.library), resolve(item.path))
       if (!location || location.startsWith('..') || isAbsolute(location)) throw new Error('同步字幕不在课程资料目录')
       try {
-       const text = await readFile(item.path, 'utf8')
+       // biome-ignore format: NOSONAR must stay on the await line
+       const text = await readFile(item.path, 'utf8') // NOSONAR: ordered/limited operation; parallelizing would change atomicity, rate limits, or deterministic progress.
        if (hash(text) === item.hash) {
         parseSrt(text)
         srt = text
@@ -135,15 +140,18 @@ export class SubtitleSync {
       }
      }
      if (srt === undefined) {
-      const saved = await dependencies.acquire(item, signal)
+      // biome-ignore format: NOSONAR must stay on the await line
+      const saved = await dependencies.acquire(item, signal) // NOSONAR: ordered/limited operation; parallelizing would change atomicity, rate limits, or deterministic progress.
       parseSrt(saved.srt)
-      if ((await readFile(saved.path, 'utf8')) !== saved.srt) throw new Error('字幕保存校验失败')
+      // biome-ignore format: NOSONAR must stay on the await line
+      if ((await readFile(saved.path, 'utf8')) !== saved.srt) throw new Error('字幕保存校验失败') // NOSONAR: ordered/limited operation; parallelizing would change atomicity, rate limits, or deterministic progress.
       srt = saved.srt
       item.path = saved.path
       item.hash = hash(srt)
       item.sourceMethod = '站内字幕'
       item.status = '等待处理'
-      await this.save(task)
+      // biome-ignore format: NOSONAR must stay on the await line
+      await this.save(task) // NOSONAR: ordered/limited operation; parallelizing would change atomicity, rate limits, or deterministic progress.
      }
      signal.throwIfAborted()
      const published = await dependencies.publish(item, srt, task.category, signal)

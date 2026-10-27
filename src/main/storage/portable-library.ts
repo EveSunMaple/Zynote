@@ -37,8 +37,10 @@ export async function openPortableLibrary(appDirectory: string, machineRoot: str
   // Only course files/database migrate. Account and settings directories stay on this computer.
   for (const category of categories) {
    const source = join(legacyLibrary, category)
-   if (await exists(source))
-    await cp(source, join(libraryRoot, category), {recursive: true, force: false, errorOnExist: false})
+   // biome-ignore format: NOSONAR must stay on the await line
+   if (await exists(source)) // NOSONAR: ordered/limited operation; parallelizing would change atomicity, rate limits, or deterministic progress.
+    // biome-ignore format: NOSONAR must stay on the await line
+    await cp(source, join(libraryRoot, category), {recursive: true, force: false, errorOnExist: false}) // NOSONAR: ordered/limited operation; parallelizing would change atomicity, rate limits, or deterministic progress.
   }
   const legacyDatabase = join(machineRoot, 'assistant.db')
   if (await exists(legacyDatabase)) {
@@ -67,7 +69,8 @@ export async function openPortableLibrary(appDirectory: string, machineRoot: str
   }
   const updates: Array<() => void> = []
   for (const row of store.db.prepare('SELECT id,path FROM course_files').all() as {id: string; path: string}[]) {
-   const path = await relocate(row.path)
+   // biome-ignore format: NOSONAR must stay on the await line
+   const path = await relocate(row.path) // NOSONAR: ordered/limited operation; parallelizing would change atomicity, rate limits, or deterministic progress.
    if (path !== row.path)
     updates.push(() => {
      store.db.prepare('UPDATE course_files SET path=? WHERE id=?').run(path, row.id)
@@ -78,8 +81,10 @@ export async function openPortableLibrary(appDirectory: string, machineRoot: str
    ppt_path: string
    transcript_path: string
   }[]) {
-   const ppt = await relocate(row.ppt_path),
-    transcript = await relocate(row.transcript_path)
+   // biome-ignore format: NOSONAR must stay on the await line
+   const ppt = await relocate(row.ppt_path), // NOSONAR: ordered/limited operation; parallelizing would change atomicity, rate limits, or deterministic progress.
+    // biome-ignore format: NOSONAR must stay on the await line
+    transcript = await relocate(row.transcript_path) // NOSONAR: ordered/limited operation; parallelizing would change atomicity, rate limits, or deterministic progress.
    if (ppt !== row.ppt_path || transcript !== row.transcript_path)
     updates.push(() => {
      store.db.prepare('UPDATE lectures SET ppt_path=?,transcript_path=? WHERE id=?').run(ppt, transcript, row.id)

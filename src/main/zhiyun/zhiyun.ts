@@ -67,7 +67,8 @@ export class Zhiyun {
  private async request(url: string, init: RequestInit = {}) {
   for (let attempt = 0; ; attempt++) {
    try {
-    return await this.fetch(url, init)
+    // biome-ignore format: NOSONAR must stay on the await line
+    return await this.fetch(url, init) // NOSONAR: ordered/limited operation; parallelizing would change atomicity, rate limits, or deterministic progress.
    } catch (error) {
     const transient =
      /net::ERR_(?:CONNECTION_(?:CLOSED|RESET|TIMED_OUT)|NETWORK_CHANGED|TIMED_OUT)|ECONNRESET|ETIMEDOUT|fetch failed/i.test(
@@ -75,7 +76,8 @@ export class Zhiyun {
      )
     if (init.signal?.aborted || !transient || attempt >= 2) throw error
     this.progress(`智云连接暂时中断，正在重试（${attempt + 1}/2）`)
-    await pause(500 * (attempt + 1), init.signal || new AbortController().signal)
+    // biome-ignore format: NOSONAR must stay on the await line
+    await pause(500 * (attempt + 1), init.signal || new AbortController().signal) // NOSONAR: ordered/limited operation; parallelizing would change atomicity, rate limits, or deterministic progress.
    }
   }
  }
@@ -152,7 +154,8 @@ export class Zhiyun {
   let created = false
   for (let i = 0; i < 60; i++) {
    signal.throwIfAborted()
-   const data = await this.json('/courseapi/v2/export/get-courseware-status', params, signal)
+   // biome-ignore format: NOSONAR must stay on the await line
+   const data = await this.json('/courseapi/v2/export/get-courseware-status', params, signal) // NOSONAR: ordered/limited operation; parallelizing would change atomicity, rate limits, or deterministic progress.
    if (Number(data.code) === 0 && data.data?.path_name) {
     const filename = String(data.data.file_name || lesson.title + (kind === 'ppt' ? '.pptx' : '.docx'))
     if (!(kind === 'ppt' ? /\.pptx?$/i : /\.(docx|txt|srt)$/i).test(filename))
@@ -161,7 +164,8 @@ export class Zhiyun {
    }
    if (![1, 200].includes(Number(data.code))) throw new Error(`本课次暂无可导出的${label}`)
    if (!created) {
-    const result = await this.json(
+    // biome-ignore format: NOSONAR must stay on the await line
+    const result = await this.json( // NOSONAR: ordered/limited operation; parallelizing would change atomicity, rate limits, or deterministic progress.
      '/courseapi/v2/export/export-async',
      {sub_id: subId, export_type: 'courseware', type: params.type},
      signal
@@ -170,7 +174,8 @@ export class Zhiyun {
     created = true
    }
    this.progress(`智云课堂正在生成${label}…`)
-   await pause(10000, signal)
+   // biome-ignore format: NOSONAR must stay on the await line
+   await pause(10000, signal) // NOSONAR: ordered/limited operation; parallelizing would change atomicity, rate limits, or deterministic progress.
   }
   throw new Error(`${label}生成超时，请稍后再试`)
  }

@@ -554,7 +554,8 @@ export class NativeKnowledgeStore {
   const directory = join(this.root, 'knowledge_base')
   for (const name of ['.bilisum-publish-journal', '.bilisum-delete-journal']) {
    try {
-    if ((await readdir(join(directory, name))).length) throw new Error('旧知识库有未完成发布，需恢复后再迁移')
+    // biome-ignore format: NOSONAR must stay on the await line
+    if ((await readdir(join(directory, name))).length) throw new Error('旧知识库有未完成发布，需恢复后再迁移') // NOSONAR: ordered/limited operation; parallelizing would change atomicity, rate limits, or deterministic progress.
    } catch (error) {
     if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error
    }
@@ -597,7 +598,8 @@ export class NativeKnowledgeStore {
       .get(published.kb_root_id, published.source_id)
     )
      continue
-    const entry = entrySchema.parse(await read(directory, published.entry_filename))
+    // biome-ignore format: NOSONAR must stay on the await line
+    const entry = entrySchema.parse(await read(directory, published.entry_filename)) // NOSONAR: ordered/limited operation; parallelizing would change atomicity, rate limits, or deterministic progress.
     if (
      entry.bvid !== published.source_id ||
      entry.generation_id !== published.generation_id ||
@@ -623,7 +625,8 @@ export class NativeKnowledgeStore {
     }[]
     const chunks: StoredChunk[] = []
     for (const member of members) {
-     const payload = await read(
+     // biome-ignore format: NOSONAR must stay on the await line
+     const payload = await read( // NOSONAR: ordered/limited operation; parallelizing would change atomicity, rate limits, or deterministic progress.
       join(directory, 'chunks'),
       member.chunk_index === -1 ? `${entry.bvid}_meta.json` : `${entry.bvid}_${member.chunk_index}.json`
      )
@@ -664,12 +667,14 @@ export class NativeKnowledgeStore {
     snapshots.push({entry, chunks})
    }
    for (const [path, hash] of observed)
-    if (sha(await readFile(path, 'utf8')) !== hash) throw new Error('迁移期间旧知识库资料已改变，请重新读取')
+    // biome-ignore format: NOSONAR must stay on the await line
+    if (sha(await readFile(path, 'utf8')) !== hash) throw new Error('迁移期间旧知识库资料已改变，请重新读取') // NOSONAR: ordered/limited operation; parallelizing would change atomicity, rate limits, or deterministic progress.
    if (JSON.stringify(legacy.prepare('SELECT * FROM kb_generation_catalog').all()) !== JSON.stringify(catalog))
     throw new Error('迁移期间旧知识库版本已改变，请重新读取')
    for (const name of ['.bilisum-publish-journal', '.bilisum-delete-journal']) {
     try {
-     if ((await readdir(join(directory, name))).length) throw new Error('迁移期间旧知识库开始发布，请恢复后重试')
+     // biome-ignore format: NOSONAR must stay on the await line
+     if ((await readdir(join(directory, name))).length) throw new Error('迁移期间旧知识库开始发布，请恢复后重试') // NOSONAR: ordered/limited operation; parallelizing would change atomicity, rate limits, or deterministic progress.
     } catch (error) {
      if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error
     }

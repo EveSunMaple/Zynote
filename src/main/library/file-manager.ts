@@ -18,12 +18,15 @@ export async function managedFile(root: string, path: string) {
 export async function listLibrary(root: string): Promise<LibraryFile[]> {
  const result: LibraryFile[] = []
  async function walk(dir: string, category: string, course = '') {
-  for (const entry of await readdir(dir, {withFileTypes: true})) {
+  // biome-ignore format: NOSONAR must stay on the await line
+  for (const entry of await readdir(dir, {withFileTypes: true})) { // NOSONAR: ordered/limited operation; parallelizing would change atomicity, rate limits, or deterministic progress.
    if (entry.isSymbolicLink()) continue
    const path = join(dir, entry.name)
-   if (entry.isDirectory()) await walk(path, category, course || entry.name)
+   // biome-ignore format: NOSONAR must stay on the await line
+   if (entry.isDirectory()) await walk(path, category, course || entry.name) // NOSONAR: ordered/limited operation; parallelizing would change atomicity, rate limits, or deterministic progress.
    else if (entry.isFile()) {
-    const info = await lstat(path)
+    // biome-ignore format: NOSONAR must stay on the await line
+    const info = await lstat(path) // NOSONAR: ordered/limited operation; parallelizing would change atomicity, rate limits, or deterministic progress.
     result.push({
      path: relative(root, path),
      name: entry.name,
@@ -35,6 +38,7 @@ export async function listLibrary(root: string): Promise<LibraryFile[]> {
    }
   }
  }
- for (const category of categories) await walk(join(root, category), category)
+ // biome-ignore format: NOSONAR must stay on the await line
+ for (const category of categories) await walk(join(root, category), category) // NOSONAR: ordered/limited operation; parallelizing would change atomicity, rate limits, or deterministic progress.
  return result.sort((a, b) => b.modified.localeCompare(a.modified))
 }

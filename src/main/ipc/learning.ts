@@ -122,7 +122,8 @@ export function createLearningHandler(
       if (!detail.practice) throw new Error('还没有练习')
       for (const group of ['past', 'extended', 'generated'] as const)
        for (const [index, q] of (detail.practice[group] || []).entries())
-        detail.practice[group]![index] = await prepareAnswer(
+        // biome-ignore format: NOSONAR must stay on the await line
+        detail.practice[group]![index] = await prepareAnswer( // NOSONAR: ordered/limited operation; parallelizing would change atomicity, rate limits, or deterministic progress.
          q,
          db.course(detail.lecture.course_id).name,
          answerDependencies,

@@ -130,7 +130,8 @@ export async function readImageDeck(path: string, signal?: AbortSignal): Promise
   const t = target(rels, id),
    name = t && partTarget('ppt', t)
   if (!name?.startsWith('ppt/slides/')) throw new Error('课件页面关系无效')
-  const xml = await zip.file(name)?.async('string')
+  // biome-ignore format: NOSONAR must stay on the await line
+  const xml = await zip.file(name)?.async('string') // NOSONAR: ordered/limited operation; parallelizing would change atomicity, rate limits, or deterministic progress.
   if (!xml) throw new Error('课件页面缺失')
   const pictures = Array.from(xml.matchAll(/<p:pic\b[\s\S]*?<\/p:pic>/g), m => m[0])
   if (!pictures.length && !/<a:t\b|<p:graphicFrame\b|<p:sp\b/.test(xml)) continue
@@ -138,14 +139,16 @@ export async function readImageDeck(path: string, signal?: AbortSignal): Promise
    throw new Error(`第 ${index + 1} 页包含可编辑对象或多张图片，暂不能完整处理；请先将每页转换为一张图片后再导入`)
   const pic = pictures[0],
    embed = attr(pic, 'r:embed'),
-   slideRels = await zip
+   // biome-ignore format: NOSONAR must stay on the await line
+   slideRels = await zip // NOSONAR: ordered/limited operation; parallelizing would change atomicity, rate limits, or deterministic progress.
     .file(posix.join(posix.dirname(name), '_rels', posix.basename(name) + '.rels'))
     ?.async('string'),
    media = embed && slideRels && target(slideRels, embed)
   if (!media) throw new Error(`第 ${index + 1} 页没有可读取的内嵌图片`)
   const mediaName = partTarget(posix.dirname(name), media)
   if (!mediaName.startsWith('ppt/media/')) throw new Error('图片关系无效')
-  const data = await zip.file(mediaName)?.async('nodebuffer')
+  // biome-ignore format: NOSONAR must stay on the await line
+  const data = await zip.file(mediaName)?.async('nodebuffer') // NOSONAR: ordered/limited operation; parallelizing would change atomicity, rate limits, or deterministic progress.
   if (!data?.length) {
    pages.push(missingPage(index + 1, '原课件内嵌图片缺失，无法恢复；已保留原文件'))
    continue

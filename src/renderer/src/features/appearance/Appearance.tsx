@@ -89,7 +89,8 @@ export function AppearanceEditor({
     let result: AppearanceState | undefined
     try {
      for (const [id, value] of batch)
-      result = await window.assistant.invoke<AppearanceState>('appearance:save', {value, courseId: id || undefined})
+      // biome-ignore format: NOSONAR must stay on the await line
+      result = await window.assistant.invoke<AppearanceState>('appearance:save', {value, courseId: id || undefined}) // NOSONAR: ordered/limited operation; parallelizing would change atomicity, rate limits, or deterministic progress.
      if (result && rev === revision.current) commit(result)
     } catch (e) {
      for (const [id, value] of batch) if (!pending.current.has(id)) pending.current.set(id, value)

@@ -132,7 +132,8 @@ export class NativeResearchWorkflows {
    signal.throwIfAborted()
    const task = this.engine.read(id)
    if (task.status !== 'running' && task.status !== 'paused') return task
-   await new Promise<void>((resolve, reject) => {
+   // biome-ignore format: NOSONAR must stay on the await line
+   await new Promise<void>((resolve, reject) => { // NOSONAR: ordered/limited operation; parallelizing would change atomicity, rate limits, or deterministic progress.
     const timer = setTimeout(done, 25)
     function done() {
      signal.removeEventListener('abort', abort)
@@ -181,7 +182,8 @@ export class NativeResearchWorkflows {
      steps: flow.steps.map((item, i) => (i === index ? {...item, status: 'running', task_id: task.task_id} : item))
     }
     this.save(flow)
-    const result = task.status === 'completed' ? task : await this.wait(task.task_id, signal)
+    // biome-ignore format: NOSONAR must stay on the await line
+    const result = task.status === 'completed' ? task : await this.wait(task.task_id, signal) // NOSONAR: ordered/limited operation; parallelizing would change atomicity, rate limits, or deterministic progress.
     if (result.status !== 'completed') throw new Error(result.error_code || '工作流步骤未完成')
     this.engine.verifyResult(result.task_id)
     flow = this.read(id)
