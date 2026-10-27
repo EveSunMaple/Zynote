@@ -51,31 +51,38 @@ function decodePage(data: Buffer, contentType: string) {
  if (!iconv.encodingExists(declared)) throw new Error('网页字符编码不受支持')
  return iconv.decode(data, declared)
 }
-export function publicPageText(html: string) {
- const titleOpen = /<title\b[^<>]*>/i.exec(html),
-  titleStart = titleOpen ? titleOpen.index + titleOpen[0].length : -1,
-  titleClose = titleStart >= 0 ? /<\/title>/i.exec(html.slice(titleStart)) : null,
-  title = decodeHTML(
-   titleClose && titleStart >= 0
-    ? html.slice(titleStart, titleStart + titleClose.index).replace(/<[^<>]*>/g, '')
-    : '公开网页'
-  )
-   .replace(/\s+/g, ' ')
-   .trim()
-   .slice(0, 300)
- const visible = html
+function pageTitle(html: string) {
+ const open = /<title\b[^<>]*>/i.exec(html),
+  start = open ? open.index + open[0].length : -1,
+  close = start >= 0 ? /<\/title>/i.exec(html.slice(start)) : null
+ return decodeHTML(close && start >= 0 ? html.slice(start, start + close.index).replace(/<[^<>]*>/g, '') : '公开网页')
+  .replace(/\s+/g, ' ')
+  .trim()
+  .slice(0, 300)
+}
+function visiblePageHtml(html: string) {
+ return html
   .replace(/<!--([\s\S]*?)-->/g, ' ')
   .replace(/<(script|style|template|noscript|svg|iframe|nav|footer)\b[^>]*>[\s\S]*?<\/\1\s*>/gi, ' ')
- const article =
+}
+function pageArticle(visible: string) {
+ return (
   /<(?:article|main)\b[^>]*>([\s\S]*?)<\/(?:article|main)>/i.exec(visible)?.[1] ||
   /<body\b[^>]*>([\s\S]*?)<\/body>/i.exec(visible)?.[1] ||
   visible
- const text = decodeHTML(
+ )
+}
+function pagePlainText(article: string) {
+ return decodeHTML(
   article.replace(/<(?:br|\/p|\/div|\/h[1-6]|\/li|\/section)\b[^<>]*>/gi, '\n').replace(/<[^<>]*>/g, ' ')
  )
   .replace(/[ \t\r]+/g, ' ')
   .replace(/\n\s*\n+/g, '\n\n')
   .trim()
+}
+export function publicPageText(html: string) {
+ const title = pageTitle(html)
+ const text = pagePlainText(pageArticle(visiblePageHtml(html)))
  if (
   !text ||
   /just a moment|verify you are human|captcha|访问验证|安全验证|请登录后查看/i.test(title + '\n' + text.slice(0, 500))
