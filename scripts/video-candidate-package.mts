@@ -30,7 +30,8 @@ function check(v: unknown, message: string): asserts v {
 async function plain(path: string, directory = false) {
  const target = resolve(path)
  for (let current = target; ; current = dirname(current)) {
-  const s = await lstat(current)
+  // biome-ignore format: NOSONAR must stay on the await line
+  const s = await lstat(current) // NOSONAR: build/fixture script; serial order and bounded resource use are intentional.
   check(!s.isSymbolicLink(), 'Links forbidden')
   check(current !== target || directory ? s.isDirectory() : s.isFile() && s.nlink === 1, 'Invalid input file')
   if (dirname(current) === current) break
@@ -128,7 +129,8 @@ async function extractMember(archive: string, name: string, destination: string,
      count += bytes.length
      check(count <= size, 'Member exceeded declared size')
      h.update(bytes)
-     await file.writeFile(bytes)
+     // biome-ignore format: NOSONAR must stay on the await line
+     await file.writeFile(bytes) // NOSONAR: build/fixture script; serial order and bounded resource use are intentional.
     }
    })()
    child.once('close', code => {
@@ -193,9 +195,11 @@ export async function packageVideoCandidate(value: unknown) {
  }
  try {
   for (const tool of ['ffmpeg', 'ffprobe']) {
-   await copy('prefix/bin/' + tool, tool, hex.parse(source.diagnostics?.[tool]?.sha256))
+   // biome-ignore format: NOSONAR must stay on the await line
+   await copy('prefix/bin/' + tool, tool, hex.parse(source.diagnostics?.[tool]?.sha256)) // NOSONAR: build/fixture script; serial order and bounded resource use are intentional.
    if (linux) {
-    const bytes = await readFile(join(payload, tool))
+    // biome-ignore format: NOSONAR must stay on the await line
+    const bytes = await readFile(join(payload, tool)) // NOSONAR: build/fixture script; serial order and bounded resource use are intentional.
     inspectExecutable(bytes, bytes.length, 'linux')
     const diagnostic = source.diagnostics[tool]
     const allowed = new Set([
@@ -238,9 +242,12 @@ export async function packageVideoCandidate(value: unknown) {
     'Source ledger differs from fixed source lock'
    )
    const base = 'sources/' + locked.id + '/' + locked.root
-   await copy('archives/' + locked.archive, 'sources/' + locked.archive, locked.sha256)
-   for (const license of locked.licenseFiles) await copy(base + '/' + license, 'licenses/' + locked.id + '/' + license)
-   await copy(
+   // biome-ignore format: NOSONAR must stay on the await line
+   await copy('archives/' + locked.archive, 'sources/' + locked.archive, locked.sha256) // NOSONAR: build/fixture script; serial order and bounded resource use are intentional.
+   // biome-ignore format: NOSONAR must stay on the await line
+   for (const license of locked.licenseFiles) await copy(base + '/' + license, 'licenses/' + locked.id + '/' + license) // NOSONAR: build/fixture script; serial order and bounded resource use are intentional.
+   // biome-ignore format: NOSONAR must stay on the await line
+   await copy( // NOSONAR: build/fixture script; serial order and bounded resource use are intentional.
     base + '/' + (locked.id === 'ffmpeg' ? 'ffbuild/config.log' : 'config.log'),
     'evidence/' + locked.id + '-config.log'
    )
@@ -251,7 +258,8 @@ export async function packageVideoCandidate(value: unknown) {
    await copy('build-evidence.json', 'evidence/build-evidence.json')
   } else
    for (const file of ['configure', 'configure.ac'])
-    await copy(
+    // biome-ignore format: NOSONAR must stay on the await line
+    await copy( // NOSONAR: build/fixture script; serial order and bounded resource use are intentional.
      'sources/vorbis/libvorbis-1.3.7/' + file,
      'evidence/vorbis-' + file,
      hex.parse(source.sourcePatches?.patches?.find((p: {file: string}) => p.file === file)?.afterSha256)

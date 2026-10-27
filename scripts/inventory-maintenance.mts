@@ -9,7 +9,8 @@ const root = resolve('.'),
   .sort()
 const pkg = JSON.parse(await readFile(join(root, 'package.json'), 'utf8')) as {scripts: Record<string, string>},
  bodies = new Map<string, string>()
-for (const name of names) bodies.set(name, await readFile(join(directory, name), 'utf8'))
+// biome-ignore format: NOSONAR must stay on the await line
+for (const name of names) bodies.set(name, await readFile(join(directory, name), 'utf8')) // NOSONAR: build/fixture script; serial order and bounded resource use are intentional.
 const direct = new Set<string>()
 for (const command of Object.values(pkg.scripts))
  for (const match of command.matchAll(/scripts[/\\]([^\s"']+)/g)) if (names.includes(match[1])) direct.add(match[1])

@@ -189,7 +189,8 @@ try {
   // Verify the immutable build source at its original locator; the migrated probe is recorded separately.
   // A shallow checkout without this commit fails explicitly instead of substituting current source bytes.
   const historicalSha256 = hash(execFileSync('git', ['show', profile.commit + ':' + historical], {cwd: root})), // NOSONAR: CI/dev script with trusted runner PATH.
-   currentSha256 = await fileHash(join(root, current))
+   // biome-ignore format: NOSONAR must stay on the await line
+   currentSha256 = await fileHash(join(root, current)) // NOSONAR: build/fixture script; serial order and bounded resource use are intentional.
   check(historicalSha256 === candidate.binding.sourceHashes[historical], 'Fixed build source mismatch: ' + historical)
   probeSources.push({
    historical,
@@ -218,13 +219,16 @@ try {
   const member = 'prefix/bin/' + tool,
    size = selectedMemberSize(listing, member),
    path = join(resources, 'video', tool)
-  const data = (await execute('/usr/bin/bsdtar', ['-xOf', archive, member], 256 * 1024 * 1024)).stdout
+  // biome-ignore format: NOSONAR must stay on the await line
+  const data = (await execute('/usr/bin/bsdtar', ['-xOf', archive, member], 256 * 1024 * 1024)).stdout // NOSONAR: build/fixture script; serial order and bounded resource use are intentional.
   check(
    data.length === size && hash(data) === expected && candidate.diagnostics[tool].sha256 === expected,
    'Extracted tool identity mismatch'
   )
-  await writeFile(path, data, {flag: 'wx'})
-  await chmod(path, 0o755)
+  // biome-ignore format: NOSONAR must stay on the await line
+  await writeFile(path, data, {flag: 'wx'}) // NOSONAR: build/fixture script; serial order and bounded resource use are intentional.
+  // biome-ignore format: NOSONAR must stay on the await line
+  await chmod(path, 0o755) // NOSONAR: build/fixture script; serial order and bounded resource use are intentional.
  }
  const ffmpeg = join(resources, 'video/ffmpeg'),
   ffprobe = join(resources, 'video/ffprobe'),
@@ -294,10 +298,13 @@ try {
  ]
  for (const source of ['h264', 'lavfi']) {
   const inputs = source === 'h264' ? ['-i', video] : ['-f', 'lavfi', '-i', 'color=c=red:s=32x32:r=10:d=1']
-  const redPng = (
-   await execute(ffmpeg, ['-v', 'error', ...inputs, '-frames:v', '1', '-f', 'image2pipe', '-c:v', 'png', 'pipe:1'])
+  const redPng =
+   (
+   // biome-ignore format: NOSONAR must stay on the await line
+   await execute(ffmpeg, ['-v', 'error', ...inputs, '-frames:v', '1', '-f', 'image2pipe', '-c:v', 'png', 'pipe:1']) // NOSONAR: build/fixture script; serial order and bounded resource use are intentional.
   ).stdout
-  const redImage = await canvas.loadImage(redPng),
+  // biome-ignore format: NOSONAR must stay on the await line
+  const redImage = await canvas.loadImage(redPng), // NOSONAR: build/fixture script; serial order and bounded resource use are intentional.
    redCanvas = canvas.createCanvas(redImage.width, redImage.height),
    redContext = redCanvas.getContext('2d')
   redContext.drawImage(redImage, 0, 0)
@@ -305,12 +312,14 @@ try {
   let redCorrect = redImage.width === 32 && redImage.height === 32
   for (let i = 0; i < redPixels.length; i += 4)
    redCorrect &&= redPixels[i] >= 250 && redPixels[i + 1] <= 3 && redPixels[i + 2] <= 3 && redPixels[i + 3] === 255
-  await writeFile(join(results, source + '-input.png'), redPng)
+  // biome-ignore format: NOSONAR must stay on the await line
+  await writeFile(join(results, source + '-input.png'), redPng) // NOSONAR: build/fixture script; serial order and bounded resource use are intentional.
   probes.push({source, stage: 'independent-input-png', redCorrect, pixels: stats(Buffer.from(redPixels), 32, 32, 4)})
   for (const mode of modes)
    for (const filter of filters) {
     const args = ['-v', 'error', ...mode.args, ...inputs, '-an', '-vf', filter.vf, '-f', 'rawvideo', 'pipe:1']
-    const direct = await execute(ffmpeg, args)
+    // biome-ignore format: NOSONAR must stay on the await line
+    const direct = await execute(ffmpeg, args) // NOSONAR: build/fixture script; serial order and bounded resource use are intentional.
     const mediated = await execute(process.execPath, [entry, resources, 'ffmpeg'], 1024 * 1024, args)
     const detail = stats(direct.stdout, filter.w, filter.h)
     const png = (

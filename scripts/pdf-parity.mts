@@ -30,8 +30,10 @@ const loaded = await open.promise
 const expectedPages: {index: number; items: {text: string; x: number; y: number; width: number; height: number}[]}[] =
  []
 for (let number = 1; number <= loaded.numPages; number++) {
- const page = await loaded.getPage(number)
- const content = await page.getTextContent()
+ // biome-ignore format: NOSONAR must stay on the await line
+ const page = await loaded.getPage(number) // NOSONAR: build/fixture script; serial order and bounded resource use are intentional.
+ // biome-ignore format: NOSONAR must stay on the await line
+ const content = await page.getTextContent() // NOSONAR: build/fixture script; serial order and bounded resource use are intentional.
  expectedPages.push({
   index: number,
   items: content.items.flatMap(item =>

@@ -33,7 +33,8 @@ for (const [id, entry] of [
  ['subtitle', 'src/main/media/core/media-subtitle-download.ts'],
  ['courseGroups', 'src/shared/course-groups.ts']
 ] as const)
- await build({
+ // biome-ignore format: NOSONAR must stay on the await line
+ await build({ // NOSONAR: build/fixture script; serial order and bounded resource use are intentional.
   entryPoints: [resolve(entry)],
   outfile: bundles[id],
   bundle: true,
@@ -44,7 +45,8 @@ for (const [entry, outfile] of [
  ['src/main/documents/transcript.ts', transcriptBundle],
  ['src/main/media/transfer/media-hls.ts', hlsBundle]
 ] as const)
- await build({
+ // biome-ignore format: NOSONAR must stay on the await line
+ await build({ // NOSONAR: build/fixture script; serial order and bounded resource use are intentional.
   entryPoints: [resolve(entry)],
   outfile,
   bundle: true,

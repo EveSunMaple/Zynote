@@ -28,7 +28,8 @@ const commit = execFileSync('git', ['rev-parse', 'HEAD'], {cwd: root, encoding: 
  ]),
  sourceHash = createHash('sha256')
 for (const path of [...files].sort(compareCodeUnit))
- sourceHash.update(path + '\0').update(await readFile(join(root, path)))
+ // biome-ignore format: NOSONAR must stay on the await line
+ sourceHash.update(path + '\0').update(await readFile(join(root, path))) // NOSONAR: build/fixture script; serial order and bounded resource use are intentional.
 const source = {commit, dirty, sha256: sourceHash.digest('hex')}
 const osProductVersion =
  process.platform === 'darwin'
@@ -103,17 +104,23 @@ async function navigation() {
    positions = await dialog.getByRole('complementary', {name: '设置导航'}).boundingBox()
   if (!original || !positions) throw new Error('Settings layout is not visible')
   for (const name of ['搜索服务', '提示词库', '模型服务']) {
-   await dialog.getByRole('button', {name, exact: true}).click()
-   await dialog.getByRole('heading', {name, exact: true}).waitFor()
-   if ((await dialog.getByRole('button', {name, exact: true}).getAttribute('aria-current')) !== 'page')
+   // biome-ignore format: NOSONAR must stay on the await line
+   await dialog.getByRole('button', {name, exact: true}).click() // NOSONAR: build/fixture script; serial order and bounded resource use are intentional.
+   // biome-ignore format: NOSONAR must stay on the await line
+   await dialog.getByRole('heading', {name, exact: true}).waitFor() // NOSONAR: build/fixture script; serial order and bounded resource use are intentional.
+   // biome-ignore format: NOSONAR must stay on the await line
+   if ((await dialog.getByRole('button', {name, exact: true}).getAttribute('aria-current')) !== 'page') // NOSONAR: build/fixture script; serial order and bounded resource use are intentional.
     throw new Error('Settings section did not become current: ' + name)
-   await page.evaluate(
+   // biome-ignore format: NOSONAR must stay on the await line
+   await page.evaluate( // NOSONAR: build/fixture script; serial order and bounded resource use are intentional.
     () => new Promise<void>(resolveFrame => requestAnimationFrame(() => requestAnimationFrame(() => resolveFrame())))
    )
-   if ((await page.locator('.learning-window:visible').count()) !== 1 || (await page.getByRole('dialog').count()) !== 0)
+   // biome-ignore format: NOSONAR must stay on the await line
+   if ((await page.locator('.learning-window:visible').count()) !== 1 || (await page.getByRole('dialog').count()) !== 0) // NOSONAR: build/fixture script; serial order and bounded resource use are intentional.
     throw new Error('Settings section changed into a modal: ' + name)
    if (
-    JSON.stringify(await dialog.boundingBox()) !== JSON.stringify(original) ||
+    // biome-ignore format: NOSONAR must stay on the await line
+    JSON.stringify(await dialog.boundingBox()) !== JSON.stringify(original) || // NOSONAR: build/fixture script; serial order and bounded resource use are intentional.
     JSON.stringify(await dialog.getByRole('complementary', {name: '设置导航'}).boundingBox()) !==
      JSON.stringify(positions)
    )

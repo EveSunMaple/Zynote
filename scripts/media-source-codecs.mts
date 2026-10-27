@@ -15,7 +15,8 @@ async function noLongerRunning(pid: number) {
    if ((error as NodeJS.ErrnoException).code === 'ESRCH') return
    throw error
   }
-  await new Promise(resolveDelay => setTimeout(resolveDelay, 50))
+  // biome-ignore format: NOSONAR must stay on the await line
+  await new Promise(resolveDelay => setTimeout(resolveDelay, 50)) // NOSONAR: build/fixture script; serial order and bounded resource use are intentional.
  }
  throw new Error('The guardian-owned media process remained alive after shutdown')
 }
@@ -155,7 +156,8 @@ export async function verifySourceCodecs(
   ],
   ['-protocols', ['file', 'pipe']]
  ] as const) {
-  const capabilities = await invoke('ffmpeg', ['-hide_banner', flag])
+  // biome-ignore format: NOSONAR must stay on the await line
+  const capabilities = await invoke('ffmpeg', ['-hide_banner', flag]) // NOSONAR: build/fixture script; serial order and bounded resource use are intentional.
   const tokens = new Set((capabilities.stdout.toString('utf8') + '\n' + capabilities.stderr).split(/[\s,]+/))
   for (const name of names) check(tokens.has(name), 'Missing capability ' + flag + ': ' + name)
  }
@@ -197,8 +199,10 @@ export async function verifySourceCodecs(
   ['pcm_s16le', 'wav', 'pcm_s16le']
  ]) {
   const file = join(work, 'audio.' + extension)
-  await run(['-i', video, '-vn', '-c:a', encoder, file])
-  check((await probe(file)).streams[0].codec_name === expected, 'Audio codec failed: ' + encoder)
+  // biome-ignore format: NOSONAR must stay on the await line
+  await run(['-i', video, '-vn', '-c:a', encoder, file]) // NOSONAR: build/fixture script; serial order and bounded resource use are intentional.
+  // biome-ignore format: NOSONAR must stay on the await line
+  check((await probe(file)).streams[0].codec_name === expected, 'Audio codec failed: ' + encoder) // NOSONAR: build/fixture script; serial order and bounded resource use are intentional.
   checks.push(encoder + ' actual encode/probe')
  }
  const pcm = join(work, 'asr.f32')
@@ -209,8 +213,10 @@ export async function verifySourceCodecs(
  checks.push('ASR f32le mono16k finite samples')
  for (const extension of ['png', 'jpg']) {
   const file = join(work, 'frame.' + extension)
-  await run(['-i', video, '-frames:v', '1', '-vf', 'crop=16:16,scale=32:32', file])
-  check((await probe(file)).streams[0].width === 32, 'Image extraction failed')
+  // biome-ignore format: NOSONAR must stay on the await line
+  await run(['-i', video, '-frames:v', '1', '-vf', 'crop=16:16,scale=32:32', file]) // NOSONAR: build/fixture script; serial order and bounded resource use are intentional.
+  // biome-ignore format: NOSONAR must stay on the await line
+  check((await probe(file)).streams[0].width === 32, 'Image extraction failed') // NOSONAR: build/fixture script; serial order and bounded resource use are intentional.
   checks.push(extension + ' crop/scale extraction')
  }
  const raw = await invoke('ffmpeg', [

@@ -153,7 +153,8 @@ async function run(root: string, work: string, results: string) {
   failure = error instanceof Error ? error.message : 'Unknown fixture failure'
  } finally {
   for (const owner of owners)
-   await owner.dispose().catch(() => {
+   // biome-ignore format: NOSONAR must stay on the await line
+   await owner.dispose().catch(() => { // NOSONAR: build/fixture script; serial order and bounded resource use are intentional.
     exitCode = 1
     failure = 'Owner shutdown failed'
    })

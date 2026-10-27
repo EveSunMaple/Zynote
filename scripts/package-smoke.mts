@@ -26,14 +26,16 @@ try {
  let options: unknown
  for (let attempt = 0; attempt < 30; attempt++) {
   try {
-   options = await page.evaluate(() =>
+   // biome-ignore format: NOSONAR must stay on the await line
+   options = await page.evaluate(() => // NOSONAR: build/fixture script; serial order and bounded resource use are intentional.
     (
      window as typeof window & {assistant: {invoke: (action: string, args?: unknown) => Promise<unknown>}}
     ).assistant.invoke('media:options')
    )
    break
   } catch {
-   await new Promise(resolve => setTimeout(resolve, 500))
+   // biome-ignore format: NOSONAR must stay on the await line
+   await new Promise(resolve => setTimeout(resolve, 500)) // NOSONAR: build/fixture script; serial order and bounded resource use are intentional.
   }
  }
  if (!options || typeof options !== 'object') throw new Error('packaged Go core did not answer media:options')

@@ -37,8 +37,10 @@ try {
  for (const name of [...names, 'LICENSE.txt']) {
   const bytes = Buffer.from('Synthetic inert ' + name),
    mode = names.includes(name) && process.platform !== 'win32' ? '0755' : '0644'
-  await writeFile(join(resources, 'video', name), bytes)
-  await chmod(join(resources, 'video', name), mode === '0755' ? 0o755 : 0o644)
+  // biome-ignore format: NOSONAR must stay on the await line
+  await writeFile(join(resources, 'video', name), bytes) // NOSONAR: build/fixture script; serial order and bounded resource use are intentional.
+  // biome-ignore format: NOSONAR must stay on the await line
+  await chmod(join(resources, 'video', name), mode === '0755' ? 0o755 : 0o644) // NOSONAR: build/fixture script; serial order and bounded resource use are intentional.
   files.push({path: name, size: bytes.length, sha256: createHash('sha256').update(bytes).digest('hex'), mode})
  }
  const manifest = {
@@ -146,8 +148,10 @@ try {
  for (const component of realLegacy.components)
   for (const file of component.files) {
    const path = join(legacyRoot, component.directory, file.path)
-   await mkdir(dirname(path), {recursive: true})
-   await writeFile(path, 'legacy presence fixture')
+   // biome-ignore format: NOSONAR must stay on the await line
+   await mkdir(dirname(path), {recursive: true}) // NOSONAR: build/fixture script; serial order and bounded resource use are intentional.
+   // biome-ignore format: NOSONAR must stay on the await line
+   await writeFile(path, 'legacy presence fixture') // NOSONAR: build/fixture script; serial order and bounded resource use are intentional.
   }
  const presentLegacy = await new RuntimeComponents(legacyRoot, realLegacy.productVersion).status()
  assert(

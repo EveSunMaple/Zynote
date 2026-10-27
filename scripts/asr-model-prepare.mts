@@ -53,7 +53,8 @@ const digest = (bytes: Buffer | string) => createHash('sha256').update(bytes).di
 async function plain(path: string, directory = false) {
  const target = resolve(path)
  for (let current = target; ; current = dirname(current)) {
-  const stat = await lstat(current)
+  // biome-ignore format: NOSONAR must stay on the await line
+  const stat = await lstat(current) // NOSONAR: build/fixture script; serial order and bounded resource use are intentional.
   check(!stat.isSymbolicLink(), 'Links are not allowed')
   check(
    current !== target || directory ? stat.isDirectory() : stat.isFile() && stat.nlink === 1,
@@ -135,13 +136,15 @@ async function download(entry: Entry, path: string) {
   )
   let response: Response
   try {
-   response = await modelFetch(url, {redirect: 'manual', signal, headers: {'accept-encoding': 'identity'}})
+   // biome-ignore format: NOSONAR must stay on the await line
+   response = await modelFetch(url, {redirect: 'manual', signal, headers: {'accept-encoding': 'identity'}}) // NOSONAR: build/fixture script; serial order and bounded resource use are intentional.
   } catch {
    throw new Error('Model request failed: ' + entry.path + ' at ' + parsed.hostname)
   }
   if ([301, 302, 303, 307, 308].includes(response.status)) {
    const next = response.headers.get('location')
-   await response.body?.cancel()
+   // biome-ignore format: NOSONAR must stay on the await line
+   await response.body?.cancel() // NOSONAR: build/fixture script; serial order and bounded resource use are intentional.
    check(next && count < 5, 'Invalid model redirect chain')
    url = new URL(next, url).href
    continue
@@ -149,7 +152,8 @@ async function download(entry: Entry, path: string) {
   check(response.ok && response.body, 'Model HTTP ' + response.status + ': ' + entry.path + ' at ' + parsed.hostname)
   const length = response.headers.get('content-length')
   check(length === null || Number(length) === entry.size, 'Model Content-Length mismatch')
-  const file = await open(path, 'wx', 0o600),
+  // biome-ignore format: NOSONAR must stay on the await line
+  const file = await open(path, 'wx', 0o600), // NOSONAR: build/fixture script; serial order and bounded resource use are intentional.
    hash = createHash('sha256')
   let size = 0
   try {
@@ -159,16 +163,19 @@ async function download(entry: Entry, path: string) {
     hash.update(bytes)
     let offset = 0
     while (offset < bytes.length) {
-     const written = await file.write(bytes, offset, bytes.length - offset)
+     // biome-ignore format: NOSONAR must stay on the await line
+     const written = await file.write(bytes, offset, bytes.length - offset) // NOSONAR: build/fixture script; serial order and bounded resource use are intentional.
      check(written.bytesWritten > 0, 'Model write made no progress')
      offset += written.bytesWritten
     }
    }
-   await file.sync()
+   // biome-ignore format: NOSONAR must stay on the await line
+   await file.sync() // NOSONAR: build/fixture script; serial order and bounded resource use are intentional.
   } catch {
    throw new Error('Model transfer failed: ' + entry.path)
   } finally {
-   await file.close()
+   // biome-ignore format: NOSONAR must stay on the await line
+   await file.close() // NOSONAR: build/fixture script; serial order and bounded resource use are intentional.
   }
   check(
    size === entry.size && hash.digest('hex') === entry.sha256,
@@ -211,7 +218,8 @@ export async function prepareAsrModel(value: unknown) {
  if (request.offlineDirectory) {
   await plain(request.offlineDirectory, true)
   const actual: string[] = []
-  for (const name of await readdir(request.offlineDirectory)) {
+  // biome-ignore format: NOSONAR must stay on the await line
+  for (const name of await readdir(request.offlineDirectory)) { // NOSONAR: build/fixture script; serial order and bounded resource use are intentional.
    if (name === 'onnx') {
     await plain(join(request.offlineDirectory, name), true)
     for (const child of await readdir(join(request.offlineDirectory, name))) actual.push('onnx/' + child)

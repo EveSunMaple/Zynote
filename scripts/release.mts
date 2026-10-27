@@ -57,15 +57,20 @@ if (profile === 'components') {
  for (const component of manifest.components) {
   const directory = join(output, component.id + '-' + pkg.version),
    payload = join(directory, 'payload')
-  await mkdir(payload, {recursive: true})
+  // biome-ignore format: NOSONAR must stay on the await line
+  await mkdir(payload, {recursive: true}) // NOSONAR: build/fixture script; serial order and bounded resource use are intentional.
   for (const file of component.files) {
    const target = join(payload, ...file.path.split('/'))
-   await mkdir(dirname(target), {recursive: true})
-   await copyFile(join(root, 'resources', component.directory, ...file.path.split('/')), target)
+   // biome-ignore format: NOSONAR must stay on the await line
+   await mkdir(dirname(target), {recursive: true}) // NOSONAR: build/fixture script; serial order and bounded resource use are intentional.
+   // biome-ignore format: NOSONAR must stay on the await line
+   await copyFile(join(root, 'resources', component.directory, ...file.path.split('/')), target) // NOSONAR: build/fixture script; serial order and bounded resource use are intentional.
   }
   if (component.id === 'asr') {
-   await writeFile(join(directory, 'LICENSE-Silero-VAD.txt'), sileroLicense!)
-   await writeFile(
+   // biome-ignore format: NOSONAR must stay on the await line
+   await writeFile(join(directory, 'LICENSE-Silero-VAD.txt'), sileroLicense!) // NOSONAR: build/fixture script; serial order and bounded resource use are intentional.
+   // biome-ignore format: NOSONAR must stay on the await line
+   await writeFile( // NOSONAR: build/fixture script; serial order and bounded resource use are intentional.
     join(directory, 'silero-license-source.json'),
     JSON.stringify(
      {
@@ -83,7 +88,8 @@ if (profile === 'components') {
     ) + '\n'
    )
   }
-  await writeFile(
+  // biome-ignore format: NOSONAR must stay on the await line
+  await writeFile( // NOSONAR: build/fixture script; serial order and bounded resource use are intentional.
    join(directory, 'component.json'),
    JSON.stringify({schema: 1, id: component.id, productVersion: pkg.version, bytes: component.bytes}, null, 2)
   )

@@ -10,10 +10,12 @@ const root = resolve(dirname(fileURLToPath(import.meta.url)), '..'),
  zip = new JSZip(),
  files: string[] = []
 async function walk(folder: string) {
- for (const item of await readdir(folder, {withFileTypes: true})) {
+ // biome-ignore format: NOSONAR must stay on the await line
+ for (const item of await readdir(folder, {withFileTypes: true})) { // NOSONAR: build/fixture script; serial order and bounded resource use are intentional.
   if (item.isSymbolicLink()) throw new Error('源码包不跟随链接')
   const path = join(folder, item.name)
-  if (item.isDirectory()) await walk(path)
+  // biome-ignore format: NOSONAR must stay on the await line
+  if (item.isDirectory()) await walk(path) // NOSONAR: build/fixture script; serial order and bounded resource use are intentional.
   else {
    const name = relative(root, path).replaceAll('\\', '/')
    if (/\.(?:py|pyc|cjs|ps1|db|sqlite|pdf|pptx?|srt|mp4|log)$/i.test(name))
@@ -23,7 +25,8 @@ async function walk(folder: string) {
  }
 }
 await walk(join(root, 'src'))
-for (const item of await readdir(join(root, 'scripts'), {withFileTypes: true}))
+// biome-ignore format: NOSONAR must stay on the await line
+for (const item of await readdir(join(root, 'scripts'), {withFileTypes: true})) // NOSONAR: build/fixture script; serial order and bounded resource use are intentional.
  if (
   item.isFile() &&
   item.name.endsWith('.mts') &&

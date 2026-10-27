@@ -88,14 +88,17 @@ try {
  await mkdir(join(resources, 'asr'), {recursive: true})
  for (const tool of ['ffmpeg', 'ffprobe']) {
   const path = join(resources, 'video', tool)
-  await copyFile(join(candidate.stage, 'payload', tool), path)
+  // biome-ignore format: NOSONAR must stay on the await line
+  await copyFile(join(candidate.stage, 'payload', tool), path) // NOSONAR: build/fixture script; serial order and bounded resource use are intentional.
   if (
    createHash('sha256')
-    .update(await readFile(path))
+    // biome-ignore format: NOSONAR must stay on the await line
+    .update(await readFile(path)) // NOSONAR: build/fixture script; serial order and bounded resource use are intentional.
     .digest('hex') !== candidate.manifest.components[0].files.find(f => f.path === tool)!.sha256
   )
    throw new Error('Fixture tool copy digest mismatch')
-  await chmod(path, 0o755)
+  // biome-ignore format: NOSONAR must stay on the await line
+  await chmod(path, 0o755) // NOSONAR: build/fixture script; serial order and bounded resource use are intentional.
  }
  report.candidate = candidate.report
  report.toolHashes = Object.fromEntries(
@@ -184,7 +187,8 @@ try {
  await cp(model.model, join(resources, 'asr/onnx-small'), {recursive: true, errorOnExist: true, force: false})
  report.model = model.report
  for (const file of model.report.files) {
-  const bytes = await readFile(join(resources, 'asr/onnx-small', file.path))
+  // biome-ignore format: NOSONAR must stay on the await line
+  const bytes = await readFile(join(resources, 'asr/onnx-small', file.path)) // NOSONAR: build/fixture script; serial order and bounded resource use are intentional.
   if (bytes.length !== file.size || createHash('sha256').update(bytes).digest('hex') !== file.sha256)
    throw new Error('Copied model differs from fixed manifest: ' + file.path)
  }

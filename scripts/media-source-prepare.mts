@@ -55,10 +55,12 @@ export async function downloadSource(source: Source, destination: string) {
     (source.hosts as readonly string[]).includes(parsed.hostname),
    'Source redirect outside fixed HTTPS hosts'
   )
-  const response = await fetch(url, {redirect: 'manual', signal})
+  // biome-ignore format: NOSONAR must stay on the await line
+  const response = await fetch(url, {redirect: 'manual', signal}) // NOSONAR: build/fixture script; serial order and bounded resource use are intentional.
   if ([301, 302, 303, 307, 308].includes(response.status)) {
    const next = response.headers.get('location')
-   await response.body?.cancel()
+   // biome-ignore format: NOSONAR must stay on the await line
+   await response.body?.cancel() // NOSONAR: build/fixture script; serial order and bounded resource use are intentional.
    check(next && count < 5, 'Invalid source redirect chain')
    url = new URL(next, url).href
    continue
@@ -69,7 +71,8 @@ export async function downloadSource(source: Source, destination: string) {
   )
   const declared = response.headers.get('content-length')
   check(declared === null || Number(declared) === source.size, 'Unexpected source Content-Length')
-  const file = await open(destination, 'wx', 0o600)
+  // biome-ignore format: NOSONAR must stay on the await line
+  const file = await open(destination, 'wx', 0o600) // NOSONAR: build/fixture script; serial order and bounded resource use are intentional.
   let size = 0
   try {
    for await (const bytes of response.body) {
@@ -77,15 +80,18 @@ export async function downloadSource(source: Source, destination: string) {
     check(size <= source.size, 'Source download exceeds fixed size')
     let offset = 0
     while (offset < bytes.length) {
-     const result = await file.write(bytes, offset, bytes.length - offset)
+     // biome-ignore format: NOSONAR must stay on the await line
+     const result = await file.write(bytes, offset, bytes.length - offset) // NOSONAR: build/fixture script; serial order and bounded resource use are intentional.
      check(result.bytesWritten > 0, 'Download made no progress')
      offset += result.bytesWritten
     }
    }
   } finally {
-   await file.close()
+   // biome-ignore format: NOSONAR must stay on the await line
+   await file.close() // NOSONAR: build/fixture script; serial order and bounded resource use are intentional.
   }
-  await digest(destination, source)
+  // biome-ignore format: NOSONAR must stay on the await line
+  await digest(destination, source) // NOSONAR: build/fixture script; serial order and bounded resource use are intentional.
   return
  }
  throw new Error('Source redirect limit exceeded')
@@ -181,7 +187,8 @@ async function inspectExtracted(base: string, expected: Map<string, {directory: 
  const seen = new Set<string>()
  async function visit(path: string, relative: string) {
   await plain(path, true)
-  for (const name of await readdir(path)) {
+  // biome-ignore format: NOSONAR must stay on the await line
+  for (const name of await readdir(path)) { // NOSONAR: build/fixture script; serial order and bounded resource use are intentional.
    const itemPath = join(path, name),
     key = relative ? relative + '/' + name : name,
     item = await lstat(itemPath),

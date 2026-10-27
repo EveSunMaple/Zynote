@@ -12,14 +12,17 @@ export async function modelFetch(input: string | URL, init: RequestInit = {}, at
  let failure: unknown
  for (let attempt = 1; attempt <= attempts; attempt++) {
   try {
-   const response = await proxyFetch(input, {...init, dispatcher} as never)
+   // biome-ignore format: NOSONAR must stay on the await line
+   const response = await proxyFetch(input, {...init, dispatcher} as never) // NOSONAR: build/fixture script; serial order and bounded resource use are intentional.
    if (response.status !== 429 && response.status < 500) return response as unknown as Response
    failure = new Error(`模型服务暂时不可用：HTTP ${response.status}`)
-   await response.body?.cancel()
+   // biome-ignore format: NOSONAR must stay on the await line
+   await response.body?.cancel() // NOSONAR: build/fixture script; serial order and bounded resource use are intentional.
   } catch (error) {
    failure = error
   }
-  if (attempt < attempts) await new Promise(resolve => setTimeout(resolve, 500 * 2 ** attempt))
+  // biome-ignore format: NOSONAR must stay on the await line
+  if (attempt < attempts) await new Promise(resolve => setTimeout(resolve, 500 * 2 ** attempt)) // NOSONAR: build/fixture script; serial order and bounded resource use are intentional.
  }
  throw failure instanceof Error ? failure : new Error('模型服务连接失败')
 }

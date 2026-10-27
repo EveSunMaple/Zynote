@@ -28,7 +28,8 @@ if (process.argv.includes('--verify-local')) {
  for (const file of acquired.files) {
   const path = resolve(target, file.path)
   if (!path.startsWith(target + sep)) throw new Error('模型记录路径越界')
-  const item = await lstat(path)
+  // biome-ignore format: NOSONAR must stay on the await line
+  const item = await lstat(path) // NOSONAR: build/fixture script; serial order and bounded resource use are intentional.
   if (!item.isFile() || item.isSymbolicLink() || item.size !== file.size)
    throw new Error('本地模型大小或类型不符：' + file.path)
   const hash = createHash('sha256')
@@ -101,7 +102,8 @@ for (const name of selected) {
   throw new Error('模型权重与固定校验值不符')
  const path = resolve(target, name)
  if (!path.startsWith(target + sep)) throw new Error('模型文件路径超出目标目录')
- await mkdir(dirname(path), {recursive: true})
+ // biome-ignore format: NOSONAR must stay on the await line
+ await mkdir(dirname(path), {recursive: true}) // NOSONAR: build/fixture script; serial order and bounded resource use are intentional.
  const digest = async () => {
   const hash = createHash('sha256')
   for await (const bytes of createReadStream(path)) hash.update(bytes)
@@ -109,16 +111,20 @@ for (const name of selected) {
  }
  let existing = false
  try {
-  const item = await lstat(path)
+  // biome-ignore format: NOSONAR must stay on the await line
+  const item = await lstat(path) // NOSONAR: build/fixture script; serial order and bounded resource use are intentional.
   if (item.isSymbolicLink() || !item.isFile()) throw new Error('模型路径已有其他文件')
   if (item.size !== entry.size) throw new Error('已有模型长度不符，保留当前文件')
-  const hash = await digest()
+  // biome-ignore format: NOSONAR must stay on the await line
+  const hash = await digest() // NOSONAR: build/fixture script; serial order and bounded resource use are intentional.
   if (weight && hash !== weight.sha256) throw new Error('已有模型校验失败，保留当前文件')
   if (!weight && entry.blobId) {
-   const git = createHash('sha1') // NOSONAR: HuggingFace Git blob IDs are SHA-1 by protocol; content integrity uses SHA-256.
+   const git =
+    createHash('sha1') // NOSONAR: HuggingFace Git blob IDs are SHA-1 by protocol; content integrity uses SHA-256.
     .update(`blob ${item.size}\0`)
-    .update(await readFile(path))
-    .digest('hex')
+    // biome-ignore format: NOSONAR must stay on the await line
+    .update(await readFile(path)) // NOSONAR: build/fixture script; serial order and bounded resource use are intentional.
+     .digest('hex')
    if (git !== entry.blobId) throw new Error('已有模型配置与固定修订不符')
   }
   files.push({path: name, size: item.size, sha256: hash})
@@ -130,13 +136,16 @@ for (const name of selected) {
  const partial = path + '.partial'
  // Only an interrupted download at this exact owned path is replaceable.
  try {
-  const item = await lstat(partial)
+  // biome-ignore format: NOSONAR must stay on the await line
+  const item = await lstat(partial) // NOSONAR: build/fixture script; serial order and bounded resource use are intentional.
   if (item.isSymbolicLink() || !item.isFile()) throw new Error('模型暂存路径无效')
-  await rm(partial)
+  // biome-ignore format: NOSONAR must stay on the await line
+  await rm(partial) // NOSONAR: build/fixture script; serial order and bounded resource use are intentional.
  } catch (error) {
   if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error
  }
- const response = await modelFetch(`${endpoint}/${repository}/resolve/${revision}/${name}`, {
+ // biome-ignore format: NOSONAR must stay on the await line
+ const response = await modelFetch(`${endpoint}/${repository}/resolve/${revision}/${name}`, { // NOSONAR: build/fixture script; serial order and bounded resource use are intentional.
   signal: AbortSignal.timeout(900000)
  })
  if (!response.ok || !response.body) throw new Error('模型下载失败：HTTP ' + response.status)

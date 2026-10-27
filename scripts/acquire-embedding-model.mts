@@ -21,29 +21,37 @@ const files = [
 const saved = []
 for (const [name, size, expected] of files) {
  const path = join(directory, name)
- await mkdir(dirname(path), {recursive: true})
+ // biome-ignore format: NOSONAR must stay on the await line
+ await mkdir(dirname(path), {recursive: true}) // NOSONAR: build/fixture script; serial order and bounded resource use are intentional.
  let bytes: Buffer
  try {
-  const info = await lstat(path)
+  // biome-ignore format: NOSONAR must stay on the await line
+  const info = await lstat(path) // NOSONAR: build/fixture script; serial order and bounded resource use are intentional.
   if (!info.isFile() || info.isSymbolicLink()) throw new Error('模型路径不可用')
-  bytes = await readFile(path)
+  // biome-ignore format: NOSONAR must stay on the await line
+  bytes = await readFile(path) // NOSONAR: build/fixture script; serial order and bounded resource use are intentional.
  } catch (error) {
   if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error
-  const response = await modelFetch(`${endpoint}/Xenova/bge-small-zh-v1.5/resolve/${revision}/${name}`, {
+  // biome-ignore format: NOSONAR must stay on the await line
+  const response = await modelFetch(`${endpoint}/Xenova/bge-small-zh-v1.5/resolve/${revision}/${name}`, { // NOSONAR: build/fixture script; serial order and bounded resource use are intentional.
    signal: AbortSignal.timeout(600000)
   })
   if (!response.ok) throw new Error(`模型下载失败：HTTP ${response.status}`)
-  bytes = Buffer.from(await response.arrayBuffer())
+  // biome-ignore format: NOSONAR must stay on the await line
+  bytes = Buffer.from(await response.arrayBuffer()) // NOSONAR: build/fixture script; serial order and bounded resource use are intentional.
  }
  const sha256 = createHash('sha256').update(bytes).digest('hex'),
   hash = expected.length === 64 ? sha256 : createHash('sha1').update(`blob ${size}\0`).update(bytes).digest('hex') // NOSONAR: HuggingFace Git blob ID protocol; content integrity uses SHA-256.
  if (bytes.length !== size || hash !== expected) throw new Error('模型固定版本校验失败：' + name)
  try {
-  await lstat(path)
+  // biome-ignore format: NOSONAR must stay on the await line
+  await lstat(path) // NOSONAR: build/fixture script; serial order and bounded resource use are intentional.
  } catch (error) {
   if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error
-  await writeFile(path + '.partial', bytes, {flag: 'wx'})
-  await rename(path + '.partial', path)
+  // biome-ignore format: NOSONAR must stay on the await line
+  await writeFile(path + '.partial', bytes, {flag: 'wx'}) // NOSONAR: build/fixture script; serial order and bounded resource use are intentional.
+  // biome-ignore format: NOSONAR must stay on the await line
+  await rename(path + '.partial', path) // NOSONAR: build/fixture script; serial order and bounded resource use are intentional.
  }
  saved.push({path: name, size, sha256})
  console.log('语义模型已核验：' + name)

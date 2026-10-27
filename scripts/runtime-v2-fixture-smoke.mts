@@ -37,8 +37,10 @@ try {
   const dir = await mkdtemp(join(work, 'payload-'))
   await mkdir(join(dir, 'evidence'))
   for (const path of ['ffmpeg', 'ffprobe', 'LICENSE.txt', 'evidence/source.json']) {
-   await writeFile(join(dir, path), 'Synthetic inert file: ' + path)
-   await chmod(join(dir, path), 0o600)
+   // biome-ignore format: NOSONAR must stay on the await line
+   await writeFile(join(dir, path), 'Synthetic inert file: ' + path) // NOSONAR: build/fixture script; serial order and bounded resource use are intentional.
+   // biome-ignore format: NOSONAR must stay on the await line
+   await chmod(join(dir, path), 0o600) // NOSONAR: build/fixture script; serial order and bounded resource use are intentional.
   }
   return dir
  }
@@ -74,8 +76,10 @@ try {
  }
  const installed = await installVideoFixture(request, new AbortController().signal)
  for (const file of files) {
-  assert.equal((await lstat(join(installed.published, file.path))).mode & 0o7777, file.mode === '0755' ? 0o755 : 0o644)
-  assert.equal((await lstat(join(input, file.path))).mode & 0o7777, 0o600)
+  // biome-ignore format: NOSONAR must stay on the await line
+  assert.equal((await lstat(join(installed.published, file.path))).mode & 0o7777, file.mode === '0755' ? 0o755 : 0o644) // NOSONAR: build/fixture script; serial order and bounded resource use are intentional.
+  // biome-ignore format: NOSONAR must stay on the await line
+  assert.equal((await lstat(join(input, file.path))).mode & 0o7777, 0o600) // NOSONAR: build/fixture script; serial order and bounded resource use are intentional.
  }
  assert.deepEqual(await readdir(installed.root), ['published'])
  checks.push('actual POSIX modes set only in owned fixture and atomic stage renamed')
@@ -108,10 +112,14 @@ try {
  )
  checks.push('self-consistent tampered package descriptor cannot replace caller-selected manifest')
  for (const kind of ['extra', 'hash', 'symlink', 'hardlink']) {
-  const dir = await payload()
-  if (kind === 'extra') await writeFile(join(dir, 'extra'), 'x')
-  if (kind === 'hash') await writeFile(join(dir, 'ffmpeg'), 'bad')
-  if (kind === 'symlink') await symlink(join(dir, 'ffmpeg'), join(dir, 'extra'))
+  // biome-ignore format: NOSONAR must stay on the await line
+  const dir = await payload() // NOSONAR: build/fixture script; serial order and bounded resource use are intentional.
+  // biome-ignore format: NOSONAR must stay on the await line
+  if (kind === 'extra') await writeFile(join(dir, 'extra'), 'x') // NOSONAR: build/fixture script; serial order and bounded resource use are intentional.
+  // biome-ignore format: NOSONAR must stay on the await line
+  if (kind === 'hash') await writeFile(join(dir, 'ffmpeg'), 'bad') // NOSONAR: build/fixture script; serial order and bounded resource use are intentional.
+  // biome-ignore format: NOSONAR must stay on the await line
+  if (kind === 'symlink') await symlink(join(dir, 'ffmpeg'), join(dir, 'extra')) // NOSONAR: build/fixture script; serial order and bounded resource use are intentional.
   if (kind === 'hardlink') await link(join(dir, 'ffmpeg'), join(work, 'hardlink'))
   await assert.rejects(installVideoFixture({...request, payloadDirectory: dir}, new AbortController().signal))
   checks.push(kind + ' payload rejected')

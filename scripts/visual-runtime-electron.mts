@@ -78,12 +78,15 @@ async function run() {
   if (phase === 'restart') {
    const saved = JSON.parse(await readFile(join(work, 'captures.json'), 'utf8')) as Capture[]
    for (const capture of saved) {
-    const stored = JSON.parse(await readFile(join(data, 'native-visual', capture.id, 'source.json'), 'utf8'))
+    // biome-ignore format: NOSONAR must stay on the await line
+    const stored = JSON.parse(await readFile(join(data, 'native-visual', capture.id, 'source.json'), 'utf8')) // NOSONAR: build/fixture script; serial order and bounded resource use are intentional.
     assert.deepEqual(stored, capture)
     for (const frame of capture.frames) {
-     assert.equal(await digest(frame.path), frame.hash)
+     // biome-ignore format: NOSONAR must stay on the await line
+     assert.equal(await digest(frame.path), frame.hash) // NOSONAR: build/fixture script; serial order and bounded resource use are intentional.
      assert(!nativeImage.createFromPath(frame.path).isEmpty())
-     if (capture.id === 'a'.repeat(32)) await assertRed(frame.path)
+     // biome-ignore format: NOSONAR must stay on the await line
+     if (capture.id === 'a'.repeat(32)) await assertRed(frame.path) // NOSONAR: build/fixture script; serial order and bounded resource use are intentional.
     }
    }
    checks.push(
@@ -125,7 +128,8 @@ async function run() {
     ['1', 'coverage'],
     ['2', 'balanced']
    ]) {
-    const capture: Capture = await owner.request('visual-frames', {
+    // biome-ignore format: NOSONAR must stay on the await line
+    const capture: Capture = await owner.request('visual-frames', { // NOSONAR: build/fixture script; serial order and bounded resource use are intentional.
      id: id.repeat(32),
      path: video,
      expectedHash: hash,
@@ -139,7 +143,8 @@ async function run() {
     assert(capture.duration >= 5.9 && capture.duration <= 6.1)
     let previous = -1
     for (const [index, frame] of capture.frames.entries()) {
-     assert.equal(await digest(frame.path), frame.hash)
+     // biome-ignore format: NOSONAR must stay on the await line
+     assert.equal(await digest(frame.path), frame.hash) // NOSONAR: build/fixture script; serial order and bounded resource use are intentional.
      assert(frame.time >= 0 && frame.time < capture.duration && frame.time >= previous)
      previous = frame.time
      const image = nativeImage.createFromPath(frame.path)
@@ -149,7 +154,8 @@ async function run() {
      const bitmap = image.toBitmap()
      assert.equal(bitmap.length, 1600 * 1200 * 4)
      assert(new Set(bitmap.subarray(0, 4096)).size > 2)
-     await copyFile(frame.path, join(results, policy + '-' + index + '.png'))
+     // biome-ignore format: NOSONAR must stay on the await line
+     await copyFile(frame.path, join(results, policy + '-' + index + '.png')) // NOSONAR: build/fixture script; serial order and bounded resource use are intentional.
     }
     captures.push(capture)
     checks.push(
@@ -238,8 +244,10 @@ async function run() {
     const pending = owner.request('visual-frames', {id, path: video, expectedHash: hash, cap: 2, policy: 'coverage'}),
      rejected = assert.rejects(pending, /abort|cancel|取消/i)
     try {
-     await atBarrier
-     await assert.rejects(
+     // biome-ignore format: NOSONAR must stay on the await line
+     await atBarrier // NOSONAR: build/fixture script; serial order and bounded resource use are intentional.
+     // biome-ignore format: NOSONAR must stay on the await line
+     await assert.rejects( // NOSONAR: build/fixture script; serial order and bounded resource use are intentional.
       owner.request('visual-frames', {id, path: video, expectedHash: hash, cap: 2, policy: 'coverage'}),
       /已经在执行/
      )

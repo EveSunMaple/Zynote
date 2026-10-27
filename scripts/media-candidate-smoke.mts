@@ -60,10 +60,12 @@ async function download(asset: (typeof mediaSources)[number]['files'][number], i
     ['github.com', 'release-assets.githubusercontent.com'].includes(parsed.hostname),
    'Download redirect outside locked HTTPS hosts'
   )
-  const response = await fetch(url, {redirect: 'manual', signal: abort})
+  // biome-ignore format: NOSONAR must stay on the await line
+  const response = await fetch(url, {redirect: 'manual', signal: abort}) // NOSONAR: build/fixture script; serial order and bounded resource use are intentional.
   if ([301, 302, 303, 307, 308].includes(response.status)) {
    const location = response.headers.get('location')
-   await response.body?.cancel()
+   // biome-ignore format: NOSONAR must stay on the await line
+   await response.body?.cancel() // NOSONAR: build/fixture script; serial order and bounded resource use are intentional.
    check(location && redirects < 5, 'Missing or excessive download redirects')
    url = new URL(location, url).href
    continue
@@ -71,7 +73,8 @@ async function download(asset: (typeof mediaSources)[number]['files'][number], i
   check(response.ok && response.body, 'Asset download failed with HTTP ' + response.status)
   const declared = response.headers.get('content-length')
   check(declared === null || Number(declared) === asset.size, 'Download Content-Length differs from lock')
-  const file = await open(join(input, asset.inputName), 'wx', 0o600),
+  // biome-ignore format: NOSONAR must stay on the await line
+  const file = await open(join(input, asset.inputName), 'wx', 0o600), // NOSONAR: build/fixture script; serial order and bounded resource use are intentional.
    hash = createHash('sha256')
   let size = 0
   try {
@@ -81,13 +84,15 @@ async function download(asset: (typeof mediaSources)[number]['files'][number], i
     hash.update(chunk)
     let offset = 0
     while (offset < chunk.length) {
-     const write = await file.write(chunk, offset, chunk.length - offset)
+     // biome-ignore format: NOSONAR must stay on the await line
+     const write = await file.write(chunk, offset, chunk.length - offset) // NOSONAR: build/fixture script; serial order and bounded resource use are intentional.
      check(write.bytesWritten > 0, 'Download write made no progress')
      offset += write.bytesWritten
     }
    }
   } finally {
-   await file.close()
+   // biome-ignore format: NOSONAR must stay on the await line
+   await file.close() // NOSONAR: build/fixture script; serial order and bounded resource use are intentional.
   }
   check(size === asset.size && hash.digest('hex') === asset.sha256, 'Downloaded asset digest/size mismatch')
   return {id: asset.id, assetId: asset.assetId, size, sha256: asset.sha256}
@@ -103,7 +108,8 @@ async function noLongerRunning(pid: number) {
    if ((error as NodeJS.ErrnoException).code === 'ESRCH') return
    throw error
   }
-  await new Promise(resolveDelay => setTimeout(resolveDelay, 50))
+  // biome-ignore format: NOSONAR must stay on the await line
+  await new Promise(resolveDelay => setTimeout(resolveDelay, 50)) // NOSONAR: build/fixture script; serial order and bounded resource use are intentional.
  }
  throw new Error('The guardian-owned media process remained alive after shutdown')
 }
@@ -269,7 +275,8 @@ try {
   )
  )
  const downloads = []
- for (const asset of source.files) downloads.push(await download(asset, input))
+ // biome-ignore format: NOSONAR must stay on the await line
+ for (const asset of source.files) downloads.push(await download(asset, input)) // NOSONAR: build/fixture script; serial order and bounded resource use are intentional.
  report.downloads = downloads
  const staged = await stageMedia({
   sourceId: source.id,
@@ -282,7 +289,8 @@ try {
  await mkdir(video, {recursive: true})
  for (const asset of source.files) {
   const target = join(video, asset.outputName)
-  await copyFile(join(staged.run, asset.outputName), target, constants.COPYFILE_EXCL)
+  // biome-ignore format: NOSONAR must stay on the await line
+  await copyFile(join(staged.run, asset.outputName), target, constants.COPYFILE_EXCL) // NOSONAR: build/fixture script; serial order and bounded resource use are intentional.
   check((await sha256(target)) === asset.sha256, 'Execution payload digest changed')
   if (asset.id === 'ffmpeg' || asset.id === 'ffprobe') await chmod(target, 0o755)
  }

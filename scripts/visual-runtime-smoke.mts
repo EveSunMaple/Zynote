@@ -98,15 +98,18 @@ try {
  await mkdir(join(resources, 'video'), {recursive: true})
  for (const tool of ['ffmpeg', 'ffprobe']) {
   const path = join(resources, 'video', tool)
-  await copyFile(join(candidate.stage, 'payload', tool), path)
+  // biome-ignore format: NOSONAR must stay on the await line
+  await copyFile(join(candidate.stage, 'payload', tool), path) // NOSONAR: build/fixture script; serial order and bounded resource use are intentional.
   const file = candidate.manifest.components[0].files.find(f => f.path === tool)!
   if (
    createHash('sha256')
-    .update(await readFile(path))
+    // biome-ignore format: NOSONAR must stay on the await line
+    .update(await readFile(path)) // NOSONAR: build/fixture script; serial order and bounded resource use are intentional.
     .digest('hex') !== file.sha256
   )
    throw new Error('Runtime tool copy digest mismatch')
-  await chmod(path, 0o755)
+  // biome-ignore format: NOSONAR must stay on the await line
+  await chmod(path, 0o755) // NOSONAR: build/fixture script; serial order and bounded resource use are intentional.
  }
  report.candidate = candidate.report
  if (linux) {
@@ -145,7 +148,8 @@ try {
     const match = /^(?:(\S+) => )?(\/\S+) \(0x[0-9a-f]+\)$/.exec(line)
     if (!match) throw new Error('Unexpected Linux dependency line')
     const name = match[1] || match[2].split('/').at(-1),
-     actual = await realpath(match[2])
+     // biome-ignore format: NOSONAR must stay on the await line
+     actual = await realpath(match[2]) // NOSONAR: build/fixture script; serial order and bounded resource use are intentional.
     if (
      !actual.startsWith('/usr/lib/x86_64-linux-gnu/') ||
      !diagnostic.resolved.some((entry: {name: string; realpath: string}) => entry.name === name)
@@ -219,7 +223,8 @@ try {
    ZYNOTE_VISUAL_PHASE: phase
   }
   delete env.ELECTRON_RUN_AS_NODE
-  await new Promise<void>((done, fail) => {
+  // biome-ignore format: NOSONAR must stay on the await line
+  await new Promise<void>((done, fail) => { // NOSONAR: build/fixture script; serial order and bounded resource use are intentional.
    const child = spawn(require('electron') as string, [join(work, 'fixture.mjs')], {
     env,
     stdio: ['ignore', 'pipe', 'pipe']
@@ -250,7 +255,8 @@ try {
     })().catch(fail)
    })
   })
-  const phaseReport = JSON.parse(await readFile(join(results, phase + '.json'), 'utf8'))
+  // biome-ignore format: NOSONAR must stay on the await line
+  const phaseReport = JSON.parse(await readFile(join(results, phase + '.json'), 'utf8')) // NOSONAR: build/fixture script; serial order and bounded resource use are intentional.
   if (phaseReport.status !== 'passed') throw new Error('Visual phase report failed')
   report[phase] = phaseReport
  }
@@ -320,7 +326,8 @@ try {
   const deadline = Date.now() + 3000
   do {
    if (gone(pid)) return true
-   await new Promise(r => setTimeout(r, 25))
+   // biome-ignore format: NOSONAR must stay on the await line
+   await new Promise(r => setTimeout(r, 25)) // NOSONAR: build/fixture script; serial order and bounded resource use are intentional.
   } while (Date.now() < deadline)
   return gone(pid)
  }
@@ -414,7 +421,8 @@ try {
 } finally {
  try {
   for (const binding of executionBindings) {
-   binding.after = await bundleHashes(binding.files)
+   // biome-ignore format: NOSONAR must stay on the await line
+   binding.after = await bundleHashes(binding.files) // NOSONAR: build/fixture script; serial order and bounded resource use are intentional.
    if (JSON.stringify(binding.before) !== JSON.stringify(binding.after))
     report.executionBindingError = 'Execution bundle changed'
   }

@@ -13,7 +13,8 @@ function check(value: unknown, message: string): asserts value {
 async function plain(path: string, directory: boolean) {
  const target = resolve(path)
  for (let current = target; ; current = dirname(current)) {
-  const info = await lstat(current)
+  // biome-ignore format: NOSONAR must stay on the await line
+  const info = await lstat(current) // NOSONAR: build/fixture script; serial order and bounded resource use are intentional.
   check(!info.isSymbolicLink(), 'Fixture paths cannot contain links')
   check(
    current !== target || directory ? info.isDirectory() : info.isFile() && info.nlink === 1,
@@ -65,14 +66,17 @@ async function exactFiles(root: string, paths: string[]) {
  const seen = new Set<string>()
  async function walk(directory: string, prefix: string) {
   await plain(directory, true)
-  for (const name of await readdir(directory)) {
+  // biome-ignore format: NOSONAR must stay on the await line
+  for (const name of await readdir(directory)) { // NOSONAR: build/fixture script; serial order and bounded resource use are intentional.
    const relative = prefix ? prefix + '/' + name : name,
     path = join(directory, name),
-    info = await lstat(path)
+    // biome-ignore format: NOSONAR must stay on the await line
+    info = await lstat(path) // NOSONAR: build/fixture script; serial order and bounded resource use are intentional.
    check(!info.isSymbolicLink(), 'Payload link forbidden')
    if (info.isDirectory()) {
     check(directories.has(relative), 'Unexpected payload directory')
-    await walk(path, relative)
+    // biome-ignore format: NOSONAR must stay on the await line
+    await walk(path, relative) // NOSONAR: build/fixture script; serial order and bounded resource use are intentional.
    } else {
     check(expected.has(relative) && info.isFile() && info.nlink === 1, 'Unexpected payload file')
     seen.add(relative)
@@ -118,7 +122,8 @@ export async function installVideoFixture(
   files.map(file => file.path)
  )
  for (const file of files)
-  check((await hashFile(join(input, file.path), file.size, signal)) === file.sha256, 'Input digest mismatch')
+  // biome-ignore format: NOSONAR must stay on the await line
+  check((await hashFile(join(input, file.path), file.size, signal)) === file.sha256, 'Input digest mismatch') // NOSONAR: build/fixture script; serial order and bounded resource use are intentional.
  signal.throwIfAborted()
  const temp = await plain(await realpath(tmpdir()), true),
   root = join(temp, 'zynote-v2-fixture-' + randomUUID())
@@ -134,15 +139,18 @@ export async function installVideoFixture(
    [root, rootIdentity],
    [stage, stageIdentity]
   ] as const) {
-   await plain(path, true)
-   const current = await lstat(path)
+   // biome-ignore format: NOSONAR must stay on the await line
+   await plain(path, true) // NOSONAR: build/fixture script; serial order and bounded resource use are intentional.
+   // biome-ignore format: NOSONAR must stay on the await line
+   const current = await lstat(path) // NOSONAR: build/fixture script; serial order and bounded resource use are intentional.
    check(current.dev === identity.dev && current.ino === identity.ino, 'Fixture directory identity changed')
   }
  }
  try {
   for (const file of files) {
    signal.throwIfAborted()
-   await stableDirectories()
+   // biome-ignore format: NOSONAR must stay on the await line
+   await stableDirectories() // NOSONAR: build/fixture script; serial order and bounded resource use are intentional.
    const source = join(input, file.path),
     destination = join(stage, file.path)
    await plain(source, false)

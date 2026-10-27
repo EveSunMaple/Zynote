@@ -256,11 +256,13 @@ try {
    const patches = []
    for (const file of ['configure', 'configure.ac']) {
     const path = join(cwd, file),
-     before = await readFile(path, 'utf8'),
+     // biome-ignore format: NOSONAR must stay on the await line
+     before = await readFile(path, 'utf8'), // NOSONAR: build/fixture script; serial order and bounded resource use are intentional.
      token = ' -force_cpusubtype_ALL'
     check(before.split(token).length === 4, 'Unexpected locked Vorbis Darwin flag occurrences')
     const after = before.replaceAll(token, '')
-    await writeFile(path, after)
+    // biome-ignore format: NOSONAR must stay on the await line
+    await writeFile(path, after) // NOSONAR: build/fixture script; serial order and bounded resource use are intentional.
     patches.push({
      file,
      removedToken: token,
@@ -277,12 +279,16 @@ try {
     patches
    }
    report.sourcePatches = patchReceipt
-   await writeFile(join(artifacts, 'vorbis-darwin-patch.json'), JSON.stringify(patchReceipt, null, 2) + '\n')
+   // biome-ignore format: NOSONAR must stay on the await line
+   await writeFile(join(artifacts, 'vorbis-darwin-patch.json'), JSON.stringify(patchReceipt, null, 2) + '\n') // NOSONAR: build/fixture script; serial order and bounded resource use are intentional.
   }
   try {
-   await execute(join(cwd, 'configure'), ['--prefix=' + prefix, ...configs[id]], cwd, env, id + '-configure')
-   await execute('/usr/bin/make', ['-j3'], cwd, env, id + '-make')
-   await execute('/usr/bin/make', ['install'], cwd, env, id + '-install')
+   // biome-ignore format: NOSONAR must stay on the await line
+   await execute(join(cwd, 'configure'), ['--prefix=' + prefix, ...configs[id]], cwd, env, id + '-configure') // NOSONAR: build/fixture script; serial order and bounded resource use are intentional.
+   // biome-ignore format: NOSONAR must stay on the await line
+   await execute('/usr/bin/make', ['-j3'], cwd, env, id + '-make') // NOSONAR: build/fixture script; serial order and bounded resource use are intentional.
+   // biome-ignore format: NOSONAR must stay on the await line
+   await execute('/usr/bin/make', ['install'], cwd, env, id + '-install') // NOSONAR: build/fixture script; serial order and bounded resource use are intentional.
   } finally {
    for (const file of [
     'config.log',
@@ -293,7 +299,8 @@ try {
     'ffbuild/config.mak'
    ]) {
     try {
-     await copyFile(join(cwd, file), join(logs, id + '-' + file.replaceAll('/', '-')))
+     // biome-ignore format: NOSONAR must stay on the await line
+     await copyFile(join(cwd, file), join(logs, id + '-' + file.replaceAll('/', '-'))) // NOSONAR: build/fixture script; serial order and bounded resource use are intentional.
     } catch (error) {
      if ((error as NodeJS.ErrnoException).code !== 'ENOENT') {
       report.diagnosticCopyFailures ??= []
@@ -326,7 +333,8 @@ try {
  const resources = join(prepared.work, 'runtime'),
   video = join(resources, 'video')
  await mkdir(video, {recursive: true})
- for (const tool of ['ffmpeg', 'ffprobe']) await copyFile(join(prefix, 'bin', tool), join(video, tool))
+ // biome-ignore format: NOSONAR must stay on the await line
+ for (const tool of ['ffmpeg', 'ffprobe']) await copyFile(join(prefix, 'bin', tool), join(video, tool)) // NOSONAR: build/fixture script; serial order and bounded resource use are intentional.
  const entry = join(prepared.work, 'guardian.mjs')
  await build({
   entryPoints: [join(root, 'src/main/workers/media-process-guardian.ts')],

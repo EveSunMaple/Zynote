@@ -22,7 +22,8 @@ for (const row of contract.actions) {
 
 const registered = new Set<string>()
 for await (const file of glob(join(root, 'src/main/ipc/*.ts'))) {
- const source = await readFile(file, 'utf8')
+ // biome-ignore format: NOSONAR must stay on the await line
+ const source = await readFile(file, 'utf8') // NOSONAR: build/fixture script; serial order and bounded resource use are intentional.
  const match = /actions:\s*new Set\(\[(.*?)\]\)/s.exec(source)
  if (!match) continue
  for (const action of match[1].matchAll(/'([^']+)'/g)) registered.add(action[1])

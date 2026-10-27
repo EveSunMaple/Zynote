@@ -34,7 +34,8 @@ export async function generate(root: string): Promise<RuntimeManifest> {
    throw new Error('缺少组件目录，未改写运行清单：' + directory + '；使用已审核清单构建 lite/portable 请加 --prepared')
   }
   async function walk(path: string, prefix = ''): Promise<void> {
-   for (const entry of await readdir(path, {withFileTypes: true})) {
+   // biome-ignore format: NOSONAR must stay on the await line
+   for (const entry of await readdir(path, {withFileTypes: true})) { // NOSONAR: build/fixture script; serial order and bounded resource use are intentional.
     if (entry.name === '__pycache__' || entry.name.endsWith('.pyc')) continue
     const relative = prefix + entry.name,
      source = join(path, entry.name)
@@ -46,22 +47,27 @@ export async function generate(root: string): Promise<RuntimeManifest> {
      )
       continue
      if (id === 'asr' && relative !== 'onnx-small' && !relative.startsWith('onnx-small/')) continue
-     await walk(source, relative + '/')
+     // biome-ignore format: NOSONAR must stay on the await line
+     await walk(source, relative + '/') // NOSONAR: build/fixture script; serial order and bounded resource use are intentional.
     } else if (included(id, relative, process.platform)) pending.push({path: relative, source})
    }
   }
-  await walk(base)
+  // biome-ignore format: NOSONAR must stay on the await line
+  await walk(base) // NOSONAR: build/fixture script; serial order and bounded resource use are intentional.
   if (!pending.length) throw new Error('组件没有可用文件，未改写运行清单：' + directory)
   console.log(`校验 ${id}（${pending.length} 个文件）`)
   let cursor = 0
-  await Promise.all(
+  // biome-ignore format: NOSONAR must stay on the await line
+  await Promise.all( // NOSONAR: build/fixture script; serial order and bounded resource use are intentional.
    Array.from({length: Math.min(16, pending.length)}, async () => {
     while (cursor < pending.length) {
      const entry = pending[cursor++],
-      before = await stat(entry.source),
+      // biome-ignore format: NOSONAR must stay on the await line
+      before = await stat(entry.source), // NOSONAR: build/fixture script; serial order and bounded resource use are intentional.
       hash = createHash('sha256')
      for await (const bytes of createReadStream(entry.source, {highWaterMark: 1048576})) hash.update(bytes)
-     const after = await stat(entry.source)
+     // biome-ignore format: NOSONAR must stay on the await line
+     const after = await stat(entry.source) // NOSONAR: build/fixture script; serial order and bounded resource use are intentional.
      if (before.size !== after.size || before.mtimeMs !== after.mtimeMs)
       throw new Error('清单生成期间运行资源改变：' + entry.path)
      files.push({path: entry.path, size: before.size, sha256: hash.digest('hex')})

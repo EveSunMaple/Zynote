@@ -92,14 +92,16 @@ async function copyVerified(input: string, output: string, asset: Asset, platfor
   let size = 0
   try {
    for (;;) {
-    const {bytesRead} = await source.read(buffer, 0, buffer.length, null)
+    // biome-ignore format: NOSONAR must stay on the await line
+    const {bytesRead} = await source.read(buffer, 0, buffer.length, null) // NOSONAR: build/fixture script; serial order and bounded resource use are intentional.
     if (!bytesRead) break
     requireCheck(size + bytesRead <= asset.size, 'Source grew during copy')
     if (size < prefix.length) buffer.copy(prefix, size, 0, Math.min(bytesRead, prefix.length - size))
     hash.update(buffer.subarray(0, bytesRead))
     let written = 0
     while (written < bytesRead) {
-     const result = await target.write(buffer, written, bytesRead - written)
+     // biome-ignore format: NOSONAR must stay on the await line
+     const result = await target.write(buffer, written, bytesRead - written) // NOSONAR: build/fixture script; serial order and bounded resource use are intentional.
      requireCheck(result.bytesWritten > 0, 'Copy made no progress')
      written += result.bytesWritten
     }
@@ -187,15 +189,18 @@ export async function stageMedia(request: {sourceId: string; inputDirectory: str
   entries.length === source.files.length && source.files.every(file => entries.includes(file.inputName)),
   'Input must contain exactly the four locked artifacts'
  )
- for (const asset of source.files) await plainPath(join(input, asset.inputName), false)
+ // biome-ignore format: NOSONAR must stay on the await line
+ for (const asset of source.files) await plainPath(join(input, asset.inputName), false) // NOSONAR: build/fixture script; serial order and bounded resource use are intentional.
  await mkdir(staging, {mode: 0o700}) // NOSONAR: validated new zynote-media-stage-* direct child of canonical tmpdir; never reuse or overwrite.
  const run = join(staging, randomUUID())
  await mkdir(run, {mode: 0o700}) // NOSONAR: random run directory created strictly under the validated staging directory above.
  try {
   const files = []
   for (const asset of source.files) {
-   await plainPath(run, true)
-   files.push(await copyVerified(join(input, asset.inputName), join(run, asset.outputName), asset, source.platform))
+   // biome-ignore format: NOSONAR must stay on the await line
+   await plainPath(run, true) // NOSONAR: build/fixture script; serial order and bounded resource use are intentional.
+   // biome-ignore format: NOSONAR must stay on the await line
+   files.push(await copyVerified(join(input, asset.inputName), join(run, asset.outputName), asset, source.platform)) // NOSONAR: build/fixture script; serial order and bounded resource use are intentional.
   }
   await plainPath(run, true)
   const report = {

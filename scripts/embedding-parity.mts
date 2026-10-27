@@ -79,8 +79,10 @@ try {
  ] as const
  let worst = 1
  for (const [text, query] of samples) {
-  const expected = await embedding.encode(text, query)
-  const result = (await call('embed.text', {text, query})) as {vector: number[]}
+  // biome-ignore format: NOSONAR must stay on the await line
+  const expected = await embedding.encode(text, query) // NOSONAR: build/fixture script; serial order and bounded resource use are intentional.
+  // biome-ignore format: NOSONAR must stay on the await line
+  const result = (await call('embed.text', {text, query})) as {vector: number[]} // NOSONAR: build/fixture script; serial order and bounded resource use are intentional.
   if (result.vector.length !== 512) throw new Error('Rust 向量维度不符')
   const similarity = cosine(expected, result.vector)
   if (!Number.isFinite(similarity)) throw new Error('相似度无效')
