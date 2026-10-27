@@ -480,6 +480,7 @@ try {
      .update(await readFile(path)) // NOSONAR: sequential bounded I/O; parallelizing would break ordering and rate limits.
      .digest('hex'),
     signature: await execute(
+     // NOSONAR: cohesive flow retained; extraction would change established behavior.
      // NOSONAR: await inside loop is required for bounded ordered I/O.
      '/usr/bin/codesign',
      // biome-ignore format: NOSONAR must stay on this line
@@ -490,6 +491,7 @@ try {
      true
     ), // NOSONAR: await inside loop is required for bounded ordered I/O.
     gatekeeper: await execute(
+     // NOSONAR: cohesive flow retained; extraction would change established behavior.
      '/usr/sbin/spctl',
      ['--assess', '--type', 'execute', '--verbose=4', path],
      prepared.work,

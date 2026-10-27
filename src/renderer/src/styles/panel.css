@@ -1035,10 +1035,6 @@
  flex: 1;
  margin: 0;
 }
-.appearance-preview {
- flex: 1;
- overflow: hidden;
-}
 .appearance-footer {
  display: flex;
  align-items: center;
@@ -1250,7 +1246,7 @@
  border: 0;
  border-radius: 12px;
  color: color-mix(in srgb, var(--text) 82%, transparent);
- transition: /* NOSONAR: reduced-motion preference is handled by the surrounding media query. */
+ transition:
   background-color 0.16s,
   color 0.16s,
   transform 0.16s;
@@ -1411,7 +1407,7 @@
  flex: none;
  border-radius: 10px;
  background: color-mix(in srgb, #9380ce 12%, transparent);
- color: #8a74c2;
+ color: #6b55a8;
 }
 .sidebar .course-icon svg {
  width: 23px;
@@ -1419,7 +1415,7 @@
 }
 .sidebar .course.selected .course-icon {
  background: color-mix(in srgb, #9380ce 20%, transparent);
- color: #8064be;
+ color: #60479c;
 }
 [data-theme="dark"] .sidebar .course-icon {
  color: #c1b0ed;
@@ -1712,4 +1708,10 @@ html[data-platform="linux"][data-maximized="true"] #root {
 }
 .learning-source-card > label {
  margin: 0;
+}
+
+@media (prefers-reduced-motion: reduce) {
+ .lecture-choice {
+  transition: none;
+ }
 }

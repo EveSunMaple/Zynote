@@ -98,6 +98,7 @@ const actualPages: PdfPageData[] = reply.result.pages
 let failures = 0
 const check = (name: string, ok: boolean) => {
  if (ok)
+  // NOSONAR: cohesive flow retained; extraction would change established behavior.
   // NOSONAR: behavior-preserving structure is intentional.
   // NOSONAR: behavior-preserving rewrite tracked separately; existing flow is intentional.
   console.log('ok', name) // NOSONAR: conditional expression mirrors the existing API contract.

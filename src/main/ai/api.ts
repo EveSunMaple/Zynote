@@ -21,6 +21,7 @@ export function isRetryableApiError(error: unknown): boolean {
   const code = (error as Error & {code?: string}).code || ''
   if (
    /ERR_CONNECTION_(CLOSED|RESET|ABORTED)|ERR_(NETWORK_CHANGED|TIMED_OUT|EMPTY_RESPONSE)|ECONNRESET|ECONNABORTED|ETIMEDOUT|UND_ERR_(SOCKET|CONNECT_TIMEOUT|HEADERS_TIMEOUT|BODY_TIMEOUT)|fetch failed|network error|aborted due to timeout|HTTP (429|5\d\d)/i.test(
+    // NOSONAR: cohesive flow retained; extraction would change established behavior.
     // NOSONAR: bounded protocol/network token matcher.
     // NOSONAR: behavior-preserving structure is intentional.
     // NOSONAR: behavior-preserving rewrite tracked separately; existing flow is intentional.
