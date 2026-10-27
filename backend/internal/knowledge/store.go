@@ -242,67 +242,64 @@ func (store *Store) Read(id string) (map[string]any, error) {
 	return map[string]any{"entry": view(entry), "text": entry["text"]}, nil
 }
 
-func (store *Store) Import(input ImportInput) (map[string]any, error) {
+func normalizeImportInput(input *ImportInput) error {
 	input.Title = strings.TrimSpace(input.Title)
 	input.Category = strings.TrimSpace(input.Category)
 	if len([]rune(input.Title)) < 1 || len([]rune(input.Title)) > 300 {
-		return nil, fmt.Errorf("资料标题无效")
+		return fmt.Errorf("资料标题无效")
 	}
 	if input.Text == "" || len([]rune(input.Text)) > 2_000_000 {
-		return nil, fmt.Errorf("资料文字为空或超过上限")
+		return fmt.Errorf("资料文字为空或超过上限")
 	}
 	if len([]rune(input.Locator)) < 1 || len([]rune(input.Locator)) > 2000 || !hashPattern.MatchString(input.SourceHash) {
-		return nil, fmt.Errorf("资料来源参数无效")
+		return fmt.Errorf("资料来源参数无效")
 	}
 	if len([]rune(input.Category)) > 100 {
-		return nil, fmt.Errorf("资料分类无效")
+		return fmt.Errorf("资料分类无效")
 	}
 	if input.Origin == "" {
 		input.Origin = "local"
 	}
 	if input.Origin != "local" && input.Origin != "bilibili-subtitle" && input.Origin != "bilibili-discussion" {
-		return nil, fmt.Errorf("资料来源类型无效")
+		return fmt.Errorf("资料来源类型无效")
 	}
 	if strings.TrimSpace(input.Text) == "" {
-		return nil, fmt.Errorf("资料文字为空")
+		return fmt.Errorf("资料文字为空")
 	}
-	transaction, err := store.db.Begin()
-	if err != nil {
-		return nil, err
-	}
-	defer func() { _ = transaction.Rollback() }()
-	id := "LV" + sha256Hex(input.Locator)
-	prior, err := getFrom(transaction, id)
-	if err != nil {
-		return nil, err
-	}
-	textHash := sha256Hex(input.Text)
-	if prior != nil && stringValue(prior["title"]) == input.Title &&
+	return nil
+}
+
+func unchangedImport(prior map[string]any, input ImportInput, textHash string) bool {
+	return prior != nil && stringValue(prior["title"]) == input.Title &&
 		stringValue(prior["content_hash"]) == textHash &&
 		stringValue(prior["folder"]) == input.Category &&
 		stringValue(prior["sourceHash"]) == input.SourceHash &&
-		sameSourceMethod(prior, input.SourceMethod) {
-		return map[string]any{"entry": view(prior), "unchanged": true}, nil
+		sameSourceMethod(prior, input.SourceMethod)
+}
+
+func checkImportGeneration(prior map[string]any, expected *json.RawMessage) error {
+	if expected == nil {
+		return nil
 	}
-	if input.ExpectedGeneration != nil {
-		expected := string(*input.ExpectedGeneration)
-		priorGeneration := "null"
+	value := string(*expected)
+	priorGeneration := "null"
+	if prior != nil {
+		priorGeneration = stringValue(prior["generation_id"])
+	}
+	if value == "null" {
 		if prior != nil {
-			priorGeneration = stringValue(prior["generation_id"])
+			return fmt.Errorf("来源已有更新，旧同步记录不能覆盖当前版本")
 		}
-		if expected == "null" {
-			if prior != nil {
-				return nil, fmt.Errorf("来源已有更新，旧同步记录不能覆盖当前版本")
-			}
-		} else {
-			var value string
-			if err := json.Unmarshal(*input.ExpectedGeneration, &value); err != nil || value != priorGeneration {
-				return nil, fmt.Errorf("来源已有更新，旧同步记录不能覆盖当前版本")
-			}
-		}
+		return nil
 	}
-	generation := "gen_" + strings.ReplaceAll(ids.New(), "-", "")
-	revision := "rev_" + strings.ReplaceAll(ids.New(), "-", "")
+	var parsed string
+	if err := json.Unmarshal(*expected, &parsed); err != nil || parsed != priorGeneration {
+		return fmt.Errorf("来源已有更新，旧同步记录不能覆盖当前版本")
+	}
+	return nil
+}
+
+func newImportEntry(input ImportInput, id, textHash, generation, revision string) map[string]any {
 	entry := map[string]any{
 		"bvid": id, "title": input.Title, "text": input.Text,
 		"textLength":     len([]rune(input.Text)),
@@ -316,6 +313,33 @@ func (store *Store) Import(input ImportInput) (map[string]any, error) {
 	if input.SourceMethod != nil {
 		entry["sourceMethod"] = *input.SourceMethod
 	}
+	return entry
+}
+
+func (store *Store) Import(input ImportInput) (map[string]any, error) {
+	if err := normalizeImportInput(&input); err != nil {
+		return nil, err
+	}
+	transaction, err := store.db.Begin()
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = transaction.Rollback() }()
+	id := "LV" + sha256Hex(input.Locator)
+	prior, err := getFrom(transaction, id)
+	if err != nil {
+		return nil, err
+	}
+	textHash := sha256Hex(input.Text)
+	if unchangedImport(prior, input, textHash) {
+		return map[string]any{"entry": view(prior), "unchanged": true}, nil
+	}
+	if err := checkImportGeneration(prior, input.ExpectedGeneration); err != nil {
+		return nil, err
+	}
+	generation := "gen_" + strings.ReplaceAll(ids.New(), "-", "")
+	revision := "rev_" + strings.ReplaceAll(ids.New(), "-", "")
+	entry := newImportEntry(input, id, textHash, generation, revision)
 	chunks := buildChunks(entry, generation, revision)
 	if err := publish(transaction, entry, chunks); err != nil {
 		return nil, err
@@ -418,6 +442,30 @@ func (store *Store) Citation(evidenceID string) (map[string]any, error) {
 	}, nil
 }
 
+func containsHan(value string) bool {
+	return strings.ContainsFunc(value, func(char rune) bool { return unicode.Is(unicode.Han, char) })
+}
+
+func appendTerm(result *[]string, seen map[string]bool, term string) bool {
+	if seen[term] {
+		return false
+	}
+	seen[term] = true
+	*result = append(*result, term)
+	return len(*result) >= 30
+}
+
+func chineseCandidates(part string) []string {
+	characters := []rune(part)
+	candidates := []string{part}
+	for _, size := range []int{2, 3} {
+		for index := 0; index+size <= len(characters); index++ {
+			candidates = append(candidates, string(characters[index:index+size]))
+		}
+	}
+	return candidates
+}
+
 func searchTerms(query string) []string {
 	query = strings.TrimSpace(strings.ToLower(query))
 	parts := strings.FieldsFunc(query, func(char rune) bool {
@@ -429,26 +477,14 @@ func searchTerms(query string) []string {
 		if part == "" {
 			continue
 		}
-		if !strings.ContainsFunc(part, func(char rune) bool { return unicode.Is(unicode.Han, char) }) {
-			if !seen[part] {
-				seen[part] = true
-				result = append(result, part)
+		if !containsHan(part) {
+			if appendTerm(&result, seen, part) {
+				break
 			}
 			continue
 		}
-		characters := []rune(part)
-		candidates := []string{part}
-		for _, size := range []int{2, 3} {
-			for index := 0; index+size <= len(characters); index++ {
-				candidates = append(candidates, string(characters[index:index+size]))
-			}
-		}
-		for _, candidate := range candidates {
-			if !seen[candidate] {
-				seen[candidate] = true
-				result = append(result, candidate)
-			}
-			if len(result) >= 30 {
+		for _, candidate := range chineseCandidates(part) {
+			if appendTerm(&result, seen, candidate) {
 				break
 			}
 		}
@@ -456,53 +492,45 @@ func searchTerms(query string) []string {
 			break
 		}
 	}
-	if len(result) > 30 {
-		result = result[:30]
-	}
 	return result
 }
 
-func (store *Store) Search(query string, ids []string) (map[string]any, error) {
+type searchCandidate struct{ evidence, source, content string }
+
+func validateSearch(query string, ids []string) error {
 	if trimmed := strings.TrimSpace(query); len([]rune(trimmed)) < 1 || len([]rune(trimmed)) > 2000 {
-		return nil, fmt.Errorf("搜索内容无效")
+		return fmt.Errorf("搜索内容无效")
 	}
 	for _, id := range ids {
 		if !sourceIDPattern.MatchString(id) {
-			return nil, fmt.Errorf("资料标识无效")
+			return fmt.Errorf("资料标识无效")
 		}
 	}
-	terms := searchTerms(query)
-	if len(terms) == 0 {
-		return map[string]any{"hits": []any{}, "trace": map[string]any{"keyword": map[string]any{"verified": 0}}}, nil
+	return nil
+}
+
+func searchScope(ids []string) (string, []any) {
+	if ids == nil {
+		return "", nil
 	}
-	longTerms := []string{}
-	for _, term := range terms {
-		if len([]rune(term)) >= 3 {
-			longTerms = append(longTerms, term)
-		}
+	if len(ids) == 0 {
+		return " AND 0", nil
 	}
-	type candidate struct{ evidence, source, content string }
-	candidates := []candidate{}
-	scope := ""
-	args := []any{}
-	if ids != nil {
-		if len(ids) == 0 {
-			scope = " AND 0"
-		} else {
-			scope = " AND source_id IN (" + strings.TrimSuffix(strings.Repeat("?,", len(ids)), ",") + ")"
-			for _, id := range ids {
-				args = append(args, id)
-			}
-		}
+	args := make([]any, len(ids))
+	for index, id := range ids {
+		args[index] = id
 	}
+	return " AND source_id IN (" + strings.TrimSuffix(strings.Repeat("?,", len(ids)), ",") + ")", args
+}
+
+func querySearchCandidates(db *sql.DB, terms, longTerms []string, scope string, args []any) ([]searchCandidate, error) {
 	if len(longTerms) == len(terms) {
 		matchParts := []string{}
 		for _, term := range longTerms {
 			matchParts = append(matchParts, `"`+strings.ReplaceAll(term, `"`, `""`)+`"`)
 		}
-		queryArgs := []any{strings.Join(matchParts, " OR ")}
-		queryArgs = append(queryArgs, args...)
-		rows, err := store.db.Query(
+		queryArgs := append([]any{strings.Join(matchParts, " OR ")}, args...)
+		rows, err := db.Query(
 			"SELECT evidence_id,source_id,content FROM native_chunks WHERE rowid IN "+
 				"(SELECT rowid FROM native_chunks_fts WHERE native_chunks_fts MATCH ?) AND chunk_index>=0"+scope+" LIMIT 500",
 			queryArgs...,
@@ -511,36 +539,38 @@ func (store *Store) Search(query string, ids []string) (map[string]any, error) {
 			return nil, err
 		}
 		defer rows.Close()
-		for rows.Next() {
-			var row candidate
-			if err := rows.Scan(&row.evidence, &row.source, &row.content); err != nil {
-				return nil, err
-			}
-			candidates = append(candidates, row)
-		}
-	} else {
-		conditions := []string{}
-		queryArgs := []any{}
-		for _, term := range terms {
-			conditions = append(conditions, "instr(lower(content),?)>0")
-			queryArgs = append(queryArgs, term)
-		}
-		queryArgs = append(queryArgs, args...)
-		rows, err := store.db.Query( // NOSONAR: only fixed SQL fragments and '?' placeholders are concatenated; every value is a bound argument.
-			"SELECT evidence_id,source_id,content FROM native_chunks WHERE chunk_index>=0 AND ("+
-				strings.Join(conditions, " OR ")+")"+scope+" LIMIT 500", queryArgs...)
-		if err != nil {
+		return scanSearchCandidates(rows)
+	}
+	conditions := []string{}
+	queryArgs := []any{}
+	for _, term := range terms {
+		conditions = append(conditions, "instr(lower(content),?)>0")
+		queryArgs = append(queryArgs, term)
+	}
+	queryArgs = append(queryArgs, args...)
+	rows, err := db.Query( // NOSONAR: only fixed SQL fragments and '?' placeholders are concatenated; every value is a bound argument.
+		"SELECT evidence_id,source_id,content FROM native_chunks WHERE chunk_index>=0 AND ("+
+			strings.Join(conditions, " OR ")+")"+scope+" LIMIT 500", queryArgs...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	return scanSearchCandidates(rows)
+}
+
+func scanSearchCandidates(rows *sql.Rows) ([]searchCandidate, error) {
+	candidates := []searchCandidate{}
+	for rows.Next() {
+		var row searchCandidate
+		if err := rows.Scan(&row.evidence, &row.source, &row.content); err != nil {
 			return nil, err
 		}
-		defer rows.Close()
-		for rows.Next() {
-			var row candidate
-			if err := rows.Scan(&row.evidence, &row.source, &row.content); err != nil {
-				return nil, err
-			}
-			candidates = append(candidates, row)
-		}
+		candidates = append(candidates, row)
 	}
+	return candidates, rows.Err()
+}
+
+func rankSearchCandidates(terms []string, candidates []searchCandidate) {
 	score := func(content string) int {
 		lower := strings.ToLower(content)
 		count := 0
@@ -554,13 +584,43 @@ func (store *Store) Search(query string, ids []string) (map[string]any, error) {
 	sort.SliceStable(candidates, func(left, right int) bool {
 		return score(candidates[left].content) > score(candidates[right].content)
 	})
+}
+
+func searchHits(store *Store, candidates []searchCandidate) ([]any, error) {
 	hits := []any{}
-	for _, row := range diverse(candidates, 8, func(value candidate) string { return value.source }) {
+	for _, row := range diverse(candidates, 8, func(value searchCandidate) string { return value.source }) {
 		citation, err := store.Citation(row.evidence)
 		if err != nil {
 			return nil, err
 		}
 		hits = append(hits, citation)
+	}
+	return hits, nil
+}
+
+func (store *Store) Search(query string, ids []string) (map[string]any, error) {
+	if err := validateSearch(query, ids); err != nil {
+		return nil, err
+	}
+	terms := searchTerms(query)
+	if len(terms) == 0 {
+		return map[string]any{"hits": []any{}, "trace": map[string]any{"keyword": map[string]any{"verified": 0}}}, nil
+	}
+	longTerms := []string{}
+	for _, term := range terms {
+		if len([]rune(term)) >= 3 {
+			longTerms = append(longTerms, term)
+		}
+	}
+	scope, args := searchScope(ids)
+	candidates, err := querySearchCandidates(store.db, terms, longTerms, scope, args)
+	if err != nil {
+		return nil, err
+	}
+	rankSearchCandidates(terms, candidates)
+	hits, err := searchHits(store, candidates)
+	if err != nil {
+		return nil, err
 	}
 	return map[string]any{
 		"hits": hits,
@@ -779,12 +839,7 @@ var selectionKeys = map[string]bool{
 
 func ValidateClassification(selection map[string]any) error { return validateSelection(selection) }
 
-func validateSelection(selection map[string]any) error {
-	for key := range selection {
-		if !selectionKeys[key] {
-			return fmt.Errorf("分类选项无效")
-		}
-	}
+func validateFixedOptions(selection map[string]any) error {
 	for key, options := range ClassificationOptions {
 		value, ok := selection[key].(string)
 		valid := false
@@ -800,37 +855,55 @@ func validateSelection(selection map[string]any) error {
 			return fmt.Errorf("分类选项无效")
 		}
 	}
-	topic, ok := selection["topic"].(string)
-	if !ok || len([]rune(topic)) > 80 {
+	return nil
+}
+
+func validateStringList(selection map[string]any, key string, limit, maxRunes int) error {
+	items, ok := selection[key].([]any)
+	if !ok || len(items) > limit {
 		return fmt.Errorf("分类选项无效")
 	}
-	subtopics, ok := selection["subtopics"].([]any)
-	if !ok || len(subtopics) > 6 {
-		return fmt.Errorf("分类选项无效")
-	}
-	for _, item := range subtopics {
+	for _, item := range items {
 		value, ok := item.(string)
-		if !ok || len([]rune(value)) > 60 {
-			return fmt.Errorf("分类选项无效")
-		}
-	}
-	keywords, ok := selection["keywords"].([]any)
-	if !ok || len(keywords) > 16 {
-		return fmt.Errorf("分类选项无效")
-	}
-	for _, item := range keywords {
-		value, ok := item.(string)
-		if !ok || len([]rune(value)) > 64 {
-			return fmt.Errorf("分类选项无效")
-		}
-	}
-	if tier, ok := selection["quality_tier"]; ok {
-		value, ok := tier.(string)
-		if !ok || !map[string]bool{"S": true, "A": true, "B": true, "C": true, "unknown": true}[value] {
+		if !ok || len([]rune(value)) > maxRunes {
 			return fmt.Errorf("分类选项无效")
 		}
 	}
 	return nil
+}
+
+func validateQualityTier(selection map[string]any) error {
+	tier, ok := selection["quality_tier"]
+	if !ok {
+		return nil
+	}
+	value, ok := tier.(string)
+	if !ok || !map[string]bool{"S": true, "A": true, "B": true, "C": true, "unknown": true}[value] {
+		return fmt.Errorf("分类选项无效")
+	}
+	return nil
+}
+
+func validateSelection(selection map[string]any) error {
+	for key := range selection {
+		if !selectionKeys[key] {
+			return fmt.Errorf("分类选项无效")
+		}
+	}
+	if err := validateFixedOptions(selection); err != nil {
+		return err
+	}
+	topic, ok := selection["topic"].(string)
+	if !ok || len([]rune(topic)) > 80 {
+		return fmt.Errorf("分类选项无效")
+	}
+	if err := validateStringList(selection, "subtopics", 6, 60); err != nil {
+		return err
+	}
+	if err := validateStringList(selection, "keywords", 16, 64); err != nil {
+		return err
+	}
+	return validateQualityTier(selection)
 }
 
 func (store *Store) Stats() (map[string]any, error) {
@@ -996,6 +1069,108 @@ func (store *Store) PublishVectors(expectedDigest string, rows []VectorRow) (Vec
 	return store.VectorStatus()
 }
 
+type semanticRow struct {
+	id     string
+	source string
+	score  float64
+}
+
+type rankRow struct{ id, source string }
+
+func validateVector(vector []float64) error {
+	if len(vector) != 512 {
+		return fmt.Errorf("查询向量无效")
+	}
+	for _, value := range vector {
+		if math.IsNaN(value) || math.IsInf(value, 0) {
+			return fmt.Errorf("查询向量无效")
+		}
+	}
+	return nil
+}
+
+func semanticScope(ids []string) (string, []any) {
+	if ids == nil {
+		return "", nil
+	}
+	if len(ids) == 0 {
+		return " WHERE 0", nil
+	}
+	args := make([]any, len(ids))
+	for index, id := range ids {
+		args[index] = id
+	}
+	return " WHERE c.source_id IN (" + strings.TrimSuffix(strings.Repeat("?,", len(ids)), ",") + ")", args
+}
+
+func scanSemanticRows(rows *sql.Rows, vector []float64) ([]semanticRow, map[string]string, error) {
+	defer rows.Close()
+	semantic := []semanticRow{}
+	sources := map[string]string{}
+	for rows.Next() {
+		var evidence, encoded, source string
+		if err := rows.Scan(&evidence, &encoded, &source); err != nil {
+			return nil, nil, err
+		}
+		var values []float64
+		if err := json.Unmarshal([]byte(encoded), &values); err != nil || len(values) != 512 {
+			return nil, nil, fmt.Errorf("查询向量无效")
+		}
+		value := 0.0
+		for index := 0; index < 512; index++ {
+			value += values[index] * vector[index]
+		}
+		semantic = append(semantic, semanticRow{id: evidence, source: source, score: value})
+		sources[evidence] = source
+	}
+	return semantic, sources, rows.Err()
+}
+
+func rankSemanticRows(semantic []semanticRow) map[string]float64 {
+	sort.SliceStable(semantic, func(left, right int) bool { return semantic[left].score > semantic[right].score })
+	if len(semantic) > 16 {
+		semantic = semantic[:16]
+	}
+	ranked := map[string]float64{}
+	for index, row := range semantic {
+		ranked[row.id] = 1 / float64(60+index)
+	}
+	return ranked
+}
+
+func mergeLexicalHits(lexical map[string]any, ranked map[string]float64, sources map[string]string) {
+	hits := lexical["hits"].([]any)
+	for index, item := range hits {
+		hit := item.(map[string]any)
+		id := stringValue(hit["evidence_id"])
+		ranked[id] += 1 / float64(60+index)
+		sources[id] = stringValue(hit["bvid"])
+	}
+}
+
+func orderedSemanticRows(ranked map[string]float64, sources map[string]string) []rankRow {
+	ordered := []rankRow{}
+	for id, source := range sources {
+		if _, ok := ranked[id]; ok {
+			ordered = append(ordered, rankRow{id: id, source: source})
+		}
+	}
+	sort.SliceStable(ordered, func(left, right int) bool { return ranked[ordered[left].id] > ranked[ordered[right].id] })
+	return diverse(ordered, 8, func(row rankRow) string { return row.source })
+}
+
+func semanticCitations(store *Store, ordered []rankRow) ([]any, error) {
+	result := []any{}
+	for _, row := range ordered {
+		citation, err := store.Citation(row.id)
+		if err != nil {
+			return nil, err
+		}
+		result = append(result, citation)
+	}
+	return result, nil
+}
+
 func (store *Store) SemanticSearch(query string, vector []float64, ids []string) (map[string]any, error) {
 	lexical, err := store.Search(query, ids)
 	if err != nil {
@@ -1012,89 +1187,25 @@ func (store *Store) SemanticSearch(query string, vector []float64, ids []string)
 		}
 		return lexical, nil
 	}
-	if len(vector) != 512 {
-		return nil, fmt.Errorf("查询向量无效")
+	if err := validateVector(vector); err != nil {
+		return nil, err
 	}
-	for _, value := range vector {
-		if math.IsNaN(value) || math.IsInf(value, 0) {
-			return nil, fmt.Errorf("查询向量无效")
-		}
-	}
-	scope := ""
-	args := []any{}
-	if ids != nil {
-		if len(ids) == 0 {
-			scope = " WHERE 0"
-		} else {
-			scope = " WHERE c.source_id IN (" + strings.TrimSuffix(strings.Repeat("?,", len(ids)), ",") + ")"
-			for _, id := range ids {
-				args = append(args, id)
-			}
-		}
-	}
+	scope, args := semanticScope(ids)
 	rows, err := store.db.Query( // NOSONAR: scope only contains fixed fragments and '?' placeholders; every value is a bound argument.
 		"SELECT v.evidence_id,v.vector,c.source_id FROM native_vectors v JOIN native_chunks c ON c.evidence_id=v.evidence_id"+scope,
 		args...)
 	if err != nil {
 		return nil, err
 	}
-	type semanticRow struct {
-		id     string
-		source string
-		score  float64
+	semantic, sources, err := scanSemanticRows(rows, vector)
+	if err != nil {
+		return nil, err
 	}
-	semantic := []semanticRow{}
-	sources := map[string]string{}
-	for rows.Next() {
-		var evidence, encoded, source string
-		if err := rows.Scan(&evidence, &encoded, &source); err != nil {
-			rows.Close()
-			return nil, err
-		}
-		var values []float64
-		if err := json.Unmarshal([]byte(encoded), &values); err != nil || len(values) != 512 {
-			rows.Close()
-			return nil, err
-		}
-		value := 0.0
-		for index := 0; index < 512; index++ {
-			value += values[index] * vector[index]
-		}
-		semantic = append(semantic, semanticRow{id: evidence, source: source, score: value})
-		sources[evidence] = source
-	}
-	rows.Close()
-	sort.SliceStable(semantic, func(left, right int) bool { return semantic[left].score > semantic[right].score })
-	if len(semantic) > 16 {
-		semantic = semantic[:16]
-	}
-	ranked := map[string]float64{}
-	for index, row := range semantic {
-		ranked[row.id] = 1 / float64(60+index)
-	}
-	hits := lexical["hits"].([]any)
-	for index, item := range hits {
-		hit := item.(map[string]any)
-		id := stringValue(hit["evidence_id"])
-		ranked[id] += 1 / float64(60+index)
-		sources[id] = stringValue(hit["bvid"])
-	}
-	type rankRow struct{ id, source string }
-	ordered := []rankRow{}
-	for id, source := range sources {
-		if _, ok := ranked[id]; ok {
-			ordered = append(ordered, rankRow{id: id, source: source})
-		}
-	}
-	sort.SliceStable(ordered, func(left, right int) bool { return ranked[ordered[left].id] > ranked[ordered[right].id] })
-	ordered = diverse(ordered, 8, func(row rankRow) string { return row.source })
-	result := []any{}
-	for _, row := range ordered {
-		citation, err := store.Citation(row.id)
-		if err != nil {
-			return nil, err
-		}
-		result = append(result, citation)
+	ranked := rankSemanticRows(semantic)
+	mergeLexicalHits(lexical, ranked, sources)
+	result, err := semanticCitations(store, orderedSemanticRows(ranked, sources))
+	if err != nil {
+		return nil, err
 	}
 	return map[string]any{
 		"hits": result,
