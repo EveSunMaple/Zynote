@@ -105,9 +105,9 @@ const grams = (value: string) => {
 }
 
 // Index once per lecture; both text and image selection share the same page evidence.
-export function correctionContext(ppt: string, images: {label: string; url: string}[]) {
+function correctionPages(ppt: string) {
  const headers = [...ppt.matchAll(/\[第\s*(\d+)\s*页\]\n/g)]
- const pages = headers.length
+ return headers.length
   ? headers.map((header, index) => ({
      page: Number(header[1]),
      text: ppt.slice(header.index, index + 1 < headers.length ? headers[index + 1].index! - 1 : ppt.length)
@@ -116,28 +116,91 @@ export function correctionContext(ppt: string, images: {label: string; url: stri
      page: i + 1,
      text: ppt.slice(i * 2000, (i + 1) * 2000)
     }))
+}
+function correctionAdjacent(batch: CorrectionBatch, source: Segment[], quality: boolean) {
+ let remaining = quality ? 1200 : 800
+ const adjacent: {id: number; text: string}[] = []
+ for (let distance = 1; distance <= (quality ? 6 : 4); distance++) {
+  for (const id of [batch.start - distance, batch.start + batch.rows.length - 1 + distance]) {
+   if (id < 0 || id >= source.length || remaining <= 0) continue
+   const text = source[id].text.slice(0, remaining)
+   adjacent.push({id, text})
+   remaining -= text.length
+  }
+ }
+ return adjacent.sort((a, b) => a.id - b.id)
+}
+function rankedCorrectionPages(
+ indexed: (ReturnType<typeof correctionPages>[number] & {index: number; tokens: Set<string>})[],
+ query: Set<string>
+) {
+ return indexed
+  .map(page => ({...page, score: [...page.tokens].filter(token => query.has(token)).length}))
+  .sort((a, b) => b.score - a.score || a.index - b.index)
+}
+function selectedCorrectionPages(
+ ranked: ReturnType<typeof rankedCorrectionPages>,
+ pages: ReturnType<typeof correctionPages>,
+ batch: CorrectionBatch,
+ source: Segment[]
+) {
+ const relevant = ranked.filter(page => page.score > 0)
+ const center = Math.min(pages.length - 1, Math.floor((batch.start / Math.max(1, source.length)) * pages.length))
+ return {relevant, selected: relevant.length ? relevant : ranked.slice(Math.max(0, center - 1), center + 2)}
+}
+function correctionImageCandidates(
+ images: {label: string; url: string}[],
+ ranked: ReturnType<typeof rankedCorrectionPages>,
+ batch: CorrectionBatch,
+ source: Segment[],
+ quality: boolean
+) {
+ const scored = images
+  .map((image, index) => ({
+   image,
+   index,
+   score: ranked.find(page => page.page === Number(/第\s*(\d+)\s*页/.exec(image.label)?.[1]))?.score || 0
+  }))
+  .sort((a, b) => b.score - a.score || a.index - b.index)
+ let candidates = scored.filter(item => item.score > 0).slice(0, quality ? 3 : 1)
+ let guessed = false
+ if (quality && !candidates.length) {
+  const imageCenter = Math.min(
+   images.length - 1,
+   Math.floor((batch.start / Math.max(1, source.length)) * images.length)
+  )
+  candidates = scored.slice(Math.max(0, imageCenter - 1), imageCenter + 2)
+  guessed = candidates.length > 0
+ }
+ return {candidates, guessed}
+}
+function budgetCorrectionImages(
+ candidates: {image: {label: string; url: string}; index: number}[],
+ omissions: string[]
+) {
+ let bytes = 0
+ return candidates
+  .toSorted((a, b) => a.index - b.index)
+  .flatMap(({image}) => {
+   const size = Buffer.byteLength(image.url, 'utf8')
+   if (size > 900000 || size + bytes > 1800000) {
+    omissions.push(`${image.label} 图片超出请求字节预算，未附加。`)
+    return []
+   }
+   bytes += size
+   return [image]
+  })
+}
+export function correctionContext(ppt: string, images: {label: string; url: string}[]) {
+ const pages = correctionPages(ppt)
  const indexed = pages.map((page, index) => ({...page, index, tokens: grams(page.text)}))
  return (batch: CorrectionBatch, source: Segment[], mode: CorrectionMode) => {
   const quality = mode === 'quality',
    limit = quality ? 8000 : 4000
-  let remaining = quality ? 1200 : 800
-  const adjacent: {id: number; text: string}[] = []
-  for (let distance = 1; distance <= (quality ? 6 : 4); distance++) {
-   for (const id of [batch.start - distance, batch.start + batch.rows.length - 1 + distance]) {
-    if (id < 0 || id >= source.length || remaining <= 0) continue
-    const text = source[id].text.slice(0, remaining)
-    adjacent.push({id, text})
-    remaining -= text.length
-   }
-  }
-  adjacent.sort((a, b) => a.id - b.id)
+  const adjacent = correctionAdjacent(batch, source, quality)
   const query = grams(batch.rows.map(row => row.text).join('\n') + '\n' + adjacent.map(row => row.text).join('\n'))
-  const ranked = indexed
-   .map(page => ({...page, score: [...page.tokens].filter(token => query.has(token)).length}))
-   .sort((a, b) => b.score - a.score || a.index - b.index)
-  const relevant = ranked.filter(page => page.score > 0)
-  const center = Math.min(pages.length - 1, Math.floor((batch.start / Math.max(1, source.length)) * pages.length))
-  const selected = relevant.length ? relevant : indexed.slice(Math.max(0, center - 1), center + 2)
+  const ranked = rankedCorrectionPages(indexed, query)
+  const {relevant, selected} = selectedCorrectionPages(ranked, pages, batch, source)
   const text = selected
    .map(page => page.text)
    .join('\n')
@@ -145,43 +208,21 @@ export function correctionContext(ppt: string, images: {label: string; url: stri
   const omissions: string[] = []
   if (text.length < ppt.length) omissions.push(`课件文字按本批相关性择取，最多 ${limit} 字；未发送整份课件。`)
   if (!relevant.length && pages.length) omissions.push('未找到课件文字匹配，按字幕进度选取候选页面，不能视为可靠对齐。')
-  const scored = images
-   .map((image, index) => ({
-    image,
-    index,
-    score: ranked.find(page => page.page === Number(/第\s*(\d+)\s*页/.exec(image.label)?.[1]))?.score || 0
-   }))
-   .sort((a, b) => b.score - a.score || a.index - b.index)
-  let candidates = scored.filter(item => item.score > 0).slice(0, quality ? 3 : 1)
-  if (quality && !candidates.length) {
-   const imageCenter = Math.min(
-    images.length - 1,
-    Math.floor((batch.start / Math.max(1, source.length)) * images.length)
-   )
-   candidates = scored.slice(Math.max(0, imageCenter - 1), imageCenter + 2)
-   if (candidates.length) omissions.push('附图按进度猜选，未经可靠页面对齐。')
-  }
-  if (mode === 'text') candidates = []
+  const {candidates, guessed} = correctionImageCandidates(images, ranked, batch, source, quality)
+  if (guessed) omissions.push('附图按进度猜选，未经可靠页面对齐。')
+  const finalCandidates = mode === 'text' ? [] : candidates
   if (mode !== 'quality')
    omissions.push(
     mode === 'text' ? '快速文字模式未附图片，图表与扫描页不可猜测。' : '均衡模式只附文字匹配图片，未匹配图表不可猜测。'
    )
-  let bytes = 0
-  const chosen = candidates
-   .toSorted((a, b) => a.index - b.index)
-   .flatMap(({image}) => {
-    const size = Buffer.byteLength(image.url, 'utf8')
-    if (size > 900000 || size + bytes > 1800000) {
-     omissions.push(`${image.label} 图片超出请求字节预算，未附加。`)
-     return []
-    }
-    bytes += size
-    return [image]
-   })
-  return {courseware: text, lectureContext: adjacent, images: chosen, omissions}
+  return {
+   courseware: text,
+   lectureContext: adjacent,
+   images: budgetCorrectionImages(finalCandidates, omissions),
+   omissions
+  }
  }
 }
-
 // Only a contiguous prefix is durable. At most two results can be pending, and all
 // in-flight work settles before returning or releasing the lecture job lock.
 export async function runCorrectionBatches<T>(
