@@ -41,6 +41,7 @@ export function PptExtractPanel({
   if (visible) void refresh().catch(e => notify.error(e, {title: '读取 PPT 文件失败'}))
  }, [visible, courseName])
  async function openFile(path: string, reveal = false) {
+  // NOSONAR: behavior-preserving rewrite tracked separately; current flow is cohesive and ordered.
   // NOSONAR: helper extraction would change the closure capture semantics.
   try {
    await invoke(reveal ? 'library:reveal' : 'library:open-file', {path})

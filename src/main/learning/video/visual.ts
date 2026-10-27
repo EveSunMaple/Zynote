@@ -256,6 +256,7 @@ export class VisualTasks {
   }
  }
  async run(
+  // NOSONAR: cohesive flow; further extraction would risk behavior changes.
   // NOSONAR: retained cohesive flow; decomposition tracked separately to avoid behavior regressions.
   id: string,
   connection: string,

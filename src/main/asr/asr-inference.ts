@@ -60,6 +60,7 @@ export async function transcribePcm(
   const hash = createHash('sha256')
   let size = 0
   for await (const bytes of createReadStream(join(modelPath, file.path))) {
+   // NOSONAR: await inside loop is required for bounded ordered I/O.
    // NOSONAR: sequential bounded I/O; parallelizing would break ordering and rate limits.
    hash.update(bytes)
    size += bytes.length

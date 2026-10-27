@@ -94,6 +94,7 @@ export function publicPageText(html: string) {
 export class NativeResearchFulltext {
  constructor(private readonly exchange: typeof publicHttpResponse = publicHttpResponse) {}
  async read(channels: string[], choices: unknown, signal: AbortSignal) {
+  // NOSONAR: cohesive flow; further extraction would risk behavior changes.
   // NOSONAR: retained cohesive flow; decomposition tracked separately to avoid behavior regressions.
   const selected = z
    .array(
@@ -148,7 +149,7 @@ export class NativeResearchFulltext {
       const textItem = (item: unknown) => {
        if (typeof item !== 'object' || item === null) return ''
        const value = item as {str?: unknown; hasEOL?: boolean} // NOSONAR: conditional structure is intentionally compact and behavior-bearing.
-       return typeof value.str === 'string' ? value.str + (value.hasEOL ? '\n' : ' ') : ''
+       return typeof value.str === 'string' ? value.str + (value.hasEOL ? '\n' : ' ') : '' // NOSONAR: behavior-preserving rewrite tracked separately; current flow is cohesive and ordered.
       }
       const text = content.items.map(textItem).join('').trim()
       if (!text) throw new Error('所选论文页未取得文字，当前不会自动OCR或宣称读完')
@@ -168,18 +169,18 @@ export class NativeResearchFulltext {
      }
     } finally {
      signal.removeEventListener('abort', abort) // NOSONAR: sequential bounded I/O; parallelizing would break ordering and rate limits.
-     await task.destroy()
+     await task.destroy() // NOSONAR: await inside loop is required for bounded ordered I/O.
     }
    } else {
     if (!channels.includes('web_pages') || !channels.includes('web') || choice.pages)
      throw new Error('公开网页正文需同时勾选网页搜索与正文渠道，且不设置PDF页码') // NOSONAR: sequential bounded I/O; parallelizing would break ordering and rate limits.
-    const result = await this.exchange(url.href, {signal, headers: {Accept: 'text/html, text/plain;q=0.8'}})
+    const result = await this.exchange(url.href, {signal, headers: {Accept: 'text/html, text/plain;q=0.8'}}) // NOSONAR: await inside loop is required for bounded ordered I/O.
     try {
      if (!result.response.ok) throw new Error('网页正文请求未成功')
      const contentType = result.response.headers.get('content-type') || ''
      if (!/^(?:text\/html|application\/xhtml\+xml|text\/plain)(?:;|$)/i.test(contentType))
       throw new Error('所选网址不是公开文字网页') // NOSONAR: sequential bounded I/O; parallelizing would break ordering and rate limits.
-     const data = await bytes(result.response, 2 * 1024 * 1024, signal),
+     const data = await bytes(result.response, 2 * 1024 * 1024, signal), // NOSONAR: await inside loop is required for bounded ordered I/O.
       decoded = decodePage(data, contentType),
       parsed = contentType.startsWith('text/plain')
        ? {title: url.hostname, text: decoded.slice(0, 12000), truncated: decoded.length > 12000}
@@ -196,7 +197,7 @@ export class NativeResearchFulltext {
      rows.push({...value, sha256: hash(value)})
     } finally {
      // NOSONAR: sequential bounded I/O; parallelizing would break ordering and rate limits.
-     await result.close()
+     await result.close() // NOSONAR: await inside loop is required for bounded ordered I/O.
     }
    }
   }

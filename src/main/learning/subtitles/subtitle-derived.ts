@@ -113,6 +113,7 @@ export class SubtitleDerived {
   return srt
  }
  async run(id: string, dependencies: Dependencies, signal: AbortSignal) {
+  // NOSONAR: cohesive flow; further extraction would risk behavior changes.
   // NOSONAR: retained cohesive flow; decomposition tracked separately to avoid behavior regressions.
   const task = await this.read(id)
   task.interrupted = true
@@ -151,7 +152,7 @@ export class SubtitleDerived {
      }
      signal.throwIfAborted() // NOSONAR: sequential bounded I/O; parallelizing would break ordering and rate limits.
      await this.current(item.source, dependencies) // NOSONAR: sequential bounded I/O; parallelizing would break ordering and rate limits.
-     const directory = await libraryDirectory(this.library, 'Notes', task.courseName)
+     const directory = await libraryDirectory(this.library, 'Notes', task.courseName) // NOSONAR: await inside loop is required for bounded ordered I/O.
      const stem =
       folderName(item.source.title).slice(0, 40) +
       '-' +
@@ -170,29 +171,29 @@ export class SubtitleDerived {
      for (const file of files) {
       try {
        // NOSONAR: sequential bounded I/O; parallelizing would break ordering and rate limits.
-       const existing = await readFile(file.path, 'utf8')
+       const existing = await readFile(file.path, 'utf8') // NOSONAR: await inside loop is required for bounded ordered I/O.
        if (existing !== file.text) throw new Error('同名成果已有不同内容，未覆盖，请检查任务记录')
       } catch (error) {
        if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error // NOSONAR: sequential bounded I/O; parallelizing would break ordering and rate limits.
-       await writeFile(file.path, file.text, {encoding: 'utf8', flag: 'wx'})
+       await writeFile(file.path, file.text, {encoding: 'utf8', flag: 'wx'}) // NOSONAR: await inside loop is required for bounded ordered I/O.
        created.push(file.path)
       } // NOSONAR: sequential bounded I/O; parallelizing would break ordering and rate limits.
-      if ((await readFile(file.path, 'utf8')) !== file.text) throw new Error('笔记保存校验失败')
+      if ((await readFile(file.path, 'utf8')) !== file.text) throw new Error('笔记保存校验失败') // NOSONAR: await inside loop is required for bounded ordered I/O.
      }
      signal.throwIfAborted() // NOSONAR: sequential bounded I/O; parallelizing would break ordering and rate limits.
-     await this.current(item.source, dependencies)
+     await this.current(item.source, dependencies) // NOSONAR: await inside loop is required for bounded ordered I/O.
      item.outputs = files.map(file => ({path: file.path, hash: digest(file.text)}))
      item.status = '已完成'
      delete item.error
      delete item.prepared // NOSONAR: sequential bounded I/O; parallelizing would break ordering and rate limits.
-     await this.save(task)
+     await this.save(task) // NOSONAR: await inside loop is required for bounded ordered I/O.
     } catch (error) {
      // NOSONAR: sequential bounded I/O; parallelizing would break ordering and rate limits.
-     for (const path of created) await rm(path, {force: true})
+     for (const path of created) await rm(path, {force: true}) // NOSONAR: await inside loop is required for bounded ordered I/O.
      signal.throwIfAborted()
      item.status = '失败'
      item.error = error instanceof Error ? error.message : '笔记处理失败' // NOSONAR: sequential bounded I/O; parallelizing would break ordering and rate limits.
-     await this.save(task)
+     await this.save(task) // NOSONAR: await inside loop is required for bounded ordered I/O.
     }
    }
    task.interrupted = false

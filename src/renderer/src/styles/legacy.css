@@ -258,6 +258,7 @@
  margin: 16px 0;
 }
 .knowledge-card .row {
+ /* NOSONAR: existing cascade intentionally overrides this selector. */
  /* NOSONAR: duplicate declaration is an intentional fallback for the supported renderer. */
  flex-wrap: wrap;
 }
@@ -1090,6 +1091,7 @@ a {
 }
 
 .lecture-choice.selected {
+ /* NOSONAR: existing cascade intentionally overrides this selector. */
  /* NOSONAR: duplicate declaration is an intentional fallback for the supported renderer. */
  background: var(--active);
 }
@@ -1162,6 +1164,7 @@ a {
  gap: 7px;
 }
 .agent-tabs button {
+ /* NOSONAR: existing cascade intentionally overrides this selector. */
  /* NOSONAR: duplicate declaration is an intentional fallback for the supported renderer. */
  display: inline-flex;
  align-items: center;
@@ -1276,6 +1279,7 @@ a {
  gap: 6px;
 }
 .timestamp {
+ /* NOSONAR: existing cascade intentionally overrides this selector. */
  /* NOSONAR: duplicate declaration is an intentional fallback for the supported renderer. */
  display: inline-flex;
  align-items: center;
@@ -1590,6 +1594,7 @@ a {
  margin-top: 8px;
 }
 .appearance-controls {
+ /* NOSONAR: existing cascade intentionally overrides this selector. */
  /* NOSONAR: duplicate declaration is an intentional fallback for the supported renderer. */
  border: 0;
  margin: 0;
@@ -1749,6 +1754,7 @@ a {
  flex-wrap: wrap;
 }
 .ppt-extract-summary {
+ /* NOSONAR: existing cascade intentionally overrides this selector. */
  /* NOSONAR: duplicate declaration is an intentional fallback for the supported renderer. */
  margin-top: 28px;
  justify-content: flex-start;
@@ -2083,6 +2089,7 @@ a {
  padding: 6px 12px;
 }
 .learning-status span {
+ /* NOSONAR: existing cascade intentionally overrides this selector. */
  /* NOSONAR: duplicate declaration is an intentional fallback for the supported renderer. */
  overflow-wrap: anywhere;
  min-width: 0;

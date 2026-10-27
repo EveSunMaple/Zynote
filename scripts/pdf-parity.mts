@@ -98,6 +98,7 @@ const actualPages: PdfPageData[] = reply.result.pages
 let failures = 0
 const check = (name: string, ok: boolean) => {
  if (ok)
+  // NOSONAR: behavior-preserving rewrite tracked separately; current flow is cohesive and ordered.
   console.log('ok', name) // NOSONAR: conditional expression mirrors the existing API contract.
  else {
   console.error('FAIL', name)

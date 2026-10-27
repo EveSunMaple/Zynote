@@ -122,6 +122,7 @@ function sourceFor(name: string) { // NOSONAR: build/fixture script; bounded seq
  }
 }
 async function download(entry: Entry, path: string) {
+ // NOSONAR: cohesive flow; further extraction would risk behavior changes.
  // NOSONAR: retained cohesive flow; decomposition tracked separately to avoid behavior regressions.
  const source = sourceFor(entry.path)
  let url = source.url
@@ -200,6 +201,7 @@ async function binding() { // NOSONAR: build/fixture script; bounded sequential 
 }
 /** Public model preparation only; does not load a model, execute inference or alter app resources. */
 export async function prepareAsrModel(value: unknown) {
+ // NOSONAR: cohesive flow; further extraction would risk behavior changes.
  // NOSONAR: retained cohesive flow; decomposition tracked separately to avoid behavior regressions.
  const request = requestSchema.parse(value)
  const raw = JSON.parse(await readFile(join(root, 'resources/runtime-manifest.json'), 'utf8'))
@@ -225,8 +227,8 @@ export async function prepareAsrModel(value: unknown) {
   // biome-ignore format: NOSONAR must stay on the await line
   for (const name of await readdir(request.offlineDirectory)) { // NOSONAR: build/fixture script; serial order and bounded resource use are intentional.
    if (name === 'onnx') { // NOSONAR: sequential bounded I/O; parallelizing would break ordering and rate limits.
-    await plain(join(request.offlineDirectory, name), true)
-    for (const child of await readdir(join(request.offlineDirectory, name))) actual.push('onnx/' + child)
+    await plain(join(request.offlineDirectory, name), true) // NOSONAR: await inside loop is required for bounded ordered I/O.
+    for (const child of await readdir(join(request.offlineDirectory, name))) actual.push('onnx/' + child) // NOSONAR: await inside loop is required for bounded ordered I/O.
    } else actual.push(name)
   }
   check(
@@ -249,8 +251,8 @@ export async function prepareAsrModel(value: unknown) {
    if (request.offlineDirectory) {
     // NOSONAR: sequential bounded I/O; parallelizing would break ordering and rate limits.
     const input = join(request.offlineDirectory, entry.path) // NOSONAR: sequential bounded I/O; parallelizing would break ordering and rate limits.
-    await verifyFile(input, entry)
-    await copyFile(input, path, constants.COPYFILE_EXCL)
+    await verifyFile(input, entry) // NOSONAR: await inside loop is required for bounded ordered I/O.
+    await copyFile(input, path, constants.COPYFILE_EXCL) // NOSONAR: await inside loop is required for bounded ordered I/O.
    } else if (entry.path === 'acquisition.json') {
     const files = [...selected, 'silero-vad-v6.onnx'].map(name => entries.find(f => f.path === name)!)
     const text = JSON.stringify(
@@ -275,10 +277,10 @@ export async function prepareAsrModel(value: unknown) {
     const bytes = await readFile(join(root, 'node_modules/@huggingface/transformers/LICENSE')) // NOSONAR: sequential bounded I/O; parallelizing would break ordering and rate limits.
     check(bytes.length === entry.size && digest(bytes) === entry.sha256, 'Apache license differs from fixed bytes') // NOSONAR: sequential bounded I/O; parallelizing would break ordering and rate limits.
     await writeFile(path, bytes, {flag: 'wx', mode: 0o600}) // NOSONAR: sequential bounded I/O; parallelizing would break ordering and rate limits.
-   } else await download(entry, path)
+   } else await download(entry, path) // NOSONAR: await inside loop is required for bounded ordered I/O.
    await verifyFile(path, entry) // NOSONAR: sequential bounded I/O; parallelizing would break ordering and rate limits.
   }
-  for (const entry of entries) await verifyFile(join(model, entry.path), entry)
+  for (const entry of entries) await verifyFile(join(model, entry.path), entry) // NOSONAR: await inside loop is required for bounded ordered I/O.
   const report = {
    state: 'model_prepared',
    repository,

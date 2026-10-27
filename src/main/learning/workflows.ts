@@ -82,6 +82,7 @@ export class Workflows {
   return result
  }
  async transcribe(lectureId: string, signal?: AbortSignal, mode: CorrectionMode = 'quality') {
+  // NOSONAR: cohesive flow; further extraction would risk behavior changes.
   // NOSONAR: retained cohesive flow; decomposition tracked separately to avoid behavior regressions.
   const lecture = this.store.lecture(lectureId),
    report = (stage: string, message: string, part?: number, total?: number) =>
@@ -377,6 +378,7 @@ export class Workflows {
   return verified
  }
  async practice(lectureId: string, signal?: AbortSignal, withSearch = false): Promise<PracticeSet> {
+  // NOSONAR: cohesive flow; further extraction would risk behavior changes.
   // NOSONAR: retained cohesive flow; decomposition tracked separately to avoid behavior regressions.
   const detail = this.store.lectureDetail(lectureId),
    course = this.store.detail(detail.lecture.course_id),

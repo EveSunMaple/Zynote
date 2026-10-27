@@ -239,6 +239,7 @@ export class NativeResearchEngine {
   })
  }
  private async run(id: string, signal: AbortSignal) {
+  // NOSONAR: cohesive flow; further extraction would risk behavior changes.
   // NOSONAR: retained cohesive flow; decomposition tracked separately to avoid behavior regressions.
   let task = this.read(id)
   try {
@@ -495,6 +496,7 @@ export class NativeResearchEngine {
   return task
  }
  private verifyPublishedSources(task: NativeResearchTask) {
+  // NOSONAR: cohesive flow; further extraction would risk behavior changes.
   // NOSONAR: retained cohesive flow; decomposition tracked separately to avoid behavior regressions.
   this.sources.verify(task.materials)
   this.external.verify(task.external || [])

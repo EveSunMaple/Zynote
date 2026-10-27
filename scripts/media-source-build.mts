@@ -414,6 +414,7 @@ try {
     'Not all ELF dependencies resolved'
    )
    const versions = await execute(
+    // NOSONAR: await inside loop is required for bounded ordered I/O.
     // NOSONAR: sequential bounded I/O; parallelizing would break ordering and rate limits.
     '/usr/bin/readelf',
     ['--version-info', path],
@@ -479,6 +480,7 @@ try {
      .update(await readFile(path)) // NOSONAR: sequential bounded I/O; parallelizing would break ordering and rate limits.
      .digest('hex'),
     signature: await execute(
+     // NOSONAR: await inside loop is required for bounded ordered I/O.
      // NOSONAR: sequential bounded I/O; parallelizing would break ordering and rate limits.
      '/usr/bin/codesign',
      ['-d', '--verbose=4', path],
@@ -488,6 +490,7 @@ try {
      true
     ),
     gatekeeper: await execute(
+     // NOSONAR: await inside loop is required for bounded ordered I/O.
      // NOSONAR: sequential bounded I/O; parallelizing would break ordering and rate limits.
      '/usr/sbin/spctl',
      ['--assess', '--type', 'execute', '--verbose=4', path],

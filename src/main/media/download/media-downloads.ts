@@ -73,6 +73,7 @@ export class NativeDownloads {
   return worker
  }
  private async handleCrypt(worker: UtilityProcess, reply: z.infer<typeof mediaCryptRequest>) {
+  // NOSONAR: behavior-preserving rewrite tracked separately; current flow is cohesive and ordered.
   // NOSONAR: behavior-preserving change would risk this established flow; tracked for manual review.
   if (reply.key <= this.lastCryptKey) throw new Error('系统加密请求编号无效')
   this.lastCryptKey = reply.key

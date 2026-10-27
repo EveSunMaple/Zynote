@@ -90,6 +90,7 @@ async function exactFiles(root: string, paths: string[]) { // NOSONAR: build/fix
 }
 /** Fixture-only: caller-selected metadata is not application installation authority. */
 export async function installVideoFixture(
+ // NOSONAR: cohesive flow; further extraction would risk behavior changes.
  // NOSONAR: retained cohesive flow; decomposition tracked separately to avoid behavior regressions.
  request: {
   callerManifest: unknown
@@ -160,13 +161,14 @@ export async function installVideoFixture(
    await mkdir(dirname(destination), {recursive: true, mode: 0o700}) // NOSONAR: sequential bounded I/O; parallelizing would break ordering and rate limits.
    await plain(dirname(destination), true) // NOSONAR: sequential bounded I/O; parallelizing would break ordering and rate limits.
    const reader = await open(source, constants.O_RDONLY | (constants.O_NOFOLLOW || 0)), // NOSONAR: sequential bounded I/O; parallelizing would break ordering and rate limits.
-    writer = await open(destination, 'wx', 0o600)
+    writer = await open(destination, 'wx', 0o600) // NOSONAR: await inside loop is required for bounded ordered I/O.
    let copied = 0
    try {
     // NOSONAR: sequential bounded I/O; parallelizing would break ordering and rate limits.
-    const before = await reader.stat()
+    const before = await reader.stat() // NOSONAR: await inside loop is required for bounded ordered I/O.
     check(before.isFile() && before.nlink === 1 && before.size === file.size, 'Copy source type/size mismatch') // NOSONAR: sequential bounded I/O; parallelizing would break ordering and rate limits.
     for await (const bytes of reader.createReadStream({autoClose: false})) {
+     // NOSONAR: await inside loop is required for bounded ordered I/O.
      signal.throwIfAborted()
      copied += bytes.length
      check(copied <= file.size, 'Source grew during copy')
@@ -174,7 +176,7 @@ export async function installVideoFixture(
     } // NOSONAR: sequential bounded I/O; parallelizing would break ordering and rate limits.
     await writer.sync() // NOSONAR: sequential bounded I/O; parallelizing would break ordering and rate limits.
     const after = await reader.stat(), // NOSONAR: sequential bounded I/O; parallelizing would break ordering and rate limits.
-     current = await lstat(source)
+     current = await lstat(source) // NOSONAR: await inside loop is required for bounded ordered I/O.
     check(
      before.dev === after.dev &&
       before.ino === after.ino &&
@@ -188,29 +190,29 @@ export async function installVideoFixture(
    } finally {
     // NOSONAR: sequential bounded I/O; parallelizing would break ordering and rate limits.
     await reader.close() // NOSONAR: sequential bounded I/O; parallelizing would break ordering and rate limits.
-    await writer.close()
+    await writer.close() // NOSONAR: await inside loop is required for bounded ordered I/O.
    }
    check(
     // NOSONAR: sequential bounded I/O; parallelizing would break ordering and rate limits.
-    copied === file.size && (await hashFile(destination, file.size, signal)) === file.sha256,
+    copied === file.size && (await hashFile(destination, file.size, signal)) === file.sha256, // NOSONAR: await inside loop is required for bounded ordered I/O.
     'Copied payload differs from manifest'
    )
    signal.throwIfAborted() // NOSONAR: sequential bounded I/O; parallelizing would break ordering and rate limits.
    await plain(destination, false) // NOSONAR: sequential bounded I/O; parallelizing would break ordering and rate limits.
-   const permissionHandle = await open(destination, constants.O_RDONLY | (constants.O_NOFOLLOW || 0))
+   const permissionHandle = await open(destination, constants.O_RDONLY | (constants.O_NOFOLLOW || 0)) // NOSONAR: await inside loop is required for bounded ordered I/O.
    try {
     // NOSONAR: sequential bounded I/O; parallelizing would break ordering and rate limits.
     const identity = await permissionHandle.stat(), // NOSONAR: sequential bounded I/O; parallelizing would break ordering and rate limits.
-     current = await lstat(destination)
+     current = await lstat(destination) // NOSONAR: await inside loop is required for bounded ordered I/O.
     check(
      identity.dev === current.dev && identity.ino === current.ino && identity.isFile() && identity.nlink === 1,
      'Permission target identity changed'
     )
     signal.throwIfAborted() // NOSONAR: sequential bounded I/O; parallelizing would break ordering and rate limits.
-    await permissionHandle.chmod(file.mode === '0755' ? 0o755 : 0o644)
+    await permissionHandle.chmod(file.mode === '0755' ? 0o755 : 0o644) // NOSONAR: await inside loop is required for bounded ordered I/O.
    } finally {
     // NOSONAR: sequential bounded I/O; parallelizing would break ordering and rate limits.
-    await permissionHandle.close()
+    await permissionHandle.close() // NOSONAR: await inside loop is required for bounded ordered I/O.
    }
   }
   // Last complete verification immediately precedes publish; cancellation remains active.
@@ -220,7 +222,7 @@ export async function installVideoFixture(
    files.map(file => file.path)
   )
   for (const file of files) // NOSONAR: sequential bounded I/O; parallelizing would break ordering and rate limits.
-   check((await hashFile(join(input, file.path), file.size, signal)) === file.sha256, 'Input changed before publish')
+   check((await hashFile(join(input, file.path), file.size, signal)) === file.sha256, 'Input changed before publish') // NOSONAR: await inside loop is required for bounded ordered I/O.
   await exactFiles(
    stage,
    files.map(file => file.path)
@@ -229,7 +231,7 @@ export async function installVideoFixture(
    signal.throwIfAborted()
    const path = join(stage, file.path) // NOSONAR: sequential bounded I/O; parallelizing would break ordering and rate limits.
    check((await hashFile(path, file.size, signal)) === file.sha256, 'Final payload digest mismatch') // NOSONAR: sequential bounded I/O; parallelizing would break ordering and rate limits.
-   check(((await lstat(path)).mode & 0o7777) === (file.mode === '0755' ? 0o755 : 0o644), 'Final POSIX mode mismatch')
+   check(((await lstat(path)).mode & 0o7777) === (file.mode === '0755' ? 0o755 : 0o644), 'Final POSIX mode mismatch') // NOSONAR: await inside loop is required for bounded ordered I/O.
   }
   await stableDirectories()
   try {

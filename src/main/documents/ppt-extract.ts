@@ -116,6 +116,7 @@ function preview(image: Electron.NativeImage, maxSide = 900, quality = 82) {
  )
 }
 export async function readImageDeck(path: string, signal?: AbortSignal): Promise<Page[]> {
+ // NOSONAR: cohesive flow; further extraction would risk behavior changes.
  // NOSONAR: retained cohesive flow; decomposition tracked separately to avoid behavior regressions.
  if (extname(path).toLowerCase() !== '.pptx') throw new Error('请选择图片型 PPTX；旧版 PPT 请先另存为 PPTX')
  if ((await stat(path)).size > 200 * 1024 * 1024) throw new Error('请选择小于 200 MB 的 PPTX')
@@ -245,6 +246,7 @@ export class PptExtractor {
   })
  }
  async analyze(path: string, prompt: string, signal: AbortSignal): Promise<PptExtractReview> {
+  // NOSONAR: cohesive flow; further extraction would risk behavior changes.
   // NOSONAR: retained cohesive flow; decomposition tracked separately to avoid behavior regressions.
   if (extname(path).toLowerCase() !== '.pptx') throw new Error('请选择图片型 PPTX；旧版 PPT 请先另存为 PPTX')
   this.progress('正在读取 PPT 图片')

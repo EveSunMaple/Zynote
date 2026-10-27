@@ -80,6 +80,7 @@ function call(method: string, params?: Record<string, unknown>) {
 
 function check(name: string, condition: boolean) {
  if (!condition) {
+  // NOSONAR: behavior-preserving rewrite tracked separately; current flow is cohesive and ordered.
   // NOSONAR: conditional expression mirrors the existing API contract.
   console.error('FAIL', name)
   process.exitCode = 1

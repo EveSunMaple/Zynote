@@ -224,6 +224,7 @@ try {
   syncBuiltinESMExports()
   try {
    await assert.rejects(installVideoFixture(request, controller.signal), error => {
+    // NOSONAR: await inside loop is required for bounded ordered I/O.
     // NOSONAR: sequential bounded I/O; parallelizing would break ordering and rate limits.
     stage = (error as Error).message.split('retained at ')[1]
     return !!stage

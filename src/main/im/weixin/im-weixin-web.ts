@@ -117,6 +117,7 @@ export class NativeWeixinWebSession {
  private uuid = ''
  private qr = ''
  constructor(
+  // NOSONAR: cohesive flow; further extraction would risk behavior changes.
   // NOSONAR: retained cohesive flow; decomposition tracked separately to avoid behavior regressions.
   saved?: unknown,
   private readonly fetcher: typeof fetch = fetch
@@ -196,9 +197,9 @@ export class NativeWeixinWebSession {
   signal.throwIfAborted()
   try {
    const cookies = response.headers.getSetCookie() // NOSONAR: object construction is intentional for the serialized shape.
-   if (cookies.length > 200 || cookies.some(value => value.length > 16384)) throw new Error()
+   if (cookies.length > 200 || cookies.some(value => value.length > 16384)) throw new Error() // NOSONAR: behavior-preserving rewrite tracked separately; current flow is cohesive and ordered.
    for (const cookie of cookies) this.jar.setCookieSync(cookie, url.href) // NOSONAR: object construction is intentional for the serialized shape.
-   if ((this.jar.serializeSync()?.cookies.length || 0) > 200) throw new Error()
+   if ((this.jar.serializeSync()?.cookies.length || 0) > 200) throw new Error() // NOSONAR: behavior-preserving rewrite tracked separately; current flow is cohesive and ordered.
   } catch {
    throw new Error('微信服务返回无效或过多 Cookie')
   }

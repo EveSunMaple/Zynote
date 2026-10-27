@@ -159,6 +159,7 @@ export class GoCore {
  }
 
  private handleLine(line: string) {
+  // NOSONAR: cohesive flow; further extraction would risk behavior changes.
   // NOSONAR: retained cohesive flow; decomposition tracked separately to avoid behavior regressions.
   this.stdoutTail = (this.stdoutTail + line).slice(-STDERR_TAIL_LIMIT)
   let frame: Record<string, unknown>

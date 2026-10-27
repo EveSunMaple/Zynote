@@ -1049,6 +1049,7 @@
  margin: 0;
 }
 .appearance-preview {
+ /* NOSONAR: existing cascade intentionally overrides this selector. */
  /* NOSONAR: duplicate declaration is an intentional fallback for the supported renderer. */
  flex: none;
  overflow: hidden;

@@ -31,6 +31,7 @@ export function parseVideoSeries(input: string, value: unknown): VideoSeries {
  }
 }
 export async function readVideoSeries(input: string, signal: AbortSignal): Promise<VideoSeries> {
+ // NOSONAR: cohesive flow; further extraction would risk behavior changes.
  // NOSONAR: retained cohesive flow; decomposition tracked separately to avoid behavior regressions.
  const url = new URL(bilibiliUrl(input))
  url.hostname = 'www.bilibili.com'

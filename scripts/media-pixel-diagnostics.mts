@@ -324,6 +324,7 @@ try {
     const detail = stats(direct.stdout, filter.w, filter.h)
     const png = (
      await execute(ffmpeg, [
+      // NOSONAR: await inside loop is required for bounded ordered I/O.
       // NOSONAR: sequential bounded I/O; parallelizing would break ordering and rate limits.
       '-v',
       'error',

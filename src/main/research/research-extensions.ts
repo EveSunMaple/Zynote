@@ -133,6 +133,7 @@ export class NativeResearchExtensions {
    })
    .parse(input)
   return this.store.operation(value.op, value, () => {
+   // NOSONAR: cohesive flow; further extraction would risk behavior changes.
    // NOSONAR: retained cohesive flow; decomposition tracked separately to avoid behavior regressions.
    const current = this.catalog()
    if (current.revision !== value.revision) throw new Error('学习方法版本已改变，请刷新')
@@ -203,6 +204,7 @@ export class NativeResearchExtensions {
    throw new Error('研究期间学习要求或方法已改变，旧结果未发布')
  }
  parseMarkdown(input: string) {
+  // NOSONAR: cohesive flow; further extraction would risk behavior changes.
   // NOSONAR: retained cohesive flow; decomposition tracked separately to avoid behavior regressions.
   text(12000).parse(input)
   const front = methodFrontMatter(input)

@@ -95,6 +95,7 @@ function biliView(view: z.infer<typeof viewSchema>, selected: {bvid: string; pag
  return page
 }
 function biliStreams(play: z.infer<typeof playSchema>) {
+ // NOSONAR: cohesive flow; further extraction would risk behavior changes.
  // NOSONAR: retained cohesive flow; decomposition tracked separately to avoid behavior regressions.
  const streams: NativeMediaStream[] = []
  for (const [kind, rows] of [

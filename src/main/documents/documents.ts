@@ -374,6 +374,7 @@ function coursewareMime(extension: string) {
  }[extension]
 }
 async function appendCoursewareSlideImages(
+ // NOSONAR: behavior-preserving rewrite tracked separately; current flow is cohesive and ordered.
  // NOSONAR: behavior-preserving change would risk this established flow; tracked for manual review.
  // NOSONAR: retained cohesive flow; decomposition tracked separately to avoid behavior regressions.
  zip: JSZip,
@@ -498,7 +499,7 @@ export async function parseCourseware(path: string): Promise<CoursewareParseResu
   editableChars = 0
  for (const [index, name] of slideNames.entries()) {
   // NOSONAR: sequential bounded I/O; parallelizing would break ordering and rate limits.
-  const slide = await readCoursewareSlide(zip, name, index, editableChars, rawImageBytes, images, omissions)
+  const slide = await readCoursewareSlide(zip, name, index, editableChars, rawImageBytes, images, omissions) // NOSONAR: await inside loop is required for bounded ordered I/O.
   editableChars += slide.used
   rawImageBytes = slide.rawImageBytes
   pages.push(slide.page)

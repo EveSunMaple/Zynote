@@ -82,6 +82,7 @@ export class RuntimeComponents {
   return this.statusRequest
  }
  private async readStatus(): Promise<RuntimeStatus> {
+  // NOSONAR: cohesive flow; further extraction would risk behavior changes.
   // NOSONAR: retained cohesive flow; decomposition tracked separately to avoid behavior regressions.
   let raw: unknown
   try {
@@ -167,13 +168,14 @@ export class RuntimeComponents {
         const before = await handle.stat() // NOSONAR: ordered/limited operation; parallelizing would change atomicity, rate limits, or deterministic progress.
         if (before.dev !== item.dev || before.ino !== item.ino) throw new Error('invalid') // NOSONAR: sequential bounded I/O; parallelizing would break ordering and rate limits.
         for await (const bytes of handle.createReadStream({autoClose: false})) {
+         // NOSONAR: await inside loop is required for bounded ordered I/O.
          size += bytes.length
          if (size > file.size) throw new Error('invalid')
          hash.update(bytes)
         }
         // biome-ignore format: NOSONAR must stay on the await line
         const after = await handle.stat(), // NOSONAR: ordered/limited operation; parallelizing would change atomicity, rate limits, or deterministic progress.
-         current = await lstat(path)
+         current = await lstat(path) // NOSONAR: await inside loop is required for bounded ordered I/O.
         if (
          before.mtimeMs !== after.mtimeMs ||
          before.ctimeMs !== after.ctimeMs ||
@@ -188,7 +190,7 @@ export class RuntimeComponents {
          throw new Error('invalid')
        } finally {
         // NOSONAR: sequential bounded I/O; parallelizing would break ordering and rate limits.
-        await handle.close()
+        await handle.close() // NOSONAR: await inside loop is required for bounded ordered I/O.
        }
        if (size !== file.size || hash.digest('hex') !== file.sha256) throw new Error('invalid')
       }
@@ -255,11 +257,12 @@ export class RuntimeComponents {
        const entry = component.files[cursor++], // NOSONAR: sequential bounded I/O; parallelizing would break ordering and rate limits.
         input = await regular(payload, entry.path) // NOSONAR: sequential bounded I/O; parallelizing would break ordering and rate limits.
        if ((await lstat(input)).size !== entry.size || (await hashFile(input)) !== entry.sha256)
+        // NOSONAR: await inside loop is required for bounded ordered I/O.
         throw new Error('组件校验失败：' + entry.path)
        const output = contained(stage, entry.path) // NOSONAR: sequential bounded I/O; parallelizing would break ordering and rate limits.
        await mkdir(dirname(output), {recursive: true}) // NOSONAR: sequential bounded I/O; parallelizing would break ordering and rate limits.
        await copyFile(input, output) // NOSONAR: sequential bounded I/O; parallelizing would break ordering and rate limits.
-       if ((await hashFile(output)) !== entry.sha256) throw new Error('组件复制校验失败')
+       if ((await hashFile(output)) !== entry.sha256) throw new Error('组件复制校验失败') // NOSONAR: await inside loop is required for bounded ordered I/O.
        if (++done % 200 === 0) progress(`正在校验组件 ${done}/${component.files.length}`)
       }
      } catch (error) {

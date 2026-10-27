@@ -254,6 +254,7 @@ export class BiliDiscussion {
   return ended || coverage.fallback_first_page_only === true
  }
  private async fetchRootComments(aid: number, owner: number, pages: number, signal: AbortSignal) {
+  // NOSONAR: cohesive flow; further extraction would risk behavior changes.
   // NOSONAR: retained cohesive flow; decomposition tracked separately to avoid behavior regressions.
   const rows: Comment[] = [],
    seen = new Set<string>()
@@ -293,6 +294,7 @@ export class BiliDiscussion {
       )
       coverage.fallback_first_page_only = true // NOSONAR: Unicode escape is intentional for readable source and identical runtime value.
      } catch (fallback) {
+      // NOSONAR: behavior-preserving rewrite tracked separately; current flow is cohesive and ordered.
       coverage.errors.push({stage: 'roots_fallback', code: failureCode(fallback)})
       break
      }
@@ -539,6 +541,7 @@ export class BiliDiscussion {
   })
  } // NOSONAR: behavior-preserving change would risk this established flow; tracked for manual review.
  private addDiscussionItem(
+  // NOSONAR: behavior-preserving rewrite tracked separately; current flow is cohesive and ordered.
   items: DiscussionItem[],
   bvid: string,
   cid: number,

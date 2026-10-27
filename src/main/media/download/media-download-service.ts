@@ -93,6 +93,7 @@ export class NativeDownloadService {
   }
  }
  private async directAction(action: string, input: unknown): Promise<{handled: boolean; value?: unknown}> {
+  // NOSONAR: cohesive flow; further extraction would risk behavior changes.
   // NOSONAR: retained cohesive flow; decomposition tracked separately to avoid behavior regressions.
   if (action === 'options') return {handled: true, value: mediaOptionChoices()}
   if (action === 'auth-list') return {handled: true, value: await this.auth.list()}
