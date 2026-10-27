@@ -103,65 +103,71 @@ export class NativeDownloadJobs {
   await rename(tmp, path)
   this.records.set(job.id, job)
  }
+ private async readJobRecord(entryName: string) {
+  // biome-ignore format: NOSONAR must stay on the await line
+  const directory = await this.directory(entryName), // NOSONAR: ordered/limited operation; parallelizing would change atomicity, rate limits, or deterministic progress.
+   privatePath = join(directory, 'job.dpapi'),
+   publicPath = join(directory, 'job.json')
+  let encrypted = false
+  try {
+   // biome-ignore format: NOSONAR must stay on the await line
+   await lstat(privatePath) // NOSONAR: ordered/limited operation; parallelizing would change atomicity, rate limits, or deterministic progress.
+   encrypted = true
+  } catch (error) {
+   if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error
+  }
+  if (encrypted) {
+   try {
+    // biome-ignore format: NOSONAR must stay on the await line
+    await lstat(publicPath) // NOSONAR: ordered/limited operation; parallelizing would change atomicity, rate limits, or deterministic progress.
+    throw new Error('下载任务同时存在明文与加密记录，未选择其中一个覆盖')
+   } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error
+   }
+  }
+  const path = encrypted ? privatePath : publicPath
+  // biome-ignore format: NOSONAR must stay on the await line
+  const item = await lstat(path) // NOSONAR: ordered/limited operation; parallelizing would change atomicity, rate limits, or deterministic progress.
+  if (item.isSymbolicLink() || !item.isFile()) throw new Error('下载恢复记录文件无效')
+  // biome-ignore format: NOSONAR must stay on the await line
+  const bytes = await readFile(path), // NOSONAR: ordered/limited operation; parallelizing would change atomicity, rate limits, or deterministic progress.
+   // biome-ignore format: NOSONAR must stay on the await line
+   row = schema.parse(JSON.parse((encrypted ? await this.crypt(bytes, true) : bytes).toString('utf8'))) // NOSONAR: ordered/limited operation; parallelizing would change atomicity, rate limits, or deterministic progress.
+  if (encrypted !== (row.recipe.privacy === true)) throw new Error('下载记录加密方式与任务设置不一致')
+  if (row.id !== entryName || row.recipeHash !== hashRecipe(row.identity, row.source_url, mediaOptions(row.recipe)))
+   throw new Error('下载恢复记录与任务不一致')
+  return {row, directory}
+ }
+ private async restoreJobRecord(row: z.infer<typeof schema>, entryName: string, directory: string) {
+  if (row.id !== entryName) throw new Error('下载恢复记录与任务不一致')
+  const locks = await recoverDownloadLocks(directory, row.identity)
+  if (locks.preserved.length) row.warning = '保留无法确认归属的分段锁，请核对原下载进程后再继续'
+  if (row.state === 'running' || row.state === 'queued') {
+   await this.save({
+    ...row,
+    revision: row.revision + 1,
+    state: 'interrupted',
+    stage: '上次中断，等待手动继续',
+    updated: new Date().toISOString()
+   })
+   return
+  }
+  this.records.set(row.id, row)
+  if (row.state !== 'completed' || !row.cleanup.length) return
+  try {
+   await this.clearIntermediates(row)
+  } catch {
+   this.records.set(row.id, {...row, warning: '成果或清理记录未通过核对，原中间文件保留'})
+  }
+ }
  initialize() {
   this.initialized ??= this.exclusive(async () => {
    const base = await this.base()
    // biome-ignore format: NOSONAR must stay on the await line
    for (const entry of await readdir(base, {withFileTypes: true})) { // NOSONAR: ordered/limited operation; parallelizing would change atomicity, rate limits, or deterministic progress.
     if (!idSchema.safeParse(entry.name).success || !entry.isDirectory() || entry.isSymbolicLink()) continue
-    // biome-ignore format: NOSONAR must stay on the await line
-    const directory = await this.directory(entry.name), // NOSONAR: ordered/limited operation; parallelizing would change atomicity, rate limits, or deterministic progress.
-     privatePath = join(directory, 'job.dpapi'),
-     publicPath = join(directory, 'job.json')
-    let encrypted = false
-    try {
-     // biome-ignore format: NOSONAR must stay on the await line
-     await lstat(privatePath) // NOSONAR: ordered/limited operation; parallelizing would change atomicity, rate limits, or deterministic progress.
-     encrypted = true
-    } catch (error) {
-     if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error
-    }
-    if (encrypted) {
-     try {
-      // biome-ignore format: NOSONAR must stay on the await line
-      await lstat(publicPath) // NOSONAR: ordered/limited operation; parallelizing would change atomicity, rate limits, or deterministic progress.
-      throw new Error('下载任务同时存在明文与加密记录，未选择其中一个覆盖')
-     } catch (error) {
-      if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error
-     }
-    }
-    const path = encrypted ? privatePath : publicPath
-    // biome-ignore format: NOSONAR must stay on the await line
-    const item = await lstat(path) // NOSONAR: ordered/limited operation; parallelizing would change atomicity, rate limits, or deterministic progress.
-    if (item.isSymbolicLink() || !item.isFile()) throw new Error('下载恢复记录文件无效')
-    // biome-ignore format: NOSONAR must stay on the await line
-    const bytes = await readFile(path), // NOSONAR: ordered/limited operation; parallelizing would change atomicity, rate limits, or deterministic progress.
-     // biome-ignore format: NOSONAR must stay on the await line
-     row = schema.parse(JSON.parse((encrypted ? await this.crypt(bytes, true) : bytes).toString('utf8'))) // NOSONAR: ordered/limited operation; parallelizing would change atomicity, rate limits, or deterministic progress.
-    if (encrypted !== (row.recipe.privacy === true)) throw new Error('下载记录加密方式与任务设置不一致')
-    if (row.id !== entry.name || row.recipeHash !== hashRecipe(row.identity, row.source_url, mediaOptions(row.recipe)))
-     throw new Error('下载恢复记录与任务不一致')
-    const locks = await recoverDownloadLocks(directory, row.identity)
-    if (locks.preserved.length) row.warning = '保留无法确认归属的分段锁，请核对原下载进程后再继续'
-    if (row.state === 'running' || row.state === 'queued')
-     await this.save({
-      ...row,
-      revision: row.revision + 1,
-      state: 'interrupted',
-      stage: '上次中断，等待手动继续',
-      updated: new Date().toISOString()
-     })
-    else {
-     this.records.set(row.id, row)
-     if (row.state === 'completed' && row.cleanup.length) {
-      try {
-       await this.clearIntermediates(row)
-      } catch {
-       const warned = {...row, warning: '成果或清理记录未通过核对，原中间文件保留'}
-       this.records.set(row.id, warned)
-      }
-     }
-    }
+    const {row, directory} = await this.readJobRecord(entry.name)
+    await this.restoreJobRecord(row, entry.name, directory)
    }
   })
   return this.initialized

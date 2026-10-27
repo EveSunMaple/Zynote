@@ -31,40 +31,35 @@ export function mediaCookieScope(value: string) {
  return site
 }
 const belongs = (host: string, site: string) => host === site || host.endsWith('.' + site)
-export function parseMediaCookies(text: string, scope: string) {
- const site = mediaCookieScope(scope),
-  jar = new CookieJar(),
-  rows: string[] = [],
-  seen = new Set<string>()
- if (Buffer.byteLength(text) > 1_048_576) throw new Error('Cookie 文件超过 1 MB')
- for (const raw of text.replace(/^\uFEFF/, '').split(/\r?\n/)) {
-  const httpOnly = raw.startsWith('#HttpOnly_'),
-   line = httpOnly ? raw.slice(10) : raw
-  if (!line || line.startsWith('#')) continue
-  const cells = line.split('\t')
-  if (cells.length !== 7) throw new Error('请使用 Netscape cookies.txt 格式')
-  const [rawDomain, subs, path, secure, expires, name, value] = cells,
-   domain = rawDomain.replace(/^\./, '').toLowerCase()
-  if (!belongs(domain, site)) continue
-  if (
-   !['TRUE', 'FALSE'].includes(subs) ||
-   !['TRUE', 'FALSE'].includes(secure) ||
-   !/^\d{1,13}$/.test(expires) ||
-   !path.startsWith('/') ||
-   /[\x00-\x20\x7f;,=]/.test(name) ||
-   !name ||
-   name.length > 256 ||
-   value.length > 16384 ||
-   /[\x00-\x1f\x7f;]/.test(value) ||
-   /[\x00-\x20\x7f;]/.test(path)
-  )
-   throw new Error('Cookie 字段格式无效')
-  const seconds = Number(expires)
-  if (seconds && seconds <= Date.now() / 1000) continue
-  const id = domain + '\n' + path + '\n' + name
-  if (seen.has(id)) continue
-  seen.add(id)
-  const cookie = new Cookie({
+function validCookieFields(subs: string, path: string, secure: string, expires: string, name: string, value: string) {
+ return (
+  ['TRUE', 'FALSE'].includes(subs) &&
+  ['TRUE', 'FALSE'].includes(secure) &&
+  /^\d{1,13}$/.test(expires) &&
+  path.startsWith('/') &&
+  !/[\x00-\x20\x7f;,=]/.test(name) &&
+  !!name &&
+  name.length <= 256 &&
+  value.length <= 16384 &&
+  !/[\x00-\x1f\x7f;]/.test(value) &&
+  !/[\x00-\x20\x7f;]/.test(path)
+ )
+}
+function parseCookieLine(raw: string, site: string, now: number) {
+ const httpOnly = raw.startsWith('#HttpOnly_'),
+  line = httpOnly ? raw.slice(10) : raw
+ if (!line || line.startsWith('#')) return undefined
+ const cells = line.split('\t')
+ if (cells.length !== 7) throw new Error('请使用 Netscape cookies.txt 格式')
+ const [rawDomain, subs, path, secure, expires, name, value] = cells,
+  domain = rawDomain.replace(/^\./, '').toLowerCase()
+ if (!belongs(domain, site)) return undefined
+ if (!validCookieFields(subs, path, secure, expires, name, value)) throw new Error('Cookie 字段格式无效')
+ const seconds = Number(expires)
+ if (seconds && seconds <= now) return undefined
+ const displayDomain = httpOnly ? '#HttpOnly_' + rawDomain.toLowerCase() : rawDomain.toLowerCase()
+ return {
+  cookie: new Cookie({
    key: name,
    value,
    domain,
@@ -73,19 +68,26 @@ export function parseMediaCookies(text: string, scope: string) {
    httpOnly,
    hostOnly: subs === 'FALSE',
    expires: seconds ? new Date(seconds * 1000) : 'Infinity'
-  })
-  jar.setCookieSync(cookie, 'https://' + domain + path, {ignoreError: false})
-  rows.push(
-   [
-    httpOnly ? '#HttpOnly_' + rawDomain.toLowerCase() : rawDomain.toLowerCase(),
-    subs,
-    path,
-    secure,
-    expires,
-    name,
-    value
-   ].join('\t')
-  )
+  }),
+  row: [displayDomain, subs, path, secure, expires, name, value].join('\t')
+ }
+}
+export function parseMediaCookies(text: string, scope: string) {
+ const site = mediaCookieScope(scope),
+  jar = new CookieJar(),
+  rows: string[] = [],
+  seen = new Set<string>()
+ if (Buffer.byteLength(text) > 1_048_576) throw new Error('Cookie 文件超过 1 MB')
+ const now = Date.now() / 1000
+ for (const raw of text.replace(/^\uFEFF/, '').split(/\r?\n/)) {
+  const parsed = parseCookieLine(raw, site, now)
+  if (!parsed) continue
+  const domain = parsed.cookie.domain || ''
+  const id = domain + '\n' + parsed.cookie.path + '\n' + parsed.cookie.key
+  if (seen.has(id)) continue
+  seen.add(id)
+  jar.setCookieSync(parsed.cookie, 'https://' + domain + parsed.cookie.path, {ignoreError: false})
+  rows.push(parsed.row)
  }
  if (!rows.length || rows.length > 2000) throw new Error('没有匹配该域名且未过期的 Cookie')
  return {jar, count: rows.length, text: '# Netscape HTTP Cookie File\n' + rows.join('\n') + '\n'}

@@ -92,34 +92,65 @@ export class LegacyDownloads {
   if (row.id !== value || row.kb_root_id !== (await this.scope())) throw new Error('旧任务来源目录不一致')
   return {...row, recordHash: raw.hash}
  }
+ private async checkOtherScopes() {
+  try {
+   const records = await checkedDirectory(join(this.root, 'records'))
+   // biome-ignore format: NOSONAR must stay on the await line
+   for (const folder of await readdir(records)) // NOSONAR: ordered/limited operation; parallelizing would change atomicity, rate limits, or deterministic progress.
+    if (/^kbr_[a-f0-9]{32}$/.test(folder)) {
+     // biome-ignore format: NOSONAR must stay on the await line
+     const path = await checkedDirectory(join(records, folder)) // NOSONAR: ordered/limited operation; parallelizing would change atomicity, rate limits, or deterministic progress.
+     // biome-ignore format: NOSONAR must stay on the await line
+     for (const child of await readdir(path, {withFileTypes: true})) // NOSONAR: ordered/limited operation; parallelizing would change atomicity, rate limits, or deterministic progress.
+      if (child.isDirectory() && !child.isSymbolicLink() && id.safeParse(child.name).success) {
+       try {
+        // biome-ignore format: NOSONAR must stay on the await line
+        const info = await lstat(join(path, child.name, 'state.json')) // NOSONAR: ordered/limited operation; parallelizing would change atomicity, rate limits, or deterministic progress.
+        if (info.isFile()) throw new Error('旧下载记录属于另一资料路径，需确认迁移位置；原文件保留')
+       } catch (missing) {
+        if ((missing as NodeJS.ErrnoException).code !== 'ENOENT') throw missing
+       }
+      }
+    }
+  } catch (other) {
+   if ((other as NodeJS.ErrnoException).code !== 'ENOENT') throw other
+  }
+ }
+ private legacyJob(row: LegacyDownloadRecord): MediaJob {
+  return {
+   id: row.id,
+   title: row.title,
+   state: ['queued', 'running'].includes(row.state) ? 'interrupted' : row.state,
+   stage: row.stage || '',
+   progress: row.progress,
+   error_message: row.error ? '旧下载未完成，请核对后继续' : '',
+   warning: row.warning,
+   source_url: row.source.url,
+   output: row.output,
+   files: row.files
+  }
+ }
+ private brokenJob(id: string): MediaJob {
+  return {
+   id,
+   title: '无法读取的旧下载任务',
+   state: 'error',
+   stage: '保留原始记录',
+   progress: {},
+   error_message: '旧任务记录无法核对，未改写或删除；请检查记录来源和格式',
+   warning: '',
+   source_url: '',
+   output: '',
+   files: []
+  }
+ }
  async list(): Promise<MediaJob[]> {
   let base: string
   try {
    base = await this.base()
   } catch (error) {
    if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error
-   try {
-    const records = await checkedDirectory(join(this.root, 'records'))
-    // biome-ignore format: NOSONAR must stay on the await line
-    for (const folder of await readdir(records)) // NOSONAR: ordered/limited operation; parallelizing would change atomicity, rate limits, or deterministic progress.
-     if (/^kbr_[a-f0-9]{32}$/.test(folder)) {
-      // biome-ignore format: NOSONAR must stay on the await line
-      const path = await checkedDirectory(join(records, folder)) // NOSONAR: ordered/limited operation; parallelizing would change atomicity, rate limits, or deterministic progress.
-      // biome-ignore format: NOSONAR must stay on the await line
-      for (const child of await readdir(path, {withFileTypes: true})) // NOSONAR: ordered/limited operation; parallelizing would change atomicity, rate limits, or deterministic progress.
-       if (child.isDirectory() && !child.isSymbolicLink() && id.safeParse(child.name).success) {
-        try {
-         // biome-ignore format: NOSONAR must stay on the await line
-         const info = await lstat(join(path, child.name, 'state.json')) // NOSONAR: ordered/limited operation; parallelizing would change atomicity, rate limits, or deterministic progress.
-         if (info.isFile()) throw new Error('旧下载记录属于另一资料路径，需确认迁移位置；原文件保留')
-        } catch (missing) {
-         if ((missing as NodeJS.ErrnoException).code !== 'ENOENT') throw missing
-        }
-       }
-     }
-   } catch (other) {
-    if ((other as NodeJS.ErrnoException).code !== 'ENOENT') throw other
-   }
+   await this.checkOtherScopes()
    return []
   }
   const rows: MediaJob[] = []
@@ -129,32 +160,9 @@ export class LegacyDownloads {
    try {
     // biome-ignore format: NOSONAR must stay on the await line
     const row = await this.read(entry.name) // NOSONAR: ordered/limited operation; parallelizing would change atomicity, rate limits, or deterministic progress.
-    if (row.state === 'forgotten') continue
-    rows.push({
-     id: row.id,
-     title: row.title,
-     state: ['queued', 'running'].includes(row.state) ? 'interrupted' : row.state,
-     stage: row.stage || '',
-     progress: row.progress,
-     error_message: row.error ? '旧下载未完成，请核对后继续' : '',
-     warning: row.warning,
-     source_url: row.source.url,
-     output: row.output,
-     files: row.files
-    })
+    if (row.state !== 'forgotten') rows.push(this.legacyJob(row))
    } catch {
-    rows.push({
-     id: entry.name,
-     title: '无法读取的旧下载任务',
-     state: 'error',
-     stage: '保留原始记录',
-     progress: {},
-     error_message: '旧任务记录无法核对，未改写或删除；请检查记录来源和格式',
-     warning: '',
-     source_url: '',
-     output: '',
-     files: []
-    })
+    rows.push(this.brokenJob(entry.name))
    }
   }
   return rows

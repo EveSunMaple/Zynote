@@ -30,6 +30,7 @@ export class NativeDownloads {
  private worker: UtilityProcess | undefined
  private sequence = 0
  private disposed = false
+ private lastCryptKey = 0
  private readonly pending = new Map<
   number,
   {resolve: (value: unknown) => void; reject: (error: Error) => void; timer: ReturnType<typeof setTimeout>}
@@ -65,58 +66,63 @@ export class NativeDownloads {
    }
    this.pending.clear()
   }
-  let lastCryptKey = 0
   worker.once('exit', fail)
   worker.on('message', (raw: unknown) => {
-   void (async () => {
-    if (this.worker !== worker) return
-    const reply = replySchema.parse(raw)
-    if (reply.kind === 'crypt') {
-     if (reply.key <= lastCryptKey) throw new Error('系统加密请求编号无效')
-     lastCryptKey = reply.key
-     try {
-      const data = systemProtect(decodeMediaCrypt(reply.data), reply.decrypt).toString('base64')
-      if (this.worker === worker) worker.postMessage({kind: 'crypt-result', key: reply.key, ok: true, data})
-     } catch {
-      if (this.worker === worker)
-       worker.postMessage({
-        kind: 'crypt-result',
-        key: reply.key,
-        ok: false,
-        error: '系统密钥库不可用或凭据格式无效，未写入凭据'
-       })
-     }
-    } else if (reply.kind === 'bili-api') {
-     const controller = new AbortController()
-     this.apiCalls.add(controller)
-     try {
-      const data = await this.api.readMedia(
-       reply.path,
-       reply.params,
-       AbortSignal.any([controller.signal, AbortSignal.timeout(40000)])
-      )
-      if (this.worker === worker) worker.postMessage({kind: 'bili-result', key: reply.key, ok: true, data})
-     } catch (error) {
-      if (this.worker === worker)
-       worker.postMessage({
-        kind: 'bili-result',
-        key: reply.key,
-        ok: false,
-        error: error instanceof Error ? error.message : '站点读取失败'
-       })
-     } finally {
-      this.apiCalls.delete(controller)
-     }
-    } else {
-     const item = this.pending.get(reply.id)
-     if (!item) return
-     this.pending.delete(reply.id)
-     clearTimeout(item.timer)
-     reply.ok ? item.resolve(reply.result) : item.reject(new Error(reply.error || '下载处理失败'))
-    }
-   })().catch(fail)
+   void this.handleWorkerMessage(worker, raw).catch(fail)
   })
   return worker
+ }
+ private async handleCrypt(worker: UtilityProcess, reply: z.infer<typeof mediaCryptRequest>) {
+  if (reply.key <= this.lastCryptKey) throw new Error('系统加密请求编号无效')
+  this.lastCryptKey = reply.key
+  try {
+   const data = systemProtect(decodeMediaCrypt(reply.data), reply.decrypt).toString('base64')
+   if (this.worker === worker) worker.postMessage({kind: 'crypt-result', key: reply.key, ok: true, data})
+  } catch {
+   if (this.worker === worker)
+    worker.postMessage({
+     kind: 'crypt-result',
+     key: reply.key,
+     ok: false,
+     error: '系统密钥库不可用或凭据格式无效，未写入凭据'
+    })
+  }
+ }
+ private async handleBiliApi(worker: UtilityProcess, reply: z.infer<typeof replySchema> & {kind: 'bili-api'}) {
+  const controller = new AbortController()
+  this.apiCalls.add(controller)
+  try {
+   const data = await this.api.readMedia(
+    reply.path,
+    reply.params,
+    AbortSignal.any([controller.signal, AbortSignal.timeout(40000)])
+   )
+   if (this.worker === worker) worker.postMessage({kind: 'bili-result', key: reply.key, ok: true, data})
+  } catch (error) {
+   if (this.worker === worker)
+    worker.postMessage({
+     kind: 'bili-result',
+     key: reply.key,
+     ok: false,
+     error: error instanceof Error ? error.message : '站点读取失败'
+    })
+  } finally {
+   this.apiCalls.delete(controller)
+  }
+ }
+ private handleResult(reply: z.infer<typeof replySchema> & {kind: 'result'}) {
+  const item = this.pending.get(reply.id)
+  if (!item) return
+  this.pending.delete(reply.id)
+  clearTimeout(item.timer)
+  reply.ok ? item.resolve(reply.result) : item.reject(new Error(reply.error || '下载处理失败'))
+ }
+ private async handleWorkerMessage(worker: UtilityProcess, raw: unknown) {
+  if (this.worker !== worker) return
+  const reply = replySchema.parse(raw)
+  if (reply.kind === 'crypt') return this.handleCrypt(worker, reply)
+  if (reply.kind === 'bili-api') return this.handleBiliApi(worker, reply)
+  this.handleResult(reply)
  }
  request<T>(action: string, args: unknown = {}): Promise<T> {
   if (this.disposed) return Promise.reject(new Error('下载队列已关闭'))

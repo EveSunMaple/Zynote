@@ -55,26 +55,27 @@ export class NativeDownloadService {
   this.control = next.catch(() => {})
   return next
  }
+ private async pumpOnce() {
+  const id = this.queue.shift()!
+  // biome-ignore format: NOSONAR must stay on the await line
+  const row = await this.jobs.read(id) // NOSONAR: ordered/limited operation; parallelizing would change atomicity, rate limits, or deterministic progress.
+  if (row.state !== 'queued' || this.cancelling.has(id)) return
+  const controller = new AbortController(),
+   active = {id, controller, done: Promise.resolve()}
+  this.active = active
+  active.done = this.runner.run(id, controller.signal).then(
+   () => {},
+   () => {}
+  )
+  // biome-ignore format: NOSONAR must stay on the await line
+  await active.done // NOSONAR: ordered/limited operation; parallelizing would change atomicity, rate limits, or deterministic progress.
+  this.progress.delete(id)
+  if (this.active === active) this.active = undefined
+ }
  private pump() {
   if (this.pumping || this.stopped) return
   const run = async () => {
-   while (this.queue.length && !this.stopped) {
-    const id = this.queue.shift()!,
-     // biome-ignore format: NOSONAR must stay on the await line
-     row = await this.jobs.read(id) // NOSONAR: ordered/limited operation; parallelizing would change atomicity, rate limits, or deterministic progress.
-    if (row.state !== 'queued' || this.cancelling.has(id)) continue
-    const controller = new AbortController(),
-     active = {id, controller, done: Promise.resolve()}
-    this.active = active
-    active.done = this.runner.run(id, controller.signal).then(
-     () => {},
-     () => {}
-    )
-    // biome-ignore format: NOSONAR must stay on the await line
-    await active.done // NOSONAR: ordered/limited operation; parallelizing would change atomicity, rate limits, or deterministic progress.
-    this.progress.delete(id)
-    if (this.active === active) this.active = undefined
-   }
+   while (this.queue.length && !this.stopped) await this.pumpOnce()
   }
   this.pumping = run().finally(() => {
    this.pumping = undefined
@@ -91,19 +92,21 @@ export class NativeDownloadService {
    files: row.outputs.map(o => o.relative)
   }
  }
- async execute(action: string, input: unknown = {}): Promise<unknown> {
-  if (this.stopped) throw new Error('下载工作进程已关闭')
-  if (action === 'options') return mediaOptionChoices()
-  if (action === 'auth-list') return this.auth.list()
-  if (action === 'auth-save') return this.auth.save(input)
+ private async directAction(action: string, input: unknown): Promise<{handled: boolean; value?: unknown}> {
+  if (action === 'options') return {handled: true, value: mediaOptionChoices()}
+  if (action === 'auth-list') return {handled: true, value: await this.auth.list()}
+  if (action === 'auth-save') return {handled: true, value: await this.auth.save(input)}
   if (action === 'auth-remove') {
    const args = z.object({id: idSchema, confirmed: z.literal(true)}).parse(input)
-   return this.auth.remove(args.id)
+   return {handled: true, value: await this.auth.remove(args.id)}
   }
   if (action === 'list') {
    const native = await this.jobs.list(),
     ids = new Set(native.map(row => row.id))
-   return [...native.map(row => this.project(row)), ...(await this.legacy.list()).filter(row => !ids.has(row.id))]
+   return {
+    handled: true,
+    value: [...native.map(row => this.project(row)), ...(await this.legacy.list()).filter(row => !ids.has(row.id))]
+   }
   }
   const args = z.record(z.string(), z.unknown()).parse(input)
   if (action === 'catalog') {
@@ -111,119 +114,140 @@ export class NativeDownloadService {
     .object({url: z.string().max(2000), playlist: z.boolean().default(false), options: z.unknown().optional()})
     .parse(args)
    const result = await this.catalog.read(request.url, request.playlist, AbortSignal.timeout(60000), request.options)
-   if (!('identity' in result)) return result
+   if (!('identity' in result)) return {handled: true, value: result}
    for (const [key, item] of this.tokens) if (item.expires < Date.now()) this.tokens.delete(key)
    if (this.tokens.size >= 200) this.tokens.delete(this.tokens.keys().next().value!)
    const token = randomUUID().replaceAll('-', '')
    this.tokens.set(token, {source: result, expires: Date.now() + 15 * 60000})
-   return {...result.catalog, token} satisfies MediaCatalog
+   return {handled: true, value: {...result.catalog, token} satisfies MediaCatalog}
   }
   if (action === 'file') {
    const id = idSchema.parse(args.id)
-   return (await this.jobs.list()).some(row => row.id === id) ? this.jobs.file(id) : this.legacy.file(id)
+   const value = (await this.jobs.list()).some(row => row.id === id)
+    ? await this.jobs.file(id)
+    : await this.legacy.file(id)
+   return {handled: true, value}
   }
   if (action === 'cleanup') {
    const id = idSchema.parse(args.id)
    if (!(await this.jobs.list()).some(row => row.id === id)) throw new Error('旧任务原记录只读保留，未删除旧恢复材料')
-   return {remaining: await this.jobs.cleanupCompleted(id)}
+   return {handled: true, value: {remaining: await this.jobs.cleanupCompleted(id)}}
   }
+  return {handled: false}
+ }
+ private async nativeDuplicate(
+  fresh: NativeMediaSource & {identity: string; catalog: MediaCatalog},
+  options: ReturnType<typeof mediaOptions>
+ ) {
+  for (const row of await this.jobs.list())
+   if (
+    row.state === 'completed' &&
+    row.identity === fresh.identity &&
+    row.source_url === fresh.catalog.url &&
+    JSON.stringify(row.recipe) === JSON.stringify(options)
+   ) {
+    try {
+     await this.jobs.file(row.id)
+     return this.project(row)
+    } catch {
+     /* A changed output must not count as a verified duplicate. */
+    }
+   }
+  return undefined
+ }
+ private async legacyDuplicate(
+  fresh: NativeMediaSource & {identity: string; catalog: MediaCatalog},
+  options: ReturnType<typeof mediaOptions>
+ ) {
+  for (const row of await this.legacy.list())
+   if (row.state === 'completed') {
+    try {
+     const old = await this.legacy.recipe(row.id)
+     if (old.identity !== fresh.identity || JSON.stringify(old.options) !== JSON.stringify(options)) continue
+     await this.legacy.file(row.id)
+     return row
+    } catch {
+     /* Invalid or differently configured legacy outputs are not reused. */
+    }
+   }
+  return undefined
+ }
+ private async createDownload(args: Record<string, unknown>) {
+  const token = idSchema.parse(args.token),
+   saved = this.tokens.get(token)
+  if (!saved || saved.expires < Date.now()) throw new Error('格式目录已失效，请重新读取')
+  const options = mediaOptions(args.options)
+  const fresh = await this.catalog.read(saved.source.catalog.url, false, AbortSignal.timeout(60000), options)
+  if (!('identity' in fresh) || fresh.identity !== saved.source.identity)
+   throw new Error('视频分集身份已改变，请重新读取')
+  if (options.skip_existing) {
+   const duplicate = (await this.nativeDuplicate(fresh, options)) || (await this.legacyDuplicate(fresh, options))
+   if (duplicate) return duplicate
+  }
+  const row = await this.jobs.create({
+   identity: fresh.identity,
+   url: fresh.catalog.url,
+   title: fresh.catalog.title,
+   options
+  })
+  this.queue.push(row.id)
+  this.pump()
+  return this.project(row)
+ }
+ private async retryDownload(id: string) {
+  if (!(await this.jobs.list()).some(row => row.id === id)) {
+   const original = await this.legacy.read(id)
+   if (original.state === 'completed') {
+    await this.legacy.file(id)
+    return (await this.legacy.list()).find(row => row.id === id)
+   }
+   const saved = await this.legacy.recipe(id),
+    fresh = await this.catalog.read(saved.url, false, AbortSignal.timeout(60000), saved.options)
+   if (!('identity' in fresh) || fresh.identity !== saved.identity)
+    throw new Error('旧任务与当前站点分集身份不一致，原记录保留')
+   await this.legacy.unchanged(saved.row)
+   const row = await this.jobs.create({
+    identity: saved.identity,
+    url: saved.url,
+    title: saved.row.title,
+    options: saved.options,
+    legacy: {id, recordHash: saved.row.recordHash}
+   })
+   this.queue.push(id)
+   this.pump()
+   return this.project(row)
+  }
+  const row = await this.jobs.read(id)
+  if (this.active?.id === id) throw new Error('该任务仍在执行')
+  const queued = await this.jobs.transition(id, row.revision, 'queued', {stage: '等待继续下载'})
+  this.cancelling.delete(id)
+  this.queue.push(id)
+  this.pump()
+  return this.project(queued)
+ }
+ private async cancelDownload(id: string) {
+  if (!(await this.jobs.list()).some(row => row.id === id))
+   throw new Error('旧任务以只读方式保留；请在旧程序停止实际任务，原记录未改写')
+  this.cancelling.add(id)
+  const active = this.active?.id === id ? this.active : undefined
+  active?.controller.abort()
+  if (active) await active.done
+  const row = await this.jobs.read(id)
+  if (row.state === 'queued') await this.jobs.transition(id, row.revision, 'cancelled', {stage: '已取消'})
+  this.queue = this.queue.filter(value => value !== id)
+  return this.project(await this.jobs.read(id))
+ }
+ async execute(action: string, input: unknown = {}): Promise<unknown> {
+  if (this.stopped) throw new Error('下载工作进程已关闭')
+  const direct = await this.directAction(action, input)
+  if (direct.handled) return direct.value
+  const args = z.record(z.string(), z.unknown()).parse(input)
   return this.mutate(async () => {
    if (this.stopped) throw new Error('下载工作进程已关闭')
-   if (action === 'create') {
-    const token = idSchema.parse(args.token),
-     saved = this.tokens.get(token)
-    if (!saved || saved.expires < Date.now()) throw new Error('格式目录已失效，请重新读取')
-    const options = mediaOptions(args.options)
-    const fresh = await this.catalog.read(saved.source.catalog.url, false, AbortSignal.timeout(60000), options)
-    if (!('identity' in fresh) || fresh.identity !== saved.source.identity)
-     throw new Error('视频分集身份已改变，请重新读取')
-    if (options.skip_existing)
-     // biome-ignore format: NOSONAR must stay on the await line
-     for (const row of await this.jobs.list()) // NOSONAR: ordered/limited operation; parallelizing would change atomicity, rate limits, or deterministic progress.
-      if (
-       row.state === 'completed' &&
-       row.identity === fresh.identity &&
-       row.source_url === fresh.catalog.url &&
-       JSON.stringify(row.recipe) === JSON.stringify(options)
-      ) {
-       try {
-        // biome-ignore format: NOSONAR must stay on the await line
-        await this.jobs.file(row.id) // NOSONAR: ordered/limited operation; parallelizing would change atomicity, rate limits, or deterministic progress.
-        return this.project(row)
-       } catch {
-        /* A changed output must not count as a verified duplicate. */
-       }
-      }
-    if (options.skip_existing)
-     // biome-ignore format: NOSONAR must stay on the await line
-     for (const row of await this.legacy.list()) // NOSONAR: ordered/limited operation; parallelizing would change atomicity, rate limits, or deterministic progress.
-      if (row.state === 'completed') {
-       try {
-        // biome-ignore format: NOSONAR must stay on the await line
-        const old = await this.legacy.recipe(row.id) // NOSONAR: ordered/limited operation; parallelizing would change atomicity, rate limits, or deterministic progress.
-        if (old.identity === fresh.identity && JSON.stringify(old.options) === JSON.stringify(options)) {
-         // biome-ignore format: NOSONAR must stay on the await line
-         await this.legacy.file(row.id) // NOSONAR: ordered/limited operation; parallelizing would change atomicity, rate limits, or deterministic progress.
-         return row
-        }
-       } catch {
-        /* Invalid or differently configured legacy outputs are not reused. */
-       }
-      }
-    const row = await this.jobs.create({
-     identity: fresh.identity,
-     url: fresh.catalog.url,
-     title: fresh.catalog.title,
-     options
-    })
-    this.queue.push(row.id)
-    this.pump()
-    return this.project(row)
-   }
+   if (action === 'create') return this.createDownload(args)
    const id = idSchema.parse(args.id)
-   if (action === 'retry') {
-    if (!(await this.jobs.list()).some(row => row.id === id)) {
-     const original = await this.legacy.read(id)
-     if (original.state === 'completed') {
-      await this.legacy.file(id)
-      return (await this.legacy.list()).find(row => row.id === id)
-     }
-     const saved = await this.legacy.recipe(id),
-      fresh = await this.catalog.read(saved.url, false, AbortSignal.timeout(60000), saved.options)
-     if (!('identity' in fresh) || fresh.identity !== saved.identity)
-      throw new Error('旧任务与当前站点分集身份不一致，原记录保留')
-     await this.legacy.unchanged(saved.row)
-     const row = await this.jobs.create({
-      identity: saved.identity,
-      url: saved.url,
-      title: saved.row.title,
-      options: saved.options,
-      legacy: {id, recordHash: saved.row.recordHash}
-     })
-     this.queue.push(id)
-     this.pump()
-     return this.project(row)
-    }
-    const row = await this.jobs.read(id)
-    if (this.active?.id === id) throw new Error('该任务仍在执行')
-    const queued = await this.jobs.transition(id, row.revision, 'queued', {stage: '等待继续下载'})
-    this.cancelling.delete(id)
-    this.queue.push(id)
-    this.pump()
-    return this.project(queued)
-   }
-   if (action === 'cancel') {
-    if (!(await this.jobs.list()).some(row => row.id === id))
-     throw new Error('旧任务以只读方式保留；请在旧程序停止实际任务，原记录未改写')
-    this.cancelling.add(id)
-    const active = this.active?.id === id ? this.active : undefined
-    active?.controller.abort()
-    if (active) await active.done
-    const row = await this.jobs.read(id)
-    if (row.state === 'queued') await this.jobs.transition(id, row.revision, 'cancelled', {stage: '已取消'})
-    this.queue = this.queue.filter(value => value !== id)
-    return this.project(await this.jobs.read(id))
-   }
+   if (action === 'retry') return this.retryDownload(id)
+   if (action === 'cancel') return this.cancelDownload(id)
    throw new Error('未知下载操作')
   })
  }
