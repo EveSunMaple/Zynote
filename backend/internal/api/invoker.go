@@ -25,6 +25,7 @@ type handlerFunc func(store contract.StateStore, state *contract.State, params j
 
 type Invoker struct {
 	handlers      map[string]handlerFunc
+	actions       map[string]actionFunc
 	native        *helper.Native
 	youtube       *helper.Native
 	embed         *helper.Native
@@ -49,7 +50,7 @@ type Invoker struct {
 }
 
 func NewInvoker() *Invoker {
-	return &Invoker{
+	inv := &Invoker{
 		native:   nil,
 		jobs:     jobs.NewRegistry(),
 		textbook: textbook.New(),
@@ -76,6 +77,8 @@ func NewInvoker() *Invoker {
 			"runtime:status":   requireState(handleRuntimeStatus),
 			"runtime:install":  requireState(handleRuntimeInstall),
 		}}
+	inv.actions = registerActions(inv)
+	return inv
 }
 
 func (inv *Invoker) SetNative(native *helper.Native) {
@@ -108,450 +111,220 @@ func requireState(fn handlerFunc) handlerFunc {
 	}
 }
 
-func (inv *Invoker) Invoke(store contract.StateStore, action string, params json.RawMessage) (any, error) {
-	switch action {
-	case "core.hello":
-		return inv.handleHello(store, params)
-	case "im:draft":
+type actionFunc func(store contract.StateStore, action string, params json.RawMessage) (any, error)
+
+func actionWithState(fn func(contract.StateStore, *contract.State, json.RawMessage) (any, error)) actionFunc {
+	return func(store contract.StateStore, _ string, params json.RawMessage) (any, error) {
 		state := store.State()
 		if state == nil {
 			return nil, contract.Unavailable(msgHandshakePending)
 		}
-		return inv.handleImDraft(store, state, params)
-	case "pdf.text", "pdf.plainText", "pdf.inspect", "pdf.write":
-		state := store.State()
-		if state == nil {
-			return nil, contract.Unavailable(msgHandshakePending)
-		}
-		return inv.callNative(state, action, params)
-	case "document:parse", "transcript:read":
-		state := store.State()
-		if state == nil {
-			return nil, contract.Unavailable(msgHandshakePending)
-		}
-		if action == "document:parse" {
-			return inv.handleDocumentParse(state, params)
-		}
-		return inv.handleTranscriptRead(state, params)
-	case "files:add":
-		state := store.State()
-		if state == nil {
-			return nil, contract.Unavailable(msgHandshakePending)
-		}
-		return inv.handleFilesAdd(state, params)
-	case "files:remove":
-		state := store.State()
-		if state == nil {
-			return nil, contract.Unavailable(msgHandshakePending)
-		}
-		return inv.handleFilesRemove(state, params)
-	case "bili-resources:status", "bili-resources:browse", "bili-resources:qr", "bili-resources:poll",
-		"bili-resources:logout", "bili-resources:folders", "bili-resources:videos", "media:catalog", "media:create", "media:discussion", "media:discussion-import":
-		state := store.State()
-		if state == nil {
-			return nil, contract.Unavailable(msgHandshakePending)
-		}
-		switch action {
-		case "bili-resources:status":
-			return inv.handleBiliStatus(store, state, params)
-		case "bili-resources:browse":
-			return inv.handleBiliBrowse(store, state, params)
-		case "bili-resources:qr":
-			return inv.handleBiliQR(store, state, params)
-		case "bili-resources:poll":
-			return inv.handleBiliPoll(store, state, params)
-		case "bili-resources:logout":
-			return inv.handleBiliLogout(store, state, params)
-		case "bili-resources:folders":
-			return inv.handleBiliFolders(store, state, params)
-		case "media:catalog":
-			return inv.handleMediaCatalog(store, state, params)
-		case "media:create":
-			return inv.handleMediaCreate(store, state, params)
-		case "media:discussion":
-			return inv.handleMediaDiscussion(store, state, params)
-		case "media:discussion-import":
-			return inv.handleMediaDiscussionImport(store, state, params)
-		default:
-			return inv.handleBiliVideos(store, state, params)
-		}
-	case "notes:generate":
-		state := store.State()
-		if state == nil {
-			return nil, contract.Unavailable(msgHandshakePending)
-		}
-		return inv.handleNotesGenerate(store, state, params)
-	case "notes:save":
-		state := store.State()
-		if state == nil {
-			return nil, contract.Unavailable(msgHandshakePending)
-		}
-		return inv.handleNotesSave(store, state, params)
-	case "practice:submit", "practice:reset", "practice:answer", "practice:prepare", "practice:generate":
-		state := store.State()
-		if state == nil {
-			return nil, contract.Unavailable(msgHandshakePending)
-		}
-		switch action {
-		case "practice:submit":
-			return inv.handlePracticeSubmit(store, state, params)
-		case "practice:reset":
-			return inv.handlePracticeReset(store, state, params)
-		case "practice:answer":
-			return inv.handlePracticeAnswer(store, state, params)
-		case "practice:prepare":
-			return inv.handlePracticePrepare(store, state, params)
-		default:
-			return inv.handlePracticeGenerate(store, state, params)
-		}
-	case "questions:split":
-		state := store.State()
-		if state == nil {
-			return nil, contract.Unavailable(msgHandshakePending)
-		}
-		return inv.handleQuestionsSplit(store, state, params)
-	case "subtitles:generate", "subtitles:save", "subtitles:import":
-		state := store.State()
-		if state == nil {
-			return nil, contract.Unavailable(msgHandshakePending)
-		}
-		switch action {
-		case "subtitles:generate":
-			return inv.handleSubtitlesGenerate(store, state, params)
-		case "subtitles:save":
-			return inv.handleSubtitlesSave(store, state, params)
-		default:
-			return inv.handleSubtitlesImport(store, state, params)
-		}
-	case "study:get", "study:save", "study:parse":
-		state := store.State()
-		if state == nil {
-			return nil, contract.Unavailable(msgHandshakePending)
-		}
-		switch action {
-		case "study:get":
-			return inv.handleStudyGet(store, state, params)
-		case "study:save":
-			return inv.handleStudySave(store, state, params)
-		default:
-			return inv.handleStudyParse(store, state, params)
-		}
-	case "subtitle-derived:list", "subtitle-derived:resume", "subtitle-derived:start":
-		state := store.State()
-		if state == nil {
-			return nil, contract.Unavailable(msgHandshakePending)
-		}
-		switch action {
-		case "subtitle-derived:list":
-			return inv.handleSubtitleDerivedList(state)
-		case "subtitle-derived:resume":
-			return inv.handleSubtitleDerivedResume(store, state, params)
-		default:
-			return inv.handleSubtitleDerivedStart(store, state, params)
-		}
-	case "subtitle-sync:list", "subtitle-sync:start", "subtitle-sync:mixed", "subtitle-sync:resume", "subtitle-sync:attach":
-		state := store.State()
-		if state == nil {
-			return nil, contract.Unavailable(msgHandshakePending)
-		}
-		switch action {
-		case "subtitle-sync:list":
-			return inv.handleSubtitleSyncList(state)
-		case "subtitle-sync:start":
-			return inv.handleSubtitleSyncStart(store, state, params)
-		case "subtitle-sync:mixed":
-			return inv.handleSubtitleSyncMixed(store, state, params)
-		case "subtitle-sync:resume":
-			return inv.handleSubtitleSyncResume(store, state, params)
-		default:
-			return inv.handleSubtitleSyncAttach(store, state, params)
-		}
-	case "video-ppt:pending", "video-ppt:restore", "video-ppt:subtitle-import", "video-ppt:subtitle-save", "video-ppt:subtitle-export", "video-ppt:series", "video-ppt:subtitle",
-		"video-ppt:subtitle-transcribe-local", "video-ppt:resume-subtitle", "video-ppt:source", "video-ppt:extract",
-		"video-ppt:export", "video-ppt:auto", "video-ppt:summary", "video-ppt:notes-export", "video-ppt:batch", "video-ppt:batch-subtitles", "video-ppt:subtitle-transcribe", "ppt-extract:analyze", "ppt-extract:export":
-		state := store.State()
-		if state == nil {
-			return nil, contract.Unavailable(msgHandshakePending)
-		}
-		switch action {
-		case "video-ppt:pending":
-			return inv.handleVideoPptPending(state)
-		case "video-ppt:restore":
-			return inv.handleVideoPptRestore(state, params)
-		case "video-ppt:subtitle-import":
-			return inv.handleVideoSubtitleImport(store, state, params)
-		case "video-ppt:subtitle-save":
-			return inv.handleVideoSubtitleSave(state, params)
-		case "video-ppt:subtitle-export":
-			return inv.handleVideoSubtitleExport(state, params)
-		case "video-ppt:series":
-			return inv.handleVideoPptSeries(store, state, params)
-		case "video-ppt:subtitle":
-			return inv.handleVideoPptSubtitle(store, state, params)
-		case "video-ppt:subtitle-transcribe-local":
-			return inv.handleVideoSubtitleTranscribeLocal(store, state, params)
-		case "video-ppt:resume-subtitle":
-			return inv.handleVideoResumeSubtitle(state, params)
-		case "video-ppt:source":
-			return inv.handleVideoPptSource(store, state, params)
-		case "video-ppt:extract":
-			return inv.handleVideoPptExtract(store, state, params)
-		case "video-ppt:export":
-			return inv.handleVideoPptExport(store, state, params)
-		case "video-ppt:auto":
-			return inv.handleVideoPptAuto(store, state, params)
-		case "video-ppt:summary":
-			return inv.handleVideoSummary(store, state, params)
-		case "video-ppt:notes-export":
-			return inv.handleVideoNotesExport(store, state, params)
-		case "video-ppt:batch":
-			return inv.handleVideoBatch(store, state, params)
-		case "video-ppt:batch-subtitles":
-			return inv.handleVideoBatchSubtitles(store, state, params)
-		case "video-ppt:subtitle-transcribe":
-			return inv.handleVideoSubtitleTranscribe(store, state, params)
-		case "ppt-extract:analyze":
-			return inv.handlePptExtractAnalyze(store, state, params)
-		default:
-			return inv.handlePptExtractExport(store, state, params)
-		}
-	case "visual:list", "visual:prepare", "visual:prepare-resume", "visual:recognize", "visual:recover-output":
-		state := store.State()
-		if state == nil {
-			return nil, contract.Unavailable(msgHandshakePending)
-		}
-		switch action {
-		case "visual:list":
-			return inv.handleVisualList(state)
-		case "visual:prepare":
-			return inv.handleVisualPrepare(store, state, params)
-		case "visual:prepare-resume":
-			return inv.handleVisualPrepareResume(state, params)
-		case "visual:recognize":
-			return inv.handleVisualRecognize(store, state, params)
-		default:
-			return inv.handleVisualRecoverOutput(state, params)
-		}
-	case "tools:request":
-		state := store.State()
-		if state == nil {
-			return nil, contract.Unavailable(msgHandshakePending)
-		}
-		return inv.handleToolsRequest(store, state, params)
-	case "tools:skill-open":
-		state := store.State()
-		if state == nil {
-			return nil, contract.Unavailable(msgHandshakePending)
-		}
-		return inv.handleSkillOpen(store, state)
-	case "export":
-		state := store.State()
-		if state == nil {
-			return nil, contract.Unavailable(msgHandshakePending)
-		}
-		return inv.handleExport(store, state, params)
-	case "courses":
-		state := store.State()
-		if state == nil {
-			return nil, contract.Unavailable(msgHandshakePending)
-		}
-		return inv.handleCourses(state)
-	case "appearance:image", "identity:avatar":
-		state := store.State()
-		if state == nil {
-			return nil, contract.Unavailable(msgHandshakePending)
-		}
-		kind := "background"
-		if action == "identity:avatar" {
-			kind = "avatar"
-		}
+		return fn(store, state, params)
+	}
+}
+
+func actionStateParams(fn func(*contract.State, json.RawMessage) (any, error)) func(contract.StateStore, *contract.State, json.RawMessage) (any, error) {
+	return func(_ contract.StateStore, state *contract.State, params json.RawMessage) (any, error) {
+		return fn(state, params)
+	}
+}
+
+func actionStateOnly(fn func(*contract.State) (any, error)) func(contract.StateStore, *contract.State, json.RawMessage) (any, error) {
+	return func(_ contract.StateStore, state *contract.State, _ json.RawMessage) (any, error) {
+		return fn(state)
+	}
+}
+
+func actionStoreState(fn func(contract.StateStore, *contract.State) (any, error)) func(contract.StateStore, *contract.State, json.RawMessage) (any, error) {
+	return func(store contract.StateStore, state *contract.State, _ json.RawMessage) (any, error) {
+		return fn(store, state)
+	}
+}
+
+func actionStoreParams(fn func(contract.StateStore, json.RawMessage) (any, error)) func(contract.StateStore, *contract.State, json.RawMessage) (any, error) {
+	return func(store contract.StateStore, _ *contract.State, params json.RawMessage) (any, error) {
+		return fn(store, params)
+	}
+}
+
+func actionParamsOnly(fn func(json.RawMessage) (any, error)) func(contract.StateStore, *contract.State, json.RawMessage) (any, error) {
+	return func(_ contract.StateStore, _ *contract.State, params json.RawMessage) (any, error) {
+		return fn(params)
+	}
+}
+
+func registerActions(inv *Invoker) map[string]actionFunc {
+	return map[string]actionFunc{
+		"core.hello": func(store contract.StateStore, _ string, params json.RawMessage) (any, error) {
+			return inv.handleHello(store, params)
+		},
+		"im:draft": actionWithState(inv.handleImDraft),
+		"pdf.text": func(store contract.StateStore, action string, params json.RawMessage) (any, error) {
+			return inv.invokeNative(store, action, params)
+		},
+		"pdf.plainText": func(store contract.StateStore, action string, params json.RawMessage) (any, error) {
+			return inv.invokeNative(store, action, params)
+		},
+		"pdf.inspect": func(store contract.StateStore, action string, params json.RawMessage) (any, error) {
+			return inv.invokeNative(store, action, params)
+		},
+		"pdf.write": func(store contract.StateStore, action string, params json.RawMessage) (any, error) {
+			return inv.invokeNative(store, action, params)
+		},
+		"document:parse":                      actionWithState(actionStateParams(inv.handleDocumentParse)),
+		"transcript:read":                     actionWithState(actionStateParams(inv.handleTranscriptRead)),
+		"files:add":                           actionWithState(actionStateParams(inv.handleFilesAdd)),
+		"files:remove":                        actionWithState(actionStateParams(inv.handleFilesRemove)),
+		"bili-resources:status":               actionWithState(inv.handleBiliStatus),
+		"bili-resources:browse":               actionWithState(inv.handleBiliBrowse),
+		"bili-resources:qr":                   actionWithState(inv.handleBiliQR),
+		"bili-resources:poll":                 actionWithState(inv.handleBiliPoll),
+		"bili-resources:logout":               actionWithState(inv.handleBiliLogout),
+		"bili-resources:folders":              actionWithState(inv.handleBiliFolders),
+		"bili-resources:videos":               actionWithState(inv.handleBiliVideos),
+		"media:catalog":                       actionWithState(inv.handleMediaCatalog),
+		"media:create":                        actionWithState(inv.handleMediaCreate),
+		"media:discussion":                    actionWithState(inv.handleMediaDiscussion),
+		"media:discussion-import":             actionWithState(inv.handleMediaDiscussionImport),
+		"notes:generate":                      actionWithState(inv.handleNotesGenerate),
+		"notes:save":                          actionWithState(inv.handleNotesSave),
+		"practice:submit":                     actionWithState(inv.handlePracticeSubmit),
+		"practice:reset":                      actionWithState(inv.handlePracticeReset),
+		"practice:answer":                     actionWithState(inv.handlePracticeAnswer),
+		"practice:prepare":                    actionWithState(inv.handlePracticePrepare),
+		"practice:generate":                   actionWithState(inv.handlePracticeGenerate),
+		"questions:split":                     actionWithState(inv.handleQuestionsSplit),
+		"subtitles:generate":                  actionWithState(inv.handleSubtitlesGenerate),
+		"subtitles:save":                      actionWithState(inv.handleSubtitlesSave),
+		"subtitles:import":                    actionWithState(inv.handleSubtitlesImport),
+		"study:get":                           actionWithState(inv.handleStudyGet),
+		"study:save":                          actionWithState(inv.handleStudySave),
+		"study:parse":                         actionWithState(inv.handleStudyParse),
+		"subtitle-derived:list":               actionWithState(actionStateOnly(inv.handleSubtitleDerivedList)),
+		"subtitle-derived:resume":             actionWithState(inv.handleSubtitleDerivedResume),
+		"subtitle-derived:start":              actionWithState(inv.handleSubtitleDerivedStart),
+		"subtitle-sync:list":                  actionWithState(actionStateOnly(inv.handleSubtitleSyncList)),
+		"subtitle-sync:start":                 actionWithState(inv.handleSubtitleSyncStart),
+		"subtitle-sync:mixed":                 actionWithState(inv.handleSubtitleSyncMixed),
+		"subtitle-sync:resume":                actionWithState(inv.handleSubtitleSyncResume),
+		"subtitle-sync:attach":                actionWithState(inv.handleSubtitleSyncAttach),
+		"video-ppt:pending":                   actionWithState(actionStateOnly(inv.handleVideoPptPending)),
+		"video-ppt:restore":                   actionWithState(actionStateParams(inv.handleVideoPptRestore)),
+		"video-ppt:subtitle-import":           actionWithState(inv.handleVideoSubtitleImport),
+		"video-ppt:subtitle-save":             actionWithState(actionStateParams(inv.handleVideoSubtitleSave)),
+		"video-ppt:subtitle-export":           actionWithState(actionStateParams(inv.handleVideoSubtitleExport)),
+		"video-ppt:series":                    actionWithState(inv.handleVideoPptSeries),
+		"video-ppt:subtitle":                  actionWithState(inv.handleVideoPptSubtitle),
+		"video-ppt:subtitle-transcribe-local": actionWithState(inv.handleVideoSubtitleTranscribeLocal),
+		"video-ppt:resume-subtitle":           actionWithState(actionStateParams(inv.handleVideoResumeSubtitle)),
+		"video-ppt:source":                    actionWithState(inv.handleVideoPptSource),
+		"video-ppt:extract":                   actionWithState(inv.handleVideoPptExtract),
+		"video-ppt:export":                    actionWithState(inv.handleVideoPptExport),
+		"video-ppt:auto":                      actionWithState(inv.handleVideoPptAuto),
+		"video-ppt:summary":                   actionWithState(inv.handleVideoSummary),
+		"video-ppt:notes-export":              actionWithState(inv.handleVideoNotesExport),
+		"video-ppt:batch":                     actionWithState(inv.handleVideoBatch),
+		"video-ppt:batch-subtitles":           actionWithState(inv.handleVideoBatchSubtitles),
+		"video-ppt:subtitle-transcribe":       actionWithState(inv.handleVideoSubtitleTranscribe),
+		"ppt-extract:analyze":                 actionWithState(inv.handlePptExtractAnalyze),
+		"ppt-extract:export":                  actionWithState(inv.handlePptExtractExport),
+		"visual:list":                         actionWithState(actionStateOnly(inv.handleVisualList)),
+		"visual:prepare":                      actionWithState(inv.handleVisualPrepare),
+		"visual:prepare-resume":               actionWithState(actionStateParams(inv.handleVisualPrepareResume)),
+		"visual:recognize":                    actionWithState(inv.handleVisualRecognize),
+		"visual:recover-output":               actionWithState(actionStateParams(inv.handleVisualRecoverOutput)),
+		"tools:request":                       actionWithState(inv.handleToolsRequest),
+		"tools:skill-open":                    actionWithState(actionStoreState(inv.handleSkillOpen)),
+		"export":                              actionWithState(inv.handleExport),
+		"courses":                             actionWithState(actionStateOnly(inv.handleCourses)),
+		"appearance:image":                    actionWithState(inv.imagePickAction("background")),
+		"identity:avatar":                     actionWithState(inv.imagePickAction("avatar")),
+		"zhiyun:export":                       actionWithState(inv.handleZhiyunExport),
+		"zhiyun:login":                        inv.zhiyunControlAction,
+		"zhiyun:refresh":                      inv.zhiyunControlAction,
+		"zhiyun:back":                         inv.zhiyunControlAction,
+		"zhiyun:bounds":                       inv.zhiyunControlAction,
+		"library:open":                        actionWithState(actionStoreState(inv.handleLibraryOpen)),
+		"library:open-file":                   actionWithState(inv.handleLibraryOpenFile),
+		"library:reveal":                      actionWithState(inv.handleLibraryReveal),
+		"media:open":                          actionWithState(inv.handleMediaOpen),
+		"library:delete":                      actionWithState(inv.handleLibraryDelete),
+		"zhiyun:search":                       actionWithState(inv.handleZhiyunSearch),
+		"zhiyun:lessons":                      actionWithState(inv.handleZhiyunLessons),
+		"textbook:pick":                       actionWithState(actionStoreState(inv.handleTextbookPick)),
+		"textbook:bytes":                      actionWithState(actionParamsOnly(inv.handleTextbookBytes)),
+		"textbook:open":                       actionWithState(actionStoreParams(inv.handleTextbookOpen)),
+		"textbook:manual":                     actionWithState(inv.handleTextbookManual),
+		"textbook:clear":                      actionWithState(actionStateParams(inv.handleTextbookClear)),
+		"textbook:apply":                      actionWithState(actionStateParams(inv.handleTextbookApply)),
+		"textbook:analyze":                    actionWithState(inv.handleTextbookAnalyze),
+		"textbook:analyze-images":             actionWithState(inv.handleTextbookAnalyzeImages),
+		"textbook:ppt-source":                 actionWithState(actionStateParams(inv.handleTextbookPptSource)),
+		"textbook:ppt-ocr":                    actionWithState(inv.handleTextbookPptOcr),
+		"settings:models":                     actionWithState(inv.handleSettingsModels),
+		"settings:probe":                      actionWithState(inv.handleSettingsProbe),
+		"settings:test":                       actionWithState(inv.handleSettingsTest),
+		"settings:save":                       actionWithState(inv.handleSettingsSave),
+		"chat":                                actionWithState(inv.handleChat),
+		"cancel":                              actionWithState(inv.handleCancel),
+		"job:current":                         actionWithState(inv.handleJobCurrent),
+		"knowledge:ask":                       actionWithState(inv.handleKnowledgeAsk),
+		"knowledge:classification-suggest":    actionWithState(inv.handleKnowledgeClassificationSuggest),
+		"knowledge:vector-status":             actionWithState(inv.handleKnowledgeVectorStatus),
+		"knowledge:vector-enable":             actionWithState(inv.handleKnowledgeVectorEnable),
+		"knowledge:vector-rebuild":            actionWithState(inv.handleKnowledgeVectorRebuild),
+		"knowledge:list":                      actionWithState(inv.handleKnowledgeList),
+		"knowledge:generation":                actionWithState(inv.handleKnowledgeGeneration),
+		"knowledge:read":                      actionWithState(inv.handleKnowledgeRead),
+		"knowledge:import":                    actionWithState(inv.handleKnowledgeImport),
+		"knowledge:citation":                  actionWithState(inv.handleKnowledgeCitation),
+		"knowledge:delete":                    actionWithState(inv.handleKnowledgeDelete),
+		"knowledge:organize":                  actionWithState(inv.handleKnowledgeOrganize),
+		"knowledge:rebuild":                   actionWithState(inv.handleKnowledgeRebuild),
+		"knowledge:search":                    actionWithState(inv.handleKnowledgeSearch),
+		"knowledge:classification-options":    actionWithState(inv.handleKnowledgeClassificationOptions),
+		"knowledge:classification-read":       actionWithState(inv.handleKnowledgeClassificationRead),
+		"knowledge:classification-save":       actionWithState(inv.handleKnowledgeClassificationSave),
+		"media:options":                       actionWithState(inv.handleMediaOptions),
+		"media:list":                          actionWithState(inv.handleMediaList),
+		"media:retry":                         actionWithState(inv.handleMediaRetry),
+		"media:cancel":                        actionWithState(inv.handleMediaCancel),
+		"media:file":                          actionWithState(inv.handleMediaFile),
+		"media:auth-import":                   actionWithState(inv.handleMediaAuthImport),
+		"media:auth-list":                     actionWithState(inv.handleMediaAuthList),
+		"media:auth-remove":                   actionWithState(inv.handleMediaAuthRemove),
+		"lecture:create":                      actionWithState(inv.handleLectureCreate),
+		"lecture:transcript":                  actionWithState(inv.handleLectureTranscript),
+		"lecture:courseware":                  actionWithState(inv.handleLectureCourseware),
+		"questions:save":                      actionWithState(inv.handleQuestionsSave),
+	}
+}
+
+func (inv *Invoker) invokeNative(store contract.StateStore, action string, params json.RawMessage) (any, error) {
+	state := store.State()
+	if state == nil {
+		return nil, contract.Unavailable(msgHandshakePending)
+	}
+	return inv.callNative(state, action, params)
+}
+
+func (inv *Invoker) imagePickAction(kind string) func(contract.StateStore, *contract.State, json.RawMessage) (any, error) {
+	return func(store contract.StateStore, state *contract.State, _ json.RawMessage) (any, error) {
 		return inv.handleImagePick(store, state, kind)
-	case "zhiyun:export":
-		state := store.State()
-		if state == nil {
-			return nil, contract.Unavailable(msgHandshakePending)
-		}
-		return inv.handleZhiyunExport(store, state, params)
-	case "zhiyun:login", "zhiyun:refresh", "zhiyun:back", "zhiyun:bounds":
-		state := store.State()
-		if state == nil {
-			return nil, contract.Unavailable(msgHandshakePending)
-		}
-		return inv.handleZhiyunControl(store, action, params)
-	case "library:open", "library:open-file", "library:reveal":
-		state := store.State()
-		if state == nil {
-			return nil, contract.Unavailable(msgHandshakePending)
-		}
-		switch action {
-		case "library:open":
-			return inv.handleLibraryOpen(store, state)
-		case "library:open-file":
-			return inv.handleLibraryOpenFile(store, state, params)
-		default:
-			return inv.handleLibraryReveal(store, state, params)
-		}
-	case "media:open":
-		state := store.State()
-		if state == nil {
-			return nil, contract.Unavailable(msgHandshakePending)
-		}
-		return inv.handleMediaOpen(store, state, params)
-	case "library:delete":
-		state := store.State()
-		if state == nil {
-			return nil, contract.Unavailable(msgHandshakePending)
-		}
-		return inv.handleLibraryDelete(store, state, params)
-	case "zhiyun:search", "zhiyun:lessons":
-		state := store.State()
-		if state == nil {
-			return nil, contract.Unavailable(msgHandshakePending)
-		}
-		if action == "zhiyun:search" {
-			return inv.handleZhiyunSearch(store, state, params)
-		}
-		return inv.handleZhiyunLessons(store, state, params)
-	case "textbook:pick", "textbook:bytes", "textbook:open", "textbook:manual", "textbook:clear", "textbook:apply",
-		"textbook:analyze", "textbook:analyze-images", "textbook:ppt-source", "textbook:ppt-ocr":
-		state := store.State()
-		if state == nil {
-			return nil, contract.Unavailable(msgHandshakePending)
-		}
-		switch action {
-		case "textbook:pick":
-			return inv.handleTextbookPick(store, state)
-		case "textbook:bytes":
-			return inv.handleTextbookBytes(params)
-		case "textbook:open":
-			return inv.handleTextbookOpen(store, params)
-		case "textbook:manual":
-			return inv.handleTextbookManual(store, state, params)
-		case "textbook:clear":
-			return inv.handleTextbookClear(state, params)
-		case "textbook:apply":
-			return inv.handleTextbookApply(state, params)
-		case "textbook:analyze":
-			return inv.handleTextbookAnalyze(store, state, params)
-		case "textbook:analyze-images":
-			return inv.handleTextbookAnalyzeImages(store, state, params)
-		case "textbook:ppt-source":
-			return inv.handleTextbookPptSource(state, params)
-		default:
-			return inv.handleTextbookPptOcr(store, state, params)
-		}
-	case "settings:models", "settings:probe", "settings:test", "settings:save":
-		state := store.State()
-		if state == nil {
-			return nil, contract.Unavailable(msgHandshakePending)
-		}
-		switch action {
-		case "settings:models":
-			return inv.handleSettingsModels(store, state, params)
-		case "settings:probe":
-			return inv.handleSettingsProbe(store, state, params)
-		case "settings:save":
-			return inv.handleSettingsSave(store, state, params)
-		default:
-			return inv.handleSettingsTest(store, state, params)
-		}
-	case "chat", "cancel", "job:current":
-		state := store.State()
-		if state == nil {
-			return nil, contract.Unavailable(msgHandshakePending)
-		}
-		switch action {
-		case "chat":
-			return inv.handleChat(store, state, params)
-		case "cancel":
-			return inv.handleCancel(store, state, params)
-		default:
-			return inv.handleJobCurrent(store, state, params)
-		}
-	case "knowledge:ask", "knowledge:classification-suggest", "knowledge:vector-status",
-		"knowledge:vector-enable", "knowledge:vector-rebuild", "knowledge:list", "knowledge:generation", "knowledge:read", "knowledge:import",
-		"knowledge:citation", "knowledge:delete", "knowledge:organize", "knowledge:rebuild",
-		"knowledge:search", "knowledge:classification-options", "knowledge:classification-read",
-		"knowledge:classification-save":
-		state := store.State()
-		if state == nil {
-			return nil, contract.Unavailable(msgHandshakePending)
-		}
-		switch action {
-		case "knowledge:ask":
-			return inv.handleKnowledgeAsk(store, state, params)
-		case "knowledge:classification-suggest":
-			return inv.handleKnowledgeClassificationSuggest(store, state, params)
-		case "knowledge:list":
-			return inv.handleKnowledgeList(store, state, params)
-		case "knowledge:generation":
-			return inv.handleKnowledgeGeneration(store, state, params)
-		case "knowledge:read":
-			return inv.handleKnowledgeRead(store, state, params)
-		case "knowledge:import":
-			return inv.handleKnowledgeImport(store, state, params)
-		case "knowledge:citation":
-			return inv.handleKnowledgeCitation(store, state, params)
-		case "knowledge:delete":
-			return inv.handleKnowledgeDelete(store, state, params)
-		case "knowledge:organize":
-			return inv.handleKnowledgeOrganize(store, state, params)
-		case "knowledge:rebuild":
-			return inv.handleKnowledgeRebuild(store, state, params)
-		case "knowledge:search":
-			return inv.handleKnowledgeSearch(store, state, params)
-		case "knowledge:vector-status":
-			return inv.handleKnowledgeVectorStatus(store, state, params)
-		case "knowledge:vector-enable":
-			return inv.handleKnowledgeVectorEnable(store, state, params)
-		case "knowledge:vector-rebuild":
-			return inv.handleKnowledgeVectorRebuild(store, state, params)
-		case "knowledge:classification-options":
-			return inv.handleKnowledgeClassificationOptions(store, state, params)
-		case "knowledge:classification-read":
-			return inv.handleKnowledgeClassificationRead(store, state, params)
-		default:
-			return inv.handleKnowledgeClassificationSave(store, state, params)
-		}
-	case "media:options", "media:list", "media:retry", "media:cancel", "media:file",
-		"media:auth-import", "media:auth-list", "media:auth-remove":
-		state := store.State()
-		if state == nil {
-			return nil, contract.Unavailable(msgHandshakePending)
-		}
-		switch action {
-		case "media:options":
-			return inv.handleMediaOptions(store, state, params)
-		case "media:list":
-			return inv.handleMediaList(store, state, params)
-		case "media:retry":
-			return inv.handleMediaRetry(store, state, params)
-		case "media:cancel":
-			return inv.handleMediaCancel(store, state, params)
-		case "media:auth-import":
-			return inv.handleMediaAuthImport(store, state, params)
-		case "media:auth-list":
-			return inv.handleMediaAuthList(store, state, params)
-		case "media:auth-remove":
-			return inv.handleMediaAuthRemove(store, state, params)
-		default:
-			return inv.handleMediaFile(store, state, params)
-		}
-	case "lecture:create", "lecture:transcript", "lecture:courseware", "questions:save":
-		state := store.State()
-		if state == nil {
-			return nil, contract.Unavailable(msgHandshakePending)
-		}
-		switch action {
-		case "lecture:create":
-			return inv.handleLectureCreate(store, state, params)
-		case "lecture:transcript":
-			return inv.handleLectureTranscript(store, state, params)
-		case "lecture:courseware":
-			return inv.handleLectureCourseware(store, state, params)
-		default:
-			return inv.handleQuestionsSave(store, state, params)
-		}
+	}
+}
+
+func (inv *Invoker) zhiyunControlAction(store contract.StateStore, action string, params json.RawMessage) (any, error) {
+	state := store.State()
+	if state == nil {
+		return nil, contract.Unavailable(msgHandshakePending)
+	}
+	return inv.handleZhiyunControl(store, action, params)
+}
+
+func (inv *Invoker) Invoke(store contract.StateStore, action string, params json.RawMessage) (any, error) {
+	if handler, ok := inv.actions[action]; ok {
+		return handler(store, action, params)
 	}
 	handler, ok := inv.handlers[action]
 	if !ok {
