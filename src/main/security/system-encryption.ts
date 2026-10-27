@@ -14,30 +14,36 @@ export function assertSecureStorage() {
 }
 
 /** Windows keeps legacy DPAPI bytes. Other platforms use an explicitly tagged OS vault envelope. */
+function vaultHeader(domain: 'media' | 'im', legacy: boolean) {
+ return Buffer.from(`${legacy ? 'meiji' : 'zynote'}-${domain}-vault:v1:${process.platform}\0`)
+}
+function decryptVault(raw: Buffer, domain: 'media' | 'im') {
+ const current = vaultHeader(domain, false),
+  legacyHeader = vaultHeader(domain, true)
+ let matched: Buffer | undefined
+ if (raw.subarray(0, current.length).equals(current)) matched = current
+ else if (raw.subarray(0, legacyHeader.length).equals(legacyHeader)) matched = legacyHeader
+ if (!matched || raw.length <= matched.length) throw new Error('凭据格式或所属平台不匹配，请在当前系统重新导入')
+ const binding = domain === 'im' ? `im:${process.platform}:` : ''
+ const payload = safeStorage.decryptString(raw.subarray(matched.length))
+ if (!payload.startsWith(binding)) throw new Error('系统加密内容所属范围不匹配')
+ const encoded = payload.slice(binding.length),
+  result = Buffer.from(encoded, 'base64')
+ if (!result.length || result.length > limit || result.toString('base64') !== encoded)
+  throw new Error('系统加密内容无效')
+ return result
+}
+function encryptVault(raw: Buffer, domain: 'media' | 'im') {
+ const binding = domain === 'im' ? `im:${process.platform}:` : ''
+ const result = Buffer.concat([vaultHeader(domain, false), safeStorage.encryptString(binding + raw.toString('base64'))])
+ if (result.length > limit) throw new Error('系统加密输出过大')
+ return result
+}
+/** Windows keeps legacy DPAPI bytes. Other platforms use an explicitly tagged OS vault envelope. */
 export function systemProtect(raw: Buffer, decrypt = false, domain: 'media' | 'im' = 'media'): Buffer {
  if (!raw.length || raw.length > limit) throw new Error('系统加密输入大小无效')
  if (process.platform === 'win32') return windowsProtect(raw, decrypt)
  if (process.platform !== 'darwin' && process.platform !== 'linux') throw new Error('此平台未提供系统加密存储')
  assertSecureStorage()
- const header = (legacy: boolean) =>
-   Buffer.from(`${legacy ? 'meiji' : 'zynote'}-${domain}-vault:v1:${process.platform}\0`),
-  binding = domain === 'im' ? `im:${process.platform}:` : ''
- if (decrypt) {
-  const current = header(false),
-   legacyHeader = header(true)
-  let matched: Buffer | undefined
-  if (raw.subarray(0, current.length).equals(current)) matched = current
-  else if (raw.subarray(0, legacyHeader.length).equals(legacyHeader)) matched = legacyHeader
-  if (!matched || raw.length <= matched.length) throw new Error('凭据格式或所属平台不匹配，请在当前系统重新导入')
-  const payload = safeStorage.decryptString(raw.subarray(matched.length))
-  if (!payload.startsWith(binding)) throw new Error('系统加密内容所属范围不匹配')
-  const encoded = payload.slice(binding.length),
-   result = Buffer.from(encoded, 'base64')
-  if (!result.length || result.length > limit || result.toString('base64') !== encoded)
-   throw new Error('系统加密内容无效')
-  return result
- }
- const result = Buffer.concat([header(false), safeStorage.encryptString(binding + raw.toString('base64'))])
- if (result.length > limit) throw new Error('系统加密输出过大')
- return result
+ return decrypt ? decryptVault(raw, domain) : encryptVault(raw, domain)
 }
