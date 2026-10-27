@@ -13,8 +13,6 @@ export function createResearchHandler(
  return {
   actions: new Set(['tools:request', 'tools:skill-open', 'im:draft']),
   async invoke(action, object) {
-   const id = () => z.string().uuid().parse(object.id),
-    courseId = () => z.string().uuid().parse(object.courseId)
    switch (action) {
     case 'tools:request': {
      const action = z

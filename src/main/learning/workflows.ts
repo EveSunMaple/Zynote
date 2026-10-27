@@ -12,7 +12,7 @@ import {
  type PracticeQuestion,
  type Segment
 } from '@shared/types'
-import {parseSrt, toSrt, time, verifyNotes, keywordCandidates} from '@shared/srt'
+import {toSrt, time, verifyNotes, keywordCandidates} from '@shared/srt'
 import {Store} from '@main/storage/db'
 import {SettingsStore} from '@main/config/settings'
 import {isRetryableApiError, type Api} from '@main/ai/api'
@@ -37,11 +37,11 @@ import {
 import {prepareAnswer, type AnswerDependencies} from '@main/learning/practice-answer'
 export class Workflows {
  constructor(
-  private store: Store,
-  private settings: SettingsStore,
-  private api: Pick<Api, 'chat' | 'json'>,
-  private progress: (p: Progress) => void,
-  private answers?: AnswerDependencies
+  private readonly store: Store,
+  private readonly settings: SettingsStore,
+  private readonly api: Pick<Api, 'chat' | 'json'>,
+  private readonly progress: (p: Progress) => void,
+  private readonly answers?: AnswerDependencies
  ) {}
  private async readyAnswers(result: PracticeSet, course: string, signal?: AbortSignal) {
   if (!this.answers) return

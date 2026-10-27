@@ -107,7 +107,7 @@ export async function readSse(body: ReadableStream<Uint8Array>, onText: (text: s
  try {
   for (;;) {
    const {value, done} = await reader.read()
-   buffer += decoder.decode(value, {stream: !done}).replace(/\r/g, '')
+   buffer += decoder.decode(value, {stream: !done}).replaceAll('\r', '')
    let index: number
    while ((index = buffer.indexOf('\n\n')) >= 0) {
     event(buffer.slice(0, index))
@@ -127,8 +127,8 @@ export async function readSse(body: ReadableStream<Uint8Array>, onText: (text: s
 }
 export class Api {
  constructor(
-  private settings: SettingsStore,
-  private request: (input: string, init?: RequestInit) => Promise<Response> = fetch
+  private readonly settings: SettingsStore,
+  private readonly request: (input: string, init?: RequestInit) => Promise<Response> = fetch
  ) {}
  async chat(
   messages: ChatMessage[],

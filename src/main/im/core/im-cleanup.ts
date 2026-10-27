@@ -5,7 +5,7 @@ const digest = (value: unknown) => createHash('sha256').update(JSON.stringify(va
 type Preview = {scope: NativeImScope; hash: string; count: number; bytes: number; createdAt: number; done: boolean}
 /** Only explicitly previewed local text records. External chats and media files are never deleted here. */
 export class NativeImCleanup {
- constructor(private store: NativeImStore) {
+ constructor(private readonly store: NativeImStore) {
   store.db.exec('CREATE TABLE IF NOT EXISTS native_im_cleanup(id TEXT PRIMARY KEY,json TEXT NOT NULL)')
  }
  private matches(a: Record<string, unknown>, scope: NativeImScope) {

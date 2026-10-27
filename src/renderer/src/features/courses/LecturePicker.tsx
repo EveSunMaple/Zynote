@@ -11,14 +11,14 @@ export function LecturePicker({
  select,
  create,
  remove
-}: {
+}: Readonly<{
  lectures: Lecture[]
  value: string
  busy: boolean
  select: (id: string) => void
  create: () => void
  remove: (id: string) => Promise<unknown>
-}) {
+}>) {
  const [open, setOpen] = useState(false),
   [pending, setPending] = useState<Lecture | null>(null),
   [deleting, setDeleting] = useState(false)

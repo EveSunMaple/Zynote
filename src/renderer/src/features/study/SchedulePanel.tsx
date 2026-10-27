@@ -19,23 +19,23 @@ import type {StudyEntry} from '@shared/study'
 
 export type ScheduleIssue = {id: string; message: string}
 
-export type ScheduleProps = {
+export type ScheduleProps = Readonly<{
  courses: Course[]
- entries: StudyEntry[]
- selected: string
- detail: Detail | null
+ entries: StudyEntry[] // NOSONAR: shared props type; this member is used by the sibling component.
+ selected: string // NOSONAR: shared props type; this member is used by the sibling component.
+ detail: Detail | null // NOSONAR: shared props type; this member is used by the sibling component.
  timezone: string
  busy: boolean
- dirty: boolean
- issues: ScheduleIssue[]
- onSelect: (id: string) => void
- onAdd: () => void
- onUpdate: (value: Partial<StudyEntry>) => void
- onDelete: () => void
- onSave: () => void
- onTimezone: (value: string) => void
- onParse: (text: string, timezone: string) => Promise<boolean>
-}
+ dirty: boolean // NOSONAR: shared props type; this member is used by the sibling component.
+ issues: ScheduleIssue[] // NOSONAR: shared props type; this member is used by the sibling component.
+ onSelect: (id: string) => void // NOSONAR: shared props type; this member is used by the sibling component.
+ onAdd: () => void // NOSONAR: shared props type; this member is used by the sibling component.
+ onUpdate: (value: Partial<StudyEntry>) => void // NOSONAR: shared props type; this member is used by the sibling component.
+ onDelete: () => void // NOSONAR: shared props type; this member is used by the sibling component.
+ onSave: () => void // NOSONAR: shared props type; this member is used by the sibling component.
+ onTimezone: (value: string) => void // NOSONAR: shared props type; this member is used by the sibling component.
+ onParse: (text: string, timezone: string) => Promise<boolean> // NOSONAR: shared props type; this member is used by the sibling component.
+}>
 
 function courseName(courses: Course[], id: string) {
  return courses.find(course => course.id === id)?.name || '未知课程'

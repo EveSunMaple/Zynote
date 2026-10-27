@@ -70,11 +70,11 @@ export function platformInput(input: string) {
 }
 /** Native catalogs, with exact platform identity checked again before queue creation and execution. */
 export class NativePlatformCatalog implements NativeMediaCatalog {
- private bili: BiliMediaCatalog
+ private readonly bili: BiliMediaCatalog
  constructor(
   api: Pick<BiliResources, 'readMedia'>,
-  private fetcher: Fetcher,
-  private auth?: NativeMediaAuth
+  private readonly fetcher: Fetcher,
+  private readonly auth?: NativeMediaAuth
  ) {
   this.bili = new BiliMediaCatalog(api)
  }
@@ -82,7 +82,7 @@ export class NativePlatformCatalog implements NativeMediaCatalog {
   const selected = platformInput(input),
    settings = mediaOptions(options),
    sourceUrl =
-    selected.platform === 'bilibili' && /^BV/.test(selected.url)
+    selected.platform === 'bilibili' && selected.url.startsWith('BV')
      ? 'https://www.bilibili.com/video/' + selected.url
      : selected.url
   if (settings.cookie_profile && !this.auth) throw new Error('登录档案存储不可用')

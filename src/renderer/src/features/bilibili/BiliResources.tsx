@@ -17,12 +17,12 @@ export function BiliResourcesPanel({
  useVideo,
  courseId,
  courseName
-}: {
+}: Readonly<{
  visible: boolean
  useVideo: (url: string, kind: 'videoPpt' | 'videoSubtitles') => void
  courseId: string
  courseName?: string
-}) {
+}>) {
  const [user, setUser] = useState<User>({loggedIn: false}),
   [folders, setFolders] = useState<Folder[]>([]),
   [folder, setFolder] = useState<Folder | null>(null)

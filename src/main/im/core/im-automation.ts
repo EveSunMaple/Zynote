@@ -48,11 +48,11 @@ const scopeKey = (scope: NativeImScope) =>
  hash([scope.connection_id, scope.platform, scope.account, scope.login_epoch, scope.peer])
 /** No startup polling. Every run requires a currently saved rule and an explicit start for one peer. */
 export class NativeImAutomation {
- private generations = new Map<string, Promise<void>>()
- private active = new Map<string, {controller: AbortController; done: Promise<void>}>()
+ private readonly generations = new Map<string, Promise<void>>()
+ private readonly active = new Map<string, {controller: AbortController; done: Promise<void>}>()
  constructor(
-  private store: NativeImStore,
-  private deps: Dependencies
+  private readonly store: NativeImStore,
+  private readonly deps: Dependencies
  ) {
   store.db.exec(
    'CREATE TABLE IF NOT EXISTS native_im_state(kind TEXT,key TEXT,json TEXT NOT NULL,PRIMARY KEY(kind,key))'

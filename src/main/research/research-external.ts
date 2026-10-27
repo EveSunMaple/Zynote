@@ -39,7 +39,7 @@ function evidence(
 }
 /** Opt-in, bounded public queries. Saved search snippets and abstracts never imply full-paper reading. */
 export class NativeResearchExternal {
- constructor(private exchange: Exchange = publicHttpResponse) {}
+ constructor(private readonly exchange: Exchange = publicHttpResponse) {}
  private async get(url: string, signal: AbortSignal) {
   const result = await this.exchange(url, {
    signal,
@@ -76,7 +76,7 @@ export class NativeResearchExternal {
          .object({
           DOI: z
            .string()
-           .regex(/^10\.[0-9]{4,9}\/[^\s]+$/)
+           .regex(/^10\.\d{4,9}\/[^\s]+$/)
            .max(256),
           title: z.array(z.string()).min(1),
           abstract: z.string().nullish(),

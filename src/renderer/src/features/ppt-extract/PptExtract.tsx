@@ -10,12 +10,12 @@ export function PptExtractPanel({
  courseId,
  courseName,
  files
-}: {
+}: Readonly<{
  visible: boolean
  courseId: string
  courseName?: string
  files: () => void
-}) {
+}>) {
  const [path, setPath] = useState(''),
   [prompt, setPrompt] = useState(defaultPptExtractPrompt),
   [review, setReview] = useState<PptExtractReview | null>(null),

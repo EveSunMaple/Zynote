@@ -4,7 +4,9 @@ import (
 	"context"
 	"encoding/json"
 	"image"
+	// Register the JPEG decoder for image.Decode.
 	_ "image/jpeg"
+	// Register the PNG decoder for image.Decode.
 	_ "image/png"
 	"os"
 	"path/filepath"

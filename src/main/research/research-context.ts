@@ -16,7 +16,7 @@ export type ResearchContext = {
 }
 /** Saved preferences and prior answers are context, never primary source citations. */
 export class NativeResearchContext {
- constructor(private store: NativeResearchStore) {}
+ constructor(private readonly store: NativeResearchStore) {}
  snapshot(
   channels: string[],
   question: string,

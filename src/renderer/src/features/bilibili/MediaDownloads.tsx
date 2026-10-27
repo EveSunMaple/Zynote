@@ -57,7 +57,7 @@ const states: Record<string, string> = {
  interrupted: '上次中断',
  error: '失败'
 }
-export function MediaDownloads({visible}: {visible: boolean}) {
+export function MediaDownloads({visible}: Readonly<{visible: boolean}>) {
  const [profiles, setProfiles] = useState<LoginProfile[]>([]),
   [profileName, setProfileName] = useState(''),
   [profileSite, setProfileSite] = useState('')

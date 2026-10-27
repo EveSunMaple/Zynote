@@ -7,7 +7,7 @@ import {z} from 'zod'
 
 export class KnowledgeEmbedding {
  private extractor: FeatureExtractionPipeline | undefined
- constructor(private directory: string) {}
+ constructor(private readonly directory: string) {}
  async load() {
   if (this.extractor) return
   const manifest = z

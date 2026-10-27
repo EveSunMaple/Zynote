@@ -10,12 +10,12 @@ export function ChatMessage({
  content,
  children,
  pending = false
-}: {
+}: Readonly<{
  role: 'user' | 'assistant'
  content: string
  children: ReactNode
  pending?: boolean
-}) {
+}>) {
  const identity = useContext(IdentityContext)
  return (
   <article className={`message message-agent ${role === 'user' ? 'mine' : 'theirs'}`}>
@@ -42,7 +42,7 @@ export function ChatMessage({
   </article>
  )
 }
-export function ChatWaitingReply({streaming}: {streaming: boolean}) {
+export function ChatWaitingReply({streaming}: Readonly<{streaming: boolean}>) {
  const [seconds, setSeconds] = useState(0)
  useEffect(() => {
   const start = Date.now(),

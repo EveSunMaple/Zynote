@@ -84,7 +84,7 @@ export function biliMediaAddress(input: string) {
  return url.href
 }
 export class BiliMediaCatalog {
- constructor(private api: Pick<BiliResources, 'readMedia'>) {}
+ constructor(private readonly api: Pick<BiliResources, 'readMedia'>) {}
  async read(
   input: string,
   playlist: boolean,

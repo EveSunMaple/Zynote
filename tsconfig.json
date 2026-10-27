@@ -13,7 +13,7 @@
   "esModuleInterop": true,
   "resolveJsonModule": true,
   "skipLibCheck": true,
-  "lib": ["ES2022", "DOM"],
+  "lib": ["ES2023", "DOM"],
   "types": ["node", "vite/client"],
   "noEmit": true,
   "allowImportingTsExtensions": true

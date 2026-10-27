@@ -91,8 +91,8 @@ function tools(raw: unknown): Tool[] {
 }
 export class NativeResearchMcp {
  constructor(
-  private store: NativeResearchStore,
-  private session = (endpoint: string) => new NativeMcpSession(endpoint)
+  private readonly store: NativeResearchStore,
+  private readonly session = (endpoint: string) => new NativeMcpSession(endpoint)
  ) {}
  list(): Catalog {
   if (this.store.db.prepare('SELECT 1 FROM research_records WHERE kind=? AND id=?').get('mcp', 'catalog'))

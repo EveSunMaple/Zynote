@@ -94,8 +94,8 @@ export function parseMediaCookies(text: string, scope: string) {
 export class NativeMediaAuth {
  private serial: Promise<unknown> = Promise.resolve()
  constructor(
-  private root: string,
-  private crypt: MediaCrypt = windowsProtect
+  private readonly root: string,
+  private readonly crypt: MediaCrypt = windowsProtect
  ) {}
  private async path() {
   const folder = resolve(this.root, 'download-auth')

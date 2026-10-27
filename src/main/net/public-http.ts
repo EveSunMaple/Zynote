@@ -2,29 +2,30 @@ import {lookup} from 'node:dns/promises'
 import {BlockList, isIP, type LookupFunction} from 'node:net'
 import {Agent, Dispatcher1Wrapper} from 'undici'
 const blocked = new BlockList()
+// Reserved and private ranges intentionally blocked for SSRF protection; these are not configuration values.
 for (const [network, prefix] of [
- ['0.0.0.0', 8],
- ['10.0.0.0', 8],
- ['100.64.0.0', 10],
- ['127.0.0.0', 8],
- ['169.254.0.0', 16],
- ['172.16.0.0', 12],
- ['192.0.0.0', 24],
- ['192.0.2.0', 24],
- ['192.168.0.0', 16],
- ['198.18.0.0', 15],
- ['198.51.100.0', 24],
- ['203.0.113.0', 24],
- ['224.0.0.0', 3]
+ ['0.0.0.0', 8], // NOSONAR: SSRF denylist entry, not a hardcoded service address.
+ ['10.0.0.0', 8], // NOSONAR: SSRF denylist entry, not a hardcoded service address.
+ ['100.64.0.0', 10], // NOSONAR: SSRF denylist entry, not a hardcoded service address.
+ ['127.0.0.0', 8], // NOSONAR: SSRF denylist entry, not a hardcoded service address.
+ ['169.254.0.0', 16], // NOSONAR: SSRF denylist entry, not a hardcoded service address.
+ ['172.16.0.0', 12], // NOSONAR: SSRF denylist entry, not a hardcoded service address.
+ ['192.0.0.0', 24], // NOSONAR: SSRF denylist entry, not a hardcoded service address.
+ ['192.0.2.0', 24], // NOSONAR: SSRF denylist entry, not a hardcoded service address.
+ ['192.168.0.0', 16], // NOSONAR: SSRF denylist entry, not a hardcoded service address.
+ ['198.18.0.0', 15], // NOSONAR: SSRF denylist entry, not a hardcoded service address.
+ ['198.51.100.0', 24], // NOSONAR: SSRF denylist entry, not a hardcoded service address.
+ ['203.0.113.0', 24], // NOSONAR: SSRF denylist entry, not a hardcoded service address.
+ ['224.0.0.0', 3] // NOSONAR: SSRF denylist entry, not a hardcoded service address.
 ] as const)
  blocked.addSubnet(network, prefix, 'ipv4')
 for (const [network, prefix] of [
- ['2001::', 32],
- ['2001:db8::', 32],
- ['2001:10::', 28],
- ['2001:20::', 28],
- ['2002::', 16],
- ['3fff::', 20]
+ ['2001::', 32], // NOSONAR: SSRF denylist entry, not a hardcoded service address.
+ ['2001:db8::', 32], // NOSONAR: SSRF denylist entry, not a hardcoded service address.
+ ['2001:10::', 28], // NOSONAR: SSRF denylist entry, not a hardcoded service address.
+ ['2001:20::', 28], // NOSONAR: SSRF denylist entry, not a hardcoded service address.
+ ['2002::', 16], // NOSONAR: SSRF denylist entry, not a hardcoded service address.
+ ['3fff::', 20] // NOSONAR: SSRF denylist entry, not a hardcoded service address.
 ] as const)
  blocked.addSubnet(network, prefix, 'ipv6')
 export function publicAddress(address: string) {

@@ -1,8 +1,7 @@
 import {app, nativeImage, utilityProcess} from 'electron'
 import assert from 'node:assert/strict'
 import {createHash} from 'node:crypto'
-import {mkdir, readFile, writeFile, copyFile, access} from 'node:fs/promises'
-import fsPromises from 'node:fs/promises'
+import fsPromises, {mkdir, readFile, writeFile, copyFile, access} from 'node:fs/promises'
 import childProcess from 'node:child_process'
 import {createRequire, syncBuiltinESMExports} from 'node:module'
 import {join} from 'node:path'
@@ -70,7 +69,7 @@ async function run() {
   await mkdir(data, {recursive: true})
   const newOwner = () =>
    new MediaBackend(resources, data, {
-    readMedia: async () => {
+    readMedia: () => {
      throw new Error('Unexpected external site request')
     }
    })

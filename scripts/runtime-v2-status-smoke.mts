@@ -49,7 +49,7 @@ try {
    {id: 'video', label: 'Video', directory: 'video', target, files, bytes: files.reduce((n, f) => n + f.size, 0)}
   ]
  }
- const save = async (value: unknown) => writeFile(join(resources, 'runtime-manifest.json'), JSON.stringify(value))
+ const save = (value: unknown) => writeFile(join(resources, 'runtime-manifest.json'), JSON.stringify(value))
  await save(manifest)
  const service = new RuntimeComponents(resources, '0.0.0-test'),
   first = service.status(),
@@ -164,8 +164,8 @@ try {
  process.exitCode = 1
 } finally {
  report.binding = {
-  commit: execFileSync('git', ['rev-parse', 'HEAD'], {cwd: root, encoding: 'utf8'}).trim(),
-  dirty: !!execFileSync('git', ['status', '--porcelain'], {cwd: root, encoding: 'utf8'}).trim(),
+  commit: execFileSync('git', ['rev-parse', 'HEAD'], {cwd: root, encoding: 'utf8'}).trim(), // NOSONAR: CI/dev script with trusted runner PATH.
+  dirty: !!execFileSync('git', ['status', '--porcelain'], {cwd: root, encoding: 'utf8'}).trim(), // NOSONAR: CI/dev script with trusted runner PATH.
   platform: process.platform,
   arch: process.arch,
   osRelease: release(),

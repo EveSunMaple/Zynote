@@ -22,7 +22,7 @@ export function chatStyle(value: Appearance) {
   '--chat-width': value.contentWidth + 'px'
  } as CSSProperties
 }
-export function Wallpaper({value}: {value: Appearance}) {
+export function Wallpaper({value}: Readonly<{value: Appearance}>) {
  if (value.background === 'none' || (value.background === 'image' && !value.image)) return null
  const backgrounds = {
   lavender: 'radial-gradient(ellipse at 20% 15%,#cbbce8,transparent 65%),linear-gradient(135deg,#eae4f7,#e8edf8)',
@@ -47,14 +47,14 @@ export function AppearanceEditor({
  close,
  saved,
  embedded = false
-}: {
+}: Readonly<{
  initial: AppearanceState
  courseId: string
  courses: Course[]
  close: () => void
  saved: (state: AppearanceState) => void
  embedded?: boolean
-}) {
+}>) {
  const [editingCourseId, setEditingCourseId] = useState(courseId || courses[0]?.id || ''),
   [state, setState] = useState(initial),
   [scope, setScope] = useState<'global' | 'course'>('global'),
@@ -187,7 +187,7 @@ export function AppearanceEditor({
     <h2>聊天外观</h2>
     <div>
      {!embedded && (
-      <Button variant="ghost" size="sm" isDisabled={busy} onClick={() => void run(async () => close())}>
+      <Button variant="ghost" size="sm" isDisabled={busy} onClick={() => void run(() => Promise.resolve(close()))}>
        关闭
       </Button>
      )}

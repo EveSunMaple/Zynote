@@ -158,7 +158,8 @@ export async function transferMediaRanges(input: Input, concurrency: number) {
  let written = 0
  try {
   for (const result of settled) {
-   if (!result || result.status !== 'fulfilled') throw new Error('并行片段未全部完成')
+   if (!result) throw new Error('并行片段未全部完成')
+   if (result.status !== 'fulfilled') throw new Error('并行片段未全部完成')
    for await (const chunk of createReadStream(result.value.path, {highWaterMark: bufferBytes})) {
     input.signal.throwIfAborted()
     const bytes = Buffer.from(chunk)

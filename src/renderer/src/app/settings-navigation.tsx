@@ -21,7 +21,10 @@ type SettingsNavigation = {
 
 const SettingsNavigationContext = createContext<SettingsNavigation | null>(null)
 
-export function SettingsNavigationProvider({value, children}: {value: SettingsNavigation; children: ReactNode}) {
+export function SettingsNavigationProvider({
+ value,
+ children
+}: Readonly<{value: SettingsNavigation; children: ReactNode}>) {
  return <SettingsNavigationContext.Provider value={value}>{children}</SettingsNavigationContext.Provider>
 }
 
@@ -36,12 +39,12 @@ export function SettingsLink({
  children,
  onSelect,
  inline = true
-}: {
+}: Readonly<{
  section: SettingsSection
  children: ReactNode
  onSelect?: () => void
  inline?: boolean
-}) {
+}>) {
  const {open} = useSettingsNavigation()
  return (
   <Button

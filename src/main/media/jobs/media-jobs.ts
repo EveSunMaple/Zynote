@@ -57,11 +57,11 @@ async function digest(path: string) {
 /** An isolated journal format; reading it never mutates the Python queue's existing records. */
 export class NativeDownloadJobs {
  private serial: Promise<unknown> = Promise.resolve()
- private records = new Map<string, NativeDownloadJob>()
+ private readonly records = new Map<string, NativeDownloadJob>()
  private initialized: Promise<void> | undefined
  constructor(
-  private root: string,
-  private crypt: MediaCrypt = windowsProtect
+  private readonly root: string,
+  private readonly crypt: MediaCrypt = windowsProtect
  ) {}
  private exclusive<T>(run: () => Promise<T>): Promise<T> {
   const operation = this.serial.then(run)
@@ -268,7 +268,8 @@ export class NativeDownloadJobs {
   await this.initialize()
   return this.exclusive(async () => {
    const row = this.records.get(idSchema.parse(id))
-   if (!row || row.revision !== revision || row.state !== 'running')
+   if (!row) throw new Error('任务已取消、改变或不在运行，拒绝发布旧成果')
+   if (row.revision !== revision || row.state !== 'running')
     throw new Error('任务已取消、改变或不在运行，拒绝发布旧成果')
    if (!outputs.length || new Set(outputs.map(o => o.relative.toLowerCase())).size !== outputs.length)
     throw new Error('成果清单为空或重复')
@@ -338,7 +339,8 @@ export class NativeDownloadJobs {
   await this.initialize()
   return this.exclusive(async () => {
    const row = this.records.get(idSchema.parse(id))
-   if (!row || row.state !== 'completed') throw new Error('成果未完成，不能清理')
+   if (!row) throw new Error('成果未完成，不能清理')
+   if (row.state !== 'completed') throw new Error('成果未完成，不能清理')
    if (!row.cleanup.length) return []
    try {
     return await this.clearIntermediates(row)

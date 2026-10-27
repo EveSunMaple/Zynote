@@ -10,13 +10,13 @@ export function CorrectionControls({
  hasCheckpoint,
  hasSegments,
  run
-}: {
+}: Readonly<{
  lectureId: string
  disabled: boolean
  hasCheckpoint: boolean
  hasSegments: boolean
  run: (mode: CorrectionMode) => void
-}) {
+}>) {
  const [mode, setMode] = useState<CorrectionMode>(() => {
    try {
     const saved = localStorage.getItem('correction-mode:' + lectureId)

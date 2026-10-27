@@ -63,7 +63,7 @@ function checkedCues(value: unknown, duration: number): Cue[] {
 
 export async function readBiliSubtitles(input: string, fetcher: BiliFetch, signal: AbortSignal): Promise<BiliSubtitle> {
  const url = new URL(bilibiliUrl(input)),
-  videoId = url.pathname.split('/').filter(Boolean).at(-1)!
+  videoId = url.pathname.split('/').findLast(Boolean)!
  const pagesUrl = new URL('https://api.bilibili.com/x/player/pagelist')
  pagesUrl.searchParams.set(
   videoId.startsWith('BV') ? 'bvid' : 'aid',

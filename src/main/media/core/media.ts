@@ -4,8 +4,8 @@ import {mediaOptionChoices} from '@main/media/core/media-options'
 import type {BiliResources} from '@main/media/bilibili/bili-resources'
 /** Native facade keeps the existing IPC surface while downloads use a dedicated TypeScript process. */
 export class MediaBackend {
- private visual: NativeVisualFrames
- private downloads: NativeDownloads
+ private readonly visual: NativeVisualFrames
+ private readonly downloads: NativeDownloads
  private closed = false
  constructor(resources: string, root: string, api: Pick<BiliResources, 'readMedia'>) {
   this.visual = new NativeVisualFrames(resources, root)

@@ -1,4 +1,3 @@
-import {dispatch} from '@main/ipc/handler'
 import {GoCore, nativeBinaryPath} from '@main/backend/go-core'
 import {createRoutedDispatch} from '@main/backend/router'
 import {createShellServices} from '@main/backend/shell-services'
@@ -187,15 +186,15 @@ async function startApplication() {
   await zhiyunBrowser.home()
   return true
  }
- shellServices['zhiyun.refresh'] = async () => {
+ shellServices['zhiyun.refresh'] = () => {
   zhiyunBrowser.refresh()
   return true
  }
- shellServices['zhiyun.back'] = async () => {
+ shellServices['zhiyun.back'] = () => {
   zhiyunBrowser.back()
   return true
  }
- shellServices['zhiyun.bounds'] = async params => {
+ shellServices['zhiyun.bounds'] = params => {
   const bounds = z
    .object({
     x: z.number().min(0).max(10000),
@@ -463,7 +462,7 @@ async function startApplication() {
   const parsed = new URL(bilibiliUrl(url))
   parseSrt(srt)
   const name =
-   parsed.pathname.split('/').filter(Boolean).at(-1) +
+   parsed.pathname.split('/').findLast(Boolean) +
    '-P' +
    (parsed.searchParams.get('p') || '1') +
    '-' +

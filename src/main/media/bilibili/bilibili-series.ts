@@ -21,7 +21,7 @@ export function parseVideoSeries(input: string, value: unknown): VideoSeries {
   }
  })
  return {
-  title: typeof v.title === 'string' ? v.title.slice(0, 200) : url.pathname.split('/').filter(Boolean).at(-1)!,
+  title: typeof v.title === 'string' ? v.title.slice(0, 200) : url.pathname.split('/').findLast(Boolean)!,
   episodes
  }
 }
@@ -36,7 +36,7 @@ export async function readVideoSeries(input: string, signal: AbortSignal): Promi
  signal.throwIfAborted()
  const userAgent = cleanUserAgent(ses.getUserAgent())
  // Public part-directory endpoint avoids depending on video-player hydration.
- const videoId = url.pathname.split('/').filter(Boolean).at(-1)!,
+ const videoId = url.pathname.split('/').findLast(Boolean)!,
   api = new URL('https://api.bilibili.com/x/player/pagelist')
  api.searchParams.set(videoId.startsWith('BV') ? 'bvid' : 'aid', videoId.startsWith('BV') ? videoId : videoId.slice(2))
  try {

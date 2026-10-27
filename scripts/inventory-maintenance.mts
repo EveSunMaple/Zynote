@@ -1,5 +1,5 @@
 import {readdir, readFile, writeFile} from 'node:fs/promises'
-import {join, resolve, basename} from 'node:path'
+import {join, resolve} from 'node:path'
 import {createHash} from 'node:crypto'
 const root = resolve('.'),
  directory = join(root, 'scripts'),
@@ -20,7 +20,7 @@ for (const [name, text] of bodies)
   names.filter(
    target =>
     target !== name &&
-    new RegExp(`(?:[/'"\\\\])${target.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(?:['"\x60\s]|$)`).test(text)
+    new RegExp(`(?:[/'"\\\\])${target.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(?:['"\x60\\s]|$)`).test(text)
   )
  )
 const active = new Set(direct),

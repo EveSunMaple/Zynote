@@ -11,6 +11,14 @@ import (
 	"github.com/EveSunMaple/Zynote/backend/internal/ids"
 )
 
+const (
+	sqlDeletePracticeByLecture = "DELETE FROM practice_sets WHERE lecture_id=?"
+	sqlDeletePracticeByCourse  = "DELETE FROM practice_sets WHERE lecture_id IN (SELECT id FROM lectures WHERE course_id=?)"
+	sqlChatSessionByID         = "SELECT * FROM chat_sessions WHERE id=? AND course_id=?"
+	sqlChatSessionsByCourse    = "SELECT * FROM chat_sessions WHERE course_id=? ORDER BY rowid"
+	msgLectureNotInCourse      = "课次不属于当前课程"
+)
+
 type WriteDB struct {
 	db *sql.DB
 }
@@ -119,7 +127,7 @@ func (w *WriteDB) RemoveFile(courseID, id string) error {
 		return err
 	}
 	if _, err := tx.Exec(
-		"DELETE FROM practice_sets WHERE lecture_id IN (SELECT id FROM lectures WHERE course_id=?)",
+		sqlDeletePracticeByCourse,
 		courseID,
 	); err != nil {
 		return err
@@ -238,7 +246,7 @@ func (w *WriteDB) SaveQuestions(courseID string, questions []map[string]any) err
 		}
 	}
 	if _, err := tx.Exec(
-		"DELETE FROM practice_sets WHERE lecture_id IN (SELECT id FROM lectures WHERE course_id=?)",
+		sqlDeletePracticeByCourse,
 		courseID,
 	); err != nil {
 		return err
@@ -291,7 +299,7 @@ func createSessionTx(tx *sql.Tx, courseID, title, lectureID string) (map[string]
 			return nil, contract.NewError(contract.CodeNotFound, "课次不存在")
 		}
 		if toStringValue(value["course_id"]) != courseID {
-			return nil, contract.InputInvalid("课次不属于当前课程")
+			return nil, contract.InputInvalid(msgLectureNotInCourse)
 		}
 		lecture = value
 	} else {
@@ -301,7 +309,7 @@ func createSessionTx(tx *sql.Tx, courseID, title, lectureID string) (map[string]
 		}
 		if value != nil {
 			if toStringValue(value["course_id"]) != courseID {
-				return nil, contract.InputInvalid("课次不属于当前课程")
+				return nil, contract.InputInvalid(msgLectureNotInCourse)
 			}
 			lecture = value
 		}
@@ -328,11 +336,11 @@ func createSessionTx(tx *sql.Tx, courseID, title, lectureID string) (map[string]
 	); err != nil {
 		return nil, err
 	}
-	return queryOneTx(tx, "SELECT * FROM chat_sessions WHERE id=? AND course_id=?", id, courseID)
+	return queryOneTx(tx, sqlChatSessionByID, id, courseID)
 }
 
 func sessionNameTx(tx *sql.Tx, courseID, base, ignoreID string) (string, error) {
-	sessions, err := queryAllTx(tx, "SELECT * FROM chat_sessions WHERE course_id=? ORDER BY rowid", courseID)
+	sessions, err := queryAllTx(tx, sqlChatSessionsByCourse, courseID)
 	if err != nil {
 		return "", err
 	}
@@ -373,7 +381,7 @@ func (w *WriteDB) DeleteSession(courseID, id string) ([]map[string]any, error) {
 		return nil, err
 	}
 	defer tx.Rollback()
-	session, err := queryOneTx(tx, "SELECT * FROM chat_sessions WHERE id=? AND course_id=?", id, courseID)
+	session, err := queryOneTx(tx, sqlChatSessionByID, id, courseID)
 	if err != nil {
 		return nil, err
 	}
@@ -383,7 +391,7 @@ func (w *WriteDB) DeleteSession(courseID, id string) ([]map[string]any, error) {
 	if _, err := tx.Exec("DELETE FROM chat_sessions WHERE id=? AND course_id=?", id, courseID); err != nil {
 		return nil, err
 	}
-	remaining, err := queryAllTx(tx, "SELECT * FROM chat_sessions WHERE course_id=? ORDER BY rowid", courseID)
+	remaining, err := queryAllTx(tx, sqlChatSessionsByCourse, courseID)
 	if err != nil {
 		return nil, err
 	}
@@ -398,7 +406,7 @@ func (w *WriteDB) DeleteSession(courseID, id string) ([]map[string]any, error) {
 	if err := w.Checkpoint(); err != nil {
 		return nil, err
 	}
-	return queryAll(w.db, "SELECT * FROM chat_sessions WHERE course_id=? ORDER BY rowid", courseID)
+	return queryAll(w.db, sqlChatSessionsByCourse, courseID)
 }
 
 func (w *WriteDB) DeleteLecture(id string) (bool, error) {
@@ -450,12 +458,12 @@ func (w *WriteDB) AppendMessage(courseID string, lectureID *string, role, conten
 			return contract.NewError(contract.CodeNotFound, "课次不存在")
 		}
 		if toStringValue(lecture["course_id"]) != courseID {
-			return contract.InputInvalid("课次不属于当前课程")
+			return contract.InputInvalid(msgLectureNotInCourse)
 		}
 	}
 	var session map[string]any
 	if sessionID != nil {
-		session, err = queryOneTx(tx, "SELECT * FROM chat_sessions WHERE id=? AND course_id=?", *sessionID, courseID)
+		session, err = queryOneTx(tx, sqlChatSessionByID, *sessionID, courseID)
 		if err != nil {
 			return err
 		}
@@ -499,7 +507,7 @@ func (w *WriteDB) DeleteManagedFile(path string) error {
 			return err
 		}
 		if _, err := tx.Exec(
-			"DELETE FROM practice_sets WHERE lecture_id IN (SELECT id FROM lectures WHERE course_id=?)",
+			sqlDeletePracticeByCourse,
 			toStringValue(row["course_id"]),
 		); err != nil {
 			return err
@@ -641,7 +649,7 @@ func (w *WriteDB) SaveCorrectionBatch(id, fingerprint string, total int, segment
 	}
 	for _, statement := range []string{
 		"DELETE FROM lecture_notes WHERE lecture_id=?",
-		"DELETE FROM practice_sets WHERE lecture_id=?",
+		sqlDeletePracticeByLecture,
 	} {
 		if _, execErr := tx.Exec(statement, id); execErr != nil {
 			return execErr
@@ -681,7 +689,7 @@ func (w *WriteDB) SaveSubtitles(lectureID, srt string, segments any) error {
 	for _, statement := range []string{
 		"DELETE FROM correction_checkpoints WHERE lecture_id=?",
 		"DELETE FROM lecture_notes WHERE lecture_id=?",
-		"DELETE FROM practice_sets WHERE lecture_id=?",
+		sqlDeletePracticeByLecture,
 		"UPDATE lectures SET status='字幕完成' WHERE id=?",
 	} {
 		if _, err := tx.Exec(statement, lectureID); err != nil {
@@ -720,7 +728,7 @@ func (w *WriteDB) ReplaceQuestions(courseID, fileID string, questions []map[stri
 		}
 	}
 	if _, err := tx.Exec(
-		"DELETE FROM practice_sets WHERE lecture_id IN (SELECT id FROM lectures WHERE course_id=?)", courseID,
+		sqlDeletePracticeByCourse, courseID,
 	); err != nil {
 		return err
 	}
@@ -772,7 +780,7 @@ func (w *WriteDB) SaveNotes(lectureID string, notes any) error {
 	if _, err := tx.Exec("INSERT OR REPLACE INTO lecture_notes(lecture_id,notes_json) VALUES(?,?)", lectureID, string(encoded)); err != nil {
 		return err
 	}
-	if _, err := tx.Exec("DELETE FROM practice_sets WHERE lecture_id=?", lectureID); err != nil {
+	if _, err := tx.Exec(sqlDeletePracticeByLecture, lectureID); err != nil {
 		return err
 	}
 	return tx.Commit()

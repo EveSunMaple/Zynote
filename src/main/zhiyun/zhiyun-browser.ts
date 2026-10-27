@@ -2,8 +2,8 @@ import {BrowserWindow, WebContentsView} from 'electron'
 export class ZhiyunBrowser {
  private view: WebContentsView | null = null
  constructor(
-  private window: BrowserWindow,
-  private error: (message: string) => void
+  private readonly window: BrowserWindow,
+  private readonly error: (message: string) => void
  ) {}
  private ensure() {
   if (this.view) return this.view

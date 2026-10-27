@@ -34,18 +34,18 @@ const attr = (xml: string, name: string) => {
   index = xml.indexOf(token, index + 1)
  }
 }
-const relationships = (xml: string) => Array.from(xml.matchAll(/<Relationship\b[^>]*\/?\s*>/g), m => m[0])
+const relationships = (xml: string) => Array.from(xml.matchAll(/<Relationship\b[^>]*>/g), m => m[0])
 const target = (xml: string, id: string) => {
  const tag = relationships(xml).find(x => attr(x, 'Id') === id)
  return tag && !/TargetMode=["']External["']/.test(tag) ? attr(tag, 'Target') : undefined
 }
 const decoded = (s: string) =>
  s
-  .replace(/&amp;/g, '&')
-  .replace(/&quot;/g, '"')
-  .replace(/&apos;/g, "'")
-  .replace(/&lt;/g, '<')
-  .replace(/&gt;/g, '>')
+  .replaceAll('&amp;', '&')
+  .replaceAll('&quot;', '"')
+  .replaceAll('&apos;', "'")
+  .replaceAll('&lt;', '<')
+  .replaceAll('&gt;', '>')
 const partTarget = (parent: string, value: string) => {
  const path = decoded(value)
  return posix.normalize(path.startsWith('/') ? path.slice(1) : posix.join(parent, path))
@@ -129,7 +129,7 @@ export async function readImageDeck(path: string, signal?: AbortSignal): Promise
   signal?.throwIfAborted()
   const t = target(rels, id),
    name = t && partTarget('ppt', t)
-  if (!name || !name.startsWith('ppt/slides/')) throw new Error('课件页面关系无效')
+  if (!name?.startsWith('ppt/slides/')) throw new Error('课件页面关系无效')
   const xml = await zip.file(name)?.async('string')
   if (!xml) throw new Error('课件页面缺失')
   const pictures = Array.from(xml.matchAll(/<p:pic\b[\s\S]*?<\/p:pic>/g), m => m[0])
@@ -146,7 +146,7 @@ export async function readImageDeck(path: string, signal?: AbortSignal): Promise
   const mediaName = partTarget(posix.dirname(name), media)
   if (!mediaName.startsWith('ppt/media/')) throw new Error('图片关系无效')
   const data = await zip.file(mediaName)?.async('nodebuffer')
-  if (!data || !data.length) {
+  if (!data?.length) {
    pages.push(missingPage(index + 1, '原课件内嵌图片缺失，无法恢复；已保留原文件'))
    continue
   }
@@ -205,7 +205,7 @@ const analysisSchema = z.array(
  })
 )
 export class PptExtractor {
- private drafts = new Map<
+ private readonly drafts = new Map<
   string,
   {
    sourceName: string
@@ -217,8 +217,8 @@ export class PptExtractor {
   }
  >()
  constructor(
-  private api: Pick<Api, 'chat'>,
-  private progress: (message: string) => void
+  private readonly api: Pick<Api, 'chat'>,
+  private readonly progress: (message: string) => void
  ) {}
  async restore(path: string, review: PptExtractReview, signal: AbortSignal) {
   const pages = await readImageDeck(path, signal)
@@ -399,7 +399,7 @@ export class PptExtractor {
   }
  }
 }
-export async function imagePptx(images: Array<Electron.NativeImage | (() => Electron.NativeImage)>): Promise<Buffer> {
+export function imagePptx(images: Array<Electron.NativeImage | (() => Electron.NativeImage)>): Promise<Buffer> {
  if (!images.length) throw new Error('没有可导出的页面')
  const load = (image: Electron.NativeImage | (() => Electron.NativeImage)) =>
   typeof image === 'function' ? image() : image

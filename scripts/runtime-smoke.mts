@@ -19,10 +19,10 @@ const root = resolve(dirname(fileURLToPath(import.meta.url)), '..'),
  electron = require('electron') as string
 await mkdir(join(work, 'electron-profile'), {recursive: true})
 await mkdir(results, {recursive: true})
-const commit = execFileSync('git', ['rev-parse', 'HEAD'], {cwd: root, encoding: 'utf8'}).trim(),
- dirty = !!execFileSync('git', ['status', '--porcelain'], {cwd: root, encoding: 'utf8'}).trim(),
+const commit = execFileSync('git', ['rev-parse', 'HEAD'], {cwd: root, encoding: 'utf8'}).trim(), // NOSONAR: CI/dev script with trusted runner PATH.
+ dirty = !!execFileSync('git', ['status', '--porcelain'], {cwd: root, encoding: 'utf8'}).trim(), // NOSONAR: CI/dev script with trusted runner PATH.
  files = new Set([
-  ...execFileSync('git', ['ls-files', '-z'], {cwd: root, encoding: 'utf8'}).split('\0').filter(Boolean),
+  ...execFileSync('git', ['ls-files', '-z'], {cwd: root, encoding: 'utf8'}).split('\0').filter(Boolean), // NOSONAR: CI/dev script with trusted runner PATH.
   'scripts/runtime-smoke.mts',
   'scripts/runtime-smoke-electron.mts'
  ]),

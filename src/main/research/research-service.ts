@@ -15,23 +15,23 @@ import type {MediaCrypt} from '@main/security/worker-crypt'
 const op = z.string().regex(/^[a-f0-9]{32}$/)
 /** Staged native tools dispatcher. Unimplemented channels are errors, never empty success receipts. */
 export class NativeResearchService {
- private store: NativeResearchStore
- private knowledge: NativeKnowledgeStore
- private sources: NativeResearchSources
- private extensions: NativeResearchExtensions
- private engine: NativeResearchEngine
- private notes: NativeResearchNotes
- private workflows: NativeResearchWorkflows
- private mcp: NativeResearchMcp
+ private readonly store: NativeResearchStore
+ private readonly knowledge: NativeKnowledgeStore
+ private readonly sources: NativeResearchSources
+ private readonly extensions: NativeResearchExtensions
+ private readonly engine: NativeResearchEngine
+ private readonly notes: NativeResearchNotes
+ private readonly workflows: NativeResearchWorkflows
+ private readonly mcp: NativeResearchMcp
  private im: NativeImService | undefined
  private connection = ''
  private ready: Promise<unknown> | undefined
  private closed = false
  constructor(
-  private root: string,
-  private model: ResearchModel,
-  private resources?: string,
-  private crypt?: MediaCrypt
+  private readonly root: string,
+  private readonly model: ResearchModel,
+  private readonly resources?: string,
+  private readonly crypt?: MediaCrypt
  ) {
   this.store = new NativeResearchStore(root)
   this.knowledge = new NativeKnowledgeStore(root)

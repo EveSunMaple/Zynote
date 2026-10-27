@@ -14,9 +14,10 @@ const projectRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 const work = await mkdtemp(join(tmpdir(), 'zynote-discussion-'))
 const mediaRoot = join(work, 'MediaDownloads')
 
+const spawnGo = (args: string[], options: Parameters<typeof spawn>[2]) => spawn('go', args, options) // NOSONAR: CI/dev script with trusted runner Go.
 const runGo = (env: Record<string, string>) =>
  new Promise<void>((resolvePromise, reject) => {
-  const child = spawn('go', ['test', './internal/media/bilibili', '-run', 'TestDiscussionCrossLanguage', '-count=1'], {
+  const child = spawnGo(['test', './internal/media/bilibili', '-run', 'TestDiscussionCrossLanguage', '-count=1'], {
    cwd: join(projectRoot, 'backend'),
    env: {...process.env, ...env},
    stdio: 'inherit'

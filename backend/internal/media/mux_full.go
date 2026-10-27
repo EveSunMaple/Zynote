@@ -17,6 +17,15 @@ import (
 var muxLanguagePattern = regexp.MustCompile(`^[-\w]{1,64}$`)
 var muxControlChars = regexp.MustCompile(`[\x00-\x1f]`)
 
+const (
+	ffmpegLogLevel          = "-loglevel"
+	ffmpegNoStdin           = "-nostdin"
+	ffmpegHideBanner        = "-hide_banner"
+	ffmpegProtocolWhitelist = "-protocol_whitelist"
+	ffmpegFilePipe          = "file,pipe"
+	coverFileName           = "cover.jpg"
+)
+
 func writeExclusiveVerified(path, body, changedMessage string) error {
 	file, err := os.OpenFile(path, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o644)
 	if err == nil {
@@ -177,10 +186,10 @@ func (mux *NativeMediaMux) Mux(input MuxInput) (MuxResult, error) {
 	if input.OutputName == "" {
 		output = filepath.Join(directory, "result."+extension)
 	}
-	args := []string{"-hide_banner", "-loglevel", "error", "-nostdin", "-n"}
+	args := []string{ffmpegHideBanner, ffmpegLogLevel, "error", ffmpegNoStdin, "-n"}
 	for _, track := range tracks {
 		args = append(args,
-			"-protocol_whitelist", "file,pipe",
+			ffmpegProtocolWhitelist, ffmpegFilePipe,
 			"-format_whitelist", "mov,matroska,webm,flv,mp3,aac,ogg,wav,flac,mpegts",
 			"-i", track.Path,
 		)
@@ -197,7 +206,7 @@ func (mux *NativeMediaMux) Mux(input MuxInput) (MuxResult, error) {
 		if !strings.EqualFold(filepath.Dir(path), directory) || !muxLanguagePattern.MatchString(subtitle.Language) {
 			return MuxResult{}, fmt.Errorf("字幕文件不属于该任务")
 		}
-		args = append(args, "-protocol_whitelist", "file,pipe", "-f", "srt", "-i", path)
+		args = append(args, ffmpegProtocolWhitelist, ffmpegFilePipe, "-f", "srt", "-i", path)
 	}
 	chapterIndex := -1
 	if options.Chapters && len(chapters) > 0 && (options.ClipEnd == nil || kept != nil) {
@@ -219,7 +228,7 @@ func (mux *NativeMediaMux) Mux(input MuxInput) (MuxResult, error) {
 			return MuxResult{}, err
 		}
 		chapterIndex = len(tracks) + len(subtitleInputs)
-		args = append(args, "-protocol_whitelist", "file,pipe", "-f", "ffmetadata", "-i", path)
+		args = append(args, ffmpegProtocolWhitelist, ffmpegFilePipe, "-f", "ffmetadata", "-i", path)
 	}
 	attachedCover := cover != "" && (extension == "mkv" || extension == "mka")
 	coverInput := len(tracks) + len(subtitleInputs)
@@ -227,7 +236,7 @@ func (mux *NativeMediaMux) Mux(input MuxInput) (MuxResult, error) {
 		coverInput++
 	}
 	if cover != "" && !attachedCover {
-		args = append(args, "-protocol_whitelist", "file,pipe", "-f", "image2", "-i", cover)
+		args = append(args, ffmpegProtocolWhitelist, ffmpegFilePipe, "-f", "image2", "-i", cover)
 	}
 	if kept == nil && options.ClipStart != nil && options.ClipEnd != nil {
 		args = append(args, "-ss", formatNumber(*options.ClipStart), "-t", formatNumber(*options.ClipEnd-*options.ClipStart))
@@ -501,14 +510,14 @@ func (mux *NativeMediaMux) PrepareCover(directory string, bytes []byte, crop boo
 		return nil, fmt.Errorf("封面目录无效")
 	}
 	source := filepath.Join(base, "cover-source."+extension)
-	output := filepath.Join(base, "cover.jpg")
+	output := filepath.Join(base, coverFileName)
 	if err := writeExclusiveVerified(source, string(bytes), "封面恢复文件已改变"); err != nil {
 		return nil, err
 	}
 	raw, err := MediaCommand(MediaCommandInput{
 		Resources: mux.Resources, Tool: "ffprobe",
 		Args: []string{
-			"-v", "error", "-protocol_whitelist", "file,pipe", "-f", "image2",
+			"-v", "error", ffmpegProtocolWhitelist, ffmpegFilePipe, "-f", "image2",
 			"-show_entries", "stream=width,height", "-of", "json", source,
 		},
 		Ctx: ctx, AllowSystemFallback: mux.AllowSystemFallback, Platform: mux.Platform,
@@ -533,7 +542,7 @@ func (mux *NativeMediaMux) PrepareCover(directory string, bytes []byte, crop boo
 	if crop {
 		filter = "crop=min(iw\\,ih):min(iw\\,ih)," + filter
 	}
-	artifact, err := NewOwnedMediaArtifact(base, "cover.jpg", hashJSON([]any{
+	artifact, err := NewOwnedMediaArtifact(base, coverFileName, hashJSON([]any{
 		"cover-v1", ComputeHash(bytes), crop,
 	}))
 	if err != nil {
@@ -547,8 +556,8 @@ func (mux *NativeMediaMux) PrepareCover(directory string, bytes []byte, crop boo
 		if _, err := MediaCommand(MediaCommandInput{
 			Resources: mux.Resources, Tool: "ffmpeg",
 			Args: []string{
-				"-hide_banner", "-loglevel", "error", "-nostdin", "-n",
-				"-protocol_whitelist", "file,pipe", "-f", "image2", "-i", source,
+				ffmpegHideBanner, ffmpegLogLevel, "error", ffmpegNoStdin, "-n",
+				ffmpegProtocolWhitelist, ffmpegFilePipe, "-f", "image2", "-i", source,
 				"-vf", filter, "-frames:v", "1", "-q:v", "2", "-update", "1", output,
 			},
 			Ctx: ctx, AllowSystemFallback: mux.AllowSystemFallback, Platform: mux.Platform,
@@ -564,7 +573,7 @@ func (mux *NativeMediaMux) PrepareCover(directory string, bytes []byte, crop boo
 		return nil, err
 	}
 	intermediates := append([]string{filepath.Base(source)}, artifact.Intermediates()...)
-	return map[string]any{"path": output, "relative": "cover.jpg", "intermediates": intermediates}, nil
+	return map[string]any{"path": output, "relative": coverFileName, "intermediates": intermediates}, nil
 }
 
 func (mux *NativeMediaMux) Concatenate(directory string, paths []string, key string, ctx context.Context) (map[string]any, error) {
@@ -614,8 +623,8 @@ func (mux *NativeMediaMux) Concatenate(directory string, paths []string, key str
 		if _, err := MediaCommand(MediaCommandInput{
 			Resources: mux.Resources, Tool: "ffmpeg",
 			Args: []string{
-				"-hide_banner", "-loglevel", "error", "-nostdin", "-n",
-				"-protocol_whitelist", "file,pipe",
+				ffmpegHideBanner, ffmpegLogLevel, "error", ffmpegNoStdin, "-n",
+				ffmpegProtocolWhitelist, ffmpegFilePipe,
 				"-format_whitelist", "concat,mov,matroska,webm,flv,mp3,aac,ogg,wav,flac,mpegts",
 				"-f", "concat", "-safe", "1", "-i", list, "-map", "0", "-c", "copy", output,
 			},

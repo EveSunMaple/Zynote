@@ -5,14 +5,14 @@ import {KnowledgeEmbedding} from '@main/knowledge/knowledge-embedding'
 import {NativeKnowledgeStore, nativeClassificationOptions} from '@main/knowledge/knowledge-store'
 
 export class NativeKnowledgeService {
- private store: NativeKnowledgeStore
- private embedding: KnowledgeEmbedding
+ private readonly store: NativeKnowledgeStore
+ private readonly embedding: KnowledgeEmbedding
  private baseline?: Promise<unknown>
- private modelPath: string
+ private readonly modelPath: string
  constructor(
   resources: string,
   root: string,
-  private progress: (message: string) => void = () => {}
+  private readonly progress: (message: string) => void = () => {}
  ) {
   this.store = new NativeKnowledgeStore(root)
   this.modelPath = join(resources, 'knowledge/onnx-bge')

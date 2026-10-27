@@ -38,8 +38,8 @@ async function fileDigest(path: string) {
 }
 export class VisualTasks {
  constructor(
-  private root: string,
-  private media: MediaBackend
+  private readonly root: string,
+  private readonly media: MediaBackend
  ) {}
  private async save(task: VisualTask) {
   await mkdir(this.root, {recursive: true})

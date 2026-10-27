@@ -2,7 +2,7 @@ import {readFileSync, writeFileSync, renameSync, existsSync} from 'node:fs'
 import {join} from 'node:path'
 import {defaultIdentity, identitySchema, type Identity} from '@shared/identity'
 export class IdentityStore {
- private path: string
+ private readonly path: string
  constructor(root: string) {
   this.path = join(root, 'identity.json')
  }

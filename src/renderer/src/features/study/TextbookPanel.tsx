@@ -10,36 +10,37 @@ import type {Highlight, StudyEntry} from '@shared/study'
 import {highlightLabels} from '@shared/study'
 import type {Progress} from '@shared/types'
 
-export type TextbookProps = {
+export type TextbookProps = Readonly<{
  entry: StudyEntry | undefined
- lectureTitle?: string
+ lectureTitle?: string // NOSONAR: shared props type; this member is used by the sibling component.
  book: Book | null
  pageNumber: number
- first: number
- last: number
+ first: number // NOSONAR: shared props type; this member is used by the sibling component.
+ last: number // NOSONAR: shared props type; this member is used by the sibling component.
  draft: Draft | null
- chosen: string[]
+ chosen: string[] // NOSONAR: shared props type; this member is used by the sibling component.
  busy: boolean
- progress: Progress | null
- pdfVersion: number
- onPickBook: () => void
- onAnalyze: () => void
- onOpenBook: () => void
- onRemoveHighlights: () => void
- onCancel: () => void
+ progress: Progress | null // NOSONAR: shared props type; this member is used by the sibling component.
+ pdfVersion: number // NOSONAR: shared props type; this member is used by the sibling component.
+ onPickBook: () => void // NOSONAR: shared props type; this member is used by the sibling component.
+ onAnalyze: () => void // NOSONAR: shared props type; this member is used by the sibling component.
+ onOpenBook: () => void // NOSONAR: shared props type; this member is used by the sibling component.
+ onRemoveHighlights: () => void // NOSONAR: shared props type; this member is used by the sibling component.
+ onCancel: () => void // NOSONAR: shared props type; this member is used by the sibling component.
  onPageNumber: (page: number) => void
- onFirst: (page: number) => void
- onLast: (page: number) => void
- onChosen: (ids: string[]) => void
- onApply: () => void
+ onFirst: (page: number) => void // NOSONAR: shared props type; this member is used by the sibling component.
+ onLast: (page: number) => void // NOSONAR: shared props type; this member is used by the sibling component.
+ onChosen: (ids: string[]) => void // NOSONAR: shared props type; this member is used by the sibling component.
+ onApply: () => void // NOSONAR: shared props type; this member is used by the sibling component.
  onManual: (value: {
+  // NOSONAR: shared props type; this member is used by the sibling component.
   rect: Highlight['rect']
   source: Highlight['source']
   evidence: string
   extension: boolean
  }) => Promise<boolean>
- onGoSchedule: () => void
-}
+ onGoSchedule: () => void // NOSONAR: shared props type; this member is used by the sibling component.
+}>
 
 const basename = (path: string) => path.split(/[\\/]/).at(-1) || path
 const sourceKeys = Object.keys(highlightLabels) as Highlight['source'][]
@@ -58,13 +59,13 @@ function Overlay({
  size,
  className,
  active
-}: {
+}: Readonly<{
  rect: Highlight['rect']
  viewport: ReturnType<typeof usePdfPage>['viewport']
  size: {width: number; height: number}
  className: string
  active?: boolean
-}) {
+}>) {
  if (!viewport) return null
  const left = viewport.convertToViewportPoint(rect[0], rect[1]),
   right = viewport.convertToViewportPoint(rect[0] + rect[2], rect[1] + rect[3]),
@@ -412,7 +413,7 @@ export function TextbookContent(props: TextbookProps) {
          role="application"
          style={{width: size.width, height: size.height}}
          // biome-ignore lint/a11y/noNoninteractiveTabindex: this is an application surface that must accept keyboard focus.
-         tabIndex={0}
+         tabIndex={0} // NOSONAR: role="application" with Escape/arrow-key handlers is an interactive surface.
          onKeyDown={event => {
           if (event.key === 'Escape') {
            start.current = null

@@ -2,7 +2,7 @@ import encodeQR from 'qr'
 import {randomUUID} from 'node:crypto'
 import {join} from 'node:path'
 import {z} from 'zod'
-import {NativeImStore, imId, imScope, type NativeImConnection} from '@main/im/core/im-store'
+import {NativeImStore, imId, type NativeImConnection} from '@main/im/core/im-store'
 import {NativeNapcatRuntime} from '@main/im/qq/im-napcat-runtime'
 import {NativeNapcatLogin, NativeQqSession, onebotConfig} from '@main/im/qq/im-qq'
 import {NativeILinkSession} from '@main/im/weixin/im-ilink'
@@ -48,19 +48,19 @@ type Login = {
 }
 /** Native selected-account facade. Model requests have no path to login, sync or send actions. */
 export class NativeImService {
- private store: NativeImStore
- private runtime: NativeNapcatRuntime
- private logins = new Map<string, Login>()
- private controller = new AbortController()
+ private readonly store: NativeImStore
+ private readonly runtime: NativeNapcatRuntime
+ private readonly logins = new Map<string, Login>()
+ private readonly controller = new AbortController()
  private closing: Promise<void> | undefined
- private syncing = new Set<string>()
- private local = new NativeWeixinLocal()
+ private readonly syncing = new Set<string>()
+ private readonly local = new NativeWeixinLocal()
  private profile = ''
- private automation: NativeImAutomation
+ private readonly automation: NativeImAutomation
  constructor(
   root: string,
   resources: string,
-  private fetcher: typeof fetch = fetch,
+  private readonly fetcher: typeof fetch = fetch,
   model?: ResearchModel,
   knowledge?: NativeImKnowledge,
   crypt?: MediaCrypt
@@ -79,7 +79,7 @@ export class NativeImService {
   })
   this.knowledge = knowledge
  }
- private knowledge: NativeImKnowledge | undefined
+ private readonly knowledge: NativeImKnowledge | undefined
  configure(profile: string) {
   if (profile !== this.profile) this.automation.pauseAll()
   this.profile = profile

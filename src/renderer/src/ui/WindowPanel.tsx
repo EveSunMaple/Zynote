@@ -11,7 +11,7 @@ export function WindowMenuButton({
  disabled,
  onSelect,
  children
-}: {
+}: Readonly<{
  active?: boolean
  icon?: ReactNode
  title?: string
@@ -19,7 +19,7 @@ export function WindowMenuButton({
  disabled?: boolean
  onSelect: () => void
  children: ReactNode
-}) {
+}>) {
  return (
   <Button
    variant="ghost"
@@ -55,7 +55,7 @@ export function WindowPanel({
  onDragOver,
  onDrop,
  children
-}: {
+}: Readonly<{
  visible: boolean
  label: string
  title: string
@@ -70,7 +70,7 @@ export function WindowPanel({
  onDragOver?: DragEventHandler<HTMLElement>
  onDrop?: DragEventHandler<HTMLElement>
  children: ReactNode
-}) {
+}>) {
  return (
   <section
    className={'learning-window' + (className ? ` ${className}` : '')}

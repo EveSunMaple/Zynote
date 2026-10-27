@@ -14,7 +14,7 @@ export function SelectField({
  searchable = false,
  clearable = false,
  className
-}: {
+}: Readonly<{
  options: SelectFieldOption[]
  value: string
  onChange: (value: string) => void
@@ -25,7 +25,7 @@ export function SelectField({
  searchable?: boolean
  clearable?: boolean
  className?: string
-}) {
+}>) {
  const {contains} = useFilter({sensitivity: 'base'})
  if (!searchable)
   return (

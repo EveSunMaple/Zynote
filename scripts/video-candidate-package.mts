@@ -15,13 +15,13 @@ const hex = z.string().regex(/^[a-f0-9]{64}$/)
 const requestSchema = z
  .object({
   target: z.enum(['darwin-arm64', 'linux-x64']),
-  productVersion: z.string().regex(/^[0-9]+\.[0-9]+\.[0-9]+(?:[-+][A-Za-z0-9.-]+)?$/),
+  productVersion: z.string().regex(/^\d+\.\d+\.\d+(?:[-+][A-Za-z0-9.-]+)?$/),
   archive: z.string(),
   buildReport: z.string(),
   expectedArchiveSha256: hex,
   expectedBuildReportSha256: hex,
   sourceBuildCommit: z.string().regex(/^[a-f0-9]{40}$/),
-  sourceBuildRun: z.string().regex(/^[0-9]+$/)
+  sourceBuildRun: z.string().regex(/^\d+$/)
  })
  .strict()
 function check(v: unknown, message: string): asserts v {
@@ -290,39 +290,34 @@ export async function packageVideoCandidate(value: unknown) {
   validateVideoDescriptor(descriptor, manifest)
   await writeFile(join(stage, 'runtime-manifest.json'), JSON.stringify(manifest, null, 2) + '\n', {flag: 'wx'})
   await writeFile(join(stage, 'component.json'), JSON.stringify(descriptor, null, 2) + '\n', {flag: 'wx'})
-  const report = {
-   generator: {
-    commit: execFileSync('git', ['rev-parse', 'HEAD'], {
-     cwd: dirname(fileURLToPath(import.meta.url)),
-     encoding: 'utf8'
-    }).trim(),
-    dirty: !!execFileSync('git', ['status', '--porcelain'], {
-     cwd: dirname(fileURLToPath(import.meta.url)),
-     encoding: 'utf8'
-    }).trim(),
-    sourceSha256: await sha(fileURLToPath(import.meta.url)),
-    sourceHashes: Object.fromEntries(
-     await Promise.all(
-      [
-       '../src/shared/runtime-descriptor-v2.ts',
-       '../src/shared/runtime-manifest-v2.ts',
-       './media-build-source-lock.mts'
-      ].map(async path => [path, await sha(fileURLToPath(new URL(path, import.meta.url)))])
+  const cwd = dirname(fileURLToPath(import.meta.url)),
+   report = {
+    generator: {
+     commit: execFileSync('git', ['rev-parse', 'HEAD'], {cwd, encoding: 'utf8'}).trim(), // NOSONAR: CI/dev PATH.
+     dirty: !!execFileSync('git', ['status', '--porcelain'], {cwd, encoding: 'utf8'}).trim(), // NOSONAR: CI/dev PATH.
+     sourceSha256: await sha(fileURLToPath(import.meta.url)),
+     sourceHashes: Object.fromEntries(
+      await Promise.all(
+       [
+        '../src/shared/runtime-descriptor-v2.ts',
+        '../src/shared/runtime-manifest-v2.ts',
+        './media-build-source-lock.mts'
+       ].map(async path => [path, await sha(fileURLToPath(new URL(path, import.meta.url)))])
+      )
      )
-    )
-   },
-   state: 'candidate_only',
-   distribution_status: 'pending',
-   trusted: false,
-   installable: false,
-   sourceBuildRun: request.sourceBuildRun,
-   sourceBuildCommit: request.sourceBuildCommit,
-   archiveSha256: request.expectedArchiveSha256,
-   buildReportSha256: request.expectedBuildReportSha256,
-   descriptor,
-   scope:
-    'ELF headers are inspected without execution; Linux dependency metadata is bound to the supplied build report, not rechecked against this host. Evidence-bound candidate generation only. Caller manifest validation is still required; no installation authority or binary execution.'
-  }
+    },
+    state: 'candidate_only',
+    distribution_status: 'pending',
+    trusted: false,
+    installable: false,
+    sourceBuildRun: request.sourceBuildRun,
+    sourceBuildCommit: request.sourceBuildCommit,
+    archiveSha256: request.expectedArchiveSha256,
+    buildReportSha256: request.expectedBuildReportSha256,
+    descriptor,
+    scope:
+     'ELF headers are inspected without execution; Linux dependency metadata is bound to the supplied build report, not rechecked against this host. Evidence-bound candidate generation only. Caller manifest validation is still required; no installation authority or binary execution.'
+   }
   await writeFile(join(stage, 'candidate-report.json'), JSON.stringify(report, null, 2) + '\n', {flag: 'wx'})
   return {stage, report, manifest}
  } catch (error) {
@@ -339,7 +334,7 @@ if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.ur
    ),
    'Request file must stay inside the workspace or temporary directory'
   )
-  check((await lstat(requestPath)).size <= 1024 * 1024, 'Request file too large')
+  check((await lstat(requestPath)).size <= 1024 * 1024, 'Request file too large') // NOSONAR: requestPath is realpath-resolved and constrained to the workspace/tmp roots above; only its size is read.
   const request = JSON.parse(await readFile(requestPath, 'utf8')) // NOSONAR: requestPath is resolved and constrained to the workspace/tmp roots with a 1 MiB cap above.
   console.log(JSON.stringify(await packageVideoCandidate(request)))
  } catch (error) {

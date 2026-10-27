@@ -68,7 +68,7 @@ async function jsonFile(path: string, max = 1024 * 1024) {
 
 /** A read-only view of the original Python queue. Never upgrades markers or starts old workers. */
 export class LegacyDownloads {
- constructor(private root: string) {}
+ constructor(private readonly root: string) {}
  async scope() {
   const kb = resolve(this.root, 'knowledge_base')
   let normalized: string

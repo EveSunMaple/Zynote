@@ -4,7 +4,6 @@ import {readFile} from 'node:fs/promises'
 import {notesSchema} from '@shared/types'
 import {answerChoices, compareChoices, questionOptions} from '@shared/practice'
 import {prepareAnswer} from '@main/learning/practice-answer'
-import {isCasualChat} from '@main/learning/chat-policy'
 import {identityPrompt} from '@shared/identity'
 import type {ApplicationContext} from '@main/app/context'
 import type {IpcHandler} from '@main/ipc/handler'
@@ -158,7 +157,6 @@ export function createLearningHandler(
       const session = object.sessionId
        ? db.session(idSchema.parse(object.sessionId), course.id)
        : db.sessions(course.id)[0]
-      const casual = isCasualChat(content)
       db.message(course.id, lectureId, 'user', content, session.id)
       const messages: import('@main/ai/api').ChatMessage[] = [
         {role: 'system', content: identityPrompt(identity.get())},

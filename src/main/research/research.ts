@@ -30,15 +30,15 @@ export class NativeResearchBackend {
  private worker: UtilityProcess | undefined
  private sequence = 0
  private closed = false
- private pending = new Map<
+ private readonly pending = new Map<
   number,
   {resolve: (value: unknown) => void; reject: (error: Error) => void; timer: ReturnType<typeof setTimeout>}
  >()
- private models = new Map<number, AbortController>()
+ private readonly models = new Map<number, AbortController>()
  constructor(
-  private root: string,
-  private model: ResearchModel,
-  private resources = fileURLToPath(new URL('../../resources', import.meta.url))
+  private readonly root: string,
+  private readonly model: ResearchModel,
+  private readonly resources = fileURLToPath(new URL('../../resources', import.meta.url))
  ) {}
  get started() {
   return !!this.worker

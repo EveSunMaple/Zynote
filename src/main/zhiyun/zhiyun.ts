@@ -61,8 +61,8 @@ export function zhiyunLessons(rows: Record<string, unknown>[]): ZhiyunLesson[] {
 }
 export class Zhiyun {
  constructor(
-  private fetch: Fetch,
-  private progress: (message: string) => void
+  private readonly fetch: Fetch,
+  private readonly progress: (message: string) => void
  ) {}
  private async request(url: string, init: RequestInit = {}) {
   for (let attempt = 0; ; attempt++) {

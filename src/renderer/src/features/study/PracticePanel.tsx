@@ -127,7 +127,7 @@ function Question({
        className="choice-response"
        aria-label="输入选项答案"
        placeholder={multiple ? '例如 AC' : '例如 A'}
-       value={draft.replace(/,/g, '')}
+       value={draft.replaceAll(',', '')}
        disabled={pending || !!q.attempt}
        onChange={e =>
         setDraft(

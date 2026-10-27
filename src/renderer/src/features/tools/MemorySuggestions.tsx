@@ -13,7 +13,7 @@ type Candidate = {
 }
 type Task = {task_id: string; question: string; memory_candidates: Candidate[]}
 const request = <T,>(action: string, args: unknown = {}) => window.assistant.invoke<T>('tools:request', {action, args})
-export function MemorySuggestions({saved}: {saved: () => Promise<void>}) {
+export function MemorySuggestions({saved}: Readonly<{saved: () => Promise<void>}>) {
  const [tasks, setTasks] = useState<Task[]>([]),
   [selected, setSelected] = useState(''),
   [title, setTitle] = useState(''),

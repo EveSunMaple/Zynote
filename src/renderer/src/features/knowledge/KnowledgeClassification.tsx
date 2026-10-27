@@ -24,7 +24,10 @@ const empty: Selection = {
  language: '中文',
  keywords: []
 }
-export function KnowledgeClassification({entries, refresh}: {entries: KnowledgeEntry[]; refresh: () => Promise<void>}) {
+export function KnowledgeClassification({
+ entries,
+ refresh
+}: Readonly<{entries: KnowledgeEntry[]; refresh: () => Promise<void>}>) {
  const [options, setOptions] = useState<Record<string, string[]>>({}),
   [draft, setDraft] = useState<Draft | null>(null),
   [id, setId] = useState(''),

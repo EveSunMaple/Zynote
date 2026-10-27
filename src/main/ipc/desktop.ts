@@ -2,7 +2,7 @@ import {app, dialog, shell, net, nativeImage} from 'electron'
 import {z} from 'zod'
 import {ensureLibrary, folderName, reserveFile} from '@main/library/library'
 import {studyEntries} from '@main/learning/study/study'
-import {join, extname} from 'node:path'
+import {extname} from 'node:path'
 import {readImageDeck} from '@main/documents/ppt-extract'
 import {defaultVideoPrompt} from '@shared/video-ppt'
 import {readFile, stat, rm} from 'node:fs/promises'
@@ -58,7 +58,6 @@ export function createDesktopHandler(
   jobs,
   jobState,
   libraryRoot,
-  root,
   saveVideoPdf,
   settings,
   toolsBackend,
@@ -104,8 +103,7 @@ export function createDesktopHandler(
    'external'
   ]),
   async invoke(action, object) {
-   const id = () => z.string().uuid().parse(object.id),
-    courseId = () => z.string().uuid().parse(object.courseId)
+   const id = () => z.string().uuid().parse(object.id)
    switch (action) {
     case 'app:info':
      return {version: app.getVersion(), electron: process.versions.electron, platform: process.platform}

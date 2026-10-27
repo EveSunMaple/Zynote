@@ -50,12 +50,12 @@ export function ImAutomation({
  visible,
  liveAvailable,
  onDraft
-}: {
+}: Readonly<{
  scope: Scope
  visible: boolean
  liveAvailable: boolean
  onDraft: (text: string) => void
-}) {
+}>) {
  const [rules, setRules] = useState<Rules>(),
   [identity, setIdentity] = useState(''),
   [mode, setMode] = useState<'draft' | 'auto_reply'>('draft'),

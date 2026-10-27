@@ -20,7 +20,7 @@ type VectorState = {
  index: 'ready' | 'stale' | 'not_built'
  vector_count: number
 }
-export function KnowledgeBase({visible, close}: {visible: boolean; close: () => void}) {
+export function KnowledgeBase({visible, close}: Readonly<{visible: boolean; close: () => void}>) {
  const [data, setData] = useState<KnowledgeList>({
   entries: [],
   stats: {totalVideos: 0, totalChunks: 0},

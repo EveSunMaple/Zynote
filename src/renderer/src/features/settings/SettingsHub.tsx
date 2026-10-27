@@ -75,7 +75,7 @@ export function SettingsHub({
  identity,
  identitySave,
  backLabel
-}: {
+}: Readonly<{
  visible: boolean
  initial: Settings
  initialSection?: SettingsSection
@@ -89,7 +89,7 @@ export function SettingsHub({
  identity: Identity
  identitySave: (value: Identity) => Promise<void>
  backLabel?: string
-}) {
+}>) {
  const [value, setValue] = useState(initial),
   [section, setSection] = useState<SettingsSection>(initialSection ?? 'appearance'),
   [prompt, setPrompt] = useState('correction')

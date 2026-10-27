@@ -27,12 +27,12 @@ export type NativeResearchFlow = {
 }
 /** Two explicit persisted stages share checked sources; a saved draft never becomes evidence. */
 export class NativeResearchWorkflows {
- private active = new Map<string, {controller: AbortController; done: Promise<void>}>()
+ private readonly active = new Map<string, {controller: AbortController; done: Promise<void>}>()
  private initialized = false
  constructor(
-  private store: NativeResearchStore,
-  private sources: NativeResearchSources,
-  private engine: NativeResearchEngine
+  private readonly store: NativeResearchStore,
+  private readonly sources: NativeResearchSources,
+  private readonly engine: NativeResearchEngine
  ) {}
  private initialize() {
   if (this.initialized) return

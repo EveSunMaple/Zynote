@@ -14,12 +14,12 @@ export function ZhiyunImporter({
  close,
  localCourseId,
  imported
-}: {
+}: Readonly<{
  visible: boolean
  close: () => void
  localCourseId: string
  imported: (lectureId: string, courseId: string) => Promise<void>
-}) {
+}>) {
  const settings = useSettingsNavigation()
  const [keyword, setKeyword] = useState(''),
   [courses, setCourses] = useState<ZhiyunCourse[]>([]),

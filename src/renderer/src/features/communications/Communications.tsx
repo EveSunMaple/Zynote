@@ -1,5 +1,5 @@
 import {useEffect, useState} from 'react'
-import {MessagesSquare} from 'lucide-react'
+
 import {Button, Card, Checkbox, Input, TextArea} from '@heroui/react'
 import {notify} from '@renderer/ui/ToastHost'
 import {SelectField} from '@renderer/ui/SelectField'

@@ -53,8 +53,8 @@ export type Dependencies = {
 }
 export class SubtitleDerived {
  constructor(
-  private root: string,
-  private library: string
+  private readonly root: string,
+  private readonly library: string
  ) {}
  private async save(task: SubtitleDerivedTask) {
   await mkdir(this.root, {recursive: true})

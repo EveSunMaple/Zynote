@@ -281,8 +281,8 @@ try {
 } finally {
  try {
   report.binding = {
-   commit: execFileSync('git', ['rev-parse', 'HEAD'], {cwd: root, encoding: 'utf8'}).trim(),
-   dirty: !!execFileSync('git', ['status', '--porcelain'], {cwd: root, encoding: 'utf8'}).trim(),
+   commit: execFileSync('git', ['rev-parse', 'HEAD'], {cwd: root, encoding: 'utf8'}).trim(), // NOSONAR: CI/dev script with trusted runner PATH.
+   dirty: !!execFileSync('git', ['status', '--porcelain'], {cwd: root, encoding: 'utf8'}).trim(), // NOSONAR: CI/dev script with trusted runner PATH.
    platform: process.platform,
    arch: process.arch,
    osRelease: release(),

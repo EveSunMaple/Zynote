@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	// Register the SQLite driver used by database/sql.
 	_ "modernc.org/sqlite"
 )
 

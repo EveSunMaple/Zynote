@@ -40,7 +40,7 @@ const mediaSchema = z
   auto_subtitles: z.boolean().default(false),
   translated_subtitles: z.boolean().default(false),
   subtitle_languages: text(240)
-   .regex(/^[A-Za-z0-9_.*,+\-]+$/)
+   .regex(/^[A-Za-z0-9_.*,+-]+$/)
    .default('zh.*,ai-zh.*,en.*,ai-en.*'),
   subtitle_format: z.enum(mediaEnums.subtitle_format).default('srt'),
   embed_subtitles: z.boolean().default(false),
@@ -50,10 +50,10 @@ const mediaSchema = z
   audio_bitrate: z.number().int().min(0).max(512).default(0),
   video_codec: z.enum(mediaEnums.video_codec).default('auto'),
   format_ids: text(300)
-   .regex(/^(?:[A-Za-z0-9_.\-]+(?:\+[A-Za-z0-9_.\-]+){0,7})?$/)
+   .regex(/^(?:[A-Za-z0-9_.-]+(?:\+[A-Za-z0-9_.-]+){0,7})?$/)
    .default(''),
   format_sort: text(240)
-   .regex(/^[A-Za-z0-9_+.:,~\-]*$/)
+   .regex(/^[A-Za-z0-9_+.:,~-]*$/)
    .default(''),
   merge_audio: z.boolean().default(false),
   thumbnail: z.boolean().default(false),
@@ -149,7 +149,7 @@ export function mediaOptions(input: unknown = {}): NativeMediaOptions {
  }
  if (
   !v.filename_template ||
-  /[\/\\<>:"|?*]/.test(v.filename_template) ||
+  /[/\\<>:"|?*]/.test(v.filename_template) ||
   v.filename_template.includes('..') ||
   !v.filename_template.endsWith('.%(ext)s')
  )

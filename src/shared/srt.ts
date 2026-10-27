@@ -34,7 +34,7 @@ function fencedSrt(raw: string): string {
 
 export function parseSrt(raw: string): Segment[] {
  const fenced = fencedSrt(raw)
- const value = (fenced || raw).replace(/\r/g, '').trim()
+ const value = (fenced || raw).replaceAll('\r', '').trim()
  if (!value) throw new Error('回复中没有字幕内容')
  const result: Segment[] = []
  for (const block of value.split(/\n\s*\n/)) {

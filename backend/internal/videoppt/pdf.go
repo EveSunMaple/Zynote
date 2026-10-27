@@ -7,7 +7,9 @@ import (
 	"encoding/json"
 	"fmt"
 	"image"
+	// Register the GIF decoder for image.Decode.
 	_ "image/gif"
+	// Register the JPEG decoder for image.Decode.
 	_ "image/jpeg"
 	"math"
 	"os"

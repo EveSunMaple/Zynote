@@ -3,7 +3,7 @@ import {mkdtemp, readFile, rm, writeFile} from 'node:fs/promises'
 import {tmpdir} from 'node:os'
 import {join, dirname, resolve} from 'node:path'
 import {fileURLToPath} from 'node:url'
-import {PDFDocument, StandardFonts, PDFHexString, PDFName, PDFNumber, PDFArray, rgb} from 'pdf-lib'
+import {PDFDocument, StandardFonts, PDFHexString, PDFName, PDFArray, rgb} from 'pdf-lib'
 
 const projectRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 const work = await mkdtemp(join(tmpdir(), 'znr-'))
@@ -97,7 +97,7 @@ const writeReply = await run(
   }
  })
 )
-if (!writeReply.result || writeReply.result.count !== 1 || writeReply.result.pages !== 1) {
+if (writeReply.result?.count !== 1 || writeReply.result?.pages !== 1) {
  console.error('FAIL write:', JSON.stringify(writeReply))
  process.exit(1)
 }

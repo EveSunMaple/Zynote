@@ -20,12 +20,12 @@ export function QwenSettings({
  update,
  save,
  busy
-}: {
+}: Readonly<{
  value: Settings
  update: (patch: Partial<Settings>) => void
  save: () => void
  busy: boolean
-}) {
+}>) {
  const [notice, setNotice] = useState(''),
   [manualText, setManualText] = useState(''),
   [manualVision, setManualVision] = useState(''),

@@ -147,11 +147,11 @@ export type SubtitleTaskData = Pick<
  'kind' | 'outputName' | 'courseName' | 'url' | 'page'
 >
 export class VideoPpt {
- private tasks = new Map<string, Task>()
+ private readonly tasks = new Map<string, Task>()
  constructor(
-  private root: string,
-  private api: Pick<Api, 'chat'>,
-  private progress: (s: string) => void
+  private readonly root: string,
+  private readonly api: Pick<Api, 'chat'>,
+  private readonly progress: (s: string) => void
  ) {}
  async create(name: string, meta?: SubtitleTaskData) {
   const id = randomUUID(),

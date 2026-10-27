@@ -13,7 +13,7 @@ const viewIcons: Record<LearningView, LucideIcon> = {
  videoSubtitles: Captions,
  videoNotes: NotebookPen
 }
-export function LearningIcon({view}: {view: LearningView}) {
+export function LearningIcon({view}: Readonly<{view: LearningView}>) {
  const Glyph = viewIcons[view]
  return <Glyph aria-hidden="true" />
 }

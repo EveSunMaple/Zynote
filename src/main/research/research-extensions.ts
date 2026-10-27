@@ -75,7 +75,7 @@ type Catalog = {
 }
 export type ExtensionSnapshot = {revision: number; skills: Skill[]; instructions: string; channels: string[]}
 export class NativeResearchExtensions {
- constructor(private store: NativeResearchStore) {}
+ constructor(private readonly store: NativeResearchStore) {}
  private catalog(): Catalog {
   const row = this.store.db.prepare('SELECT 1 FROM research_records WHERE kind=? AND id=?').get('extensions', 'catalog')
   if (row) return this.store.read('extensions', 'catalog')
@@ -211,18 +211,20 @@ export class NativeResearchExtensions {
   const fields: Record<string, string> = {}
   for (const line of front.header.split(/\r?\n/)) {
    if (!line.trim()) continue
-   const pair = /^(name|description):\s*(.*?)\s*$/.exec(line)
-   if (!pair || fields[pair[1]] !== undefined) throw new Error('方法文件头部格式不支持')
-   let value = pair[2]
+   const colon = line.indexOf(':')
+   if (colon < 1) throw new Error('方法文件头部格式不支持')
+   const key = line.slice(0, colon)
+   if (!['name', 'description'].includes(key) || fields[key] !== undefined) throw new Error('方法文件头部格式不支持')
+   let value = line.slice(colon + 1).trim()
    if (value.startsWith('"')) {
     try {
      value = z.string().parse(JSON.parse(value))
     } catch {
      throw new Error('方法头部引号无效')
     }
-   } else if (value.startsWith("'") && value.endsWith("'")) value = value.slice(1, -1).replace(/''/g, "'")
-   else if (/^[!&*\[{>|]/.test(value)) throw new Error('方法头部仅支持普通文本')
-   fields[pair[1]] = value
+   } else if (value.startsWith("'") && value.endsWith("'")) value = value.slice(1, -1).replaceAll("''", "'")
+   else if (/^[!&*[{>|]/.test(value)) throw new Error('方法头部仅支持普通文本')
+   fields[key] = value
   }
   const parsed = skill
    .omit({id: true})

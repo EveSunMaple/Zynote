@@ -17,8 +17,8 @@ export type BookInfo = {pages: number; sizes: [number, number, number][]; previo
 
 // A random capability URL exposes only a selected PDF, never a filesystem path.
 export class TextbookFiles {
- private files = new Map<string, string>()
- private server = createServer(async (req, res) => {
+ private readonly files = new Map<string, string>()
+ private readonly server = createServer(async (req, res) => {
   try {
    const path = this.files.get((req.url || '').split('?')[0].slice(1))
    if (!path) {
@@ -73,17 +73,15 @@ export class TextbookFiles {
  })
  private ready: Promise<number> | null = null
  async url(path: string) {
-  if (!this.ready) {
-   this.ready = new Promise((resolve, reject) => {
-    this.server.once('error', reject)
-    this.server.listen(0, '127.0.0.1', () => {
-     const address = this.server.address()
-     if (address && typeof address !== 'string') resolve(address.port)
-     else reject(new Error('教材预览启动失败'))
-    })
-    this.server.unref()
+  this.ready ??= new Promise((resolve, reject) => {
+   this.server.once('error', reject)
+   this.server.listen(0, '127.0.0.1', () => {
+    const address = this.server.address()
+    if (address && typeof address !== 'string') resolve(address.port)
+    else reject(new Error('教材预览启动失败'))
    })
-  }
+   this.server.unref()
+  })
   const port = await this.ready,
    key = randomUUID()
   this.files.set(key, path)

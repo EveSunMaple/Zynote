@@ -1,6 +1,6 @@
 import {createHash, randomUUID} from 'node:crypto'
 import {constants} from 'node:fs'
-import {chmod, lstat, mkdir, open, readdir, realpath, rename} from 'node:fs/promises'
+import {lstat, mkdir, open, readdir, realpath, rename} from 'node:fs/promises'
 import {dirname, join, resolve} from 'node:path'
 import {tmpdir} from 'node:os'
 import {parseRuntimeManifestV2, type RuntimeTarget} from '../src/shared/runtime-manifest-v2.ts'

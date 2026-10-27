@@ -17,6 +17,7 @@ import (
 	"unicode"
 
 	"github.com/EveSunMaple/Zynote/backend/internal/ids"
+	// Register the SQLite driver used by database/sql.
 	_ "modernc.org/sqlite"
 )
 

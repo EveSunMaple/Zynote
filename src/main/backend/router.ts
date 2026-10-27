@@ -187,7 +187,7 @@ export function createRoutedDispatch(
  return async (action: string, object: Record<string, unknown>): Promise<unknown> => {
   const subject = deleteSubjects.get(action)
   if (subject && activeJobs()) throw new Error('请等待当前任务完成后再删除' + subject)
-  if (!goCore || goCore.currentStatus !== 'ready') return dispatch(handlers, action, object)
+  if (goCore?.currentStatus !== 'ready') return dispatch(handlers, action, object)
   if (
    process.platform === 'win32' &&
    action === 'tools:request' &&

@@ -9,6 +9,7 @@ import (
 
 	"github.com/EveSunMaple/Zynote/backend/internal/app"
 	"github.com/EveSunMaple/Zynote/backend/internal/transport"
+	// Register the SQLite driver used by database/sql.
 	_ "modernc.org/sqlite"
 )
 

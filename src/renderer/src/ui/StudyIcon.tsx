@@ -31,7 +31,7 @@ const glyphs: Record<string, LucideIcon> = {
 
 export type StudyIconName = keyof typeof glyphs
 
-export function StudyIcon({name}: {name: StudyIconName}) {
+export function StudyIcon({name}: Readonly<{name: StudyIconName}>) {
  const Glyph = glyphs[name]
  return <Glyph className="study-icon" strokeWidth={1.7} aria-hidden="true" />
 }

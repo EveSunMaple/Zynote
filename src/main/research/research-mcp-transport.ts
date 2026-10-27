@@ -21,7 +21,7 @@ async function readSseReply(response: Response, id: number) {
    if (chunk.done) break
    bytes += chunk.value.length
    if (bytes > 262144) throw new Error('MCP 响应超过大小上限')
-   buffered = (buffered + decoder.decode(chunk.value, {stream: true})).replace(/\r\n/g, '\n')
+   buffered = (buffered + decoder.decode(chunk.value, {stream: true})).replaceAll('\r\n', '\n')
    let end: number
    while ((end = buffered.indexOf('\n\n')) >= 0) {
     const event = buffered.slice(0, end)
@@ -59,7 +59,7 @@ export class NativeMcpSession {
  readonly endpoint: string
  constructor(
   endpoint: string,
-  private exchange: Exchange = publicHttpResponse
+  private readonly exchange: Exchange = publicHttpResponse
  ) {
   this.endpoint = mcpEndpoint(endpoint)
  }

@@ -2,7 +2,7 @@ import {existsSync, readFileSync, writeFileSync, renameSync} from 'node:fs'
 import {join} from 'node:path'
 import {appearanceSchema, appearanceStateSchema, defaultAppearance, type AppearanceState} from '@shared/appearance'
 export class AppearanceStore {
- private path: string
+ private readonly path: string
  constructor(root: string) {
   this.path = join(root, 'appearance.json')
  }

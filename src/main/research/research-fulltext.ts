@@ -84,7 +84,7 @@ export function publicPageText(html: string) {
 }
 /** Exact URLs selected by the user. No automatic publisher browsing or full-document claims. */
 export class NativeResearchFulltext {
- constructor(private exchange: typeof publicHttpResponse = publicHttpResponse) {}
+ constructor(private readonly exchange: typeof publicHttpResponse = publicHttpResponse) {}
  async read(channels: string[], choices: unknown, signal: AbortSignal) {
   const selected = z
    .array(
@@ -104,7 +104,7 @@ export class NativeResearchFulltext {
    if (arxiv) {
     if (!channels.includes('arxiv_fulltext') || !channels.includes('arxiv'))
      throw new Error('arXiv 正文需同时勾选 arXiv 及正文渠道')
-    if (!choice.pages || new Set(choice.pages).size !== choice.pages.length || ++pdfCount > 2 || url.search)
+    if (!choice.pages?.length || new Set(choice.pages).size !== choice.pages.length || ++pdfCount > 2 || url.search)
      throw new Error('每次最多两篇固定版本论文，每篇明确选择至多四个物理页')
     const target = 'https://arxiv.org/pdf/' + url.pathname.replace(/^\/(?:abs|pdf)\//, ''),
      result = await this.exchange(target, {signal, headers: {Accept: 'application/pdf'}})

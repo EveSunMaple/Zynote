@@ -49,8 +49,8 @@ export type Dependencies = {
  */
 export class SubtitleSync {
  constructor(
-  private root: string,
-  private library: string
+  private readonly root: string,
+  private readonly library: string
  ) {}
  private async save(task: SubtitleSyncTask) {
   await mkdir(this.root, {recursive: true})

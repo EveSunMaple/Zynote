@@ -104,8 +104,7 @@ export function createCoursewareHandler(
    'ppt-extract:export'
   ]),
   async invoke(action, object) {
-   const id = () => z.string().uuid().parse(object.id),
-    courseId = () => z.string().uuid().parse(object.courseId)
+   const id = () => z.string().uuid().parse(object.id)
    switch (action) {
     case 'subtitle-sync:list':
      return subtitleSync.list()
@@ -121,7 +120,8 @@ export function createCoursewareHandler(
       if (new Set(urls).size !== urls.length) throw new Error('不要重复选择分集')
       const sources: DerivedSource[] = urls.map(url => {
        const item = task.items.find(item => item.url === url)
-       if (!item || item.status !== '已完成' || !item.path || !item.hash || !item.generation)
+       if (!item) throw new Error('请选择已成功同步的分集')
+       if (item.status !== '已完成' || !item.path || !item.hash || !item.generation)
         throw new Error('请选择已成功同步的分集')
        return {url, title: item.title, path: item.path, hash: item.hash, generation: item.generation}
       })
@@ -223,10 +223,9 @@ export function createCoursewareHandler(
       const series = biliFixture
        ? parseVideoSeries(url, {
           pages: (
-           await fetch(
-            biliFixture + '/x/player/pagelist?bvid=' + new URL(url).pathname.split('/').filter(Boolean).at(-1),
-            {signal}
-           ).then(response => response.json())
+           await fetch(biliFixture + '/x/player/pagelist?bvid=' + new URL(url).pathname.split('/').findLast(Boolean), {
+            signal
+           }).then(response => response.json())
           ).data
          })
        : await readVideoSeries(url, signal)
@@ -302,7 +301,7 @@ export function createCoursewareHandler(
         if (subtitle) path = await saveBiliSubtitle(episode.url, episode.title, subtitle.srt, selectedCourse)
         else {
          videoProgress(`P${episode.page} 无可用站内字幕，正在下载并离线转写`)
-         const videoId = new URL(episode.url).pathname.split('/').filter(Boolean).at(-1)!
+         const videoId = new URL(episode.url).pathname.split('/').findLast(Boolean)!
          const outputName = videoId + '-P' + episode.page + '-离线转写.srt'
          const task = await videoPpt.create(videoId + '-P' + episode.page + '-字幕转写', {
           kind: 'subtitle',
@@ -372,7 +371,7 @@ export function createCoursewareHandler(
       const url = bilibiliUrl(z.string().parse(object.url))
       const selectedCourse = object.courseId ? db.course(idSchema.parse(object.courseId)).name : undefined
       const page = new URL(url).searchParams.get('p') || '1'
-      const videoId = new URL(url).pathname.split('/').filter(Boolean).at(-1)!
+      const videoId = new URL(url).pathname.split('/').findLast(Boolean)!
       const outputName = videoId + '-P' + page + '-离线转写.srt'
       const task = await videoPpt.create(videoId + '-P' + page + '-字幕转写', {
        kind: 'subtitle',
@@ -512,7 +511,7 @@ export function createCoursewareHandler(
       else {
        const url = bilibiliUrl(z.string().parse(object.url))
        task = await videoPpt.create(
-        new URL(url).pathname.split('/').filter(Boolean).at(-1) + '-P' + (new URL(url).searchParams.get('p') || '1')
+        new URL(url).pathname.split('/').findLast(Boolean) + '-P' + (new URL(url).searchParams.get('p') || '1')
        )
        await snapanyDownload(window, url, task.video, videoProgress, signal)
       }
@@ -541,7 +540,7 @@ export function createCoursewareHandler(
        return videoPpt.prepare(await videoPpt.local(z.string().min(1).parse(object.path), signal), signal)
       const url = bilibiliUrl(z.string().parse(object.url)),
        task = await videoPpt.create(
-        new URL(url).pathname.split('/').filter(Boolean).at(-1) + '-P' + (new URL(url).searchParams.get('p') || '1')
+        new URL(url).pathname.split('/').findLast(Boolean) + '-P' + (new URL(url).searchParams.get('p') || '1')
        )
       await snapanyDownload(window, url, task.video, videoProgress, signal)
       return videoPpt.prepare(task, signal)

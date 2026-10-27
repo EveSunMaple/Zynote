@@ -7,7 +7,9 @@ import (
 	"encoding/hex"
 	"image"
 	"image/draw"
+	// Register the GIF decoder for image.Decode.
 	_ "image/gif"
+	// Register the JPEG decoder for image.Decode.
 	_ "image/jpeg"
 	"image/png"
 	"os"

@@ -69,8 +69,6 @@ export function createResourcesHandler(
    'bili-resources:videos'
   ]),
   async invoke(action, object) {
-   const id = () => z.string().uuid().parse(object.id),
-    courseId = () => z.string().uuid().parse(object.courseId)
    switch (action) {
     case 'bili-resources:status':
      return biliResources.status()

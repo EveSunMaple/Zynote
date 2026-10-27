@@ -15,6 +15,15 @@ import (
 	"github.com/EveSunMaple/Zynote/backend/internal/media"
 )
 
+const (
+	hostYouTube     = "youtube.com"
+	hostYoutuBe     = "youtu.be"
+	hostDailymotion = "dailymotion.com"
+	hostVimeoCdn    = "vimeocdn.com"
+	hostDmcdn       = "dmcdn.net"
+	headerUserAgent = "User-Agent"
+)
+
 type Selection struct {
 	Platform string
 	URL      string
@@ -48,8 +57,8 @@ func Input(raw string) (Selection, error) {
 	switch {
 	case host == "bilibili.com" || host == "www.bilibili.com":
 		return Selection{Platform: "bilibili", URL: parsed.String()}, nil
-	case host == "youtube.com" || host == "www.youtube.com" || host == "m.youtube.com" ||
-		host == "music.youtube.com" || host == "youtu.be":
+	case host == hostYouTube || host == "www.youtube.com" || host == "m.youtube.com" ||
+		host == "music.youtube.com" || host == hostYoutuBe:
 		return youtubeInput(parsed)
 	case host == "vimeo.com" || host == "www.vimeo.com" || host == "player.vimeo.com":
 		match := vimeoPathPattern.FindStringSubmatch(parsed.Path)
@@ -74,7 +83,7 @@ func Input(raw string) (Selection, error) {
 			value += "/" + token
 		}
 		return Selection{Platform: "vimeo", URL: value, ID: match[1], Hash: token}, nil
-	case host == "www.dailymotion.com" || host == "dailymotion.com" || host == "dai.ly":
+	case host == "www.dailymotion.com" || host == hostDailymotion || host == "dai.ly":
 		pattern := dailymotionPattern
 		if host == "dai.ly" {
 			pattern = shortDailymotion
@@ -94,7 +103,7 @@ func Input(raw string) (Selection, error) {
 func youtubeInput(parsed *url.URL) (Selection, error) {
 	host := strings.TrimPrefix(parsed.Hostname(), "www.")
 	if parsed.Scheme != "https" || parsed.Port() != "" || parsed.User != nil || parsed.Fragment != "" ||
-		(host != "youtube.com" && host != "m.youtube.com" && host != "youtu.be" && host != "music.youtube.com") {
+		(host != hostYouTube && host != "m.youtube.com" && host != hostYoutuBe && host != "music.youtube.com") {
 		return Selection{}, fmt.Errorf("YouTube 网址无效")
 	}
 	lists := parsed.Query()["list"]
@@ -104,7 +113,7 @@ func youtubeInput(parsed *url.URL) (Selection, error) {
 	}
 	id := ""
 	switch {
-	case host == "youtu.be":
+	case host == hostYoutuBe:
 		id = strings.TrimPrefix(parsed.Path, "/")
 	case parsed.Path == "/watch":
 		if len(videos) == 1 {
@@ -213,7 +222,7 @@ func addYoutubeTranslations(ctx context.Context, source *media.Source, id string
 		return
 	}
 	response, err := fetcher("https://www.youtube.com/watch?v="+id+"&hl=en", map[string]string{
-		"User-Agent":      "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 Chrome/120 Safari/537.36",
+		headerUserAgent:   "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 Chrome/120 Safari/537.36",
 		"Accept-Language": "en",
 	}, ctx)
 	if err != nil {
@@ -282,7 +291,7 @@ func addYoutubeTranslations(ctx context.Context, source *media.Source, id string
 		}
 		target, err := url.Parse(original)
 		if err != nil || target.Scheme != "https" ||
-			!(target.Hostname() == "youtube.com" || strings.HasSuffix(target.Hostname(), ".youtube.com")) {
+			!(target.Hostname() == hostYouTube || strings.HasSuffix(target.Hostname(), ".youtube.com")) {
 			continue
 		}
 		query := target.Query()
@@ -298,7 +307,7 @@ func addYoutubeTranslations(ctx context.Context, source *media.Source, id string
 }
 
 func requestJSON(ctx context.Context, fetcher Fetcher, endpoint string) (map[string]any, error) {
-	response, err := fetcher(endpoint, map[string]string{"User-Agent": "Mozilla/5.0"}, ctx)
+	response, err := fetcher(endpoint, map[string]string{headerUserAgent: "Mozilla/5.0"}, ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -428,7 +437,7 @@ func vimeoSource(selection Selection, raw map[string]any, options media.NativeMe
 		if !heightOK || height < 0 || math.Trunc(height) != height {
 			continue
 		}
-		address, err := mediaAddress(stringOf(row["url"]), []string{"vimeocdn.com", "akamaized.net"})
+		address, err := mediaAddress(stringOf(row["url"]), []string{hostVimeoCdn, "akamaized.net"})
 		if err != nil {
 			return media.Source{}, err
 		}
@@ -445,7 +454,7 @@ func vimeoSource(selection Selection, raw map[string]any, options media.NativeMe
 	if len(streams) == 0 {
 		if hls := objectOf(files["hls"]); len(hls) > 0 {
 			cdn := objectOf(objectOf(hls["cdns"])[stringOf(hls["default_cdn"])])
-			if address, err := mediaAddress(stringOf(cdn["url"]), []string{"vimeocdn.com", "akamaized.net"}); err == nil {
+			if address, err := mediaAddress(stringOf(cdn["url"]), []string{hostVimeoCdn, "akamaized.net"}); err == nil {
 				streams = append(streams, media.MediaStream{
 					ID: "hls-auto", Kind: "combined", URLs: []string{address}, Extension: "mp4", Transport: "hls",
 				})
@@ -464,7 +473,7 @@ func vimeoSource(selection Selection, raw map[string]any, options media.NativeMe
 			rightNumber, _ := strconv.Atoi(keys[right])
 			return leftNumber > rightNumber
 		})
-		if address, err := mediaAddress(stringOf(thumbs[keys[0]]), []string{"vimeocdn.com"}); err == nil {
+		if address, err := mediaAddress(stringOf(thumbs[keys[0]]), []string{hostVimeoCdn}); err == nil {
 			thumbnail = address
 		}
 	}
@@ -487,7 +496,7 @@ func vimeoSource(selection Selection, raw map[string]any, options media.NativeMe
 		if err != nil {
 			continue
 		}
-		address, err := mediaAddress(target.String(), []string{"vimeo.com", "vimeocdn.com"})
+		address, err := mediaAddress(target.String(), []string{"vimeo.com", hostVimeoCdn})
 		if err != nil {
 			continue
 		}
@@ -526,7 +535,7 @@ func dailymotionSource(selection Selection, raw map[string]any, options media.Na
 			if kind != "video/mp4" && kind != "video/webm" {
 				continue
 			}
-			address, err := mediaAddress(stringOf(row["url"]), []string{"dailymotion.com", "dmcdn.net"})
+			address, err := mediaAddress(stringOf(row["url"]), []string{hostDailymotion, hostDmcdn})
 			if err != nil {
 				return media.Source{}, err
 			}
@@ -557,7 +566,7 @@ func dailymotionSource(selection Selection, raw map[string]any, options media.Na
 			}
 		}
 		if hlsURL != "" {
-			if address, err := mediaAddress(hlsURL, []string{"dailymotion.com", "dmcdn.net"}); err == nil {
+			if address, err := mediaAddress(hlsURL, []string{hostDailymotion, hostDmcdn}); err == nil {
 				streams = append(streams, media.MediaStream{
 					ID: "hls-auto", Kind: "combined", URLs: []string{address}, Extension: "mp4", Transport: "hls",
 				})
@@ -566,7 +575,7 @@ func dailymotionSource(selection Selection, raw map[string]any, options media.Na
 	}
 	thumbnail := ""
 	for _, value := range objectOf(raw["posters"]) {
-		if address, err := mediaAddress(stringOf(value), []string{"dmcdn.net", "dailymotion.com"}); err == nil {
+		if address, err := mediaAddress(stringOf(value), []string{hostDmcdn, hostDailymotion}); err == nil {
 			thumbnail = address
 			break
 		}
@@ -581,7 +590,7 @@ func dailymotionSource(selection Selection, raw map[string]any, options media.Na
 		if len(urls) == 0 {
 			continue
 		}
-		if address, err := mediaAddress(stringOf(urls[0]), []string{"dailymotion.com", "dmcdn.net"}); err == nil {
+		if address, err := mediaAddress(stringOf(urls[0]), []string{hostDailymotion, hostDmcdn}); err == nil {
 			tracks = append(tracks, media.SubtitleTrack{Language: language, URL: address, Automatic: false, Format: "webvtt"})
 		}
 	}
@@ -634,7 +643,7 @@ func finishSource(selection Selection, platformName, title string, duration floa
 		Platform: platformName, SourceID: platformName + "-" + selection.ID,
 		Identity: platformName + ":" + selection.ID,
 		Streams:  streams, SubtitleTracks: tracks, Description: description, Thumbnail: thumbnail,
-		DownloadHeaders: map[string]string{"Referer": referer, "User-Agent": "Mozilla/5.0"},
+		DownloadHeaders: map[string]string{"Referer": referer, headerUserAgent: "Mozilla/5.0"},
 		Catalog: media.Catalog{
 			URL: selection.URL, Title: truncateTitle(title), Duration: &duration,
 			Playlist: false, Heights: heights, Subtitles: languages, Formats: formats,

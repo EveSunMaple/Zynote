@@ -9,7 +9,7 @@ import {notify} from './ToastHost'
 export const invoke = <T,>(action: string, args?: unknown) => window.assistant.invoke<T>(action, args)
 export const basename = (p: string) => p.split(/[\\/]/).at(-1) || p
 const displayPath = (p: string) => (/^(?:[A-Za-z]:[\\/]|\\\\|\/)/.test(p) ? p : `资料库 / ${p}`)
-export function Modal({title, children, close}: {title: string; children: ReactNode; close: () => void}) {
+export function Modal({title, children, close}: Readonly<{title: string; children: ReactNode; close: () => void}>) {
  return (
   <HeroModal.Backdrop
    isOpen
@@ -38,7 +38,7 @@ export function FilePicker({
  courseware = false,
  courseId,
  courseName
-}: {
+}: Readonly<{
  label: string
  paths: string[]
  set: (p: string[]) => void
@@ -46,7 +46,7 @@ export function FilePicker({
  courseware?: boolean
  courseId?: string
  courseName?: string
-}) {
+}>) {
  const [library, setLibrary] = useState<LibraryFile[]>([]),
   [loading, setLoading] = useState(false)
  useEffect(() => {
@@ -171,7 +171,7 @@ export function FilePicker({
   </div>
  )
 }
-export function Markdown({text}: {text: string}) {
+export function Markdown({text}: Readonly<{text: string}>) {
  return (
   <ReactMarkdown
    remarkPlugins={[remarkGfm]}

@@ -13,6 +13,17 @@ import (
 	"github.com/EveSunMaple/Zynote/backend/internal/media"
 )
 
+const (
+	errSourceUnavailable = "所选源文件不可用"
+	errFramesDirInvalid  = "画面暂存目录无效"
+	errImageUnreadable   = "图片无法读取"
+	errNoVideo           = "源文件没有视频画面"
+	errFrameUnreadable   = "截取的画面无法读取"
+	ffmpegNoStdin        = "-nostdin"
+	ffmpegLogLevel       = "-loglevel"
+	ffmpegHideBanner     = "-hide_banner"
+)
+
 type CaptureRequest struct {
 	ID           string
 	Path         string
@@ -58,15 +69,15 @@ func (service *Service) Capture(ctx context.Context, request CaptureRequest) (Ca
 	}
 	source, err := filepath.Abs(request.Path)
 	if err != nil {
-		return Capture{}, badRequest("所选源文件不可用")
+		return Capture{}, badRequest(errSourceUnavailable)
 	}
 	info, err := os.Lstat(source)
 	if err != nil || !info.Mode().IsRegular() || info.Mode()&os.ModeSymlink != 0 {
-		return Capture{}, badRequest("所选源文件不可用")
+		return Capture{}, badRequest(errSourceUnavailable)
 	}
 	hash, err := fileDigest(source)
 	if err != nil {
-		return Capture{}, badRequest("所选源文件不可用")
+		return Capture{}, badRequest(errSourceUnavailable)
 	}
 	if hash != request.ExpectedHash {
 		return Capture{}, badRequest("原文件已改变，请重新建立任务")
@@ -74,10 +85,10 @@ func (service *Service) Capture(ctx context.Context, request CaptureRequest) (Ca
 	base := filepath.Join(service.FramesRoot, "native-visual")
 	directory := filepath.Join(base, request.ID)
 	if err := os.MkdirAll(directory, 0o755); err != nil {
-		return Capture{}, badRequest("画面暂存目录无效")
+		return Capture{}, badRequest(errFramesDirInvalid)
 	}
 	if item, err := os.Lstat(directory); err != nil || item.Mode()&os.ModeSymlink != 0 || !item.IsDir() {
-		return Capture{}, badRequest("画面暂存目录无效")
+		return Capture{}, badRequest(errFramesDirInvalid)
 	}
 	extension := strings.ToLower(filepath.Ext(source))
 	frames := []Frame{}
@@ -86,17 +97,17 @@ func (service *Service) Capture(ctx context.Context, request CaptureRequest) (Ca
 	if imageSource {
 		path := filepath.Join(directory, "frame-1.png")
 		if err := service.command(ctx, "ffmpeg", []string{
-			"-hide_banner", "-loglevel", "error", "-nostdin", "-i", source, "-frames:v", "1",
+			ffmpegHideBanner, ffmpegLogLevel, "error", ffmpegNoStdin, "-i", source, "-frames:v", "1",
 			"-vf", "scale=1600:1600:force_original_aspect_ratio=decrease", "-q:v", "2", "-y", path,
 		}, nil); err != nil {
-			return Capture{}, badRequest("图片无法读取")
+			return Capture{}, badRequest(errImageUnreadable)
 		}
 		if frameInfo, err := os.Stat(path); err != nil || frameInfo.Size() == 0 {
-			return Capture{}, badRequest("图片无法读取")
+			return Capture{}, badRequest(errImageUnreadable)
 		}
 		frameHash, err := fileDigest(path)
 		if err != nil {
-			return Capture{}, badRequest("图片无法读取")
+			return Capture{}, badRequest(errImageUnreadable)
 		}
 		frames = append(frames, Frame{Path: path, Time: 0, Hash: frameHash})
 	} else {
@@ -104,7 +115,7 @@ func (service *Service) Capture(ctx context.Context, request CaptureRequest) (Ca
 			"-v", "error", "-show_entries", "format=duration:stream=codec_type,duration", "-of", "json", source,
 		})
 		if err != nil {
-			return Capture{}, badRequest("源文件没有视频画面")
+			return Capture{}, badRequest(errNoVideo)
 		}
 		var metadata struct {
 			Format *struct {
@@ -115,11 +126,11 @@ func (service *Service) Capture(ctx context.Context, request CaptureRequest) (Ca
 			} `json:"streams"`
 		}
 		if json.Unmarshal([]byte(raw), &metadata) != nil || metadata.Format == nil {
-			return Capture{}, badRequest("源文件没有视频画面")
+			return Capture{}, badRequest(errNoVideo)
 		}
 		duration, err = strconv.ParseFloat(fmt.Sprint(metadata.Format.Duration), 64)
 		if err != nil || !isFinite(duration) || duration <= 0 {
-			return Capture{}, badRequest("源文件没有视频画面")
+			return Capture{}, badRequest(errNoVideo)
 		}
 		hasVideo := false
 		for _, stream := range metadata.Streams {
@@ -129,7 +140,7 @@ func (service *Service) Capture(ctx context.Context, request CaptureRequest) (Ca
 			}
 		}
 		if !hasVideo {
-			return Capture{}, badRequest("源文件没有视频画面")
+			return Capture{}, badRequest(errNoVideo)
 		}
 		times := coverageTimes(duration, request.Cap)
 		if request.Policy == "balanced" {
@@ -145,7 +156,7 @@ func (service *Service) Capture(ctx context.Context, request CaptureRequest) (Ca
 			var previous []byte
 			index := 0
 			_ = service.command(ctx, "ffmpeg", []string{
-				"-hide_banner", "-loglevel", "error", "-nostdin", "-i", source,
+				ffmpegHideBanner, ffmpegLogLevel, "error", ffmpegNoStdin, "-i", source,
 				"-an", "-vf", "fps=1/5,scale=32:18,format=gray", "-f", "rawvideo", "pipe:1",
 			}, func(chunk []byte) {
 				pending = append(pending, chunk...)
@@ -191,18 +202,18 @@ func (service *Service) Capture(ctx context.Context, request CaptureRequest) (Ca
 			}
 			path := filepath.Join(directory, fmt.Sprintf("frame-%d.png", index+1))
 			if err := service.command(ctx, "ffmpeg", []string{
-				"-hide_banner", "-loglevel", "error", "-nostdin", "-ss", strconv.FormatFloat(time, 'f', -1, 64),
+				ffmpegHideBanner, ffmpegLogLevel, "error", ffmpegNoStdin, "-ss", strconv.FormatFloat(time, 'f', -1, 64),
 				"-i", source, "-frames:v", "1", "-vf", "scale=1600:1600:force_original_aspect_ratio=decrease",
 				"-q:v", "2", "-y", path,
 			}, nil); err != nil {
-				return Capture{}, badRequest("截取的画面无法读取")
+				return Capture{}, badRequest(errFrameUnreadable)
 			}
 			if info, err := os.Stat(path); err != nil || info.Size() == 0 {
-				return Capture{}, badRequest("截取的画面无法读取")
+				return Capture{}, badRequest(errFrameUnreadable)
 			}
 			frameHash, err := fileDigest(path)
 			if err != nil {
-				return Capture{}, badRequest("截取的画面无法读取")
+				return Capture{}, badRequest(errFrameUnreadable)
 			}
 			frames = append(frames, Frame{Path: path, Time: time, Hash: frameHash})
 		}
@@ -216,7 +227,7 @@ func (service *Service) Capture(ctx context.Context, request CaptureRequest) (Ca
 	result := Capture{ID: request.ID, Source: source, SourceHash: hash, Duration: duration, Frames: frames, Gaps: []any{}}
 	encoded, _ := json.MarshalIndent(result, "", "  ")
 	if err := os.WriteFile(filepath.Join(directory, "source.json"), encoded, 0o644); err != nil {
-		return Capture{}, badRequest("画面暂存目录无效")
+		return Capture{}, badRequest(errFramesDirInvalid)
 	}
 	return result, nil
 }

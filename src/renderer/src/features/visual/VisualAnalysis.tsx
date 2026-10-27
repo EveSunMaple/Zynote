@@ -20,7 +20,7 @@ type Task = {
 
 const invoke = <T,>(action: string, args?: unknown) => window.assistant.invoke<T>(action, args)
 
-export function VisualAnalysisPanel({visible}: {visible: boolean}) {
+export function VisualAnalysisPanel({visible}: Readonly<{visible: boolean}>) {
  const [tasks, setTasks] = useState<Task[]>([])
  const [cap, setCap] = useState(6)
  const [policy, setPolicy] = useState('balanced')

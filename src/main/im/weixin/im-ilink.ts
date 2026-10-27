@@ -30,7 +30,7 @@ export class NativeILinkSession {
  private verifyCode = ''
  constructor(
   saved?: unknown,
-  private fetcher: typeof fetch = fetch
+  private readonly fetcher: typeof fetch = fetch
  ) {
   if (saved) this.session = sessionSchema.parse(saved)
  }
@@ -157,7 +157,7 @@ export class NativeILinkSession {
   return {channel_version: '2.4.10', bot_agent: 'Zynote'}
  }
  async receive(selected: string, account: string, signal: AbortSignal) {
-  if (!this.session || this.session.account !== account) throw new Error('微信Bot消息账号不符')
+  if (this.session?.account !== account) throw new Error('微信Bot消息账号不符')
   const value = z
    .object({
     get_updates_buf: z.string().max(1000000),

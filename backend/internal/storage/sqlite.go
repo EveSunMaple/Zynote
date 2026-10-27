@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/EveSunMaple/Zynote/backend/internal/contract"
+	// Register the SQLite driver used by database/sql.
 	_ "modernc.org/sqlite"
 )
 

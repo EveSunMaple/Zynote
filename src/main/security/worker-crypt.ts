@@ -34,11 +34,11 @@ export function decodeMediaCrypt(value: string) {
 export class MediaEncryptionClient {
  private sequence = 0
  private closed = false
- private pending = new Map<
+ private readonly pending = new Map<
   number,
   {resolve: (data: Buffer) => void; reject: (error: Error) => void; timer: ReturnType<typeof setTimeout>}
  >()
- constructor(private send: (message: unknown) => void) {}
+ constructor(private readonly send: (message: unknown) => void) {}
  readonly protect: MediaCrypt = (raw, decrypt = false) => {
   if (this.closed || this.pending.size >= 4 || !raw.length || raw.length > limit)
    return Promise.reject(new Error('加密通道已关闭或请求超过限制'))

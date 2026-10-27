@@ -30,7 +30,7 @@ const endpointIdentity = (profile: Profile) => {
  return `${url.origin}${url.pathname.replace(/\/$/, '')}`
 }
 export class SettingsStore {
- private path: string
+ private readonly path: string
  private value: Stored
  constructor(root: string) {
   mkdirSync(root, {recursive: true})
@@ -64,11 +64,10 @@ export class SettingsStore {
    this.flush()
   }
   for (const name of ['correction', 'notes', 'past-exam', 'match', 'search', 'answer', 'chat']) {
-   if (this.value.prompts[name] === undefined)
-    this.value.prompts[name] = readFileSync(
-     join(app.isPackaged ? process.resourcesPath : join(app.getAppPath(), 'src'), 'prompts', name + '.txt'),
-     'utf8'
-    )
+   this.value.prompts[name] ??= readFileSync(
+    join(app.isPackaged ? process.resourcesPath : join(app.getAppPath(), 'src'), 'prompts', name + '.txt'),
+    'utf8'
+   )
   }
  }
  public get(): Settings {
@@ -82,7 +81,7 @@ export class SettingsStore {
    videoPolicyVersion,
    ...rest
   } = this.value
-  const profile: StoredProfile = qwenProfile || {...defaultProfile()},
+  const profile: StoredProfile = qwenProfile ?? {...defaultProfile()},
    {encryptedKey, apiKey, ...publicProfile} = profile
   return {
    ...rest,
@@ -246,7 +245,7 @@ export class SettingsStore {
   return this.draft({...safe, apiKey: undefined})
  }
  public connectionFingerprint() {
-  const p: StoredProfile = this.value.qwenProfile || defaultProfile()
+  const p: StoredProfile = this.value.qwenProfile ?? defaultProfile()
   return createHash('sha256')
    .update(
     JSON.stringify([p.baseUrl, p.model, p.visionModel, p.apiFormat, p.parameters, p.encryptedKey || 'missing-key'])

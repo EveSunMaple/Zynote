@@ -36,8 +36,7 @@ export function createStudyHandler(
    'textbook:clear'
   ]),
   async invoke(action, object) {
-   const id = () => z.string().uuid().parse(object.id),
-    courseId = () => z.string().uuid().parse(object.courseId)
+   const id = () => z.string().uuid().parse(object.id)
    switch (action) {
     case 'study:get':
      return studyEntries(db).map(e => ({...e, checkAt: checkAt(e.endsAt)}))
@@ -88,8 +87,7 @@ export function createStudyHandler(
      const usableCachedText = cached.text.replace(/\[第\s*\d+\s*页\]/g, '').trim()
      if (
       (cached.text.trim() && (!cached.needsOcr || usableCachedText.length > 0)) ||
-      !lecture.ppt_path ||
-      !lecture.ppt_path.toLowerCase().endsWith('.pdf')
+      !lecture.ppt_path?.toLowerCase().endsWith('.pdf')
      )
       return null
      const parsed = await parseDocument(lecture.ppt_path)

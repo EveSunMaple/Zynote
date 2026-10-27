@@ -111,10 +111,10 @@ function xmlText(text: string) {
  return text
   .replace(/<!\[CDATA\[([^]*?)\]\]>/g, '$1')
   .replace(/<[^<>]*>/g, ' ')
-  .replace(/&amp;/g, '&')
-  .replace(/&lt;/g, '<')
-  .replace(/&gt;/g, '>')
-  .replace(/&quot;/g, '"')
+  .replaceAll('&amp;', '&')
+  .replaceAll('&lt;', '<')
+  .replaceAll('&gt;', '>')
+  .replaceAll('&quot;', '"')
 }
 export async function searchAnswers(
  query: string,

@@ -1,5 +1,5 @@
 import {randomUUID, createHash} from 'node:crypto'
-import {readFile, writeFile, rename, copyFile, rm} from 'node:fs/promises'
+import {rename, copyFile, rm} from 'node:fs/promises'
 import {TextbookFiles, fileHash, pdfOperation, type BookInfo} from '@main/learning/study/textbook-files'
 import {stripCodeFence} from '@shared/code-fence'
 import {z} from 'zod'
@@ -43,12 +43,12 @@ export const studyEntries = (db: Store): StudyEntry[] =>
   .map(row => studyEntrySchema.parse(JSON.parse((row as {json: string}).json)))
 export const pdfHash = (b: Uint8Array) => createHash('sha256').update(b).digest('hex')
 export class TextbookHighlighter {
- private files = new TextbookFiles()
- private selected = new Map<string, {path: string; hash: string}>()
- private drafts = new Map<string, {bookId: string; hash: string; rows: Highlight[]}>()
+ private readonly files = new TextbookFiles()
+ private readonly selected = new Map<string, {path: string; hash: string}>()
+ private readonly drafts = new Map<string, {bookId: string; hash: string; rows: Highlight[]}>()
  constructor(
-  private api: Pick<Api, 'json'>,
-  private imageAnalyze?: (input: string, url: string, signal: AbortSignal) => Promise<string>
+  private readonly api: Pick<Api, 'json'>,
+  private readonly imageAnalyze?: (input: string, url: string, signal: AbortSignal) => Promise<string>
  ) {}
  async analyzeImages(
   id: string,
@@ -197,7 +197,8 @@ export class TextbookHighlighter {
     for (const d of decisions) {
      const line = lines.find(l => l.id === d.lineId),
       source = sources[d.source]
-     if (!line || !line.text.includes(d.quote) || !source.trim() || !source.includes(d.evidence))
+     if (!line) throw new Error(`第 ${number} 页划线依据未通过核对，原教材未修改`)
+     if (!line.text.includes(d.quote) || !source.trim() || !source.includes(d.evidence))
       throw new Error(`第 ${number} 页划线依据未通过核对，原教材未修改`)
      const offset = line.text.indexOf(d.quote) / line.text.length
      rows.push({
@@ -253,7 +254,7 @@ export class TextbookHighlighter {
   if (!book) throw new Error('请重新选择教材')
   return this.files.url(book.path)
  }
- async openPath(id: string) {
+ openPath(id: string) {
   const book = this.selected.get(id)
   if (!book) throw new Error('请重新选择教材')
   return book.path

@@ -30,15 +30,15 @@ export class NativeDownloads {
  private worker: UtilityProcess | undefined
  private sequence = 0
  private disposed = false
- private pending = new Map<
+ private readonly pending = new Map<
   number,
   {resolve: (value: unknown) => void; reject: (error: Error) => void; timer: ReturnType<typeof setTimeout>}
  >()
- private apiCalls = new Set<AbortController>()
+ private readonly apiCalls = new Set<AbortController>()
  constructor(
-  private resources: string,
-  private root: string,
-  private api: Pick<BiliResources, 'readMedia'>
+  private readonly resources: string,
+  private readonly root: string,
+  private readonly api: Pick<BiliResources, 'readMedia'>
  ) {}
  get started() {
   return !!this.worker

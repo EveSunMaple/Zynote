@@ -38,7 +38,7 @@ export class NativeImStore {
  readonly db: Database.Database
  constructor(
   root: string,
-  private crypt: MediaCrypt = windowsProtect
+  private readonly crypt: MediaCrypt = windowsProtect
  ) {
   mkdirSync(root, {recursive: true})
   if (lstatSync(root).isSymbolicLink() || realpathSync(root).toLowerCase() !== resolve(root).toLowerCase())
@@ -434,7 +434,7 @@ export class NativeImStore {
    row = this.db
     .prepare('SELECT scope,state,receipt FROM send_operations WHERE operation_id=?')
     .get(value.operation_id) as {scope: string; state: string; receipt: string} | undefined
-  if (!row || JSON.stringify(scope) !== row.scope) throw new Error('此发送回执不属于当前账号和会话')
+  if (JSON.stringify(scope) !== row?.scope) throw new Error('此发送回执不属于当前账号和会话')
   return {...JSON.parse(row.receipt), state: row.state === 'sending' ? 'unknown' : row.state}
  }
  close() {

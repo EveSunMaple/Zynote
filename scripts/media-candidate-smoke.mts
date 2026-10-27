@@ -1,7 +1,7 @@
 import {build} from 'esbuild'
 import {fork, execFile, execFileSync} from 'node:child_process'
 import {createHash, randomUUID} from 'node:crypto'
-import {chmod, copyFile, mkdir, mkdtemp, open, readFile, realpath, writeFile} from 'node:fs/promises'
+import {chmod, copyFile, mkdir, mkdtemp, open, realpath, writeFile} from 'node:fs/promises'
 import {constants} from 'node:fs'
 import {dirname, join, resolve} from 'node:path'
 import {release, tmpdir} from 'node:os'
@@ -250,8 +250,8 @@ const report: Record<string, unknown> = {
   process.platform === 'darwin'
    ? execFileSync('/usr/bin/sw_vers', ['-productVersion'], {encoding: 'utf8'}).trim()
    : undefined,
- commit: execFileSync('git', ['rev-parse', 'HEAD'], {cwd: root, encoding: 'utf8'}).trim(),
- dirty: !!execFileSync('git', ['status', '--porcelain'], {cwd: root, encoding: 'utf8'}).trim(),
+ commit: execFileSync('git', ['rev-parse', 'HEAD'], {cwd: root, encoding: 'utf8'}).trim(), // NOSONAR: CI/dev script with trusted runner PATH.
+ dirty: !!execFileSync('git', ['status', '--porcelain'], {cwd: root, encoding: 'utf8'}).trim(), // NOSONAR: CI/dev script with trusted runner PATH.
  pending: ['license_review', 'corresponding_source', 'distribution_signing', 'notarization', 'installer_integration'],
  scope:
   'Isolated third-party candidate execution on this runner only; local synthetic media, production guardian cancel and IPC disconnect. Not all POSIX process trees, external tools, signing or distribution approval.'

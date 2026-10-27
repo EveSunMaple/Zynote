@@ -9,7 +9,7 @@ const options: {id: ThemeChoice; label: string; hint: string}[] = [
 ]
 
 /** 主题选择：带示例预览的卡片，浅色 / 深色 / 跟随系统。 */
-export function ThemePicker({value, onChange}: {value: ThemeChoice; onChange: (value: ThemeChoice) => void}) {
+export function ThemePicker({value, onChange}: Readonly<{value: ThemeChoice; onChange: (value: ThemeChoice) => void}>) {
  return (
   <ToggleButtonGroup
    aria-label="界面主题"

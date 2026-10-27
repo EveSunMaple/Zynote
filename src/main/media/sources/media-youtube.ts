@@ -111,7 +111,7 @@ function checked(raw: string, media = false) {
 }
 type Fetcher = (url: string, init?: RequestInit) => Promise<Response>
 export class NativeYoutubeCatalog {
- constructor(private fetcher: Fetcher) {}
+ constructor(private readonly fetcher: Fetcher) {}
  async read(
   input: string,
   playlist: boolean,

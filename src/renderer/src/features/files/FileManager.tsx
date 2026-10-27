@@ -12,12 +12,12 @@ export function FileManager({
  close,
  changed,
  initialCourse = '全部课程'
-}: {
+}: Readonly<{
  initialCourse?: string
  busy: boolean
  close: () => void
  changed: () => Promise<unknown>
-}) {
+}>) {
  const [files, setFiles] = useState<LibraryFile[]>([]),
   [filter, setFilter] = useState('全部'),
   [search, setSearch] = useState(''),

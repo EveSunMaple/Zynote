@@ -16,6 +16,7 @@ import (
 	"sync"
 	"time"
 
+	// Register the SQLite driver used by database/sql.
 	_ "modernc.org/sqlite"
 
 	"github.com/EveSunMaple/Zynote/backend/internal/ids"

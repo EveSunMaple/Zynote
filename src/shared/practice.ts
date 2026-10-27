@@ -41,7 +41,7 @@ export function answerChoices(answer: string, allowed: string[]) {
   if (choiceSeparator.includes(char) || isSpace(char)) continue
   break
  }
- if (!valid || !valid.every(key => allowed.includes(key))) return []
+ if (!valid?.every(key => allowed.includes(key))) return []
  return [...new Set(valid)].sort(compareCodeUnit)
 }
 export function compareChoices(response: string, correct: string[]) {

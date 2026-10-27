@@ -98,7 +98,7 @@ export function createShellServices(window: BrowserWindow, libraryRoot: string):
     print.destroy()
    }
   },
-  'shell.showItemInFolder': async params => {
+  'shell.showItemInFolder': params => {
    const path = z.string().min(1).max(4096).parse(params.path)
    shell.showItemInFolder(path)
    return true

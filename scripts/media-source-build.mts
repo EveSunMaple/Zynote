@@ -15,6 +15,16 @@ const linux = process.platform === 'linux'
 function check(value: unknown, message: string): asserts value {
  if (!value) throw new Error(message)
 }
+function neededLibraries(output: string) {
+ const result: string[] = []
+ for (const line of output.split('\n')) {
+  if (!line.includes('(NEEDED)')) continue
+  const start = line.indexOf('['),
+   end = line.lastIndexOf(']')
+  if (start >= 0 && end > start) result.push(line.slice(start + 1, end))
+ }
+ return result
+}
 const outputIndex = process.argv.indexOf('--output')
 check(
  outputIndex === 2 && process.argv.length === 4,
@@ -339,7 +349,7 @@ try {
     'Wrong Linux ELF architecture'
    )
    const dynamic = await execute('/usr/bin/readelf', ['-d', path], prepared.work, env, tool + '-dynamic')
-   const needed = [...dynamic.output.matchAll(/\(NEEDED\)[^\n]*\[([^\]\n]+)\]/g)].map(match => match[1])
+   const needed = neededLibraries(dynamic.output)
    const allowed = new Set([
     'libc.so.6',
     'libm.so.6',
@@ -536,8 +546,8 @@ try {
   osProductVersion: linux
    ? 'Ubuntu 24.04'
    : execFileSync('/usr/bin/sw_vers', ['-productVersion'], {encoding: 'utf8'}).trim(),
-  commit: execFileSync('git', ['rev-parse', 'HEAD'], {cwd: root, encoding: 'utf8'}).trim(),
-  dirty: !!execFileSync('git', ['status', '--porcelain'], {cwd: root, encoding: 'utf8'}).trim(),
+  commit: execFileSync('git', ['rev-parse', 'HEAD'], {cwd: root, encoding: 'utf8'}).trim(), // NOSONAR: CI/dev script with trusted runner PATH.
+  dirty: !!execFileSync('git', ['status', '--porcelain'], {cwd: root, encoding: 'utf8'}).trim(), // NOSONAR: CI/dev script with trusted runner PATH.
   sourceHashes: Object.fromEntries(
    await Promise.all(
     [

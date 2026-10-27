@@ -1,7 +1,7 @@
 import {mediaCommand} from '@main/media/tools/media-command'
 import type {MediaTool} from '@main/media/tools/media-executable'
 import {lstat, realpath, writeFile, readFile} from 'node:fs/promises'
-import {basename, dirname, extname, join, resolve} from 'node:path'
+import {basename, dirname, join, resolve} from 'node:path'
 import {z} from 'zod'
 import {createHash} from 'node:crypto'
 import {OwnedMediaArtifact, mediaFileHash} from '@main/media/core/media-artifact'
@@ -38,8 +38,8 @@ async function localFile(path: string) {
 /** No remote URL is ever passed to FFmpeg. All downloaded tracks are local owned files. */
 export class NativeMediaMux {
  constructor(
-  private resources: string,
-  private allowSystemFallback = false
+  private readonly resources: string,
+  private readonly allowSystemFallback = false
  ) {}
  private command(name: MediaTool, args: string[], signal: AbortSignal) {
   return mediaCommand(this.resources, name, args, signal, undefined, undefined, this.allowSystemFallback)
@@ -300,7 +300,7 @@ export class NativeMediaMux {
   }
   let chapterIndex: number | undefined
   if (o.chapters && chapters?.length && (o.clip_end === null || kept)) {
-   const escape = (value: string) => value.replace(/\\/g, '\\\\').replace(/[=;#\n\r]/g, c => '\\' + c)
+   const escape = (value: string) => value.replaceAll('\\', '\\\\').replace(/[=;#\n\r]/g, c => '\\' + c)
    const metadata = chapters
     .map(c => {
      if (

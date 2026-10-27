@@ -104,13 +104,13 @@ function xmlLogin(xml: string) {
 }
 /** Direct fixed-host Web protocol. The caller must confirm the verified account before storing it. */
 export class NativeWeixinWebSession {
- private jar = new CookieJar()
+ private readonly jar = new CookieJar()
  private session: Session | undefined
  private uuid = ''
  private qr = ''
  constructor(
   saved?: unknown,
-  private fetcher: typeof fetch = fetch
+  private readonly fetcher: typeof fetch = fetch
  ) {
   if (saved) {
    const raw = record.parse(saved)

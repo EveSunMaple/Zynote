@@ -87,9 +87,9 @@ export type KnowledgeImport = {
 /** One transactional native database owns sources and citation contents. Old
  * files are imported as a baseline, never edited during the compatibility scan. */
 export class NativeKnowledgeStore {
- private db: Database.Database
- private drafts = new Map<string, {id: string; generation: string; digest: string}>()
- constructor(private root: string) {
+ private readonly db: Database.Database
+ private readonly drafts = new Map<string, {id: string; generation: string; digest: string}>()
+ constructor(private readonly root: string) {
   mkdirSync(root, {recursive: true})
   this.db = new Database(join(root, 'knowledge-native.sqlite'))
   this.db.pragma('journal_mode = WAL')
@@ -178,7 +178,7 @@ export class NativeKnowledgeStore {
   const result = this.db
    .transaction(() => {
     const entry = this.get(draft.id)
-    if (!entry || entry.generation_id !== draft.generation || entry.content_hash !== draft.digest)
+    if (entry?.generation_id !== draft.generation || entry?.content_hash !== draft.digest)
      throw new Error('分类期间资料已改变，请重新读取')
     const classification = {
      selection,
@@ -521,7 +521,7 @@ export class NativeKnowledgeStore {
   return this.db
    .transaction(() => {
     const entry = this.get(id)
-    if (!entry || entry.generation_id !== generation) throw new Error('资料版本已更新，请刷新后再确认删除')
+    if (entry?.generation_id !== generation) throw new Error('资料版本已更新，请刷新后再确认删除')
     const changed = this.db
      .prepare('DELETE FROM native_sources WHERE id=? AND generation=?')
      .run(id, generation).changes

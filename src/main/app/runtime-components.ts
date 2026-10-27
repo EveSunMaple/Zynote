@@ -57,8 +57,8 @@ export async function hashFile(path: string) {
 export class RuntimeComponents {
  private statusRequest?: Promise<RuntimeStatus>
  constructor(
-  private resources: string,
-  private version: string
+  private readonly resources: string,
+  private readonly version: string
  ) {}
  private async manifest(): Promise<RuntimeManifest> {
   const raw = JSON.parse(await readFile(join(this.resources, 'runtime-manifest.json'), 'utf8'))

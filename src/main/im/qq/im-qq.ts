@@ -21,7 +21,7 @@ export class NativeQqSession {
  readonly config: OnebotConfig
  constructor(
   config: unknown,
-  private fetcher: typeof fetch = fetch
+  private readonly fetcher: typeof fetch = fetch
  ) {
   this.config = onebotConfig.parse(config)
  }
@@ -131,11 +131,11 @@ export class NativeNapcatLogin {
  private credential = ''
  private configured = false
  constructor(
-  private url: string,
+  private readonly url: string,
   private token: string,
   readonly onebot: OnebotConfig,
-  private managed: boolean,
-  private fetcher: typeof fetch = fetch
+  private readonly managed: boolean,
+  private readonly fetcher: typeof fetch = fetch
  ) {
   imLoopback(url)
   onebotConfig.parse(onebot)

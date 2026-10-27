@@ -53,18 +53,18 @@ export type ResearchModel = (
 ) => Promise<string>
 /** Durable native execution: source reads precede generation and are revalidated before any result is published. */
 export class NativeResearchEngine {
- private active = new Map<string, {controller: AbortController; done: Promise<void>}>()
+ private readonly active = new Map<string, {controller: AbortController; done: Promise<void>}>()
  private closed = false
  private initialized = false
  constructor(
-  private store: NativeResearchStore,
-  private sources: NativeResearchSources,
-  private model: ResearchModel,
-  private connection: () => string,
-  private extensions = new NativeResearchExtensions(store),
-  private mcp = new NativeResearchMcp(store),
-  private external = new NativeResearchExternal(),
-  private fulltext = new NativeResearchFulltext()
+  private readonly store: NativeResearchStore,
+  private readonly sources: NativeResearchSources,
+  private readonly model: ResearchModel,
+  private readonly connection: () => string,
+  private readonly extensions = new NativeResearchExtensions(store),
+  private readonly mcp = new NativeResearchMcp(store),
+  private readonly external = new NativeResearchExternal(),
+  private readonly fulltext = new NativeResearchFulltext()
  ) {}
  private initialize() {
   if (this.initialized) return
@@ -532,7 +532,8 @@ export class NativeResearchEngine {
   return this.store.operation(operation, {id, value}, () => {
    const task = this.verifyResult(id),
     candidate = task.memory_candidates.find(row => row.candidate_id === value.candidate_id)
-   if (!candidate || candidate.status !== 'pending') throw new Error('记忆建议已处理或不存在')
+   if (!candidate) throw new Error('记忆建议已处理或不存在')
+   if (candidate.status !== 'pending') throw new Error('记忆建议已处理或不存在')
    const basis = {question: task.question, note: task.note, limitations: task.limitations}[candidate.basis]
    if (!basis.includes(candidate.quote) || (candidate.kind === 'preference' && candidate.basis !== 'question'))
     throw new Error('记忆建议原句校验失败')

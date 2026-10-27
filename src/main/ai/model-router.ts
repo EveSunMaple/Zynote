@@ -1,5 +1,4 @@
-import type {Api} from '@main/ai/api'
-import type {FileInput} from '@main/ai/api'
+import type {Api, FileInput} from '@main/ai/api'
 
 // Keep one active provider behind the existing workflow boundary.
 export function modelRouter(select: () => Pick<Api, 'chat' | 'json'>) {

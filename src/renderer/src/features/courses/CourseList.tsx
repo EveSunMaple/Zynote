@@ -16,7 +16,7 @@ export function CourseList({
  selectSession,
  newSession,
  removeSession
-}: {
+}: Readonly<{
  courses: Course[]
  selected: string
  busy: boolean
@@ -27,7 +27,7 @@ export function CourseList({
  selectSession: (courseId: string, sessionId: string) => void
  newSession: (courseId: string) => void
  removeSession: (courseId: string, id: string) => Promise<void>
-}) {
+}>) {
  const [pendingSession, setPendingSession] = useState<ChatSession | null>(null)
  const [pending, setPending] = useState<Course | null>(null),
   [deleting, setDeleting] = useState(false),

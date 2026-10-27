@@ -35,9 +35,9 @@ export class KnowledgeBase {
   return !!this.worker
  }
  constructor(
-  private resources: string,
-  private root: string,
-  private progress: (message: string) => void = () => {}
+  private readonly resources: string,
+  private readonly root: string,
+  private readonly progress: (message: string) => void = () => {}
  ) {}
  request<T>(action: string, args: unknown = {}, signal?: AbortSignal): Promise<T> {
   const next = this.queue.then(() => this.run<T>(action, args, signal))

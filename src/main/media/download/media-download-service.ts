@@ -16,22 +16,22 @@ const idSchema = z.string().regex(/^[a-f0-9]{32}$/)
 type Fetcher = (url: string, init?: RequestInit) => Promise<Response>
 /** Queue control remains responsive while one native download runs in the background. */
 export class NativeDownloadService {
- private jobs: NativeDownloadJobs
- private legacy: LegacyDownloads
- private catalog: NativePlatformCatalog
- private runner: NativeBiliDownloadRunner
- private auth: NativeMediaAuth
- private tokens = new Map<string, {source: NativeMediaSource; expires: number}>()
+ private readonly jobs: NativeDownloadJobs
+ private readonly legacy: LegacyDownloads
+ private readonly catalog: NativePlatformCatalog
+ private readonly runner: NativeBiliDownloadRunner
+ private readonly auth: NativeMediaAuth
+ private readonly tokens = new Map<string, {source: NativeMediaSource; expires: number}>()
  private queue: string[] = []
  private active: {id: string; controller: AbortController; done: Promise<void>} | undefined
  private pumping: Promise<void> | undefined
  private control: Promise<unknown> = Promise.resolve()
  private stopped = false
- private cancelling = new Set<string>()
- private progress = new Map<string, MediaJob['progress']>()
+ private readonly cancelling = new Set<string>()
+ private readonly progress = new Map<string, MediaJob['progress']>()
  constructor(
   resources: string,
-  private root: string,
+  private readonly root: string,
   api: Pick<BiliResources, 'readMedia'>,
   fetcher: Fetcher,
   crypt?: MediaCrypt,

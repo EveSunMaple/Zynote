@@ -8,6 +8,16 @@ import {tmpdir, release} from 'node:os'
 import {fileURLToPath, pathToFileURL} from 'node:url'
 import {packageVideoCandidate} from './video-candidate-package.mts'
 const compareCodeUnit = (a: string, b: string) => (a < b ? -1 : a > b ? 1 : 0)
+function neededLibraries(output: string) {
+ const result: string[] = []
+ for (const line of output.split('\n')) {
+  if (!line.includes('(NEEDED)')) continue
+  const start = line.indexOf('['),
+   end = line.lastIndexOf(']')
+  if (start >= 0 && end > start) result.push(line.slice(start + 1, end))
+ }
+ return result
+}
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..'),
  require = createRequire(import.meta.url)
 const [artifactDirectory, outputDirectory] = process.argv.slice(2)
@@ -106,7 +116,7 @@ try {
    const path = join(resources, 'video', tool),
     diagnostic = fixed.diagnostics[tool]
    const dynamic = execFileSync('/usr/bin/readelf', ['-d', path], {encoding: 'utf8', timeout: 15000})
-   const needed = [...dynamic.matchAll(/\(NEEDED\)[^\n]*\[([^\]\n]+)\]/g)].map(match => match[1]).sort(compareCodeUnit)
+   const needed = neededLibraries(dynamic).sort(compareCodeUnit)
    if (
     JSON.stringify(needed) !== JSON.stringify([...diagnostic.needed].sort(compareCodeUnit)) ||
     /\((?:RPATH|RUNPATH)\)/.test(dynamic)
@@ -415,8 +425,8 @@ try {
    process.exitCode = 1
   }
   report.binding = {
-   commit: execFileSync('git', ['rev-parse', 'HEAD'], {cwd: root, encoding: 'utf8'}).trim(),
-   dirty: !!execFileSync('git', ['status', '--porcelain'], {cwd: root, encoding: 'utf8'}).trim(),
+   commit: execFileSync('git', ['rev-parse', 'HEAD'], {cwd: root, encoding: 'utf8'}).trim(), // NOSONAR: CI/dev script with trusted runner PATH.
+   dirty: !!execFileSync('git', ['status', '--porcelain'], {cwd: root, encoding: 'utf8'}).trim(), // NOSONAR: CI/dev script with trusted runner PATH.
    platform: process.platform,
    arch: process.arch,
    osRelease: release(),

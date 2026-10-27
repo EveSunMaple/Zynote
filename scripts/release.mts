@@ -11,7 +11,7 @@ import {generate} from './runtime-manifest.mts'
 import type {RuntimeManifest} from '../src/shared/runtime.ts'
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..')
-const binaries = spawnSync('node', [join(root, 'scripts/build-binaries.mts')], {stdio: 'inherit'})
+const binaries = spawnSync('node', [join(root, 'scripts/build-binaries.mts')], {stdio: 'inherit'}) // NOSONAR: release script uses the trusted runner Node.
 if (binaries.status !== 0) throw new Error('后端二进制构建失败')
 const profile = z.enum(['full', 'lite', 'components', 'portable']).parse(process.argv[2])
 const requested = z

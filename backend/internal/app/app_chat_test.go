@@ -10,6 +10,7 @@ import (
 	"strings"
 	"testing"
 
+	// Register the SQLite driver used by database/sql.
 	_ "modernc.org/sqlite"
 )
 

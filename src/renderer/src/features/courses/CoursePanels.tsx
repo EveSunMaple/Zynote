@@ -8,11 +8,11 @@ export function NewCourse({
  close,
  create,
  busy
-}: {
+}: Readonly<{
  close: () => void
  create: (name: string, senior: string[], exams: string[]) => Promise<boolean>
  busy: boolean
-}) {
+}>) {
  const [name, setName] = useState(''),
   [senior, setSenior] = useState<string[]>([]),
   [exams, setExams] = useState<string[]>([])
@@ -51,7 +51,7 @@ export function NewLecture({
  busy,
  courseId,
  courseName
-}: {
+}: Readonly<{
  courseId: string
  courseName?: string
  draft: string
@@ -59,7 +59,7 @@ export function NewLecture({
  close: () => void
  create: (title: string, source: string, ppt: string) => Promise<boolean>
  busy: boolean
-}) {
+}>) {
  const [title, setTitle] = useState(''),
   [original, setOriginal] = useState(draft ? [draft] : []),
   [ppt, setPpt] = useState<string[]>(pptDraft ? [pptDraft] : [])
@@ -114,14 +114,14 @@ export function AddTranscript({
  close,
  save,
  busy
-}: {
+}: Readonly<{
  courseId: string
  courseName?: string
  draft: string
  close: () => void
  save: (path: string) => Promise<boolean>
  busy: boolean
-}) {
+}>) {
  const [paths, setPaths] = useState<string[]>(draft ? [draft] : [])
  return (
   <Modal title="添加语音识别原文" close={close}>
@@ -159,14 +159,14 @@ export function AddCourseware({
  save,
  courseId,
  courseName
-}: {
+}: Readonly<{
  courseId: string
  courseName?: string
  draft: string
  close: () => void
  busy: boolean
  save: (path: string) => Promise<boolean>
-}) {
+}>) {
  const [paths, setPaths] = useState<string[]>(draft ? [draft] : [])
  return (
   <Modal title="添加 PPT/课件" close={close}>
@@ -205,12 +205,12 @@ export function Notes({
  jump,
  save,
  disabled
-}: {
+}: Readonly<{
  notes: LectureNotes
  jump: (t: string) => void
  save: (n: LectureNotes) => Promise<boolean>
  disabled: boolean
-}) {
+}>) {
  type Note = LectureNotes['keyPoints'][number] | LectureNotes['notTested'][number]
  const [editing, setEditing] = useState<{
   group: 'keyPoints' | 'notTested' | 'uncertain'
@@ -361,13 +361,13 @@ export function Materials({
  close,
  run,
  files
-}: {
+}: Readonly<{
  files: () => void
  detail: Detail
  busy: boolean
  close: () => void
  run: (fn: () => Promise<unknown>) => Promise<boolean>
-}) {
+}>) {
  const [selected, setSelected] = useState<string[]>([]),
   [edit, setEdit] = useState<PastQuestion | null>(null)
  const add = (kind: CourseFile['kind']) =>

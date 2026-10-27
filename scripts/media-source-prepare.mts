@@ -2,7 +2,7 @@ import {execFile, execFileSync} from 'node:child_process'
 import {createHash, randomUUID} from 'node:crypto'
 import {constants} from 'node:fs'
 import {copyFile, lstat, mkdir, open, readFile, readdir, realpath, writeFile} from 'node:fs/promises'
-import {basename, dirname, join, resolve} from 'node:path'
+import {dirname, join, resolve} from 'node:path'
 import {tmpdir, release} from 'node:os'
 import {fileURLToPath} from 'node:url'
 import {buildSources} from './media-build-source-lock.mts'
@@ -125,7 +125,7 @@ function verboseListing(line: string) {
   return undefined
  if (!/^[A-Za-z]{3}$/.test(fields[5]) || !/^\d{1,2}$/.test(fields[6])) return undefined
  if (!/^(?:\d{4}|\d{1,2}:\d{2})$/.test(fields[7])) return undefined
- return {directory: fields[0][0] === 'd', size: Number(fields[4]), name}
+ return {directory: fields[0].startsWith('d'), size: Number(fields[4]), name}
 }
 export function inspectArchiveListing(namesText: string, verboseText: string, expectedRoot: string) {
  const lines = (text: string) => text.replaceAll('\r\n', '\n').replace(/\n$/, '').split('\n')
@@ -196,8 +196,8 @@ async function inspectExtracted(base: string, expected: Map<string, {directory: 
 async function sourceBinding() {
  const root = resolve(dirname(fileURLToPath(import.meta.url)), '..')
  return {
-  commit: execFileSync('git', ['rev-parse', 'HEAD'], {cwd: root, encoding: 'utf8'}).trim(),
-  dirty: !!execFileSync('git', ['status', '--porcelain'], {cwd: root, encoding: 'utf8'}).trim(),
+  commit: execFileSync('git', ['rev-parse', 'HEAD'], {cwd: root, encoding: 'utf8'}).trim(), // NOSONAR: CI/dev script with trusted runner PATH.
+  dirty: !!execFileSync('git', ['status', '--porcelain'], {cwd: root, encoding: 'utf8'}).trim(), // NOSONAR: CI/dev script with trusted runner PATH.
   platform: process.platform,
   arch: process.arch,
   osRelease: release(),

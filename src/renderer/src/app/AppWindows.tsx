@@ -31,7 +31,7 @@ export function AppWindows({
  videoRestoreId,
  openVideoTask,
  clearVideoTask
-}: {
+}: Readonly<{
  current: AppWindowKey
  setModal: (value: AppWindowKey) => void
  courses: Course[]
@@ -42,7 +42,7 @@ export function AppWindows({
  videoRestoreId: string
  openVideoTask: (id: string) => void
  clearVideoTask: () => void
-}) {
+}>) {
  const videoVisible = learningViews.some(item => item.id === current)
  return (
   <>

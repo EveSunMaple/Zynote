@@ -10,7 +10,7 @@ export function speechRanges(probabilities: readonly number[], samples: number):
   const position = index * 512
   if (probability >= 0.5) {
    silence = undefined
-   if (start === undefined) start = position
+   start ??= position
   } else if (probability < 0.35 && start !== undefined) {
    silence ??= position
    if (position - silence >= 32000) {

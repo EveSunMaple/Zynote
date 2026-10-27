@@ -6,13 +6,13 @@ export function StudyField({
  error,
  children,
  className = ''
-}: {
+}: Readonly<{
  label: ReactNode
  hint?: ReactNode
  error?: ReactNode
  children: ReactNode
  className?: string
-}) {
+}>) {
  return (
   <div className={'study-field ' + className}>
    <span className="study-field__label">{label}</span>

@@ -39,7 +39,7 @@ export function VideoPpt({
  courseName,
  restoreTaskId,
  onTaskRestored
-}: {
+}: Readonly<{
  visible: boolean
  view: LearningView
  select: (view: LearningView) => void
@@ -48,7 +48,7 @@ export function VideoPpt({
  courseName?: string
  restoreTaskId?: string
  onTaskRestored?: () => void
-}) {
+}>) {
  const [url, setUrl] = useState(''),
   [prompt, setPrompt] = useState(defaultVideoPrompt),
   [source, setSource] = useState<VideoSource | null>(null),

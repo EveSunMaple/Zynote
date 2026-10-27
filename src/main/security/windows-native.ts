@@ -172,7 +172,7 @@ export function windowsArgument(input: string) {
 /** Atomic Windows Job membership before the child runs. Closing the handle also stops descendants. */
 export class NativeWindowsJob {
  private handle: bigint | null
- private processes = new Set<bigint>()
+ private readonly processes = new Set<bigint>()
  constructor() {
   const a = api()
   this.handle = checked(a.createJob(null, null)) as bigint

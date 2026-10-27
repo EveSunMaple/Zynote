@@ -1,5 +1,5 @@
 import {Button} from '@heroui/react'
-import {useEffect, useRef, useState} from 'react'
+import {useEffect, useRef} from 'react'
 import {notify} from '@renderer/ui/ToastHost'
 const invoke = (action: string, args?: unknown) => window.assistant.invoke(action, args)
 

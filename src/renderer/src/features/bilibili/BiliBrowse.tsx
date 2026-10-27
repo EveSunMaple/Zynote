@@ -3,7 +3,9 @@ import {useState} from 'react'
 import {notify} from '@renderer/ui/ToastHost'
 type Video = {bvid: string; title: string; author: string; duration: string; url: string}
 type Listing = {videos: Video[]; page: number; hasMore: boolean}
-export function BiliBrowse({useVideo}: {useVideo: (url: string, kind: 'videoPpt' | 'videoSubtitles') => void}) {
+export function BiliBrowse({
+ useVideo
+}: Readonly<{useVideo: (url: string, kind: 'videoPpt' | 'videoSubtitles') => void}>) {
  const [query, setQuery] = useState(''),
   [submitted, setSubmitted] = useState(''),
   [result, setResult] = useState<Listing>(),

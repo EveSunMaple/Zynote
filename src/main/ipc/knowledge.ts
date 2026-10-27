@@ -28,8 +28,6 @@ export function createKnowledgeHandler(
    'knowledge:ask'
   ]),
   async invoke(action, object) {
-   const id = () => z.string().uuid().parse(object.id),
-    courseId = () => z.string().uuid().parse(object.courseId)
    switch (action) {
     case 'knowledge:list':
      return knowledge.list()

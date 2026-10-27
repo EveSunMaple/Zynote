@@ -1,5 +1,5 @@
 import {noteGroups, type VideoNotePoint} from '@shared/video-notes'
-export function VideoMindmap({title, points}: {title: string; points: VideoNotePoint[]}) {
+export function VideoMindmap({title, points}: Readonly<{title: string; points: VideoNotePoint[]}>) {
  return (
   <div className="video-mindmap" aria-label="课程思维导图">
    <div className="video-mindmap-root">

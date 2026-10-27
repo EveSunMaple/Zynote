@@ -37,9 +37,9 @@ export class NativeNapcatRuntime {
  private value: NativeNapcatSecrets | undefined
  private closed = false
  constructor(
-  private resources: string,
-  private root: string,
-  private crypt: MediaCrypt = windowsProtect
+  private readonly resources: string,
+  private readonly root: string,
+  private readonly crypt: MediaCrypt = windowsProtect
  ) {}
  status() {
   return {version, state: this.state, code: this.code, owned_running: !!this.child && this.child.poll() === null}
@@ -85,7 +85,7 @@ export class NativeNapcatRuntime {
     name.includes('\0') ||
     name.startsWith('/') ||
     name.includes('\\') ||
-    name.split('/').some(part => part === '..') ||
+    name.split('/').includes('..') ||
     (mode & 0o170000) === 0o120000
    )
     throw new Error('QQ 组件包路径无效')

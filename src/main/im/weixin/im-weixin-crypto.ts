@@ -90,7 +90,7 @@ export function scanWeixinKeys(memory: WeixinMemory, pages: Map<string, Buffer>)
      length = Number(obj.readBigUInt64LE(16))
     if (!location || length <= 0 || length > 1024) continue
     const encrypted = memory.read(location, length)
-    if (!encrypted || encrypted.length !== length) continue
+    if (encrypted?.length !== length) continue
     const decoded = Buffer.from(encrypted.map((value, index) => value ^ mask[index % mask.length]))
     try {
      for (const match of decoded.toString('latin1').matchAll(/[xX]'([0-9a-fA-F]{64,192})'/g)) {

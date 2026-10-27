@@ -16,7 +16,7 @@ export function subtitleText(srt: string, format: 'txt' | 'md' | 'vtt') {
    cues
     .map(
      (cue, i) =>
-      `${i + 1}\n${time(cue.start).replace(',', '.')} --> ${time(cue.end).replace(',', '.')}\n${cue.text.replace(/-->/g, '→')}`
+      `${i + 1}\n${time(cue.start).replace(',', '.')} --> ${time(cue.end).replace(',', '.')}\n${cue.text.replaceAll('-->', '→')}`
     )
     .join('\n\n') +
    '\n'
@@ -54,7 +54,7 @@ export async function exportVideoNotes(source: string, directory: string, format
         new Paragraph({
          children: [
           new TextRun({
-           text: line.replace(/^#{1,3} /, '').replace(/\*\*/g, ''),
+           text: line.replace(/^#{1,3} /, '').replaceAll('**', ''),
            bold: line.startsWith('#'),
            size: line.startsWith('# ') ? 32 : 22
           })
@@ -81,7 +81,7 @@ export async function exportVideoNotes(source: string, directory: string, format
     .parse(JSON.parse(await readFile(source.replace(/\.md$/i, '.json'), 'utf8')))
    bytes = Buffer.from(notesSvg(title, records), 'utf8')
   } else {
-   const escape = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+   const escape = (s: string) => s.replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;')
    const print = new BrowserWindow({
     show: false,
     webPreferences: {nodeIntegration: false, contextIsolation: true, sandbox: true}

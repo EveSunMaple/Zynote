@@ -22,12 +22,12 @@ export function IdentityEditor({
  close,
  save,
  embedded = false
-}: {
+}: Readonly<{
  initial: Identity
  close: () => void
  save: (value: Identity) => Promise<void>
  embedded?: boolean
-}) {
+}>) {
  const [value, setValue] = useState(initial),
   [selected, setSelected] = useState<'user' | 'assistant'>('assistant'),
   [busy, setBusy] = useState(false)

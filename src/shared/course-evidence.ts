@@ -101,7 +101,7 @@ export interface CourseEvidenceBundle {
 }
 
 const hash = (value: string) => createHash('sha256').update(value, 'utf8').digest('hex')
-const filename = (path: string) => path.replace(/\\/g, '/').split('/').at(-1) || undefined
+const filename = (path: string) => path.replaceAll('\\', '/').split('/').at(-1) || undefined
 const statusForNotes = (items: {verified?: boolean}[] | undefined, present: boolean): EvidenceStatus => {
  if (!present || !items?.length) return 'unavailable'
  return (items || []).every(item => item.verified === true) ? 'verified' : 'uncertain'

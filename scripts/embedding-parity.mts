@@ -1,7 +1,7 @@
 import {spawn} from 'node:child_process'
 import {createInterface} from 'node:readline'
 import {build} from 'esbuild'
-import {mkdir, mkdtemp, rm, writeFile} from 'node:fs/promises'
+import {mkdir, mkdtemp, rm} from 'node:fs/promises'
 import {tmpdir} from 'node:os'
 import {dirname, join, resolve} from 'node:path'
 import {fileURLToPath, pathToFileURL} from 'node:url'

@@ -60,7 +60,7 @@ async function run(root: string, work: string, results: string) {
    ids = {auth: authRow.id, job: job.id, im: ''}
   } else ids = JSON.parse(await readFile(identityPath, 'utf8'))
   const media = new NativeDownloads(join(root, 'resources'), mediaRoot, {
-   readMedia: async () => {
+   readMedia: () => {
     throw new Error('External media requests are forbidden in this fixture')
    }
   })
@@ -84,7 +84,7 @@ async function run(root: string, work: string, results: string) {
   )
   const research = new NativeResearchBackend(
    imRoot,
-   async () => {
+   () => {
     throw new Error('Model requests are forbidden in this fixture')
    },
    join(root, 'resources')

@@ -13,14 +13,14 @@ export function SubtitleBatchRecords({
  run,
  refresh,
  courseName
-}: {
+}: Readonly<{
  visible: boolean
  tasks: SubtitleSyncTask[]
  busy: boolean
  run: (fn: () => Promise<void>) => Promise<void>
  refresh: () => Promise<void>
  courseName?: string
-}) {
+}>) {
  const [derived, setDerived] = useState<SubtitleDerivedTask[]>([])
  const [draft, setDraft] = useState<{task: SubtitleSyncTask; urls: string[]; modes: VideoNoteMode[]} | null>(null)
  async function load() {

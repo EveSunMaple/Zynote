@@ -49,12 +49,12 @@ export class GoCore {
  private stdoutTail = ''
  private stderrTail = ''
  private status: GoCoreStatus = 'starting'
- private pending = new Map<string, Pending>()
+ private readonly pending = new Map<string, Pending>()
  private nextID = 0
  private restarts = 0
  private disposed = false
  private buffer = ''
- private options: GoCoreOptions
+ private readonly options: GoCoreOptions
  private helloTimer: NodeJS.Timeout | undefined
 
  constructor(options: GoCoreOptions) {
@@ -126,7 +126,7 @@ export class GoCore {
   }
   const child = this.child
   this.child = undefined
-  if (!child || child.exitCode !== null || child.signalCode !== null) return
+  if (child?.exitCode !== null || child?.signalCode !== null) return
   try {
    if (process.platform !== 'win32' && child.pid) {
     try {

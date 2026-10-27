@@ -10,14 +10,14 @@ export function ConfirmDialog({
  busy = false,
  onCancel,
  onConfirm
-}: {
+}: Readonly<{
  title: string
  children: ReactNode
  confirmLabel?: string
  busy?: boolean
  onCancel: () => void
  onConfirm: () => void
-}) {
+}>) {
  return (
   <Modal
    title={title}

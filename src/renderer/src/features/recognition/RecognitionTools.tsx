@@ -18,13 +18,13 @@ export function RecognitionTools({
  courseId,
  courseName,
  files
-}: {
+}: Readonly<{
  visible: boolean
  close: () => void
  courseId: string
  courseName?: string
  files: () => void
-}) {
+}>) {
  const [view, setView] = useState<RecognitionView>('ppt')
  const active = views.find(item => item.id === view)!
  return (

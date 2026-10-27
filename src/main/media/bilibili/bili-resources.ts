@@ -26,7 +26,7 @@ const media = z.object({
 export class BiliResources {
  private qr: {key: string; expires: number} | undefined
  private signingKey: {value: string; expires: number} | undefined
- constructor(private fetcher: Fetcher) {}
+ constructor(private readonly fetcher: Fetcher) {}
  private async read(path: string, params: Record<string, string> = {}, passport = false, signal?: AbortSignal) {
   const url = new URL(path, passport ? 'https://passport.bilibili.com' : 'https://api.bilibili.com')
   for (const [key, value] of Object.entries(params)) url.searchParams.set(key, value)
@@ -86,7 +86,7 @@ export class BiliResources {
   }
   const encoded = Object.entries(signed)
    .sort(([a], [b]) => a.localeCompare(b))
-   .map(([key, value]) => `${encodeURIComponent(key)}=${encodeURIComponent(value).replace(/%20/g, '+')}`)
+   .map(([key, value]) => `${encodeURIComponent(key)}=${encodeURIComponent(value).replaceAll('%20', '+')}`)
    .join('&')
   return {
    ...signed,

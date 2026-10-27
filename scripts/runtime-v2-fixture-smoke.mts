@@ -1,11 +1,21 @@
 import assert from 'node:assert/strict'
 import {createHash} from 'node:crypto'
 import {execFileSync} from 'node:child_process'
-import {chmod, lstat, mkdir, mkdtemp, readFile, readdir, realpath, symlink, link, writeFile} from 'node:fs/promises'
+import fsPromises, {
+ chmod,
+ lstat,
+ mkdir,
+ mkdtemp,
+ readFile,
+ readdir,
+ realpath,
+ symlink,
+ link,
+ writeFile
+} from 'node:fs/promises'
 import {tmpdir, release} from 'node:os'
 import {dirname, join, resolve} from 'node:path'
 import {fileURLToPath} from 'node:url'
-import fsPromises from 'node:fs/promises'
 import {syncBuiltinESMExports} from 'node:module'
 import {createVideoDescriptor} from '../src/shared/runtime-descriptor-v2.ts'
 import {parseRuntimeManifestV2} from '../src/shared/runtime-manifest-v2.ts'
@@ -247,8 +257,8 @@ try {
  process.exitCode = 1
 } finally {
  report.binding = {
-  commit: execFileSync('git', ['rev-parse', 'HEAD'], {cwd: root, encoding: 'utf8'}).trim(),
-  dirty: !!execFileSync('git', ['status', '--porcelain'], {cwd: root, encoding: 'utf8'}).trim(),
+  commit: execFileSync('git', ['rev-parse', 'HEAD'], {cwd: root, encoding: 'utf8'}).trim(), // NOSONAR: CI/dev script with trusted runner PATH.
+  dirty: !!execFileSync('git', ['status', '--porcelain'], {cwd: root, encoding: 'utf8'}).trim(), // NOSONAR: CI/dev script with trusted runner PATH.
   platform: process.platform,
   arch: process.arch,
   osRelease: release(),

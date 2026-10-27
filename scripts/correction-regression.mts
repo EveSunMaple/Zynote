@@ -217,7 +217,7 @@ test('cancel preserves first committed batch and resume never duplicates the sav
  assert.deepEqual(saved, [0])
  await runCorrectionBatches(
   batches().slice(saved.length),
-  async (batch: {start: number}) => batch.start,
+  (batch: {start: number}) => Promise.resolve(batch.start),
   (value: number) => saved.push(value)
  )
  assert.deepEqual(saved, [0, 1, 2, 3])
@@ -228,7 +228,7 @@ test('checkpoint write failure aborts work without committing later batches', as
  await assert.rejects(
   runCorrectionBatches(
    batches(),
-   async (_batch: unknown, index: number) => index,
+   (_batch: unknown, index: number) => Promise.resolve(index),
    () => {
     writes++
     throw new Error('disk full')
@@ -309,9 +309,11 @@ test('API freezes actual model/output settings and preserves Retry-After without
   draft: (profile: typeof pinned) => ({...profile, key: profile.apiKey})
  }
  let sent: Record<string, unknown> = {}
- const api = new Api(settings, async (_url: string, init: RequestInit) => {
+ const api = new Api(settings, (_url: string, init: RequestInit) => {
   sent = JSON.parse(String(init.body))
-  return new Response(JSON.stringify({choices: [{message: {content: '[]'}, finish_reason: 'stop'}]}), {status: 200})
+  return Promise.resolve(
+   new Response(JSON.stringify({choices: [{message: {content: '[]'}, finish_reason: 'stop'}]}), {status: 200})
+  )
  })
  await api.json('fixture', {}, (value: unknown) => value, undefined, undefined, {
   profile: pinned,
@@ -319,9 +321,8 @@ test('API freezes actual model/output settings and preserves Retry-After without
  })
  assert.equal(sent.model, 'pinned-vision')
  assert.equal(sent.max_tokens, 2048)
- const throttled = new Api(
-  settings,
-  async () => new Response('private provider body', {status: 429, headers: {'retry-after': '7'}})
+ const throttled = new Api(settings, () =>
+  Promise.resolve(new Response('private provider body', {status: 429, headers: {'retry-after': '7'}}))
  )
  await assert.rejects(
   throttled.json('fixture', {}, (value: unknown) => value, undefined, undefined, {profile: pinned}),
@@ -339,9 +340,9 @@ test('cancel during API format retry delay is immediate and no second request es
  const abort = new AbortController()
  let calls = 0,
   retries = 0
- const api = new Api({profile: () => ({model: 'fixture', baseUrl: 'https://example.invalid'})}, async () => {
+ const api = new Api({profile: () => ({model: 'fixture', baseUrl: 'https://example.invalid'})}, () => {
   calls++
-  return new Response(JSON.stringify({choices: [{message: {content: 'invalid JSON'}}]}), {status: 200})
+  return Promise.resolve(new Response(JSON.stringify({choices: [{message: {content: 'invalid JSON'}}]}), {status: 200}))
  })
  await assert.rejects(
   api.json('fixture', {}, (value: unknown) => value, abort.signal, undefined, {

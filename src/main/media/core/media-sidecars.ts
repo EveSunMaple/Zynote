@@ -18,7 +18,7 @@ export async function mediaSidecars(
    relative: 'source.webloc',
    text:
     '<?xml version="1.0" encoding="UTF-8"?>\n<plist version="1.0"><dict><key>URL</key><string>' +
-    source.catalog.url.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;') +
+    source.catalog.url.replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;') +
     '</string></dict></plist>\n'
   })
  for (const output of outputs) {

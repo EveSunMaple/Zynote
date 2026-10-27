@@ -18,12 +18,12 @@ type Fetcher = (url: string, init?: RequestInit) => Promise<Response>
 /** Native queue executor; each final output is verified before task intermediates are cleaned. */
 export class NativeBiliDownloadRunner {
  constructor(
-  private jobs: NativeDownloadJobs,
-  private catalog: NativeMediaCatalog,
-  private fetcher: Fetcher,
-  private mux: NativeMediaMux,
-  private progress?: (id: string, downloaded: number, total: number | null) => void,
-  private auth?: NativeMediaAuth
+  private readonly jobs: NativeDownloadJobs,
+  private readonly catalog: NativeMediaCatalog,
+  private readonly fetcher: Fetcher,
+  private readonly mux: NativeMediaMux,
+  private readonly progress?: (id: string, downloaded: number, total: number | null) => void,
+  private readonly auth?: NativeMediaAuth
  ) {}
  async run(id: string, signal: AbortSignal) {
   let row = await this.jobs.read(id)
@@ -331,7 +331,7 @@ export class NativeBiliDownloadRunner {
     ...(cover && !options.thumbnail ? [cover.relative] : []),
     ...subtitles.flatMap(s => [...(s.embedRelative ? [s.embedRelative] : []), ...(keepSubtitles ? [] : [s.relative])])
    ]
-   row = await this.jobs.complete(id, row.revision, evidence, [...cleanup, ...layout.cleanup])
+   await this.jobs.complete(id, row.revision, evidence, [...cleanup, ...layout.cleanup])
    const remaining = await this.jobs.cleanupCompleted(id)
    return {
     job: await this.jobs.read(id),

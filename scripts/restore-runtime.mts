@@ -1,5 +1,5 @@
 import {createReadStream, constants} from 'node:fs'
-import {copyFile, lstat, mkdir, readFile, writeFile} from 'node:fs/promises'
+import {copyFile, lstat, mkdir, readFile} from 'node:fs/promises'
 import {createHash} from 'node:crypto'
 import {join, resolve, dirname} from 'node:path'
 import {fileURLToPath} from 'node:url'

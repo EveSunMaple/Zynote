@@ -66,12 +66,12 @@ export function TaskCenter({
  close,
  open,
  restoreVideoTask
-}: {
+}: Readonly<{
  visible: boolean
  close: () => void
  open: (view: OpenTarget) => void
  restoreVideoTask: (id: string) => void
-}) {
+}>) {
  const [filter, setFilter] = useState('全部')
  const [rows, setRows] = useState<Row[]>([])
  const [syncTasks, setSyncTasks] = useState<SubtitleSyncTask[]>([])
@@ -361,7 +361,7 @@ export function TaskCenter({
   </WindowPanel>
  )
 }
-function TaskRow({row}: {row: Row}) {
+function TaskRow({row}: Readonly<{row: Row}>) {
  return (
   <article className="task-row">
    <div className="task-row__copy">

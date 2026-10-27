@@ -1,7 +1,6 @@
 import {readFile, copyFile, mkdir} from 'node:fs/promises'
-import {join, extname, basename, posix} from 'node:path'
+import {join, extname, basename, posix, resolve} from 'node:path'
 import {randomUUID, createHash} from 'node:crypto'
-import {resolve} from 'node:path'
 import JSZip from 'jszip'
 import mammoth from 'mammoth'
 import jschardet from 'jschardet'
@@ -212,15 +211,15 @@ export async function parseDocument(path: string): Promise<{text: string; needsO
    const xml = await document.async('string'),
     text = xml
      .replace(/<w:br[^>]*>/g, '\n')
-     .replace(/<\/w:p>/g, '\n\n')
+     .replaceAll('</w:p>', '\n\n')
      .replace(/<[^<>]+>/g, '')
      .replace(/&#x([\da-f]+);/gi, (_m, n) => String.fromCodePoint(Number.parseInt(n, 16)))
      .replace(/&#(\d+);/g, (_m, n) => String.fromCodePoint(Number(n)))
-     .replace(/&lt;/g, '<')
-     .replace(/&gt;/g, '>')
-     .replace(/&quot;/g, '"')
-     .replace(/&apos;/g, "'")
-     .replace(/&amp;/g, '&')
+     .replaceAll('&lt;', '<')
+     .replaceAll('&gt;', '>')
+     .replaceAll('&quot;', '"')
+     .replaceAll('&apos;', "'")
+     .replaceAll('&amp;', '&')
    return {text, needsOcr: false}
   }
  }
@@ -356,11 +355,11 @@ export async function parseCourseware(path: string): Promise<CoursewareParseResu
   value
    .replace(/&#x([\da-f]+);/gi, (_m, n) => String.fromCodePoint(Number.parseInt(n, 16)))
    .replace(/&#(\d+);/g, (_m, n) => String.fromCodePoint(Number(n)))
-   .replace(/&lt;/g, '<')
-   .replace(/&gt;/g, '>')
-   .replace(/&quot;/g, '"')
-   .replace(/&apos;/g, "'")
-   .replace(/&amp;/g, '&')
+   .replaceAll('&lt;', '<')
+   .replaceAll('&gt;', '>')
+   .replaceAll('&quot;', '"')
+   .replaceAll('&apos;', "'")
+   .replaceAll('&amp;', '&')
  const attr = (xml: string, name: string) => new RegExp(`\\b${name}=["']([^"']+)["']`).exec(xml)?.[1]
  const rels = (xml: string) => Array.from(xml.matchAll(/<Relationship\b[^>]*>/g), m => m[0])
  const partTarget = (parent: string, value: string) => {

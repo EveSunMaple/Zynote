@@ -188,7 +188,7 @@ try {
  ]) {
   // Verify the immutable build source at its original locator; the migrated probe is recorded separately.
   // A shallow checkout without this commit fails explicitly instead of substituting current source bytes.
-  const historicalSha256 = hash(execFileSync('git', ['show', profile.commit + ':' + historical], {cwd: root})),
+  const historicalSha256 = hash(execFileSync('git', ['show', profile.commit + ':' + historical], {cwd: root})), // NOSONAR: CI/dev script with trusted runner PATH.
    currentSha256 = await fileHash(join(root, current))
   check(historicalSha256 === candidate.binding.sourceHashes[historical], 'Fixed build source mismatch: ' + historical)
   probeSources.push({
@@ -382,8 +382,8 @@ try {
   process.exitCode = 1
  }
  report.binding = {
-  commit: execFileSync('git', ['rev-parse', 'HEAD'], {cwd: root, encoding: 'utf8'}).trim(),
-  dirty: !!execFileSync('git', ['status', '--porcelain'], {cwd: root, encoding: 'utf8'}).trim(),
+  commit: execFileSync('git', ['rev-parse', 'HEAD'], {cwd: root, encoding: 'utf8'}).trim(), // NOSONAR: CI/dev script with trusted runner PATH.
+  dirty: !!execFileSync('git', ['status', '--porcelain'], {cwd: root, encoding: 'utf8'}).trim(), // NOSONAR: CI/dev script with trusted runner PATH.
   platform: process.platform,
   arch: process.arch
  }

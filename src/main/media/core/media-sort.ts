@@ -16,7 +16,7 @@ export function sortMediaStreams(rows: NativeMediaStream[], input: string, freeF
  const codecScore = (codec: string) =>
   /^(?:av01|av1)/.test(codec)
    ? 4
-   : /^vp/.test(codec)
+   : codec.startsWith('vp')
      ? 3
      : /^(?:hev|hvc)/.test(codec)
        ? 2

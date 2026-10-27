@@ -51,12 +51,12 @@ export function Study({
  courses,
  close,
  refresh
-}: {
+}: Readonly<{
  visible: boolean
  courses: Course[]
  close: () => void
  refresh: () => Promise<unknown>
-}) {
+}>) {
  const [entries, setEntries] = useState<StudyEntry[]>([]),
   [snapshot, setSnapshot] = useState('[]'),
   [selected, setSelected] = useState(''),

@@ -46,12 +46,12 @@ async function atomic(path: string, value: unknown) {
 export class OwnedMediaArtifact {
  readonly path: string
  private owner: z.infer<typeof reservation> | undefined
- private reserve: string
- private proof: string
+ private readonly reserve: string
+ private readonly proof: string
  constructor(
-  private directory: string,
-  private name: string,
-  private plan: string
+  private readonly directory: string,
+  private readonly name: string,
+  private readonly plan: string
  ) {
   if (
    !name ||
@@ -125,7 +125,7 @@ export class OwnedMediaArtifact {
  async finish() {
   if (!this.owner) throw new Error('成果尚未预留')
   const file = await exists(this.path)
-  if (!file || !file.size) throw new Error('媒体成果为空')
+  if (!file?.size) throw new Error('媒体成果为空')
   const value = {
    version: 1 as const,
    owner: this.owner.owner,

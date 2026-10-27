@@ -6,14 +6,14 @@ import {NativeWindowsJob} from '@main/security/windows-native'
 export class NativeWeixinLocal {
  private worker: ChildProcess | undefined
  private job: NativeWindowsJob | undefined
- private pending = new Map<
+ private readonly pending = new Map<
   number,
   {resolve: (value: unknown) => void; reject: (error: Error) => void; timer: ReturnType<typeof setTimeout>}
  >()
  private sequence = 0
- private bindings = new Map<string, number>()
+ private readonly bindings = new Map<string, number>()
  private closed = false
- private fail = () => {
+ private readonly fail = () => {
   this.job?.close()
   this.job = undefined
   this.worker?.kill()
@@ -138,7 +138,7 @@ export class NativeWeixinLocal {
  async invalidate(connection_id: string) {
   if (this.worker) await this.request('invalidate', {connection_id})
  }
- async dispose() {
+ dispose() {
   this.closed = true
   this.fail()
  }

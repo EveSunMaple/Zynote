@@ -20,7 +20,7 @@ const cueSchema = z.object({
   .max(20000)
 })
 export function nativeVttCues(text: string) {
- const body = text.replace(/^\uFEFF/, '').replace(/\r/g, '')
+ const body = text.replace(/^\uFEFF/, '').replaceAll('\r', '')
  if (!/^WEBVTT(?:\s|$)/.test(body)) throw new Error('站点字幕不是有效 WebVTT')
  const seconds = (stamp: string) => {
   const match = /^(?:(\d{2,}):)?(\d{2}):(\d{2})\.(\d{3})$/.exec(stamp)
@@ -51,9 +51,9 @@ export function matchesSubtitleLanguage(language: string, patterns: string) {
   new RegExp(
    '^' +
     pattern
-     .replace(/\.\*/g, '*')
+     .replaceAll('.*', '*')
      .replace(/[.+?^${}()|[\]\\]/g, '\\$&')
-     .replace(/\*/g, '.*') +
+     .replaceAll('*', '.*') +
     '$',
    'i'
   ).test(language)
@@ -187,7 +187,8 @@ export async function downloadNativeSubtitles(
    vtt: {
     ext: 'vtt',
     text:
-     'WEBVTT\n\n' + cues.map(c => `${clock(c.start)} --> ${clock(c.end)}\n${c.text.replace(/-->/g, '→')}\n`).join('\n')
+     'WEBVTT\n\n' +
+     cues.map(c => `${clock(c.start)} --> ${clock(c.end)}\n${c.text.replaceAll('-->', '→')}\n`).join('\n')
    },
    lrc: {
     ext: 'lrc',

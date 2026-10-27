@@ -33,7 +33,7 @@ type Conversation = z.infer<typeof conversationSchema>
 export class NativeResearchStore {
  readonly db: Database.Database
  readonly rootId: string
- constructor(private root: string) {
+ constructor(private readonly root: string) {
   mkdirSync(root, {recursive: true})
   if (lstatSync(root).isSymbolicLink() || realpathSync(root).toLowerCase() !== resolve(root).toLowerCase())
    throw new Error('研究资料根目录无效')
@@ -495,7 +495,7 @@ export class NativeResearchStore {
      old.body_bytes !== Buffer.byteLength(markdown)
     )
      throw new Error('旧笔记正文与保存回执不一致，未导入为有效笔记')
-    const state = events.filter(event => event.note_id === id).at(-1)
+    const state = events.findLast(event => event.note_id === id)
     if (state && (state.body_sha256 !== bodyHash || !['active', 'archived'].includes(String(state.state))))
      throw new Error('旧笔记归档回执无效')
     const note = {

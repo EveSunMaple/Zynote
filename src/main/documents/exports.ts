@@ -1,8 +1,7 @@
 import {BrowserWindow, app} from 'electron'
 import {writeFile, rm} from 'node:fs/promises'
 import {Document, Packer, Paragraph, TextRun} from 'docx'
-import type {LectureDetail} from '@shared/types'
-import type {Course} from '@shared/types'
+import type {LectureDetail, Course} from '@shared/types'
 import {buildCourseEvidenceBundle, courseEvidenceMarkdown} from '@shared/course-evidence'
 import {time} from '@shared/srt'
 import {reserveFile} from '@main/library/library'
@@ -14,7 +13,7 @@ export const exportFormats = {
 } as const
 export type ExportKind = keyof typeof exportFormats
 export function validateExportFormat(kind: ExportKind, format: string) {
- if (!exportFormats[kind].some(candidate => candidate === format)) throw new Error('不支持的导出格式')
+ if (!(exportFormats[kind] as readonly string[]).includes(format)) throw new Error('不支持的导出格式')
 }
 export function markdown(detail: LectureDetail, kind: 'notes' | 'practice'): string {
  const out = [`# ${detail.lecture.title} · ${kind === 'notes' ? '听课笔记' : '课后练习'}`, '']
@@ -127,7 +126,7 @@ export async function exportFile(
    })
    await writeFile(path, await Packer.toBuffer(doc))
   } else {
-   const escape = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+   const escape = (s: string) => s.replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;')
    const print = new BrowserWindow({
     show: false,
     webPreferences: {nodeIntegration: false, contextIsolation: true, sandbox: true}

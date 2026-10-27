@@ -23,6 +23,16 @@ import (
 	"github.com/EveSunMaple/Zynote/backend/internal/media"
 )
 
+const (
+	errSourceUnavailable = "所选源文件不可用"
+	errTaskRecordWrite   = "任务记录写入失败"
+	errVideoMetadata     = "视频时长或尺寸无法读取，原视频已保留"
+	errFrameCapture      = "截取画面失败；视频已保留"
+	ffmpegLogLevel       = "-loglevel"
+	ffmpegNoStdin        = "-nostdin"
+	ffmpegHideBanner     = "-hide_banner"
+)
+
 type Image struct {
 	Label string
 	URL   string
@@ -47,11 +57,11 @@ func (processor Processor) command(ctx context.Context, tool string, args []stri
 func (processor Processor) CreateTask(source string) (CreatedTask, error) {
 	absolute, err := filepath.Abs(source)
 	if err != nil {
-		return CreatedTask{}, requestError("所选源文件不可用")
+		return CreatedTask{}, requestError(errSourceUnavailable)
 	}
 	info, err := os.Lstat(absolute)
 	if err != nil || !info.Mode().IsRegular() || info.Mode()&os.ModeSymlink != 0 {
-		return CreatedTask{}, requestError("所选源文件不可用")
+		return CreatedTask{}, requestError(errSourceUnavailable)
 	}
 	id := ids.New()
 	directory := filepath.Join(processor.Root, id)
@@ -62,7 +72,7 @@ func (processor Processor) CreateTask(source string) (CreatedTask, error) {
 	input, err := os.Open(absolute)
 	if err != nil {
 		_ = os.RemoveAll(directory)
-		return CreatedTask{}, requestError("所选源文件不可用")
+		return CreatedTask{}, requestError(errSourceUnavailable)
 	}
 	output, err := os.OpenFile(video, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o644)
 	if err != nil {
@@ -81,7 +91,7 @@ func (processor Processor) CreateTask(source string) (CreatedTask, error) {
 	encoded, _ := json.Marshal(record)
 	if err := os.WriteFile(filepath.Join(directory, "task.json"), encoded, 0o644); err != nil {
 		_ = os.RemoveAll(directory)
-		return CreatedTask{}, requestError("任务记录写入失败")
+		return CreatedTask{}, requestError(errTaskRecordWrite)
 	}
 	return CreatedTask{ID: id, Name: filepath.Base(absolute), Dir: directory, Path: video}, nil
 }
@@ -145,7 +155,7 @@ func (processor Processor) Prepare(ctx context.Context, task CreatedTask, chat C
 		"-v", "error", "-show_entries", "format=duration:stream=codec_type,width,height", "-of", "json", task.Path,
 	}, nil)
 	if err != nil {
-		return PreparedTask{}, requestError("视频时长或尺寸无法读取，原视频已保留")
+		return PreparedTask{}, requestError(errVideoMetadata)
 	}
 	var metadata struct {
 		Format *struct {
@@ -158,11 +168,11 @@ func (processor Processor) Prepare(ctx context.Context, task CreatedTask, chat C
 		} `json:"streams"`
 	}
 	if json.Unmarshal([]byte(raw), &metadata) != nil || metadata.Format == nil {
-		return PreparedTask{}, requestError("视频时长或尺寸无法读取，原视频已保留")
+		return PreparedTask{}, requestError(errVideoMetadata)
 	}
 	duration, err := strconv.ParseFloat(fmt.Sprint(metadata.Format.Duration), 64)
 	if err != nil || math.IsNaN(duration) || duration <= 0 {
-		return PreparedTask{}, requestError("视频时长或尺寸无法读取，原视频已保留")
+		return PreparedTask{}, requestError(errVideoMetadata)
 	}
 	width, height := 0, 0
 	for _, stream := range metadata.Streams {
@@ -172,7 +182,7 @@ func (processor Processor) Prepare(ctx context.Context, task CreatedTask, chat C
 		}
 	}
 	if width <= 0 || height <= 0 {
-		return PreparedTask{}, requestError("视频时长或尺寸无法读取，原视频已保留")
+		return PreparedTask{}, requestError(errVideoMetadata)
 	}
 	if width*height > 33000000 {
 		return PreparedTask{}, requestError("视频分辨率过高，请使用 4K 或更低分辨率")
@@ -183,7 +193,7 @@ func (processor Processor) Prepare(ctx context.Context, task CreatedTask, chat C
 	for index, sample := range samples {
 		path := filepath.Join(task.Dir, fmt.Sprintf("sample-%d.png", index))
 		if _, err := processor.command(ctx, "ffmpeg", []string{
-			"-hide_banner", "-loglevel", "error", "-nostdin", "-ss", strconv.FormatFloat(sample, 'f', -1, 64),
+			ffmpegHideBanner, ffmpegLogLevel, "error", ffmpegNoStdin, "-ss", strconv.FormatFloat(sample, 'f', -1, 64),
 			"-i", task.Path, "-frames:v", "1", "-y", path,
 		}, nil); err != nil {
 			return PreparedTask{}, requestError("视频画面读取失败，原视频已保留")
@@ -229,7 +239,7 @@ func (processor Processor) Prepare(ctx context.Context, task CreatedTask, chat C
 	}
 	encoded, _ := json.Marshal(source)
 	if err := os.WriteFile(filepath.Join(task.Dir, "source.json"), encoded, 0o644); err != nil {
-		return PreparedTask{}, requestError("任务记录写入失败")
+		return PreparedTask{}, requestError(errTaskRecordWrite)
 	}
 	if progress != nil {
 		progress("请确认框选区域，再提取整段视频")
@@ -346,7 +356,7 @@ func (processor Processor) Extract(
 	started := time.Now()
 	last := time.Time{}
 	if _, err := processor.command(ctx, "ffmpeg", []string{
-		"-hide_banner", "-loglevel", "error", "-nostdin", "-i", task.Path, "-an",
+		ffmpegHideBanner, ffmpegLogLevel, "error", ffmpegNoStdin, "-i", task.Path, "-an",
 		"-vf", fmt.Sprintf("fps=1,crop=%d:%d:%d:%d,scale=160:90,format=gray", w, h, x, y),
 		"-f", "rawvideo", "pipe:1",
 	}, func(chunk []byte) {
@@ -391,14 +401,14 @@ func (processor Processor) Extract(
 		}
 		path := filepath.Join(task.Dir, fmt.Sprintf("frame-%d.png", len(frames)+1))
 		if _, err := processor.command(ctx, "ffmpeg", []string{
-			"-hide_banner", "-loglevel", "error", "-nostdin", "-ss", strconv.FormatFloat(capture, 'f', -1, 64),
+			ffmpegHideBanner, ffmpegLogLevel, "error", ffmpegNoStdin, "-ss", strconv.FormatFloat(capture, 'f', -1, 64),
 			"-i", task.Path, "-frames:v", "1", "-y", path,
 		}, nil); err != nil {
-			return Review{}, requestError("截取画面失败；视频已保留")
+			return Review{}, requestError(errFrameCapture)
 		}
 		body, err := os.ReadFile(path)
 		if err != nil {
-			return Review{}, requestError("截取画面失败；视频已保留")
+			return Review{}, requestError(errFrameCapture)
 		}
 		sum := sha256.Sum256(body)
 		hash := hex.EncodeToString(sum[:])
@@ -424,13 +434,13 @@ func (processor Processor) Extract(
 	}
 	encodedFrames, _ := json.Marshal(stored)
 	if err := os.WriteFile(filepath.Join(task.Dir, "frames.json"), encodedFrames, 0o644); err != nil {
-		return Review{}, requestError("任务记录写入失败")
+		return Review{}, requestError(errTaskRecordWrite)
 	}
 	previews := make([]string, 0, len(frames))
 	for _, frame := range frames {
 		preview, err := previewJPEG(frame.Path, 800, 80)
 		if err != nil {
-			return Review{}, requestError("截取画面失败；视频已保留")
+			return Review{}, requestError(errFrameCapture)
 		}
 		previews = append(previews, preview)
 	}
@@ -460,7 +470,7 @@ func (processor Processor) Extract(
 			for _, frame := range frames {
 				preview, err := previewJPEG(frame.Path, 480, 65)
 				if err != nil {
-					return Review{}, requestError("截取画面失败；视频已保留")
+					return Review{}, requestError(errFrameCapture)
 				}
 				images = append(images, Image{
 					Label: fmt.Sprintf("第 %d 页，时间 %s 秒", frame.Page, strconv.FormatFloat(frame.Time, 'f', -1, 64)),
@@ -513,7 +523,7 @@ func (processor Processor) Extract(
 		decision := decisions[index]
 		pageWidth, pageHeight, err := imageSize(frame.Path)
 		if err != nil {
-			return Review{}, requestError("截取画面失败；视频已保留")
+			return Review{}, requestError(errFrameCapture)
 		}
 		reason := *decision.Reason
 		if warning != "" {
@@ -527,7 +537,7 @@ func (processor Processor) Extract(
 	}
 	encoded, _ := json.Marshal(review)
 	if err := os.WriteFile(filepath.Join(task.Dir, "review.json"), encoded, 0o644); err != nil {
-		return Review{}, requestError("任务记录写入失败")
+		return Review{}, requestError(errTaskRecordWrite)
 	}
 	return review, nil
 }

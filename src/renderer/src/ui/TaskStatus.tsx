@@ -5,11 +5,11 @@ export function TaskStatus({
  progress,
  busy,
  onCancel
-}: {
+}: Readonly<{
  progress: Progress | null
  busy: boolean
  onCancel: () => void
-}) {
+}>) {
  const stage = progress?.stage || '正在处理',
   message = progress?.message || '请稍等'
  return (

@@ -78,8 +78,8 @@ export function resumableCorrection(
  fingerprint: string,
  source: Segment[]
 ) {
- return checkpoint &&
-  checkpoint.fingerprint === fingerprint &&
+ if (!checkpoint) return undefined
+ return checkpoint.fingerprint === fingerprint &&
   checkpoint.total === source.length &&
   validCorrectionPrefix(checkpoint.segments, source)
   ? checkpoint.segments

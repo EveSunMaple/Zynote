@@ -27,8 +27,8 @@ const hash = (text: string) => createHash('sha256').update(text).digest('hex')
 /** Research uses the same native source generations and evidence membership as the knowledge UI. */
 export class NativeResearchSources {
  constructor(
-  private knowledge: NativeKnowledgeStore,
-  private rootId: string
+  private readonly knowledge: NativeKnowledgeStore,
+  private readonly rootId: string
  ) {}
  private binding(hit: KnowledgeHit): ResearchBinding {
   return {

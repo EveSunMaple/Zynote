@@ -81,13 +81,13 @@ export function weixinText(value: unknown, kind: number) {
 export class NativeWeixinReader {
  readonly readerId = randomUUID().replaceAll('-', '')
  readonly account: string
- private keys = new Map<string, Buffer>()
- private identities = new Map<string, string>()
- private base: string
- private baseId: string
- private root: string
+ private readonly keys = new Map<string, Buffer>()
+ private readonly identities = new Map<string, string>()
+ private readonly base: string
+ private readonly baseId: string
+ private readonly root: string
  private deadline = 0
- constructor(private memory: BoundWeixinMemory) {
+ constructor(private readonly memory: BoundWeixinMemory) {
   try {
    memory.budget(30000)
    this.deadline = Date.now() + 30000
@@ -127,7 +127,7 @@ export class NativeWeixinReader {
    throw error
   }
  }
- private guard = () => {
+ private readonly guard = () => {
   if (Date.now() > this.deadline) throw new Error('微信只读任务达到预算')
   this.memory.guard()
  }

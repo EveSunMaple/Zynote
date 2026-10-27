@@ -3,7 +3,7 @@ import {mediaCommand} from '@main/media/tools/media-command'
 import {mediaFallbackAllowed, type MediaTool} from '@main/media/tools/media-executable'
 import {createHash} from 'node:crypto'
 import {createReadStream} from 'node:fs'
-import {mkdir, lstat, readFile, realpath, rm, writeFile} from 'node:fs/promises'
+import {mkdir, lstat, realpath, rm, writeFile} from 'node:fs/promises'
 import {extname, join, resolve, sep} from 'node:path'
 import {z} from 'zod'
 
@@ -34,10 +34,10 @@ export function coverageTimes(duration: number, cap: number): number[] {
  )
 }
 export class NativeVisualFrames {
- private cancels = new Map<string, AbortController>()
+ private readonly cancels = new Map<string, AbortController>()
  constructor(
-  private resources: string,
-  private root: string
+  private readonly resources: string,
+  private readonly root: string
  ) {}
  get started() {
   return this.cancels.size > 0

@@ -19,9 +19,9 @@ type Note = {
 }
 export class NativeResearchNotes {
  constructor(
-  private store: NativeResearchStore,
-  private engine: NativeResearchEngine,
-  private root: string
+  private readonly store: NativeResearchStore,
+  private readonly engine: NativeResearchEngine,
+  private readonly root: string
  ) {}
  preview(id: string) {
   const task = this.engine.verifyResult(id),

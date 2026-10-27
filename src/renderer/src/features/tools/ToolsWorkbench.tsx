@@ -8,7 +8,7 @@ import {notify} from '@renderer/ui/ToastHost'
 import {SettingsLink} from '@renderer/app/settings-navigation'
 import remarkGfm from 'remark-gfm'
 import type {Settings} from '@shared/types'
-function Result({text}: {text: string}) {
+function Result({text}: Readonly<{text: string}>) {
  return (
   <div className="learning-summary">
    <ReactMarkdown
@@ -98,14 +98,14 @@ const statusColor = (status: string): 'default' | 'accent' | 'success' | 'warnin
  if (['paused', 'unknown', 'legacy_saved'].includes(status)) return 'warning'
  return 'default'
 }
-function StatusChip({status, suffix = ''}: {status: string; suffix?: string}) {
+function StatusChip({status, suffix = ''}: Readonly<{status: string; suffix?: string}>) {
  return (
   <Chip color={statusColor(status)} size="sm" variant="soft">
    {(labels[status] || status) + suffix}
   </Chip>
  )
 }
-export function ToolsWorkbench({visible, close}: {visible: boolean; close: () => void}) {
+export function ToolsWorkbench({visible, close}: Readonly<{visible: boolean; close: () => void}>) {
  const [tab, setTab] = useState('研究与工作流'),
   [data, setData] = useState<Overview>(),
   [materials, setMaterials] = useState<Material[]>([]),

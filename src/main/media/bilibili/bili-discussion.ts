@@ -9,8 +9,7 @@ import {
  discussionPolicy,
  DiscussionStore,
  type Coverage,
- type DiscussionItem,
- type DiscussionPack
+ type DiscussionItem
 } from '@main/media/bilibili/discussion-evidence'
 
 type Fetcher = (url: string, init?: RequestInit) => Promise<Response>
@@ -168,7 +167,7 @@ export function parseDanmaku(bytes: Uint8Array, owner = 0): {rows: Danmaku[]; cl
   })
   parser.write(Buffer.from(bytes).toString('utf8')).close()
  } else {
-  if (/^[\[{]/.test(initial)) throw new Error('json_error_not_danmaku')
+  if (/^[[{]/.test(initial)) throw new Error('json_error_not_danmaku')
   for (const [field, value] of fields(bytes)) {
    if (field === 2 && typeof value === 'bigint') closed = value === 1n
    if (field !== 1 || typeof value === 'bigint') continue
@@ -195,10 +194,10 @@ async function boundedMap<T>(rows: T[], concurrency: number, run: (row: T) => Pr
  )
 }
 export class BiliDiscussion {
- private store: Pick<DiscussionStore, 'save' | 'select'>
+ private readonly store: Pick<DiscussionStore, 'save' | 'select'>
  constructor(
-  private resources: BiliResources,
-  private fetcher: Fetcher,
+  private readonly resources: BiliResources,
+  private readonly fetcher: Fetcher,
   root: string,
   store?: Pick<DiscussionStore, 'save' | 'select'>
  ) {
