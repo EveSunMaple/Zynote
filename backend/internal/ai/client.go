@@ -159,8 +159,7 @@ func requestError(response *http.Response, nativeFile, hasFile bool) error {
 	return errors.New(message)
 }
 
-func (client *Client) Chat(ctx context.Context, messages []Message, onText func(string)) (string, error) {
-	profile := client.Profile
+func chatContentFlags(messages []Message) (bool, bool, bool) {
 	nativeFile := false
 	hasFile := false
 	hasImages := false
@@ -181,62 +180,69 @@ func (client *Client) Chat(ctx context.Context, messages []Message, onText func(
 			}
 		}
 	}
+	return nativeFile, hasFile, hasImages
+}
+
+func chatModel(profile Profile, hasImages bool) (string, error) {
 	model := profile.Model
 	if hasImages {
 		model = strings.TrimSpace(profile.VisionModel)
 	}
-	if strings.TrimSpace(model) == "" {
-		if hasImages {
-			return "", fmt.Errorf("请先在设置中选择千问视觉模型")
-		}
-		return "", fmt.Errorf("请先在设置中选择千问文本模型")
+	if strings.TrimSpace(model) != "" {
+		return model, nil
 	}
-	responses := nativeFile || profile.APIFormat == "responses"
+	if hasImages {
+		return "", fmt.Errorf("请先在设置中选择千问视觉模型")
+	}
+	return "", fmt.Errorf("请先在设置中选择千问文本模型")
+}
+
+func chatEndpoint(profile Profile, responses bool) string {
 	endpoint := strings.TrimRight(profile.BaseURL, "/")
 	if responses {
-		endpoint += "/responses"
-	} else {
-		endpoint += "/chat/completions"
+		return endpoint + "/responses"
 	}
-	parameters := profile.Parameters[model]
-	var input any
-	if responses {
-		converted := []map[string]any{}
-		for _, message := range messages {
-			content, ok := message.Content.([]ContentPart)
-			if !ok {
-				converted = append(converted, map[string]any{"role": message.Role, "content": message.Content})
-				continue
-			}
-			parts := []map[string]any{}
-			for _, part := range content {
-				switch part.Type {
-				case "text":
-					parts = append(parts, map[string]any{"type": "input_text", "text": part.Text})
-				case "image_url":
-					url := ""
-					if part.ImageURL != nil {
-						url = part.ImageURL.URL
-					}
-					parts = append(parts, map[string]any{"type": "input_image", "image_url": url})
-				case "file":
-					if part.File != nil {
-						parts = append(parts, map[string]any{
-							"type": "input_file", "filename": part.File.Filename, "file_data": part.File.FileData,
-						})
-					}
+	return endpoint + "/chat/completions"
+}
+
+func responsesInput(messages []Message) []map[string]any {
+	converted := []map[string]any{}
+	for _, message := range messages {
+		content, ok := message.Content.([]ContentPart)
+		if !ok {
+			converted = append(converted, map[string]any{"role": message.Role, "content": message.Content})
+			continue
+		}
+		parts := []map[string]any{}
+		for _, part := range content {
+			switch part.Type {
+			case "text":
+				parts = append(parts, map[string]any{"type": "input_text", "text": part.Text})
+			case "image_url":
+				url := ""
+				if part.ImageURL != nil {
+					url = part.ImageURL.URL
+				}
+				parts = append(parts, map[string]any{"type": "input_image", "image_url": url})
+			case "file":
+				if part.File != nil {
+					parts = append(parts, map[string]any{
+						"type": "input_file", "filename": part.File.Filename, "file_data": part.File.FileData,
+					})
 				}
 			}
-			converted = append(converted, map[string]any{"role": message.Role, "content": parts})
 		}
-		input = map[string]any{"input": converted, "store": false}
-	} else {
-		input = map[string]any{"messages": messages}
+		converted = append(converted, map[string]any{"role": message.Role, "content": parts})
 	}
-	body := map[string]any{"model": model, "stream": onText != nil}
-	for key, value := range input.(map[string]any) {
+	return converted
+}
+
+func chatBody(profile Profile, model string, input map[string]any, responses bool, stream bool) map[string]any {
+	body := map[string]any{"model": model, "stream": stream}
+	for key, value := range input {
 		body[key] = value
 	}
+	parameters := profile.Parameters[model]
 	if parameters.Temperature != nil {
 		body["temperature"] = *parameters.Temperature
 	}
@@ -257,6 +263,108 @@ func (client *Client) Chat(ctx context.Context, messages []Message, onText func(
 			body["reasoning_effort"] = *parameters.ReasoningEffort
 		}
 	}
+	return body
+}
+
+type chatPayload struct {
+	Status            string          `json:"status"`
+	IncompleteDetails json.RawMessage `json:"incomplete_details"`
+	Output            []struct {
+		Type    string `json:"type"`
+		Content []struct {
+			Type string `json:"type"`
+			Text string `json:"text"`
+		} `json:"content"`
+	} `json:"output"`
+	Choices []struct {
+		FinishReason string `json:"finish_reason"`
+		Message      struct {
+			Content json.RawMessage `json:"content"`
+		} `json:"message"`
+	} `json:"choices"`
+}
+
+func responsesOutput(payload chatPayload) string {
+	parts := []string{}
+	for _, item := range payload.Output {
+		if item.Type != "message" {
+			continue
+		}
+		for _, part := range item.Content {
+			if part.Type == "output_text" {
+				parts = append(parts, part.Text)
+			}
+		}
+	}
+	return strings.Join(parts, "")
+}
+
+func choiceContent(raw json.RawMessage) string {
+	var text string
+	if json.Unmarshal(raw, &text) == nil {
+		return text
+	}
+	var parts []struct {
+		Type string `json:"type"`
+		Text string `json:"text"`
+	}
+	_ = json.Unmarshal(raw, &parts)
+	texts := []string{}
+	for _, part := range parts {
+		if part.Type == "text" {
+			texts = append(texts, part.Text)
+		}
+	}
+	return strings.Join(texts, "")
+}
+
+func decodeChatResponse(response *http.Response, responses bool) (string, error) {
+	var payload chatPayload
+	if err := json.NewDecoder(response.Body).Decode(&payload); err != nil {
+		return "", fmt.Errorf("API 响应格式异常，请稍后重试")
+	}
+	if payload.Status == "incomplete" || payload.Status == "failed" || (responses && payload.Status != "completed") {
+		return "", fmt.Errorf("API 未完成输出，请检查输出长度限制或服务状态")
+	}
+	if !responses && len(payload.Choices) > 0 {
+		switch payload.Choices[0].FinishReason {
+		case "", "stop":
+		case "length":
+			return "", fmt.Errorf("API 输出达到长度限制，未保存不完整结果")
+		case "content_filter":
+			return "", fmt.Errorf("API 输出被内容安全过滤，未保存不完整结果")
+		default:
+			return "", fmt.Errorf("API 未正常结束，未保存结果")
+		}
+	}
+	value := ""
+	if responses {
+		value = responsesOutput(payload)
+	} else if len(payload.Choices) > 0 {
+		value = choiceContent(payload.Choices[0].Message.Content)
+	}
+	if strings.TrimSpace(value) == "" {
+		return "", fmt.Errorf("API 未返回有效文本")
+	}
+	return value, nil
+}
+
+func (client *Client) Chat(ctx context.Context, messages []Message, onText func(string)) (string, error) {
+	profile := client.Profile
+	nativeFile, hasFile, hasImages := chatContentFlags(messages)
+	model, err := chatModel(profile, hasImages)
+	if err != nil {
+		return "", err
+	}
+	responses := nativeFile || profile.APIFormat == "responses"
+	endpoint := chatEndpoint(profile, responses)
+	var input map[string]any
+	if responses {
+		input = map[string]any{"input": responsesInput(messages), "store": false}
+	} else {
+		input = map[string]any{"messages": messages}
+	}
+	body := chatBody(profile, model, input, responses, onText != nil)
 	encoded, err := marshalNoEscape(body)
 	if err != nil {
 		return "", err
@@ -285,78 +393,7 @@ func (client *Client) Chat(ctx context.Context, messages []Message, onText func(
 	if onText != nil && response.Body != nil {
 		return readSSE(response.Body, onText)
 	}
-	var payload struct {
-		Status            string          `json:"status"`
-		IncompleteDetails json.RawMessage `json:"incomplete_details"`
-		Output            []struct {
-			Type    string `json:"type"`
-			Content []struct {
-				Type string `json:"type"`
-				Text string `json:"text"`
-			} `json:"content"`
-		} `json:"output"`
-		Choices []struct {
-			FinishReason string `json:"finish_reason"`
-			Message      struct {
-				Content json.RawMessage `json:"content"`
-			} `json:"message"`
-		} `json:"choices"`
-	}
-	if err := json.NewDecoder(response.Body).Decode(&payload); err != nil {
-		return "", fmt.Errorf("API 响应格式异常，请稍后重试")
-	}
-	if payload.Status == "incomplete" || payload.Status == "failed" || (responses && payload.Status != "completed") {
-		return "", fmt.Errorf("API 未完成输出，请检查输出长度限制或服务状态")
-	}
-	if !responses && len(payload.Choices) > 0 {
-		switch payload.Choices[0].FinishReason {
-		case "", "stop":
-		case "length":
-			return "", fmt.Errorf("API 输出达到长度限制，未保存不完整结果")
-		case "content_filter":
-			return "", fmt.Errorf("API 输出被内容安全过滤，未保存不完整结果")
-		default:
-			return "", fmt.Errorf("API 未正常结束，未保存结果")
-		}
-	}
-	value := ""
-	if responses {
-		parts := []string{}
-		for _, item := range payload.Output {
-			if item.Type != "message" {
-				continue
-			}
-			for _, part := range item.Content {
-				if part.Type == "output_text" {
-					parts = append(parts, part.Text)
-				}
-			}
-		}
-		value = strings.Join(parts, "")
-	} else if len(payload.Choices) > 0 {
-		raw := payload.Choices[0].Message.Content
-		var text string
-		if json.Unmarshal(raw, &text) == nil {
-			value = text
-		} else {
-			var parts []struct {
-				Type string `json:"type"`
-				Text string `json:"text"`
-			}
-			_ = json.Unmarshal(raw, &parts)
-			texts := []string{}
-			for _, part := range parts {
-				if part.Type == "text" {
-					texts = append(texts, part.Text)
-				}
-			}
-			value = strings.Join(texts, "")
-		}
-	}
-	if strings.TrimSpace(value) == "" {
-		return "", fmt.Errorf("API 未返回有效文本")
-	}
-	return value, nil
+	return decodeChatResponse(response, responses)
 }
 
 func (client *Client) Models(ctx context.Context) ([]string, error) {
@@ -401,83 +438,119 @@ type sseError struct{ message string }
 
 func (value sseError) Error() string { return value.message }
 
-func readSSE(body io.Reader, onText func(string)) (string, error) {
-	reader := bufio.NewReaderSize(body, 64*1024)
-	buffer := ""
-	all := strings.Builder{}
-	finishReason := ""
-	completed := false
-	handle := func(value string) error {
-		dataLines := []string{}
-		for _, line := range strings.Split(value, "\n") {
-			if strings.HasPrefix(line, "data:") {
-				dataLines = append(dataLines, strings.TrimLeft(strings.TrimPrefix(line, "data:"), " "))
-			}
+type sseState struct {
+	all          strings.Builder
+	finishReason string
+	completed    bool
+	onText       func(string)
+}
+
+func sseBlockData(value string) string {
+	dataLines := []string{}
+	for _, line := range strings.Split(value, "\n") {
+		if strings.HasPrefix(line, "data:") {
+			dataLines = append(dataLines, strings.TrimLeft(strings.TrimPrefix(line, "data:"), " "))
 		}
-		data := strings.TrimSpace(strings.Join(dataLines, "\n"))
-		if data == "" {
-			return nil
+	}
+	return strings.TrimSpace(strings.Join(dataLines, "\n"))
+}
+
+func (state *sseState) handleTerminal(payload map[string]any) error {
+	if payload["error"] != nil || payload["type"] == "response.failed" || payload["type"] == "response.incomplete" {
+		return sseError{message: "API 未完成流式输出，请检查服务配置或输出长度限制"}
+	}
+	if payload["type"] != "response.completed" {
+		return nil
+	}
+	if response, ok := payload["response"].(map[string]any); ok {
+		if status, ok := response["status"].(string); ok && status != "completed" {
+			return sseError{message: "API 未完成流式输出"}
 		}
-		if data == "[DONE]" {
-			if finishReason == "" || finishReason == "stop" {
-				completed = true
-			}
-			return nil
+	}
+	state.completed = true
+	return nil
+}
+
+func (state *sseState) handleChoice(payload map[string]any) error {
+	choices, ok := payload["choices"].([]any)
+	if !ok || len(choices) == 0 {
+		return nil
+	}
+	choice, ok := choices[0].(map[string]any)
+	if !ok {
+		return nil
+	}
+	reason, ok := choice["finish_reason"].(string)
+	if !ok {
+		return nil
+	}
+	state.finishReason = reason
+	switch reason {
+	case "length":
+		return sseError{message: "API 输出达到长度限制，未保存不完整结果"}
+	case "content_filter":
+		return sseError{message: "API 输出被内容安全过滤，未保存不完整结果"}
+	case "stop":
+		state.completed = true
+	case "":
+	default:
+		return sseError{message: "API 未正常结束文本输出，未保存结果"}
+	}
+	return nil
+}
+
+func sseDelta(payload map[string]any) string {
+	if payload["type"] == "response.output_text.delta" {
+		if value, ok := payload["delta"].(string); ok {
+			return value
 		}
-		var payload map[string]any
-		if err := json.Unmarshal([]byte(data), &payload); err != nil {
-			return sseError{message: "API 流式响应格式异常"}
-		}
-		if payload["error"] != nil || payload["type"] == "response.failed" || payload["type"] == "response.incomplete" {
-			return sseError{message: "API 未完成流式输出，请检查服务配置或输出长度限制"}
-		}
-		if payload["type"] == "response.completed" {
-			if response, ok := payload["response"].(map[string]any); ok {
-				if status, ok := response["status"].(string); ok && status != "completed" {
-					return sseError{message: "API 未完成流式输出"}
-				}
-			}
-			completed = true
-			return nil
-		}
-		if choices, ok := payload["choices"].([]any); ok && len(choices) > 0 {
-			if choice, ok := choices[0].(map[string]any); ok {
-				if reason, ok := choice["finish_reason"].(string); ok {
-					finishReason = reason
-					switch reason {
-					case "length":
-						return sseError{message: "API 输出达到长度限制，未保存不完整结果"}
-					case "content_filter":
-						return sseError{message: "API 输出被内容安全过滤，未保存不完整结果"}
-					case "stop":
-						completed = true
-					case "":
-					default:
-						return sseError{message: "API 未正常结束文本输出，未保存结果"}
-					}
-				}
-			}
-		}
-		delta := ""
-		if payload["type"] == "response.output_text.delta" {
-			if value, ok := payload["delta"].(string); ok {
-				delta = value
-			}
-		} else if choices, ok := payload["choices"].([]any); ok && len(choices) > 0 {
-			if choice, ok := choices[0].(map[string]any); ok {
-				if item, ok := choice["delta"].(map[string]any); ok {
-					if value, ok := item["content"].(string); ok {
-						delta = value
-					}
-				}
-			}
-		}
-		if delta != "" {
-			all.WriteString(delta)
-			onText(delta)
+		return ""
+	}
+	choices, ok := payload["choices"].([]any)
+	if !ok || len(choices) == 0 {
+		return ""
+	}
+	choice, _ := choices[0].(map[string]any)
+	item, _ := choice["delta"].(map[string]any)
+	value, _ := item["content"].(string)
+	return value
+}
+
+func (state *sseState) handle(value string) error {
+	data := sseBlockData(value)
+	if data == "" {
+		return nil
+	}
+	if data == "[DONE]" {
+		if state.finishReason == "" || state.finishReason == "stop" {
+			state.completed = true
 		}
 		return nil
 	}
+	var payload map[string]any
+	if err := json.Unmarshal([]byte(data), &payload); err != nil {
+		return sseError{message: "API 流式响应格式异常"}
+	}
+	if err := state.handleTerminal(payload); err != nil {
+		return err
+	}
+	if payload["type"] == "response.completed" {
+		return nil
+	}
+	if err := state.handleChoice(payload); err != nil {
+		return err
+	}
+	if delta := sseDelta(payload); delta != "" {
+		state.all.WriteString(delta)
+		state.onText(delta)
+	}
+	return nil
+}
+
+func readSSE(body io.Reader, onText func(string)) (string, error) {
+	reader := bufio.NewReaderSize(body, 64*1024)
+	buffer := ""
+	state := &sseState{onText: onText}
 	for {
 		line, err := reader.ReadString('\n')
 		buffer += strings.ReplaceAll(line, "\r", "")
@@ -488,14 +561,14 @@ func readSSE(body io.Reader, onText func(string)) (string, error) {
 			}
 			block := buffer[:index]
 			buffer = buffer[index+2:]
-			if handleErr := handle(block); handleErr != nil {
+			if handleErr := state.handle(block); handleErr != nil {
 				return "", handleErr
 			}
 		}
 		if err != nil {
 			if err == io.EOF {
 				if strings.TrimSpace(buffer) != "" {
-					if handleErr := handle(buffer); handleErr != nil {
+					if handleErr := state.handle(buffer); handleErr != nil {
 						return "", handleErr
 					}
 				}
@@ -504,13 +577,13 @@ func readSSE(body io.Reader, onText func(string)) (string, error) {
 			return "", err
 		}
 	}
-	if !completed {
+	if !state.completed {
 		return "", fmt.Errorf("API 流提前结束，缺少有效完成标记，未保存不完整结果")
 	}
-	if strings.TrimSpace(all.String()) == "" {
+	if strings.TrimSpace(state.all.String()) == "" {
 		return "", fmt.Errorf("API 未返回文本")
 	}
-	return all.String(), nil
+	return state.all.String(), nil
 }
 
 func stripJSONFence(value string) string {

@@ -63,6 +63,31 @@ func executableRegular(path string, platform string) (os.FileInfo, error) {
 	return info, nil
 }
 
+func systemExecutableCandidate(candidate string, roots []string) (string, bool) {
+	info, err := os.Stat(candidate)
+	if err != nil || !info.Mode().IsRegular() {
+		return "", false
+	}
+	target, err := filepath.EvalSymlinks(candidate)
+	if err != nil || filepath.Base(target) != filepath.Base(candidate) {
+		return "", false
+	}
+	inside := false
+	for _, root := range roots {
+		if strings.HasPrefix(target, root) {
+			inside = true
+			break
+		}
+	}
+	if !inside {
+		return "", false
+	}
+	if info, err := os.Stat(target); err != nil || info.Mode().Perm()&0o111 == 0 {
+		return "", false
+	}
+	return target, true
+}
+
 func checkedSystemExecutable(tool, platform string) (string, error) {
 	directories, ok := fallbackDirectories[platform]
 	roots, rootsOK := fallbackRoots[platform]
@@ -70,33 +95,62 @@ func checkedSystemExecutable(tool, platform string) (string, error) {
 		return "", fmt.Errorf("未找到媒体处理组件")
 	}
 	for _, directory := range directories {
-		candidate := filepath.Join(directory, tool)
-		if info, err := os.Stat(candidate); err != nil || !info.Mode().IsRegular() {
-			continue
+		if target, found := systemExecutableCandidate(filepath.Join(directory, tool), roots); found {
+			return target, nil
 		}
-		target, err := filepath.EvalSymlinks(candidate)
-		if err != nil {
-			continue
-		}
-		if filepath.Base(target) != tool {
-			continue
-		}
-		inside := false
-		for _, root := range roots {
-			if strings.HasPrefix(target, root) {
-				inside = true
-				break
-			}
-		}
-		if !inside {
-			continue
-		}
-		if info, err := os.Stat(target); err != nil || info.Mode().Perm()&0o111 == 0 {
-			continue
-		}
-		return target, nil
 	}
 	return "", fmt.Errorf("未找到媒体处理组件")
+}
+
+func checkExecutableParents(path string) error {
+	for parent := filepath.Dir(path); ; parent = filepath.Dir(parent) {
+		info, err := os.Lstat(parent)
+		if err != nil {
+			return err
+		}
+		if !info.IsDir() || info.Mode()&os.ModeSymlink != 0 {
+			return fmt.Errorf("媒体执行目录包含链接或无效路径")
+		}
+		if filepath.Dir(parent) == parent {
+			return nil
+		}
+	}
+}
+
+func checkExecutableInside(resources, path, platform string) (string, error) {
+	target, err := filepath.EvalSymlinks(path)
+	if err != nil {
+		return "", err
+	}
+	base, err := filepath.EvalSymlinks(resources)
+	if err != nil {
+		return "", err
+	}
+	compare := func(value string) string {
+		if platform == "win32" {
+			return strings.ToLower(value)
+		}
+		return value
+	}
+	inside, err := filepath.Rel(base, target)
+	if err != nil {
+		return "", err
+	}
+	if compare(target) != compare(path) || inside == "" || inside == ".." ||
+		strings.HasPrefix(inside, ".."+string(filepath.Separator)) || filepath.IsAbs(inside) {
+		return "", fmt.Errorf("媒体执行文件超出资源目录或路径已改变")
+	}
+	return target, nil
+}
+
+func mediaExecutableError(err error) error {
+	if os.IsNotExist(err) {
+		return fmt.Errorf("未找到媒体处理组件")
+	}
+	if os.IsPermission(err) {
+		return fmt.Errorf("媒体组件不可执行或无访问权限")
+	}
+	return err
 }
 
 func CheckedMediaExecutable(resources, tool, platform string, allowSystemFallback bool) (string, error) {
@@ -106,55 +160,18 @@ func CheckedMediaExecutable(resources, tool, platform string, allowSystemFallbac
 	}
 	_, err = executableRegular(path, platform)
 	if err == nil {
-		for parent := filepath.Dir(path); ; parent = filepath.Dir(parent) {
-			info, statErr := os.Lstat(parent)
-			if statErr != nil {
-				err = statErr
-				break
+		if parentErr := checkExecutableParents(path); parentErr != nil {
+			err = parentErr
+		} else {
+			target, insideErr := checkExecutableInside(resources, path, platform)
+			if insideErr == nil {
+				return target, nil
 			}
-			if !info.IsDir() || info.Mode()&os.ModeSymlink != 0 {
-				return "", fmt.Errorf("媒体执行目录包含链接或无效路径")
-			}
-			if filepath.Dir(parent) == parent {
-				break
-			}
-		}
-		if err == nil {
-			target, evalErr := filepath.EvalSymlinks(path)
-			if evalErr != nil {
-				err = evalErr
-			} else {
-				base, baseErr := filepath.EvalSymlinks(resources)
-				if baseErr != nil {
-					err = baseErr
-				} else {
-					compare := func(value string) string {
-						if platform == "win32" {
-							return strings.ToLower(value)
-						}
-						return value
-					}
-					inside, relErr := filepath.Rel(base, target)
-					if relErr != nil {
-						err = relErr
-					} else if compare(target) != compare(path) || inside == "" || inside == ".." ||
-						strings.HasPrefix(inside, ".."+string(filepath.Separator)) || filepath.IsAbs(inside) {
-						return "", fmt.Errorf("媒体执行文件超出资源目录或路径已改变")
-					} else {
-						return target, nil
-					}
-				}
-			}
+			err = insideErr
 		}
 	}
 	if allowSystemFallback && os.IsNotExist(err) {
 		return checkedSystemExecutable(tool, platform)
 	}
-	if os.IsNotExist(err) {
-		return "", fmt.Errorf("未找到媒体处理组件")
-	}
-	if os.IsPermission(err) {
-		return "", fmt.Errorf("媒体组件不可执行或无访问权限")
-	}
-	return "", err
+	return "", mediaExecutableError(err)
 }

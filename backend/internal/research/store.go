@@ -206,41 +206,112 @@ func (store *Store) Memories() (map[string]any, error) {
 	}, nil
 }
 
+func validateMemoryInput(value map[string]any) (string, string, int, error) {
+	op := text(value["op_id"])
+	if !opPattern.MatchString(op) {
+		return "", "", 0, fmt.Errorf("操作编号无效")
+	}
+	memoryID := text(value["memory_id"])
+	if memoryID != "" && !opPattern.MatchString(memoryID) {
+		return "", "", 0, fmt.Errorf("记忆标识无效")
+	}
+	return op, memoryID, int(number(value["revision"])), nil
+}
+
+func (store *Store) memoryPrior(memoryID string, revision int, deleting bool) (map[string]any, error) {
+	if memoryID == "" {
+		if revision != 0 || deleting {
+			return nil, fmt.Errorf("新记忆的版本无效")
+		}
+		return nil, nil
+	}
+	loaded, err := store.Read("memory", memoryID)
+	if err != nil {
+		return nil, err
+	}
+	if loaded["deleted"] == true || int(number(loaded["revision"])) != revision {
+		return nil, fmt.Errorf("记忆版本已改变，请刷新后保存")
+	}
+	return loaded, nil
+}
+
+func (store *Store) checkMemoryCapacity() error {
+	memories, err := store.Memories()
+	if err != nil {
+		return err
+	}
+	if int(number(memories["capacity"].(map[string]any)["used"])) >= 100 {
+		return fmt.Errorf("学习记忆最多保存100条")
+	}
+	return nil
+}
+
+func (store *Store) deleteMemory(id string, prior map[string]any, revision int, now float64) (any, error) {
+	next := map[string]any{
+		"memory_id": id, "revision": revision, "kind": prior["kind"], "title": "", "body": "",
+		"source_task": nil, "paused": prior["paused"], "expires_at": prior["expires_at"],
+		"created_at": prior["created_at"], "updated_at": now, "deleted": true,
+	}
+	if err := store.Put("memory", id, revision, next); err != nil {
+		return nil, err
+	}
+	return map[string]any{"memory_id": id, "revision": revision, "deleted": true}, nil
+}
+
+func (store *Store) saveMemory(id string, prior map[string]any, value map[string]any, revision int, now float64) (any, error) {
+	kind := text(value["kind"])
+	title := text(value["title"])
+	body := text(value["body"])
+	if kind == "" || title == "" || body == "" {
+		return nil, fmt.Errorf("记忆类型、标题和正文不能为空")
+	}
+	sourceTask := value["source_task"]
+	if prior != nil && sourceTask != nil && text(sourceTask) != text(prior["source_task"]) {
+		return nil, fmt.Errorf("记忆来源必须由已核验的研究结果确认，不接受任意任务编号")
+	}
+	created := now
+	if prior != nil {
+		created = number(prior["created_at"])
+	}
+	paused := prior != nil && prior["paused"] == true
+	if value["paused"] != nil {
+		paused = value["paused"] == true
+	}
+	expires := any(nil)
+	if prior != nil {
+		expires = prior["expires_at"]
+	}
+	if raw, exists := value["expires_at"]; exists {
+		expires = raw
+	}
+	next := map[string]any{
+		"memory_id": id, "revision": revision, "kind": kind, "title": title, "body": body,
+		"source_task": sourceTask, "paused": paused, "expires_at": expires,
+		"created_at": created, "updated_at": now, "deleted": false,
+	}
+	if err := store.Put("memory", id, revision, next); err != nil {
+		return nil, err
+	}
+	return map[string]any{"memory_id": id, "revision": revision, "deleted": false}, nil
+}
+
 func (store *Store) ChangeMemory(input any, deleting bool) (any, error) {
 	value, ok := input.(map[string]any)
 	if !ok {
 		return nil, fmt.Errorf("记忆数据无效")
 	}
-	op := text(value["op_id"])
-	if !opPattern.MatchString(op) {
-		return nil, fmt.Errorf("操作编号无效")
+	op, memoryID, revision, err := validateMemoryInput(value)
+	if err != nil {
+		return nil, err
 	}
-	memoryID := text(value["memory_id"])
-	if memoryID != "" && !opPattern.MatchString(memoryID) {
-		return nil, fmt.Errorf("记忆标识无效")
-	}
-	revision := int(number(value["revision"]))
 	return store.Operation(op, map[string]any{"deleting": deleting, "value": value}, func() (any, error) {
-		var prior map[string]any
-		if memoryID != "" {
-			loaded, err := store.Read("memory", memoryID)
-			if err != nil {
-				return nil, err
-			}
-			if loaded["deleted"] == true || int(number(loaded["revision"])) != revision {
-				return nil, fmt.Errorf("记忆版本已改变，请刷新后保存")
-			}
-			prior = loaded
-		} else if revision != 0 || deleting {
-			return nil, fmt.Errorf("新记忆的版本无效")
+		prior, err := store.memoryPrior(memoryID, revision, deleting)
+		if err != nil {
+			return nil, err
 		}
 		if prior == nil {
-			memories, err := store.Memories()
-			if err != nil {
+			if err := store.checkMemoryCapacity(); err != nil {
 				return nil, err
-			}
-			if int(number(memories["capacity"].(map[string]any)["used"])) >= 100 {
-				return nil, fmt.Errorf("学习记忆最多保存100条")
 			}
 		}
 		now := float64(time.Now().Unix())
@@ -250,50 +321,9 @@ func (store *Store) ChangeMemory(input any, deleting bool) (any, error) {
 		}
 		nextRevision := revision + 1
 		if deleting {
-			next := map[string]any{
-				"memory_id": id, "revision": nextRevision, "kind": prior["kind"], "title": "", "body": "",
-				"source_task": nil, "paused": prior["paused"], "expires_at": prior["expires_at"],
-				"created_at": prior["created_at"], "updated_at": now, "deleted": true,
-			}
-			if err := store.Put("memory", id, nextRevision, next); err != nil {
-				return nil, err
-			}
-			return map[string]any{"memory_id": id, "revision": nextRevision, "deleted": true}, nil
+			return store.deleteMemory(id, prior, nextRevision, now)
 		}
-		kind := text(value["kind"])
-		title := text(value["title"])
-		body := text(value["body"])
-		if kind == "" || title == "" || body == "" {
-			return nil, fmt.Errorf("记忆类型、标题和正文不能为空")
-		}
-		sourceTask := value["source_task"]
-		if prior != nil && sourceTask != nil && text(sourceTask) != text(prior["source_task"]) {
-			return nil, fmt.Errorf("记忆来源必须由已核验的研究结果确认，不接受任意任务编号")
-		}
-		created := now
-		if prior != nil {
-			created = number(prior["created_at"])
-		}
-		paused := prior != nil && prior["paused"] == true
-		if value["paused"] != nil {
-			paused = value["paused"] == true
-		}
-		expires := any(nil)
-		if prior != nil {
-			expires = prior["expires_at"]
-		}
-		if raw, exists := value["expires_at"]; exists {
-			expires = raw
-		}
-		next := map[string]any{
-			"memory_id": id, "revision": nextRevision, "kind": kind, "title": title, "body": body,
-			"source_task": sourceTask, "paused": paused, "expires_at": expires,
-			"created_at": created, "updated_at": now, "deleted": false,
-		}
-		if err := store.Put("memory", id, nextRevision, next); err != nil {
-			return nil, err
-		}
-		return map[string]any{"memory_id": id, "revision": nextRevision, "deleted": false}, nil
+		return store.saveMemory(id, prior, value, nextRevision, now)
 	})
 }
 
@@ -340,14 +370,7 @@ func (store *Store) Conversations(offset int) (map[string]any, error) {
 	return map[string]any{"entries": entries, "has_more": offset+50 < len(rows)}, nil
 }
 
-func (store *Store) Conversation(id string) (map[string]any, error) {
-	if !conversationPattern.MatchString(id) {
-		return nil, fmt.Errorf("会话标识无效")
-	}
-	row, err := store.Read("conversation", id)
-	if err != nil {
-		return nil, err
-	}
+func (store *Store) conversationTurns(id string) []any {
 	turns := []any{}
 	if historical, err := store.List("legacy:kb_conversation_turns"); err == nil {
 		for _, turn := range historical {
@@ -363,22 +386,39 @@ func (store *Store) Conversation(id string) (map[string]any, error) {
 			}
 		}
 	}
-	researchTasks := []any{}
+	return turns
+}
+
+func (store *Store) conversationResearchTasks(id string) []any {
+	tasks := []any{}
 	for _, kind := range []string{"task", "legacy-task"} {
-		if rows, err := store.List(kind); err == nil {
-			for _, task := range rows {
-				conversationID := text(task["conversation_id"])
-				if conversation, ok := task["conversation"].(map[string]any); ok {
-					conversationID = text(conversation["conversation_id"])
-				}
-				if conversationID == id {
-					researchTasks = append(researchTasks, task)
-				}
+		rows, err := store.List(kind)
+		if err != nil {
+			continue
+		}
+		for _, task := range rows {
+			conversationID := text(task["conversation_id"])
+			if conversation, ok := task["conversation"].(map[string]any); ok {
+				conversationID = text(conversation["conversation_id"])
+			}
+			if conversationID == id {
+				tasks = append(tasks, task)
 			}
 		}
 	}
-	row["turns"] = turns
-	row["research_tasks"] = researchTasks
+	return tasks
+}
+
+func (store *Store) Conversation(id string) (map[string]any, error) {
+	if !conversationPattern.MatchString(id) {
+		return nil, fmt.Errorf("会话标识无效")
+	}
+	row, err := store.Read("conversation", id)
+	if err != nil {
+		return nil, err
+	}
+	row["turns"] = store.conversationTurns(id)
+	row["research_tasks"] = store.conversationResearchTasks(id)
 	return row, nil
 }
 

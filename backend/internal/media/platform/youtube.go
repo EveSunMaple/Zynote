@@ -54,6 +54,46 @@ func readYoutubePlaylist(ctx context.Context, listID string, fetcher Fetcher) (m
 	return readYoutubePlaylistWith(ctx, listID, defaultYoutubePost)
 }
 
+func youtubePlaylistEntry(node map[string]any, entries []map[string]string, seen map[string]bool) []map[string]string {
+	if lockup, ok := node["lockupViewModel"].(map[string]any); ok {
+		if stringOf(lockup["contentType"]) != "LOCKUP_CONTENT_TYPE_VIDEO" {
+			return entries
+		}
+		id := stringOf(lockup["contentId"])
+		if !youtubeIDPattern.MatchString(id) || seen[id] {
+			return entries
+		}
+		seen[id] = true
+		return append(entries, map[string]string{
+			"title": truncateRunes(lockupTitle(lockup, id), 240),
+			"url":   "https://www.youtube.com/watch?v=" + id,
+		})
+	}
+	renderer, ok := node["playlistVideoRenderer"].(map[string]any)
+	if !ok {
+		return entries
+	}
+	id := stringOf(renderer["videoId"])
+	if !youtubeIDPattern.MatchString(id) || seen[id] {
+		return entries
+	}
+	seen[id] = true
+	return append(entries, map[string]string{
+		"title": truncateRunes(playlistVideoTitle(renderer, id), 240),
+		"url":   "https://www.youtube.com/watch?v=" + id,
+	})
+}
+
+func collectYoutubeEntries(value any, entries []map[string]string, seen map[string]bool) []map[string]string {
+	walkJSON(value, func(node map[string]any) {
+		if len(entries) >= 100 {
+			return
+		}
+		entries = youtubePlaylistEntry(node, entries, seen)
+	})
+	return entries
+}
+
 func readYoutubePlaylistWith(ctx context.Context, listID string, post youtubePost) (media.Catalog, error) {
 	if post == nil {
 		return media.Catalog{}, fmt.Errorf("YouTube 目录读取不可用")
@@ -86,40 +126,7 @@ func readYoutubePlaylistWith(ctx context.Context, listID string, post youtubePos
 	title := playlistTitle(page)
 	entries := []map[string]string{}
 	seen := map[string]bool{}
-	collect := func(value any) {
-		walkJSON(value, func(node map[string]any) {
-			if len(entries) >= 100 {
-				return
-			}
-			if lockup, ok := node["lockupViewModel"].(map[string]any); ok {
-				if stringOf(lockup["contentType"]) != "LOCKUP_CONTENT_TYPE_VIDEO" {
-					return
-				}
-				id := stringOf(lockup["contentId"])
-				if !youtubeIDPattern.MatchString(id) || seen[id] {
-					return
-				}
-				seen[id] = true
-				entries = append(entries, map[string]string{
-					"title": truncateRunes(lockupTitle(lockup, id), 240),
-					"url":   "https://www.youtube.com/watch?v=" + id,
-				})
-				return
-			}
-			if renderer, ok := node["playlistVideoRenderer"].(map[string]any); ok {
-				id := stringOf(renderer["videoId"])
-				if !youtubeIDPattern.MatchString(id) || seen[id] {
-					return
-				}
-				seen[id] = true
-				entries = append(entries, map[string]string{
-					"title": truncateRunes(playlistVideoTitle(renderer, id), 240),
-					"url":   "https://www.youtube.com/watch?v=" + id,
-				})
-			}
-		})
-	}
-	collect(page)
+	entries = collectYoutubeEntries(page, entries, seen)
 	usedTokens := map[string]bool{}
 	limited := false
 	for len(entries) < 100 {
@@ -133,7 +140,7 @@ func readYoutubePlaylistWith(ctx context.Context, listID string, post youtubePos
 			return media.Catalog{}, err
 		}
 		before := len(entries)
-		collect(page)
+		entries = collectYoutubeEntries(page, entries, seen)
 		if len(entries) == before {
 			limited = true
 			break
@@ -228,21 +235,26 @@ func nestedText(value map[string]any) string {
 	return ""
 }
 
-func lockupTitle(lockup map[string]any, fallback string) string {
+func lockupTitleView(lockup map[string]any) map[string]any {
 	if metadata, ok := lockup["metadata"].(map[string]any); ok {
 		if view, ok := metadata["lockupMetadataViewModel"].(map[string]any); ok {
-			if title, ok := view["title"].(map[string]any); ok {
-				if text := nestedText(title); text != "" {
-					return text
-				}
-			}
+			return view
 		}
 	}
-	if metadata, ok := lockup["lockupMetadataViewModel"].(map[string]any); ok {
-		if title, ok := metadata["title"].(map[string]any); ok {
-			if text := nestedText(title); text != "" {
-				return text
-			}
+	if view, ok := lockup["lockupMetadataViewModel"].(map[string]any); ok {
+		return view
+	}
+	return nil
+}
+
+func lockupTitle(lockup map[string]any, fallback string) string {
+	view := lockupTitleView(lockup)
+	if view == nil {
+		return fallback
+	}
+	if title, ok := view["title"].(map[string]any); ok {
+		if text := nestedText(title); text != "" {
+			return text
 		}
 	}
 	return fallback

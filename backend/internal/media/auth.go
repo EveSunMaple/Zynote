@@ -64,6 +64,53 @@ func cookieBelongs(host, site string) bool {
 	return host == site || strings.HasSuffix(host, "."+site)
 }
 
+func validCookieFields(subs, path, secure, expires, name, value string) bool {
+	return (subs == "TRUE" || subs == "FALSE") && (secure == "TRUE" || secure == "FALSE") &&
+		cookieExpiresPattern.MatchString(expires) && strings.HasPrefix(path, "/") &&
+		!cookieNameForbidden.MatchString(name) && name != "" && len(name) <= 256 &&
+		len(value) <= 16384 && !cookieValueForbidden.MatchString(value) &&
+		!cookiePathForbidden.MatchString(path)
+}
+
+func parseCookieLine(raw, site string, now int64) (MediaCookie, string, bool, error) {
+	httpOnly := strings.HasPrefix(raw, "#HttpOnly_")
+	line := raw
+	if httpOnly {
+		line = raw[10:]
+	}
+	if line == "" || strings.HasPrefix(line, "#") {
+		return MediaCookie{}, "", true, nil
+	}
+	cells := strings.Split(line, "\t")
+	if len(cells) != 7 {
+		return MediaCookie{}, "", false, fmt.Errorf("请使用 Netscape cookies.txt 格式")
+	}
+	rawDomain := cells[0]
+	domain := strings.ToLower(strings.TrimPrefix(rawDomain, "."))
+	if !cookieBelongs(domain, site) {
+		return MediaCookie{}, "", true, nil
+	}
+	subs, path, secure, expires, name, value := cells[1], cells[2], cells[3], cells[4], cells[5], cells[6]
+	if !validCookieFields(subs, path, secure, expires, name, value) {
+		return MediaCookie{}, "", false, fmt.Errorf("Cookie 字段格式无效")
+	}
+	seconds, _ := strconv.ParseInt(expires, 10, 64)
+	if seconds > 0 && seconds <= now {
+		return MediaCookie{}, "", true, nil
+	}
+	rawDomainLower := strings.ToLower(rawDomain)
+	displayDomain := rawDomainLower
+	if httpOnly {
+		displayDomain = "#HttpOnly_" + rawDomainLower
+	}
+	row := strings.Join([]string{displayDomain, subs, path, secure, expires, name, value}, "\t")
+	cookie := MediaCookie{
+		Domain: domain, Path: path, Name: name, Value: value,
+		Secure: secure == "TRUE", HTTPOnly: httpOnly, HostOnly: subs == "FALSE", Expires: seconds,
+	}
+	return cookie, row, false, nil
+}
+
 func ParseMediaCookies(text, scope string) (CookieParseResult, error) {
 	site, err := MediaCookieScope(scope)
 	if err != nil {
@@ -76,54 +123,22 @@ func ParseMediaCookies(text, scope string) (CookieParseResult, error) {
 	cookies := []MediaCookie{}
 	seen := map[string]bool{}
 	now := time.Now().Unix()
-	normalized := strings.ReplaceAll(strings.TrimPrefix(text, "\uFEFF"), "\r\n", "\n")
+	normalized := strings.ReplaceAll(strings.TrimPrefix(text, "\ufeff"), "\r\n", "\n")
 	for _, raw := range strings.Split(normalized, "\n") {
-		httpOnly := strings.HasPrefix(raw, "#HttpOnly_")
-		line := raw
-		if httpOnly {
-			line = raw[10:]
+		cookie, row, skip, err := parseCookieLine(raw, site, now)
+		if err != nil {
+			return CookieParseResult{}, err
 		}
-		if line == "" || strings.HasPrefix(line, "#") {
+		if skip {
 			continue
 		}
-		cells := strings.Split(line, "\t")
-		if len(cells) != 7 {
-			return CookieParseResult{}, fmt.Errorf("请使用 Netscape cookies.txt 格式")
-		}
-		rawDomain := cells[0]
-		domain := strings.ToLower(strings.TrimPrefix(rawDomain, "."))
-		if !cookieBelongs(domain, site) {
-			continue
-		}
-		subs, path, secure, expires, name, value := cells[1], cells[2], cells[3], cells[4], cells[5], cells[6]
-		if (subs != "TRUE" && subs != "FALSE") || (secure != "TRUE" && secure != "FALSE") ||
-			!cookieExpiresPattern.MatchString(expires) || !strings.HasPrefix(path, "/") ||
-			cookieNameForbidden.MatchString(name) || name == "" || len(name) > 256 ||
-			len(value) > 16384 || cookieValueForbidden.MatchString(value) ||
-			cookiePathForbidden.MatchString(path) {
-			return CookieParseResult{}, fmt.Errorf("Cookie 字段格式无效")
-		}
-		seconds, _ := strconv.ParseInt(expires, 10, 64)
-		if seconds > 0 && seconds <= now {
-			continue
-		}
-		dedupeKey := domain + "\n" + path + "\n" + name
+		dedupeKey := cookie.Domain + "\n" + cookie.Path + "\n" + cookie.Name
 		if seen[dedupeKey] {
 			continue
 		}
 		seen[dedupeKey] = true
-		rawDomainLower := strings.ToLower(rawDomain)
-		displayDomain := rawDomainLower
-		if httpOnly {
-			displayDomain = "#HttpOnly_" + rawDomainLower
-		}
-		rows = append(rows, strings.Join([]string{
-			displayDomain, subs, path, secure, expires, name, value,
-		}, "\t"))
-		cookies = append(cookies, MediaCookie{
-			Domain: domain, Path: path, Name: name, Value: value,
-			Secure: secure == "TRUE", HTTPOnly: httpOnly, HostOnly: subs == "FALSE", Expires: seconds,
-		})
+		rows = append(rows, row)
+		cookies = append(cookies, cookie)
 	}
 	if len(rows) == 0 || len(rows) > 2000 {
 		return CookieParseResult{}, fmt.Errorf("没有匹配该域名且未过期的 Cookie")
@@ -336,19 +351,35 @@ func (auth *MediaAuth) writeLocked(rows map[string]MediaProfile) error {
 
 type AuthFetcher func(requestURL string, headers map[string]string, ctx context.Context) (*http.Response, error)
 
-func (auth *MediaAuth) CookieHeader(profileID, site string) (string, error) {
+func (auth *MediaAuth) profile(profileID string) (MediaProfile, error) {
 	if !mediaProfileIDPattern.MatchString(profileID) {
-		return "", contract.InputInvalid(errAuthProfileIdInvalid)
+		return MediaProfile{}, contract.InputInvalid(errAuthProfileIdInvalid)
 	}
 	auth.mu <- struct{}{}
 	rows, err := auth.readLocked()
 	<-auth.mu
 	if err != nil {
-		return "", err
+		return MediaProfile{}, err
 	}
 	selected := rows[profileID]
 	if selected.ID == "" {
-		return "", contract.InputInvalid(errAuthProfileSiteMismatch)
+		return MediaProfile{}, contract.InputInvalid(errAuthProfileSiteMismatch)
+	}
+	return selected, nil
+}
+
+func cookiePairs(cookies []*http.Cookie) string {
+	pairs := make([]string, 0, len(cookies))
+	for _, cookie := range cookies {
+		pairs = append(pairs, cookie.Name+"="+cookie.Value)
+	}
+	return strings.Join(pairs, "; ")
+}
+
+func (auth *MediaAuth) CookieHeader(profileID, site string) (string, error) {
+	selected, err := auth.profile(profileID)
+	if err != nil {
+		return "", err
 	}
 	if selected.Site != site {
 		return "", contract.InputInvalid(errAuthProfileSiteMismatch)
@@ -357,40 +388,21 @@ func (auth *MediaAuth) CookieHeader(profileID, site string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	pairs := make([]string, 0, len(parsed.Cookies))
+	jarCookies := make([]*http.Cookie, 0, len(parsed.Cookies))
 	for _, cookie := range parsed.Cookies {
-		pairs = append(pairs, cookie.Name+"="+cookie.Value)
+		jarCookies = append(jarCookies, &http.Cookie{Name: cookie.Name, Value: cookie.Value})
 	}
-	if len(pairs) == 0 {
+	header := cookiePairs(jarCookies)
+	if header == "" {
 		return "", contract.InputInvalid("登录档案没有可用 Cookie")
 	}
-	return strings.Join(pairs, "; "), nil
+	return header, nil
 }
 
-func (auth *MediaAuth) Scoped(requestURL string, options NativeMediaOptions, base AuthFetcher) (AuthFetcher, error) {
-	if !options.UseCookies || options.CookieProfile == "" {
-		return base, nil
-	}
-	if !mediaProfileIDPattern.MatchString(options.CookieProfile) {
-		return nil, contract.InputInvalid(errAuthProfileIdInvalid)
-	}
-	auth.mu <- struct{}{}
-	rows, err := auth.readLocked()
-	<-auth.mu
-	if err != nil {
-		return nil, err
-	}
-	selected := rows[options.CookieProfile]
-	if selected.ID == "" {
-		return nil, contract.InputInvalid(errAuthProfileSiteMismatch)
-	}
+func scopedJar(selected MediaProfile, target *url.URL) (*cookiejar.Jar, error) {
 	parsed, err := ParseMediaCookies(selected.Cookies, selected.Site)
 	if err != nil {
 		return nil, err
-	}
-	target, err := url.Parse(requestURL)
-	if err != nil || !cookieBelongs(target.Hostname(), selected.Site) {
-		return nil, contract.InputInvalid(errAuthProfileSiteMismatch)
 	}
 	jar, err := cookiejar.New(nil)
 	if err != nil {
@@ -404,30 +416,53 @@ func (auth *MediaAuth) Scoped(requestURL string, options NativeMediaOptions, bas
 		})
 	}
 	jar.SetCookies(target, jarCookies)
+	return jar, nil
+}
+
+func scopedCookieHeaders(headers map[string]string) map[string]string {
+	copied := map[string]string{}
+	for key, value := range headers {
+		lower := strings.ToLower(key)
+		if lower == "cookie" || lower == "authorization" {
+			continue
+		}
+		copied[key] = value
+	}
+	return copied
+}
+
+func scopedFetcher(base AuthFetcher, jar *cookiejar.Jar, site string) AuthFetcher {
 	return func(input string, headers map[string]string, ctx context.Context) (*http.Response, error) {
 		targetURL, err := url.Parse(input)
 		if err != nil {
 			return nil, contract.InputInvalid("下载地址无效")
 		}
-		copied := map[string]string{}
-		for key, value := range headers {
-			lower := strings.ToLower(key)
-			if lower == "cookie" || lower == "authorization" {
-				continue
-			}
-			copied[key] = value
-		}
+		copied := scopedCookieHeaders(headers)
 		if targetURL.Scheme == "https" && targetURL.User == nil && targetURL.Port() == "" &&
-			cookieBelongs(targetURL.Hostname(), selected.Site) {
-			cookies := jar.Cookies(targetURL)
-			if len(cookies) > 0 {
-				pairs := make([]string, 0, len(cookies))
-				for _, cookie := range cookies {
-					pairs = append(pairs, cookie.Name+"="+cookie.Value)
-				}
-				copied["Cookie"] = strings.Join(pairs, "; ")
+			cookieBelongs(targetURL.Hostname(), site) {
+			if header := cookiePairs(jar.Cookies(targetURL)); header != "" {
+				copied["Cookie"] = header
 			}
 		}
 		return base(input, copied, ctx)
-	}, nil
+	}
+}
+
+func (auth *MediaAuth) Scoped(requestURL string, options NativeMediaOptions, base AuthFetcher) (AuthFetcher, error) {
+	if !options.UseCookies || options.CookieProfile == "" {
+		return base, nil
+	}
+	selected, err := auth.profile(options.CookieProfile)
+	if err != nil {
+		return nil, err
+	}
+	target, err := url.Parse(requestURL)
+	if err != nil || !cookieBelongs(target.Hostname(), selected.Site) {
+		return nil, contract.InputInvalid(errAuthProfileSiteMismatch)
+	}
+	jar, err := scopedJar(selected, target)
+	if err != nil {
+		return nil, err
+	}
+	return scopedFetcher(base, jar, selected.Site), nil
 }

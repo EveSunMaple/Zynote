@@ -108,32 +108,27 @@ func cropImage(source image.Image, region videoppt.Region) image.Image {
 	return result
 }
 
-func trimBlackSides(source image.Image) videoppt.Region {
-	bounds := source.Bounds()
-	width, height := bounds.Dx(), bounds.Dy()
-	if width < 1 || height < 1 {
-		return videoppt.Region{Left: 0, Right: 1, Top: 0, Bottom: 1}
-	}
-	black := func(x int) bool {
-		count := 0
-		for y := 0; y < height; y++ {
-			red, green, blue, alpha := source.At(bounds.Min.X+x, bounds.Min.Y+y).RGBA()
-			if red < 42*257 && green < 42*257 && blue < 42*257 && alpha > 200*257 {
-				count++
-			}
+func columnBlack(source image.Image, bounds image.Rectangle, x, height int) bool {
+	count := 0
+	for y := 0; y < height; y++ {
+		red, green, blue, alpha := source.At(bounds.Min.X+x, bounds.Min.Y+y).RGBA()
+		if red < 42*257 && green < 42*257 && blue < 42*257 && alpha > 200*257 {
+			count++
 		}
-		return float64(count)/float64(height) > 0.999
 	}
-	allBlack := true
+	return float64(count)/float64(height) > 0.999
+}
+
+func allColumnsBlack(source image.Image, bounds image.Rectangle, width, height int) bool {
 	for x := 0; x < width; x++ {
-		if !black(x) {
-			allBlack = false
-			break
+		if !columnBlack(source, bounds, x, height) {
+			return false
 		}
 	}
-	if allBlack {
-		return videoppt.Region{Left: 0, Right: 1, Top: 0, Bottom: 1}
-	}
+	return true
+}
+
+func mostlyDark(source image.Image, bounds image.Rectangle, width, height int) bool {
 	dark, sampled, stride := 0, 0, int(float64(minInt(width, height))/160)
 	if stride < 1 {
 		stride = 1
@@ -147,16 +142,30 @@ func trimBlackSides(source image.Image) videoppt.Region {
 			}
 		}
 	}
-	if sampled > 0 && float64(dark)/float64(sampled) > 0.45 {
-		return videoppt.Region{Left: 0, Right: 1, Top: 0, Bottom: 1}
-	}
+	return sampled > 0 && float64(dark)/float64(sampled) > 0.45
+}
+
+func trimmedSideColumns(source image.Image, bounds image.Rectangle, width, height int) (int, int) {
 	left, right := 0, width-1
-	for left < int(float64(width)*0.35) && black(left) {
+	for left < int(float64(width)*0.35) && columnBlack(source, bounds, left, height) {
 		left++
 	}
-	for right > int(float64(width)*0.65) && black(right) {
+	for right > int(float64(width)*0.65) && columnBlack(source, bounds, right, height) {
 		right--
 	}
+	return left, right
+}
+
+func trimBlackSides(source image.Image) videoppt.Region {
+	bounds := source.Bounds()
+	width, height := bounds.Dx(), bounds.Dy()
+	if width < 1 || height < 1 {
+		return videoppt.Region{Left: 0, Right: 1, Top: 0, Bottom: 1}
+	}
+	if allColumnsBlack(source, bounds, width, height) || mostlyDark(source, bounds, width, height) {
+		return videoppt.Region{Left: 0, Right: 1, Top: 0, Bottom: 1}
+	}
+	left, right := trimmedSideColumns(source, bounds, width, height)
 	return videoppt.Region{Left: float64(left) / float64(width), Right: float64(right+1) / float64(width), Top: 0, Bottom: 1}
 }
 
@@ -165,6 +174,77 @@ func minInt(left, right int) int {
 		return left
 	}
 	return right
+}
+
+func xmlRelationshipTarget(xml, id string) string {
+	for _, row := range relationshipPat.FindAllString(xml, -1) {
+		if attrValue(row, "Id") == id {
+			return attrValue(row, "Target")
+		}
+	}
+	return ""
+}
+
+func slideIDs(raw []byte) []string {
+	ids := []string{}
+	for _, match := range slideIDPattern.FindAllStringSubmatch(string(raw), -1) {
+		ids = append(ids, match[1])
+	}
+	return ids
+}
+
+func readSlidePicture(archive *zip.Reader, slideXML, picture, slideName string, index int) (image.Image, videoppt.Region, string, error) {
+	embed := attrValue(picture, "r:embed")
+	relsName := path.Join(path.Dir(slideName), "_rels", path.Base(slideName)+".rels")
+	slideRelsRaw, err := entryData(archive, relsName, 5*1024*1024)
+	if err != nil {
+		return nil, videoppt.Region{}, "", requestError("第 " + itoa(index+1) + " 页没有可读取的内嵌图片")
+	}
+	mediaTarget := xmlRelationshipTarget(string(slideRelsRaw), embed)
+	mediaName := partTarget(path.Dir(slideName), mediaTarget)
+	if mediaTarget == "" || !strings.HasPrefix(mediaName, "ppt/media/") {
+		return nil, videoppt.Region{}, "", requestError("第 " + itoa(index+1) + " 页没有可读取的内嵌图片")
+	}
+	data, err := entryData(archive, mediaName, 40*1024*1024)
+	if err != nil || len(data) == 0 {
+		return nil, videoppt.Region{}, "原课件内嵌图片缺失，无法恢复；已保留原文件", nil
+	}
+	decoded, _, err := image.Decode(bytes.NewReader(data))
+	if err != nil {
+		return nil, videoppt.Region{}, "原课件内嵌图片损坏或格式不支持，无法读取；已保留原文件", nil
+	}
+	if decoded.Bounds().Dx()*decoded.Bounds().Dy() > 25000000 {
+		return nil, videoppt.Region{}, "", requestError("单页图片分辨率过大，请降低分辨率")
+	}
+	source := decoded
+	if rect := srcRectPattern.FindString(picture); rect != "" {
+		region := videoppt.Region{
+			Left: parsePercent(attrValue(rect, "l")), Top: parsePercent(attrValue(rect, "t")),
+			Right: 1 - parsePercent(attrValue(rect, "r")), Bottom: 1 - parsePercent(attrValue(rect, "b")),
+		}
+		source = cropImage(source, region)
+	}
+	transform := transformPat.FindString(picture)
+	if transform != "" && (attrValue(transform, "rot") != "" && attrValue(transform, "rot") != "0" ||
+		attrValue(transform, "flipH") == "1" || attrValue(transform, "flipV") == "1" ||
+		attrValue(transform, "flipH") == "true" || attrValue(transform, "flipV") == "true") {
+		return nil, videoppt.Region{}, "", requestError("第 " + itoa(index+1) + " 页图片带旋转或翻转，请先转换为完整截图")
+	}
+	return source, trimBlackSides(source), "", nil
+}
+
+func saveDeckPage(source image.Image, path string) ([]byte, error) {
+	file, err := os.Create(path)
+	if err != nil {
+		return nil, requestError("任务目录不可创建")
+	}
+	if err := png.Encode(file, source); err != nil {
+		file.Close()
+		return nil, requestError("课件图片无法保存")
+	}
+	file.Close()
+	stored, _ := os.ReadFile(path)
+	return stored, nil
 }
 
 func ReadDeck(sourcePath, outputDirectory string) (Deck, error) {
@@ -192,10 +272,7 @@ func ReadDeck(sourcePath, outputDirectory string) (Deck, error) {
 	if err != nil {
 		return Deck{}, requestError("无法读取 PPTX 页面目录")
 	}
-	ids := []string{}
-	for _, match := range slideIDPattern.FindAllStringSubmatch(string(presentationRaw), -1) {
-		ids = append(ids, match[1])
-	}
+	ids := slideIDs(presentationRaw)
 	if len(ids) == 0 || len(ids) > 500 {
 		return Deck{}, requestError("请选择包含 1–500 页的图片型 PPTX")
 	}
@@ -205,13 +282,7 @@ func ReadDeck(sourcePath, outputDirectory string) (Deck, error) {
 	pages := []Page{}
 	compressedBytes := 0
 	for index, id := range ids {
-		slideTarget := ""
-		for _, row := range relationshipPat.FindAllString(string(relsRaw), -1) {
-			if attrValue(row, "Id") == id {
-				slideTarget = attrValue(row, "Target")
-				break
-			}
-		}
+		slideTarget := xmlRelationshipTarget(string(relsRaw), id)
 		name := partTarget("ppt", slideTarget)
 		if slideTarget == "" || !strings.HasPrefix(name, "ppt/slides/") {
 			return Deck{}, requestError("课件页面关系无效")
@@ -228,63 +299,19 @@ func ReadDeck(sourcePath, outputDirectory string) (Deck, error) {
 		if len(pictures) != 1 || editablePat.MatchString(xml) {
 			return Deck{}, requestError("第 " + itoa(index+1) + " 页包含可编辑对象或多张图片，暂不能完整处理；请先将每页转换为一张图片后再导入")
 		}
-		embed := attrValue(pictures[0], "r:embed")
-		relsName := path.Join(path.Dir(name), "_rels", path.Base(name)+".rels")
-		slideRelsRaw, err := entryData(&archive.Reader, relsName, 5*1024*1024)
+		source, crop, unavailable, err := readSlidePicture(&archive.Reader, xml, pictures[0], name, index)
 		if err != nil {
-			return Deck{}, requestError("第 " + itoa(index+1) + " 页没有可读取的内嵌图片")
+			return Deck{}, err
 		}
-		mediaTarget := ""
-		for _, row := range relationshipPat.FindAllString(string(slideRelsRaw), -1) {
-			if attrValue(row, "Id") == embed {
-				mediaTarget = attrValue(row, "Target")
-				break
-			}
-		}
-		mediaName := partTarget(path.Dir(name), mediaTarget)
-		if mediaTarget == "" || !strings.HasPrefix(mediaName, "ppt/media/") {
-			return Deck{}, requestError("第 " + itoa(index+1) + " 页没有可读取的内嵌图片")
-		}
-		data, err := entryData(&archive.Reader, mediaName, 40*1024*1024)
-		if err != nil || len(data) == 0 {
-			pages = append(pages, Page{Page: index + 1, Unavailable: "原课件内嵌图片缺失，无法恢复；已保留原文件"})
+		if unavailable != "" {
+			pages = append(pages, Page{Page: index + 1, Unavailable: unavailable})
 			continue
 		}
-		decoded, _, err := image.Decode(bytes.NewReader(data))
-		if err != nil {
-			pages = append(pages, Page{Page: index + 1, Unavailable: "原课件内嵌图片损坏或格式不支持，无法读取；已保留原文件"})
-			continue
-		}
-		if decoded.Bounds().Dx()*decoded.Bounds().Dy() > 25000000 {
-			return Deck{}, requestError("单页图片分辨率过大，请降低分辨率")
-		}
-		rect := srcRectPattern.FindString(pictures[0])
-		source := decoded
-		if rect != "" {
-			region := videoppt.Region{
-				Left: parsePercent(attrValue(rect, "l")), Top: parsePercent(attrValue(rect, "t")),
-				Right: 1 - parsePercent(attrValue(rect, "r")), Bottom: 1 - parsePercent(attrValue(rect, "b")),
-			}
-			source = cropImage(source, region)
-		}
-		transform := transformPat.FindString(pictures[0])
-		if transform != "" && (attrValue(transform, "rot") != "" && attrValue(transform, "rot") != "0" ||
-			attrValue(transform, "flipH") == "1" || attrValue(transform, "flipV") == "1" ||
-			attrValue(transform, "flipH") == "true" || attrValue(transform, "flipV") == "true") {
-			return Deck{}, requestError("第 " + itoa(index+1) + " 页图片带旋转或翻转，请先转换为完整截图")
-		}
-		crop := trimBlackSides(source)
 		imagePath := filepath.Join(outputDirectory, "page-"+itoa(index+1)+".png")
-		file, err := os.Create(imagePath)
+		stored, err := saveDeckPage(source, imagePath)
 		if err != nil {
-			return Deck{}, requestError("任务目录不可创建")
+			return Deck{}, err
 		}
-		if err := png.Encode(file, source); err != nil {
-			file.Close()
-			return Deck{}, requestError("课件图片无法保存")
-		}
-		file.Close()
-		stored, _ := os.ReadFile(imagePath)
 		compressedBytes += len(stored)
 		if compressedBytes > 200*1024*1024 {
 			return Deck{}, requestError("课件解压后的图片超过 200 MB，请压缩图片后重试")

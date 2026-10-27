@@ -214,6 +214,83 @@ func (jobs *DownloadJobs) ensureInitializedLocked() error {
 	return nil
 }
 
+func (jobs *DownloadJobs) readNativeJobRecord(directory string) (*NativeDownloadJob, bool, error) {
+	privatePath := filepath.Join(directory, jobDPAPIFile)
+	publicPath := filepath.Join(directory, jobJSONFile)
+	encrypted := false
+	if _, err := os.Lstat(privatePath); err == nil {
+		encrypted = true
+	}
+	if encrypted {
+		if _, err := os.Lstat(publicPath); err == nil {
+			return nil, false, fmt.Errorf("下载任务同时存在明文与加密记录，未选择其中一个覆盖")
+		}
+	}
+	recordPath := publicPath
+	if encrypted {
+		recordPath = privatePath
+	}
+	info, err := os.Lstat(recordPath)
+	if err != nil || info.Mode()&os.ModeSymlink != 0 || !info.Mode().IsRegular() {
+		return nil, false, fmt.Errorf("下载恢复记录文件无效")
+	}
+	raw, err := os.ReadFile(recordPath)
+	if err != nil {
+		return nil, false, fmt.Errorf("下载恢复记录文件无效")
+	}
+	if encrypted {
+		raw, err = jobs.crypt(raw, true)
+		if err != nil {
+			return nil, false, err
+		}
+	}
+	var row NativeDownloadJob
+	if err := json.Unmarshal(raw, &row); err != nil {
+		return nil, false, fmt.Errorf("下载恢复记录无效")
+	}
+	return &row, encrypted, nil
+}
+
+func (jobs *DownloadJobs) initializeJobLocked(entryName, directory string) error {
+	row, encrypted, err := jobs.readNativeJobRecord(directory)
+	if err != nil {
+		return err
+	}
+	recipe, err := MediaOptions(row.Recipe)
+	if err != nil {
+		return err
+	}
+	row.Recipe = recipeMap(recipe)
+	if encrypted != (row.Recipe["privacy"] == true) {
+		return fmt.Errorf("下载记录加密方式与任务设置不一致")
+	}
+	if row.ID != entryName || row.RecipeHash != hashRecipe(row.Identity, row.SourceURL, row.Recipe) {
+		return fmt.Errorf("下载恢复记录与任务不一致")
+	}
+	locks, err := RecoverDownloadLocks(directory, row.Identity)
+	if err != nil {
+		return err
+	}
+	if len(locks.Preserved) > 0 {
+		row.Warning = "保留无法确认归属的分段锁，请核对原下载进程后再继续"
+	}
+	if row.State == "running" || row.State == "queued" {
+		row.Revision++
+		row.State = "interrupted"
+		row.Stage = "上次中断，等待手动继续"
+		row.Updated = time.Now().UTC().Format(time.RFC3339Nano)
+		return jobs.save(row)
+	}
+	jobs.records[row.ID] = row
+	if row.State == "completed" && len(row.Cleanup) > 0 {
+		if _, err := jobs.clearIntermediatesLocked(row); err != nil {
+			row.Warning = "成果或清理记录未通过核对，原中间文件保留"
+			jobs.records[row.ID] = row
+		}
+	}
+	return nil
+}
+
 func (jobs *DownloadJobs) initializeLocked() error {
 	base, err := jobs.base()
 	if err != nil {
@@ -234,73 +311,8 @@ func (jobs *DownloadJobs) initializeLocked() error {
 		if err != nil {
 			return err
 		}
-		privatePath := filepath.Join(directory, jobDPAPIFile)
-		publicPath := filepath.Join(directory, jobJSONFile)
-		encrypted := false
-		if _, err := os.Lstat(privatePath); err == nil {
-			encrypted = true
-		}
-		if encrypted {
-			if _, err := os.Lstat(publicPath); err == nil {
-				return fmt.Errorf("下载任务同时存在明文与加密记录，未选择其中一个覆盖")
-			}
-		}
-		recordPath := publicPath
-		if encrypted {
-			recordPath = privatePath
-		}
-		info, err := os.Lstat(recordPath)
-		if err != nil || info.Mode()&os.ModeSymlink != 0 || !info.Mode().IsRegular() {
-			return fmt.Errorf("下载恢复记录文件无效")
-		}
-		raw, err := os.ReadFile(recordPath)
-		if err != nil {
-			return fmt.Errorf("下载恢复记录文件无效")
-		}
-		if encrypted {
-			raw, err = jobs.crypt(raw, true)
-			if err != nil {
-				return err
-			}
-		}
-		var row NativeDownloadJob
-		if err := json.Unmarshal(raw, &row); err != nil {
-			return fmt.Errorf("下载恢复记录无效")
-		}
-		recipe, err := MediaOptions(row.Recipe)
-		if err != nil {
+		if err := jobs.initializeJobLocked(entry.Name(), directory); err != nil {
 			return err
-		}
-		row.Recipe = recipeMap(recipe)
-		if encrypted != (row.Recipe["privacy"] == true) {
-			return fmt.Errorf("下载记录加密方式与任务设置不一致")
-		}
-		if row.ID != entry.Name() || row.RecipeHash != hashRecipe(row.Identity, row.SourceURL, row.Recipe) {
-			return fmt.Errorf("下载恢复记录与任务不一致")
-		}
-		locks, err := RecoverDownloadLocks(directory, row.Identity)
-		if err != nil {
-			return err
-		}
-		if len(locks.Preserved) > 0 {
-			row.Warning = "保留无法确认归属的分段锁，请核对原下载进程后再继续"
-		}
-		if row.State == "running" || row.State == "queued" {
-			row.Revision++
-			row.State = "interrupted"
-			row.Stage = "上次中断，等待手动继续"
-			row.Updated = time.Now().UTC().Format(time.RFC3339Nano)
-			if err := jobs.save(&row); err != nil {
-				return err
-			}
-		} else {
-			jobs.records[row.ID] = &row
-			if row.State == "completed" && len(row.Cleanup) > 0 {
-				if _, err := jobs.clearIntermediatesLocked(&row); err != nil {
-					row.Warning = "成果或清理记录未通过核对，原中间文件保留"
-					jobs.records[row.ID] = &row
-				}
-			}
 		}
 	}
 	return nil
@@ -631,6 +643,31 @@ type LockRecovery struct {
 	Preserved []string
 }
 
+func recoverLock(path, name, identity string) (bool, bool) {
+	info, err := os.Lstat(path)
+	if err != nil || info.Mode()&os.ModeSymlink != 0 || !info.Mode().IsRegular() {
+		return false, true
+	}
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		return false, true
+	}
+	var owner lockOwner
+	if json.Unmarshal(raw, &owner) != nil || owner.Version != 1 || owner.PID <= 0 || owner.Identity == "" {
+		return false, true
+	}
+	if !strings.HasPrefix(owner.Identity, identity+":") {
+		return false, true
+	}
+	if processAlive(owner.PID) {
+		return false, true
+	}
+	if err := os.Remove(path); err != nil {
+		return false, true
+	}
+	return true, false
+}
+
 func RecoverDownloadLocks(directory, identity string) (*LockRecovery, error) {
 	result := &LockRecovery{Removed: []string{}, Preserved: []string{}}
 	entries, err := os.ReadDir(directory)
@@ -642,34 +679,11 @@ func RecoverDownloadLocks(directory, identity string) (*LockRecovery, error) {
 		if !trackLockPattern.MatchString(name) {
 			continue
 		}
-		path := filepath.Join(directory, name)
-		info, err := os.Lstat(path)
-		if err != nil || info.Mode()&os.ModeSymlink != 0 || !info.Mode().IsRegular() {
-			result.Preserved = append(result.Preserved, name)
-			continue
-		}
-		raw, err := os.ReadFile(path)
-		if err != nil {
-			result.Preserved = append(result.Preserved, name)
-			continue
-		}
-		var owner lockOwner
-		if json.Unmarshal(raw, &owner) != nil || owner.Version != 1 || owner.PID <= 0 || owner.Identity == "" {
-			result.Preserved = append(result.Preserved, name)
-			continue
-		}
-		if !strings.HasPrefix(owner.Identity, identity+":") {
-			result.Preserved = append(result.Preserved, name)
-			continue
-		}
-		dead := !processAlive(owner.PID)
-		if !dead {
-			result.Preserved = append(result.Preserved, name)
-			continue
-		}
-		if err := os.Remove(path); err == nil {
+		removed, preserved := recoverLock(filepath.Join(directory, name), name, identity)
+		if removed {
 			result.Removed = append(result.Removed, name)
-		} else {
+		}
+		if preserved {
 			result.Preserved = append(result.Preserved, name)
 		}
 	}

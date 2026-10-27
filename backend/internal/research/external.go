@@ -168,6 +168,137 @@ func (external *External) get(ctx context.Context, target string) ([]byte, error
 	return body, err
 }
 
+func arxivFulltextURL(parsed *url.URL) bool {
+	return parsed.Hostname() == hostArxiv &&
+		regexp.MustCompile(`^/(?:abs|pdf)/(?:\d{4}\.\d{4,5}|[a-z-]+/\d{7})v\d+$`).MatchString(parsed.Path)
+}
+
+func validateArxivChoice(channels []string, choice FulltextChoice, parsed *url.URL, pdfCount int) error {
+	if !containsChannel(channels, "arxiv_fulltext") || !containsChannel(channels, "arxiv") {
+		return fmt.Errorf("arXiv 正文需同时勾选 arXiv 及正文渠道")
+	}
+	if len(choice.Pages) == 0 || len(choice.Pages) > 4 || uniqueInts(choice.Pages) != len(choice.Pages) ||
+		parsed.RawQuery != "" || pdfCount >= 2 {
+		return fmt.Errorf("每次最多两篇固定版本论文，每篇明确选择至多四个物理页")
+	}
+	return nil
+}
+
+func downloadArxivPDF(ctx context.Context, external *External, parsed *url.URL) (string, string, []byte, error) {
+	target := "https://arxiv.org/pdf/" + strings.TrimPrefix(strings.TrimPrefix(parsed.Path, "/abs/"), "/pdf/")
+	body, _, err := external.getResponse(ctx, target)
+	if err != nil {
+		return "", "", nil, err
+	}
+	if len(body) < 5 || string(body[:5]) != "%PDF-" {
+		return "", "", nil, fmt.Errorf("论文接口未返回 PDF")
+	}
+	if len(body) > 8*1024*1024 {
+		return "", "", nil, fmt.Errorf("论文正文超过大小上限")
+	}
+	file, err := os.CreateTemp("", "zynote-arxiv-*.pdf")
+	if err != nil {
+		return "", "", nil, fmt.Errorf("论文正文暂存失败")
+	}
+	path := file.Name()
+	_, writeErr := file.Write(body)
+	closeErr := file.Close()
+	if writeErr != nil || closeErr != nil {
+		_ = os.Remove(path)
+		return "", "", nil, fmt.Errorf("论文正文暂存失败")
+	}
+	return path, target, body, nil
+}
+
+func arxivEvidenceRows(external *External, path, target, name string, pages []int, responseSHA string) ([]ExternalEvidence, error) {
+	rows := []ExternalEvidence{}
+	for _, page := range pages {
+		text, total, err := external.PDFPage(path, page)
+		if err != nil {
+			return nil, err
+		}
+		if total > 64 || page > total {
+			return nil, fmt.Errorf("论文页数超出预算或所选物理页不存在")
+		}
+		text = strings.TrimSpace(text)
+		if text == "" {
+			return nil, fmt.Errorf("所选论文页未取得文字，当前不会自动OCR或宣称读完")
+		}
+		truncated := len([]rune(text)) > 12000
+		text = trimText(text, 12000)
+		value := ExternalEvidence{
+			Provider: "arxiv", Title: fmt.Sprintf("%s · 第%d页", name, page), URL: target,
+			Text: text, Scope: "pdf_page", ObtainedAt: time.Now().UTC().Format(time.RFC3339Nano),
+			Page: page, TotalPages: total, Truncated: truncated, ResponseSHA256: responseSHA,
+		}
+		encoded, _ := json.Marshal(value)
+		value.SHA256 = hashText(string(encoded))
+		rows = append(rows, value)
+	}
+	return rows, nil
+}
+
+func readArxivFulltext(ctx context.Context, external *External, channels []string, choice FulltextChoice, parsed *url.URL, pdfCount *int) ([]ExternalEvidence, error) {
+	if err := validateArxivChoice(channels, choice, parsed, *pdfCount); err != nil {
+		return nil, err
+	}
+	if external.PDFPage == nil {
+		return nil, fmt.Errorf("PDF 阅读组件不可用")
+	}
+	*pdfCount++
+	path, target, body, err := downloadArxivPDF(ctx, external, parsed)
+	if err != nil {
+		return nil, err
+	}
+	defer os.Remove(path)
+	name := parsed.Path[strings.LastIndex(parsed.Path, "/")+1:]
+	return arxivEvidenceRows(external, path, target, name, choice.Pages, hashBytes(body))
+}
+
+func webArticleText(decoded, contentType string) string {
+	text := decoded
+	if strings.HasPrefix(contentType, "text/html") || strings.HasPrefix(contentType, "application/xhtml") {
+		article := regexp.MustCompile(`(?is)<(?:article|main)\b[^>]*>(.*?)</(?:article|main)>`).FindStringSubmatch(decoded)
+		if article != nil {
+			text = article[1]
+		}
+		text = plainText(text)
+	}
+	return text
+}
+
+func readWebFulltext(ctx context.Context, external *External, channels []string, choice FulltextChoice, parsed *url.URL) (ExternalEvidence, error) {
+	if !containsChannel(channels, "web_pages") || !containsChannel(channels, "web") || len(choice.Pages) > 0 {
+		return ExternalEvidence{}, fmt.Errorf("公开网页正文需同时勾选网页搜索与正文渠道，且不设置PDF页码")
+	}
+	body, contentType, err := external.getResponse(ctx, parsed.String())
+	if err != nil {
+		return ExternalEvidence{}, err
+	}
+	if !regexp.MustCompile(`^(?:text/html|application/xhtml\+xml|text/plain)(?:;|$)`).MatchString(contentType) {
+		return ExternalEvidence{}, fmt.Errorf("所选网址不是公开文字网页")
+	}
+	title := regexp.MustCompile(`(?is)<title\b[^>]*>(.*?)</title>`).FindStringSubmatch(string(body))
+	name := parsed.Hostname()
+	if title != nil {
+		name = plainText(title[1])
+	}
+	text := strings.TrimSpace(webArticleText(string(body), contentType))
+	if text == "" || regexp.MustCompile(`(?i)just a moment|verify you are human|captcha|访问验证|安全验证|请登录后查看`).MatchString(name+"\n"+trimText(text, 500)) {
+		return ExternalEvidence{}, fmt.Errorf("网页未返回可核验正文，可能要求登录或验证")
+	}
+	truncated := len([]rune(text)) > 12000
+	text = trimText(text, 12000)
+	value := ExternalEvidence{
+		Provider: "web", Title: name, URL: parsed.String(), Text: text, Scope: "web_excerpt",
+		ObtainedAt: time.Now().UTC().Format(time.RFC3339Nano), Truncated: truncated,
+		ResponseSHA256: hashBytes(body),
+	}
+	encoded, _ := json.Marshal(value)
+	value.SHA256 = hashText(string(encoded))
+	return value, nil
+}
+
 func (external *External) ReadFulltext(ctx context.Context, channels []string, choices []FulltextChoice) ([]ExternalEvidence, error) {
 	if len(choices) == 0 || len(choices) > 4 {
 		return nil, fmt.Errorf("正文选择无效")
@@ -184,110 +315,18 @@ func (external *External) ReadFulltext(ctx context.Context, channels []string, c
 		if err != nil {
 			return nil, err
 		}
-		arxiv := parsed.Hostname() == hostArxiv &&
-			regexp.MustCompile(`^/(?:abs|pdf)/(?:\d{4}\.\d{4,5}|[a-z-]+/\d{7})v\d+$`).MatchString(parsed.Path)
-		if arxiv {
-			if !containsChannel(channels, "arxiv_fulltext") || !containsChannel(channels, "arxiv") {
-				return nil, fmt.Errorf("arXiv 正文需同时勾选 arXiv 及正文渠道")
-			}
-			if len(choice.Pages) == 0 || len(choice.Pages) > 4 || uniqueInts(choice.Pages) != len(choice.Pages) ||
-				parsed.RawQuery != "" || pdfCount >= 2 {
-				return nil, fmt.Errorf("每次最多两篇固定版本论文，每篇明确选择至多四个物理页")
-			}
-			if external.PDFPage == nil {
-				return nil, fmt.Errorf("PDF 阅读组件不可用")
-			}
-			pdfCount++
-			target := "https://arxiv.org/pdf/" + strings.TrimPrefix(strings.TrimPrefix(parsed.Path, "/abs/"), "/pdf/")
-			body, _, err := external.getResponse(ctx, target)
+		if arxivFulltextURL(parsed) {
+			value, err := readArxivFulltext(ctx, external, channels, choice, parsed, &pdfCount)
 			if err != nil {
 				return nil, err
 			}
-			if len(body) < 5 || string(body[:5]) != "%PDF-" {
-				return nil, fmt.Errorf("论文接口未返回 PDF")
-			}
-			if len(body) > 8*1024*1024 {
-				return nil, fmt.Errorf("论文正文超过大小上限")
-			}
-			file, err := os.CreateTemp("", "zynote-arxiv-*.pdf")
-			if err != nil {
-				return nil, fmt.Errorf("论文正文暂存失败")
-			}
-			path := file.Name()
-			_, writeErr := file.Write(body)
-			closeErr := file.Close()
-			if writeErr != nil || closeErr != nil {
-				_ = os.Remove(path)
-				return nil, fmt.Errorf("论文正文暂存失败")
-			}
-			responseSHA := hashBytes(body)
-			name := parsed.Path[strings.LastIndex(parsed.Path, "/")+1:]
-			for _, page := range choice.Pages {
-				text, total, err := external.PDFPage(path, page)
-				if err != nil {
-					_ = os.Remove(path)
-					return nil, err
-				}
-				if total > 64 || page > total {
-					_ = os.Remove(path)
-					return nil, fmt.Errorf("论文页数超出预算或所选物理页不存在")
-				}
-				text = strings.TrimSpace(text)
-				if text == "" {
-					_ = os.Remove(path)
-					return nil, fmt.Errorf("所选论文页未取得文字，当前不会自动OCR或宣称读完")
-				}
-				truncated := len([]rune(text)) > 12000
-				text = trimText(text, 12000)
-				value := ExternalEvidence{
-					Provider: "arxiv", Title: fmt.Sprintf("%s · 第%d页", name, page), URL: target,
-					Text: text, Scope: "pdf_page", ObtainedAt: time.Now().UTC().Format(time.RFC3339Nano),
-					Page: page, TotalPages: total, Truncated: truncated, ResponseSHA256: responseSHA,
-				}
-				encoded, _ := json.Marshal(value)
-				value.SHA256 = hashText(string(encoded))
-				rows = append(rows, value)
-			}
-			_ = os.Remove(path)
+			rows = append(rows, value...)
 			continue
 		}
-		if !containsChannel(channels, "web_pages") || !containsChannel(channels, "web") || len(choice.Pages) > 0 {
-			return nil, fmt.Errorf("公开网页正文需同时勾选网页搜索与正文渠道，且不设置PDF页码")
-		}
-		body, contentType, err := external.getResponse(ctx, parsed.String())
+		value, err := readWebFulltext(ctx, external, channels, choice, parsed)
 		if err != nil {
 			return nil, err
 		}
-		if !regexp.MustCompile(`^(?:text/html|application/xhtml\+xml|text/plain)(?:;|$)`).MatchString(contentType) {
-			return nil, fmt.Errorf("所选网址不是公开文字网页")
-		}
-		title := regexp.MustCompile(`(?is)<title\b[^>]*>(.*?)</title>`).FindStringSubmatch(string(body))
-		name := parsed.Hostname()
-		decoded := string(body)
-		if title != nil {
-			name = plainText(title[1])
-		}
-		text := decoded
-		if strings.HasPrefix(contentType, "text/html") || strings.HasPrefix(contentType, "application/xhtml") {
-			article := regexp.MustCompile(`(?is)<(?:article|main)\b[^>]*>(.*?)</(?:article|main)>`).FindStringSubmatch(decoded)
-			if article != nil {
-				text = article[1]
-			}
-			text = plainText(text)
-		}
-		text = strings.TrimSpace(text)
-		if text == "" || regexp.MustCompile(`(?i)just a moment|verify you are human|captcha|访问验证|安全验证|请登录后查看`).MatchString(name+"\n"+trimText(text, 500)) {
-			return nil, fmt.Errorf("网页未返回可核验正文，可能要求登录或验证")
-		}
-		truncated := len([]rune(text)) > 12000
-		text = trimText(text, 12000)
-		value := ExternalEvidence{
-			Provider: "web", Title: name, URL: parsed.String(), Text: text, Scope: "web_excerpt",
-			ObtainedAt: time.Now().UTC().Format(time.RFC3339Nano), Truncated: truncated,
-			ResponseSHA256: hashBytes(body),
-		}
-		encoded, _ := json.Marshal(value)
-		value.SHA256 = hashText(string(encoded))
 		rows = append(rows, value)
 	}
 	return rows, nil
@@ -341,245 +380,286 @@ func (external *External) evidence(provider, title, link, text, scope string) (E
 	return value, nil
 }
 
-func (external *External) Search(ctx context.Context, channels []string, question string, web any) ([]ExternalEvidence, error) {
-	query := trimText(strings.TrimSpace(question), 200)
-	rows := []ExternalEvidence{}
-	for _, channel := range channels {
-		if err := ctx.Err(); err != nil {
-			return nil, err
+type crossrefPayload struct {
+	Status  string `json:"status"`
+	Message struct {
+		Items []struct {
+			DOI      string   `json:"DOI"`
+			Title    []string `json:"title"`
+			Abstract string   `json:"abstract"`
+			Author   []struct {
+				Given  string `json:"given"`
+				Family string `json:"family"`
+				Name   string `json:"name"`
+			} `json:"author"`
+		} `json:"items"`
+	} `json:"message"`
+}
+
+func crossrefAuthorNames(authors []struct {
+	Given  string `json:"given"`
+	Family string `json:"family"`
+	Name   string `json:"name"`
+}) []string {
+	names := []string{}
+	for index, author := range authors {
+		if index >= 8 {
+			break
 		}
-		switch channel {
-		case "crossref":
-			values, err := url.Parse("https://api.crossref.org/works")
-			if err != nil {
-				continue
-			}
-			queryValues := values.Query()
-			queryValues.Set("query", query)
-			queryValues.Set("rows", "4")
-			values.RawQuery = queryValues.Encode()
-			body, err := external.get(ctx, values.String())
-			if err != nil {
-				return nil, err
-			}
-			var payload struct {
-				Status  string `json:"status"`
-				Message struct {
-					Items []struct {
-						DOI      string   `json:"DOI"`
-						Title    []string `json:"title"`
-						Abstract string   `json:"abstract"`
-						Author   []struct {
-							Given  string `json:"given"`
-							Family string `json:"family"`
-							Name   string `json:"name"`
-						} `json:"author"`
-					} `json:"items"`
-				} `json:"message"`
-			}
-			if json.Unmarshal(body, &payload) != nil || payload.Status != "ok" || len(payload.Message.Items) == 0 {
-				continue
-			}
-			for _, item := range payload.Message.Items {
-				if len(item.Title) == 0 || !regexp.MustCompile(`^10\.[0-9]{4,9}/\S+$`).MatchString(item.DOI) {
-					continue
-				}
-				authors := []string{}
-				for index, author := range item.Author {
-					if index >= 8 {
-						break
-					}
-					name := author.Name
-					if name == "" {
-						name = strings.TrimSpace(author.Given + " " + author.Family)
-					}
-					authors = append(authors, name)
-				}
-				text := "作者：" + strings.Join(authors, ", ") + "\n" + item.Abstract
-				if item.Abstract == "" {
-					text = "作者：" + strings.Join(authors, ", ") + "\n仅取得题录，无可用摘要。"
-				}
-				scope := "metadata"
-				if item.Abstract != "" {
-					scope = "abstract"
-				}
-				row, err := external.evidence("crossref", item.Title[0], "https://doi.org/"+strings.ToLower(item.DOI), text, scope)
-				if err == nil {
-					rows = append(rows, row)
-				}
-			}
-		case "semantic":
-			values, _ := url.Parse("https://api.semanticscholar.org/graph/v1/paper/search")
-			queryValues := values.Query()
-			queryValues.Set("query", query)
-			queryValues.Set("limit", "4")
-			queryValues.Set("fields", "title,abstract,authors,year,externalIds")
-			values.RawQuery = queryValues.Encode()
-			body, err := external.get(ctx, values.String())
-			if err != nil {
-				return nil, err
-			}
-			var payload struct {
-				Data []struct {
-					PaperID  string `json:"paperId"`
-					Title    string `json:"title"`
-					Abstract string `json:"abstract"`
-					Year     int    `json:"year"`
-					Authors  []struct {
-						Name string `json:"name"`
-					} `json:"authors"`
-				} `json:"data"`
-			}
-			if json.Unmarshal(body, &payload) != nil {
-				continue
-			}
-			for _, item := range payload.Data {
-				if len(item.PaperID) != 40 {
-					continue
-				}
-				names := []string{}
-				for index, author := range item.Authors {
-					if index >= 8 {
-						break
-					}
-					names = append(names, author.Name)
-				}
-				text := fmt.Sprintf("年份：%d 作者：%s\n%s", item.Year, strings.Join(names, ", "), item.Abstract)
-				if item.Abstract == "" {
-					text = fmt.Sprintf("年份：%d 作者：%s\n仅取得题录，无可用摘要。", item.Year, strings.Join(names, ", "))
-				}
-				scope := "metadata"
-				if item.Abstract != "" {
-					scope = "abstract"
-				}
-				row, err := external.evidence("semantic", item.Title, "https://www.semanticscholar.org/paper/"+item.PaperID, text, scope)
-				if err == nil {
-					rows = append(rows, row)
-				}
-			}
-		case "arxiv":
-			values, _ := url.Parse("https://export.arxiv.org/api/query")
-			queryValues := values.Query()
-			exact := regexp.MustCompile(`(?i)(?:arxiv\.org/(?:abs|pdf)/)?(\d{4}\.\d{4,5}(?:v\d+)?)\b`).FindStringSubmatch(query)
-			if exact != nil {
-				queryValues.Set("id_list", exact[1])
-			} else {
-				queryValues.Set("search_query", "all:"+query)
-			}
-			queryValues.Set("start", "0")
-			queryValues.Set("max_results", "4")
-			values.RawQuery = queryValues.Encode()
-			body, err := external.get(ctx, values.String())
-			if err != nil {
-				return nil, err
-			}
-			entries := regexp.MustCompile(`(?s)<entry>(.*?)</entry>`).FindAllStringSubmatch(string(body), -1)
-			for _, entry := range entries {
-				id := regexp.MustCompile(`(?s)<id>\s*([^<]+)\s*</id>`).FindStringSubmatch(entry[1])
-				title := regexp.MustCompile(`(?s)<title>\s*(.*?)\s*</title>`).FindStringSubmatch(entry[1])
-				summary := regexp.MustCompile(`(?s)<summary>\s*(.*?)\s*</summary>`).FindStringSubmatch(entry[1])
-				if id == nil || title == nil {
-					continue
-				}
-				parsed, err := url.Parse(strings.TrimSpace(id[1]))
-				if err != nil || (parsed.Hostname() != hostArxiv && parsed.Hostname() != "export.arxiv.org") {
-					continue
-				}
-				parsed.Scheme = "https"
-				parsed.Host = hostArxiv
-				text := "无可用摘要"
-				scope := "metadata"
-				if summary != nil && strings.TrimSpace(summary[1]) != "" {
-					text = strings.TrimSpace(summary[1])
-					scope = "abstract"
-				}
-				row, err := external.evidence("arxiv", title[1], parsed.String(), text, scope)
-				if err == nil {
-					rows = append(rows, row)
-				}
-			}
-		case "web":
-			options, _ := web.(map[string]any)
-			provider := text(options["provider"])
-			if provider == "searxng" {
-				endpoint := text(options["endpoint"])
-				base, err := publicHTTPS(endpoint)
-				if err != nil {
-					return nil, err
-				}
-				if base.RawQuery != "" {
-					return nil, fmt.Errorf("搜索实例地址不应带查询参数")
-				}
-				base.Path = strings.TrimSuffix(base.Path, "/") + "/search"
-				queryValues := url.Values{"q": []string{query}, "format": []string{"json"}}
-				base.RawQuery = queryValues.Encode()
-				body, err := external.get(ctx, base.String())
-				if err != nil {
-					return nil, err
-				}
-				var payload struct {
-					Results []struct {
-						Title   string `json:"title"`
-						URL     string `json:"url"`
-						Content string `json:"content"`
-					} `json:"results"`
-				}
-				if json.Unmarshal(body, &payload) != nil {
-					continue
-				}
-				for _, item := range payload.Results {
-					row, err := external.evidence("web", item.Title, item.URL, item.Content, "search_snippet")
-					if err == nil {
-						rows = append(rows, row)
-					}
-				}
-			} else {
-				values, _ := url.Parse("https://html.duckduckgo.com/html/")
-				queryValues := url.Values{"q": []string{query}}
-				values.RawQuery = queryValues.Encode()
-				body, err := external.get(ctx, values.String())
-				if err != nil {
-					return nil, err
-				}
-				html := string(body)
-				if regexp.MustCompile(`(?i)anomaly-modal|bots use DuckDuckGo|challenge-form`).MatchString(html) {
-					return nil, fmt.Errorf("搜索服务要求人工验证，本次没有取得网页来源")
-				}
-				anchors := regexp.MustCompile(`(?is)<a\b([^>]*)>(.*?)</a>`).FindAllStringSubmatch(html, -1)
-				matches := [][]string{}
-				for _, anchor := range anchors {
-					if !regexp.MustCompile(`(?i)class=["'][^"']*\bresult__a\b`).MatchString(anchor[1]) {
-						continue
-					}
-					href := regexp.MustCompile(`(?i)href=["']([^"']+)["']`).FindStringSubmatch(anchor[1])
-					if href == nil {
-						continue
-					}
-					matches = append(matches, []string{anchor[0], href[1], anchor[2]})
-					if len(matches) >= 4 {
-						break
-					}
-				}
-				for _, match := range matches {
-					link := strings.ReplaceAll(match[1], "&amp;", "&")
-					parsed, err := url.Parse(link)
-					if err != nil {
-						continue
-					}
-					target := parsed.String()
-					if strings.HasSuffix(parsed.Hostname(), "duckduckgo.com") {
-						if redirected := parsed.Query().Get("uddg"); redirected != "" {
-							target = redirected
-						}
-					}
-					row, err := external.evidence("web", match[2], target, "", "search_snippet")
-					if err == nil {
-						rows = append(rows, row)
-					}
-				}
-			}
+		name := author.Name
+		if name == "" {
+			name = strings.TrimSpace(author.Given + " " + author.Family)
+		}
+		names = append(names, name)
+	}
+	return names
+}
+
+func (external *External) searchCrossref(ctx context.Context, query string) ([]ExternalEvidence, error) {
+	values, err := url.Parse("https://api.crossref.org/works")
+	if err != nil {
+		return nil, nil
+	}
+	queryValues := values.Query()
+	queryValues.Set("query", query)
+	queryValues.Set("rows", "4")
+	values.RawQuery = queryValues.Encode()
+	body, err := external.get(ctx, values.String())
+	if err != nil {
+		return nil, err
+	}
+	var payload crossrefPayload
+	if json.Unmarshal(body, &payload) != nil || payload.Status != "ok" || len(payload.Message.Items) == 0 {
+		return nil, nil
+	}
+	rows := []ExternalEvidence{}
+	for _, item := range payload.Message.Items {
+		if len(item.Title) == 0 || !regexp.MustCompile(`^10\.[0-9]{4,9}/\S+$`).MatchString(item.DOI) {
+			continue
+		}
+		authors := crossrefAuthorNames(item.Author)
+		text := "作者：" + strings.Join(authors, ", ") + "\n" + item.Abstract
+		if item.Abstract == "" {
+			text = "作者：" + strings.Join(authors, ", ") + "\n仅取得题录，无可用摘要。"
+		}
+		scope := "metadata"
+		if item.Abstract != "" {
+			scope = "abstract"
+		}
+		row, err := external.evidence("crossref", item.Title[0], "https://doi.org/"+strings.ToLower(item.DOI), text, scope)
+		if err == nil {
+			rows = append(rows, row)
 		}
 	}
+	return rows, nil
+}
+
+func (external *External) searchSemantic(ctx context.Context, query string) ([]ExternalEvidence, error) {
+	values, _ := url.Parse("https://api.semanticscholar.org/graph/v1/paper/search")
+	queryValues := values.Query()
+	queryValues.Set("query", query)
+	queryValues.Set("limit", "4")
+	queryValues.Set("fields", "title,abstract,authors,year,externalIds")
+	values.RawQuery = queryValues.Encode()
+	body, err := external.get(ctx, values.String())
+	if err != nil {
+		return nil, err
+	}
+	var payload struct {
+		Data []struct {
+			PaperID  string `json:"paperId"`
+			Title    string `json:"title"`
+			Abstract string `json:"abstract"`
+			Year     int    `json:"year"`
+			Authors  []struct {
+				Name string `json:"name"`
+			} `json:"authors"`
+		} `json:"data"`
+	}
+	if json.Unmarshal(body, &payload) != nil {
+		return nil, nil
+	}
+	rows := []ExternalEvidence{}
+	for _, item := range payload.Data {
+		if len(item.PaperID) != 40 {
+			continue
+		}
+		names := []string{}
+		for index, author := range item.Authors {
+			if index >= 8 {
+				break
+			}
+			names = append(names, author.Name)
+		}
+		text := fmt.Sprintf("年份：%d 作者：%s\n%s", item.Year, strings.Join(names, ", "), item.Abstract)
+		if item.Abstract == "" {
+			text = fmt.Sprintf("年份：%d 作者：%s\n仅取得题录，无可用摘要。", item.Year, strings.Join(names, ", "))
+		}
+		scope := "metadata"
+		if item.Abstract != "" {
+			scope = "abstract"
+		}
+		row, err := external.evidence("semantic", item.Title, "https://www.semanticscholar.org/paper/"+item.PaperID, text, scope)
+		if err == nil {
+			rows = append(rows, row)
+		}
+	}
+	return rows, nil
+}
+
+func (external *External) arxivEntryEvidence(entry string) (ExternalEvidence, bool) {
+	id := regexp.MustCompile(`(?s)<id>\s*([^<]+)\s*</id>`).FindStringSubmatch(entry)
+	title := regexp.MustCompile(`(?s)<title>\s*(.*?)\s*</title>`).FindStringSubmatch(entry)
+	summary := regexp.MustCompile(`(?s)<summary>\s*(.*?)\s*</summary>`).FindStringSubmatch(entry)
+	if id == nil || title == nil {
+		return ExternalEvidence{}, false
+	}
+	parsed, err := url.Parse(strings.TrimSpace(id[1]))
+	if err != nil || (parsed.Hostname() != hostArxiv && parsed.Hostname() != "export.arxiv.org") {
+		return ExternalEvidence{}, false
+	}
+	parsed.Scheme = "https"
+	parsed.Host = hostArxiv
+	text := "无可用摘要"
+	scope := "metadata"
+	if summary != nil && strings.TrimSpace(summary[1]) != "" {
+		text = strings.TrimSpace(summary[1])
+		scope = "abstract"
+	}
+	row, err := external.evidence("arxiv", title[1], parsed.String(), text, scope)
+	if err != nil {
+		return ExternalEvidence{}, false
+	}
+	return row, true
+}
+
+func (external *External) searchArxiv(ctx context.Context, query string) ([]ExternalEvidence, error) {
+	values, _ := url.Parse("https://export.arxiv.org/api/query")
+	queryValues := values.Query()
+	exact := regexp.MustCompile(`(?i)(?:arxiv\.org/(?:abs|pdf)/)?(\d{4}\.\d{4,5}(?:v\d+)?)\b`).FindStringSubmatch(query)
+	if exact != nil {
+		queryValues.Set("id_list", exact[1])
+	} else {
+		queryValues.Set("search_query", "all:"+query)
+	}
+	queryValues.Set("start", "0")
+	queryValues.Set("max_results", "4")
+	values.RawQuery = queryValues.Encode()
+	body, err := external.get(ctx, values.String())
+	if err != nil {
+		return nil, err
+	}
+	rows := []ExternalEvidence{}
+	for _, entry := range regexp.MustCompile(`(?s)<entry>(.*?)</entry>`).FindAllStringSubmatch(string(body), -1) {
+		if row, ok := external.arxivEntryEvidence(entry[1]); ok {
+			rows = append(rows, row)
+		}
+	}
+	return rows, nil
+}
+
+func (external *External) searchSearxng(ctx context.Context, query string, endpoint string) ([]ExternalEvidence, error) {
+	base, err := publicHTTPS(endpoint)
+	if err != nil {
+		return nil, err
+	}
+	if base.RawQuery != "" {
+		return nil, fmt.Errorf("搜索实例地址不应带查询参数")
+	}
+	base.Path = strings.TrimSuffix(base.Path, "/") + "/search"
+	base.RawQuery = url.Values{"q": []string{query}, "format": []string{"json"}}.Encode()
+	body, err := external.get(ctx, base.String())
+	if err != nil {
+		return nil, err
+	}
+	var payload struct {
+		Results []struct {
+			Title   string `json:"title"`
+			URL     string `json:"url"`
+			Content string `json:"content"`
+		} `json:"results"`
+	}
+	if json.Unmarshal(body, &payload) != nil {
+		return nil, nil
+	}
+	rows := []ExternalEvidence{}
+	for _, item := range payload.Results {
+		row, err := external.evidence("web", item.Title, item.URL, item.Content, "search_snippet")
+		if err == nil {
+			rows = append(rows, row)
+		}
+	}
+	return rows, nil
+}
+
+func duckDuckGoResults(html string) [][]string {
+	anchors := regexp.MustCompile(`(?is)<a\b([^>]*)>(.*?)</a>`).FindAllStringSubmatch(html, -1)
+	matches := [][]string{}
+	for _, anchor := range anchors {
+		if !regexp.MustCompile(`(?i)class=["'][^"']*\bresult__a\b`).MatchString(anchor[1]) {
+			continue
+		}
+		href := regexp.MustCompile(`(?i)href=["']([^"']+)["']`).FindStringSubmatch(anchor[1])
+		if href == nil {
+			continue
+		}
+		matches = append(matches, []string{anchor[0], href[1], anchor[2]})
+		if len(matches) >= 4 {
+			break
+		}
+	}
+	return matches
+}
+
+func duckDuckGoTarget(link string) string {
+	link = strings.ReplaceAll(link, "&amp;", "&")
+	parsed, err := url.Parse(link)
+	if err != nil {
+		return ""
+	}
+	target := parsed.String()
+	if strings.HasSuffix(parsed.Hostname(), "duckduckgo.com") {
+		if redirected := parsed.Query().Get("uddg"); redirected != "" {
+			target = redirected
+		}
+	}
+	return target
+}
+
+func (external *External) searchDuckDuckGo(ctx context.Context, query string) ([]ExternalEvidence, error) {
+	values, _ := url.Parse("https://html.duckduckgo.com/html/")
+	values.RawQuery = url.Values{"q": []string{query}}.Encode()
+	body, err := external.get(ctx, values.String())
+	if err != nil {
+		return nil, err
+	}
+	html := string(body)
+	if regexp.MustCompile(`(?i)anomaly-modal|bots use DuckDuckGo|challenge-form`).MatchString(html) {
+		return nil, fmt.Errorf("搜索服务要求人工验证，本次没有取得网页来源")
+	}
+	rows := []ExternalEvidence{}
+	for _, match := range duckDuckGoResults(html) {
+		target := duckDuckGoTarget(match[1])
+		if target == "" {
+			continue
+		}
+		row, err := external.evidence("web", match[2], target, "", "search_snippet")
+		if err == nil {
+			rows = append(rows, row)
+		}
+	}
+	return rows, nil
+}
+
+func (external *External) searchWeb(ctx context.Context, query string, web any) ([]ExternalEvidence, error) {
+	options, _ := web.(map[string]any)
+	if text(options["provider"]) == "searxng" {
+		return external.searchSearxng(ctx, query, text(options["endpoint"]))
+	}
+	return external.searchDuckDuckGo(ctx, query)
+}
+
+func dedupeExternalEvidence(rows []ExternalEvidence) []ExternalEvidence {
 	seen := map[string]bool{}
 	filtered := []ExternalEvidence{}
 	for _, row := range rows {
@@ -592,7 +672,34 @@ func (external *External) Search(ctx context.Context, channels []string, questio
 	if len(filtered) > 12 {
 		filtered = filtered[:12]
 	}
-	return filtered, nil
+	return filtered
+}
+
+func (external *External) Search(ctx context.Context, channels []string, question string, web any) ([]ExternalEvidence, error) {
+	query := trimText(strings.TrimSpace(question), 200)
+	rows := []ExternalEvidence{}
+	for _, channel := range channels {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
+		var values []ExternalEvidence
+		var err error
+		switch channel {
+		case "crossref":
+			values, err = external.searchCrossref(ctx, query)
+		case "semantic":
+			values, err = external.searchSemantic(ctx, query)
+		case "arxiv":
+			values, err = external.searchArxiv(ctx, query)
+		case "web":
+			values, err = external.searchWeb(ctx, query, web)
+		}
+		if err != nil {
+			return nil, err
+		}
+		rows = append(rows, values...)
+	}
+	return dedupeExternalEvidence(rows), nil
 }
 
 func (external *External) Verify(rows []ExternalEvidence) error {

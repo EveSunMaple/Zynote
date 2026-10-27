@@ -46,33 +46,30 @@ func (service *Service) optionalDigest(path string) (string, error) {
 	return fileDigest(path)
 }
 
-func (service *Service) commitOutput(task *Task, text string) error {
-	output, err := service.outputPath(*task)
-	if err != nil {
-		return err
-	}
-	temp := output + ".pending-" + strings.ReplaceAll(ids.New(), "-", "")
-	hash := digestText(text)
-	previousHash := task.OutputHash
+func (service *Service) validateOutputTarget(task *Task, output, previousHash string) (string, error) {
 	current, err := service.optionalDigest(output)
 	if err != nil {
-		return err
+		return "", err
 	}
 	if task.Output != "" && previousHash != "" && current != previousHash {
-		return badRequest("识别成果已改变，保留当前文件，请重新建立任务")
+		return "", badRequest("识别成果已改变，保留当前文件，请重新建立任务")
 	}
 	if current != "" && (task.OutputHash == "" || current != task.OutputHash) {
-		return badRequest("已有识别成果文件，保留当前文件")
+		return "", badRequest("已有识别成果文件，保留当前文件")
 	}
-	backup := ""
-	if previousHash != "" {
-		backup = output + ".previous-" + strings.ReplaceAll(ids.New(), "-", "")
-		if existing, err := service.optionalDigest(backup); err != nil {
-			return err
-		} else if existing != "" {
-			return badRequest("识别成果备份路径已存在，保留当前文件")
-		}
+	if previousHash == "" {
+		return "", nil
 	}
+	backup := output + ".previous-" + strings.ReplaceAll(ids.New(), "-", "")
+	if existing, err := service.optionalDigest(backup); err != nil {
+		return "", err
+	} else if existing != "" {
+		return "", badRequest("识别成果备份路径已存在，保留当前文件")
+	}
+	return backup, nil
+}
+
+func (service *Service) writeOutputTemp(temp, text, hash string) error {
 	file, err := os.OpenFile(temp, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o644)
 	if err != nil {
 		return badRequest(errOutputStageWriteFailed)
@@ -86,10 +83,13 @@ func (service *Service) commitOutput(task *Task, text string) error {
 		_ = os.Remove(temp)
 		return badRequest(errOutputStageWriteFailed)
 	}
-	defer os.Remove(temp)
 	if current, err := service.optionalDigest(temp); err != nil || current != hash {
 		return badRequest("画面成果暂存校验失败，保留当前文件")
 	}
+	return nil
+}
+
+func (service *Service) finishOutput(task *Task, output, temp, backup, previousHash, hash string) error {
 	task.OutputJournal = &Journal{Output: output, Temp: temp, Hash: hash, PreviousHash: previousHash, Backup: backup}
 	if err := service.save(*task); err != nil {
 		return err
@@ -116,6 +116,25 @@ func (service *Service) commitOutput(task *Task, text string) error {
 		}
 	}
 	return nil
+}
+
+func (service *Service) commitOutput(task *Task, text string) error {
+	output, err := service.outputPath(*task)
+	if err != nil {
+		return err
+	}
+	temp := output + ".pending-" + strings.ReplaceAll(ids.New(), "-", "")
+	hash := digestText(text)
+	previousHash := task.OutputHash
+	backup, err := service.validateOutputTarget(task, output, previousHash)
+	if err != nil {
+		return err
+	}
+	if err := service.writeOutputTemp(temp, text, hash); err != nil {
+		return err
+	}
+	defer os.Remove(temp)
+	return service.finishOutput(task, output, temp, backup, previousHash, hash)
 }
 
 func (service *Service) replaceTemp(temp, output, backup, previousHash, newHash string) error {
@@ -157,6 +176,43 @@ func (service *Service) replaceTemp(temp, output, backup, previousHash, newHash 
 	return nil
 }
 
+func validJournalPart(value, prefix string) bool {
+	return strings.HasPrefix(value, prefix) && idPattern.MatchString(strings.TrimPrefix(value, prefix))
+}
+
+func (service *Service) validateOutputJournal(output string, journal *Journal) error {
+	tempPrefix := output + ".pending-"
+	backupPrefix := output + ".previous-"
+	if journal.Output != output || !validJournalPart(journal.Temp, tempPrefix) ||
+		(journal.Backup != "" && !validJournalPart(journal.Backup, backupPrefix)) ||
+		!hashPattern.MatchString(journal.Hash) ||
+		(journal.PreviousHash != "" && !hashPattern.MatchString(journal.PreviousHash)) {
+		return badRequest("识别成果恢复记录无效，保留当前文件")
+	}
+	return nil
+}
+
+func (service *Service) completeJournal(task *Task, output string, journal *Journal, removeTemp bool) error {
+	task.Output = output
+	task.OutputHash = journal.Hash
+	task.OutputJournal = nil
+	task.OutputPending = false
+	if err := service.save(*task); err != nil {
+		return err
+	}
+	if journal.Backup != "" {
+		if value, err := service.optionalDigest(journal.Backup); err == nil && value == journal.PreviousHash {
+			_ = os.Remove(journal.Backup)
+		}
+	}
+	if removeTemp {
+		if value, err := service.optionalDigest(journal.Temp); err == nil && value == journal.Hash {
+			_ = os.Remove(journal.Temp)
+		}
+	}
+	return nil
+}
+
 func (service *Service) recoverJournal(task *Task) error {
 	journal := task.OutputJournal
 	if journal == nil {
@@ -166,38 +222,15 @@ func (service *Service) recoverJournal(task *Task) error {
 	if err != nil {
 		return err
 	}
-	tempPrefix := output + ".pending-"
-	backupPrefix := output + ".previous-"
-	if journal.Output != output ||
-		!strings.HasPrefix(journal.Temp, tempPrefix) ||
-		!idPattern.MatchString(strings.TrimPrefix(journal.Temp, tempPrefix)) ||
-		(journal.Backup != "" && (!strings.HasPrefix(journal.Backup, backupPrefix) ||
-			!idPattern.MatchString(strings.TrimPrefix(journal.Backup, backupPrefix)))) ||
-		!hashPattern.MatchString(journal.Hash) ||
-		(journal.PreviousHash != "" && !hashPattern.MatchString(journal.PreviousHash)) {
-		return badRequest("识别成果恢复记录无效，保留当前文件")
+	if err := service.validateOutputJournal(output, journal); err != nil {
+		return err
 	}
 	current, err := service.optionalDigest(output)
 	if err != nil {
 		return err
 	}
 	if current == journal.Hash {
-		task.Output = output
-		task.OutputHash = journal.Hash
-		task.OutputJournal = nil
-		task.OutputPending = false
-		if err := service.save(*task); err != nil {
-			return err
-		}
-		if journal.Backup != "" {
-			if value, err := service.optionalDigest(journal.Backup); err == nil && value == journal.PreviousHash {
-				_ = os.Remove(journal.Backup)
-			}
-		}
-		if value, err := service.optionalDigest(journal.Temp); err == nil && value == journal.Hash {
-			_ = os.Remove(journal.Temp)
-		}
-		return nil
+		return service.completeJournal(task, output, journal, true)
 	}
 	if current != journal.PreviousHash && current != "" {
 		return badRequest("识别成果已改变，保留当前文件，恢复已中止")
@@ -221,19 +254,7 @@ func (service *Service) recoverJournal(task *Task) error {
 	if current, err := service.optionalDigest(output); err != nil || current != journal.Hash {
 		return badRequest("画面成果替换核验失败，保留恢复记录")
 	}
-	task.Output = output
-	task.OutputHash = journal.Hash
-	task.OutputJournal = nil
-	task.OutputPending = false
-	if err := service.save(*task); err != nil {
-		return err
-	}
-	if journal.Backup != "" {
-		if value, err := service.optionalDigest(journal.Backup); err == nil && value == journal.PreviousHash {
-			_ = os.Remove(journal.Backup)
-		}
-	}
-	return nil
+	return service.completeJournal(task, output, journal, false)
 }
 
 func frameClock(seconds float64) string {

@@ -47,6 +47,37 @@ func (session *McpSession) headers(version string) http.Header {
 	return header
 }
 
+func mcpPostError(status int, hasSession bool) error {
+	switch status {
+	case 429:
+		return fmt.Errorf("MCP 服务已限流，不自动重试")
+	case 401, 403:
+		return fmt.Errorf("MCP 服务需要身份验证，公开连接不支持密钥")
+	case 404:
+		if hasSession {
+			return fmt.Errorf("MCP 会话已过期，不自动重放调用")
+		}
+	}
+	if status < 200 || status >= 300 {
+		return fmt.Errorf("MCP 服务返回 HTTP %d", status)
+	}
+	return nil
+}
+
+func (session *McpSession) validateSessionHeader(response *http.Response) error {
+	value := response.Header.Get(mcpSessionHeader)
+	if value == "" {
+		return nil
+	}
+	if !regexp.MustCompile(`^[\x21-\x7e]{1,512}$`).MatchString(value) {
+		return fmt.Errorf("MCP 会话编号无效")
+	}
+	if session.session != "" && session.session != value {
+		return fmt.Errorf("MCP 会话发生改变")
+	}
+	return nil
+}
+
 func (session *McpSession) post(ctx context.Context, body []byte, version string) (*http.Response, error) {
 	if len(body) > 32768 {
 		return nil, fmt.Errorf("MCP 请求参数超过大小上限")
@@ -67,91 +98,74 @@ func (session *McpSession) post(ctx context.Context, body []byte, version string
 		}
 		return nil, fmt.Errorf("MCP 请求失败")
 	}
-	if response.StatusCode == 429 {
+	if err := mcpPostError(response.StatusCode, session.session != ""); err != nil {
 		response.Body.Close()
-		return nil, fmt.Errorf("MCP 服务已限流，不自动重试")
+		return nil, err
 	}
-	if response.StatusCode == 401 || response.StatusCode == 403 {
+	if err := session.validateSessionHeader(response); err != nil {
 		response.Body.Close()
-		return nil, fmt.Errorf("MCP 服务需要身份验证，公开连接不支持密钥")
-	}
-	if response.StatusCode == 404 && session.session != "" {
-		response.Body.Close()
-		return nil, fmt.Errorf("MCP 会话已过期，不自动重放调用")
-	}
-	if response.StatusCode < 200 || response.StatusCode >= 300 {
-		response.Body.Close()
-		return nil, fmt.Errorf("MCP 服务返回 HTTP %d", response.StatusCode)
-	}
-	if value := response.Header.Get(mcpSessionHeader); value != "" {
-		if !regexp.MustCompile(`^[\x21-\x7e]{1,512}$`).MatchString(value) {
-			response.Body.Close()
-			return nil, fmt.Errorf("MCP 会话编号无效")
-		}
-		if session.session != "" && session.session != value {
-			response.Body.Close()
-			return nil, fmt.Errorf("MCP 会话发生改变")
-		}
+		return nil, err
 	}
 	return response, nil
 }
 
-func (session *McpSession) Request(ctx context.Context, method string, params any) (any, error) {
-	session.sequence++
-	id := session.sequence
-	body, err := json.Marshal(map[string]any{"jsonrpc": "2.0", "id": id, "method": method, "params": params})
-	if err != nil {
-		return nil, fmt.Errorf("MCP 请求参数无效")
+func readMCPBody(body io.Reader) ([]byte, error) {
+	raw, err := io.ReadAll(io.LimitReader(body, 262144+1))
+	if err != nil || len(raw) > 262144 {
+		return nil, fmt.Errorf("MCP 响应超过大小上限")
 	}
-	response, err := session.post(ctx, body, session.version)
-	if err != nil {
-		return nil, err
+	return raw, nil
+}
+
+func parseMCPEventStream(raw []byte) ([]map[string]any, error) {
+	messages := []map[string]any{}
+	events := strings.Split(strings.ReplaceAll(string(raw), "\r\n", "\n"), "\n\n")
+	for _, event := range events {
+		data := []string{}
+		for _, line := range strings.Split(event, "\n") {
+			if strings.HasPrefix(line, "data:") {
+				data = append(data, strings.TrimSpace(strings.TrimPrefix(line, "data:")))
+			}
+		}
+		if len(data) == 0 {
+			continue
+		}
+		var value map[string]any
+		if json.Unmarshal([]byte(strings.Join(data, "\n")), &value) != nil {
+			return nil, fmt.Errorf("MCP 响应格式不支持")
+		}
+		messages = append(messages, value)
+		if len(messages) > 128 {
+			return nil, fmt.Errorf("MCP 响应消息过多")
+		}
 	}
-	defer response.Body.Close()
-	if header := response.Header.Get(mcpSessionHeader); header != "" && method == "initialize" {
-		session.session = header
-	}
+	return messages, nil
+}
+
+func readMCPMessages(response *http.Response) ([]map[string]any, error) {
 	contentType := strings.Split(response.Header.Get("Content-Type"), ";")[0]
-	var messages []map[string]any
 	switch strings.TrimSpace(contentType) {
 	case "application/json":
-		raw, err := io.ReadAll(io.LimitReader(response.Body, 262144+1))
-		if err != nil || len(raw) > 262144 {
-			return nil, fmt.Errorf("MCP 响应超过大小上限")
+		raw, err := readMCPBody(response.Body)
+		if err != nil {
+			return nil, err
 		}
 		var value map[string]any
 		if json.Unmarshal(raw, &value) != nil {
 			return nil, fmt.Errorf("MCP 服务响应格式不支持")
 		}
-		messages = []map[string]any{value}
+		return []map[string]any{value}, nil
 	case "text/event-stream":
-		raw, err := io.ReadAll(io.LimitReader(response.Body, 262144+1))
-		if err != nil || len(raw) > 262144 {
-			return nil, fmt.Errorf("MCP 响应超过大小上限")
+		raw, err := readMCPBody(response.Body)
+		if err != nil {
+			return nil, err
 		}
-		events := strings.Split(strings.ReplaceAll(string(raw), "\r\n", "\n"), "\n\n")
-		for _, event := range events {
-			data := []string{}
-			for _, line := range strings.Split(event, "\n") {
-				if strings.HasPrefix(line, "data:") {
-					data = append(data, strings.TrimSpace(strings.TrimPrefix(line, "data:")))
-				}
-			}
-			if len(data) == 0 {
-				continue
-			}
-			var value map[string]any
-			if json.Unmarshal([]byte(strings.Join(data, "\n")), &value) != nil {
-				return nil, fmt.Errorf("MCP 响应格式不支持")
-			}
-			messages = append(messages, value)
-			if len(messages) > 128 {
-				return nil, fmt.Errorf("MCP 响应消息过多")
-			}
-		}
-	default:
-		return nil, fmt.Errorf("MCP 服务响应格式不支持")
+		return parseMCPEventStream(raw)
 	}
+	return nil, fmt.Errorf("MCP 服务响应格式不支持")
+}
+
+func matchingMCPReply(messages []map[string]any, id int) (map[string]any, error) {
 	if len(messages) > 128 {
 		return nil, fmt.Errorf("MCP 响应消息过多")
 	}
@@ -170,7 +184,32 @@ func (session *McpSession) Request(ctx context.Context, method string, params an
 	if len(matching) != 1 {
 		return nil, fmt.Errorf("MCP 响应不完整或请求编号不一致")
 	}
-	reply := matching[0]
+	return matching[0], nil
+}
+
+func (session *McpSession) Request(ctx context.Context, method string, params any) (any, error) {
+	session.sequence++
+	id := session.sequence
+	body, err := json.Marshal(map[string]any{"jsonrpc": "2.0", "id": id, "method": method, "params": params})
+	if err != nil {
+		return nil, fmt.Errorf("MCP 请求参数无效")
+	}
+	response, err := session.post(ctx, body, session.version)
+	if err != nil {
+		return nil, err
+	}
+	defer response.Body.Close()
+	if header := response.Header.Get(mcpSessionHeader); header != "" && method == "initialize" {
+		session.session = header
+	}
+	messages, err := readMCPMessages(response)
+	if err != nil {
+		return nil, err
+	}
+	reply, err := matchingMCPReply(messages, id)
+	if err != nil {
+		return nil, err
+	}
 	if errorValue, ok := reply["error"].(map[string]any); ok && errorValue != nil {
 		return nil, fmt.Errorf("MCP 服务拒绝请求，不自动重试")
 	}

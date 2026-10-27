@@ -93,6 +93,74 @@ func findEntry(archive *zip.Reader, name string) *zip.File {
 	return nil
 }
 
+func relationshipTarget(relationships, id string) string {
+	for _, row := range relationshipPat.FindAllString(relationships, -1) {
+		if attrPattern("Id").FindStringSubmatch(row)[1] != id {
+			continue
+		}
+		if matches := attrPattern("Target").FindStringSubmatch(row); len(matches) > 1 {
+			return matches[1]
+		}
+		return ""
+	}
+	return ""
+}
+
+func pptxSlideNames(presentationXML, presentationRels string) ([]string, error) {
+	slideNames := []string{}
+	for _, match := range slideIDPattern.FindAllStringSubmatch(presentationXML, -1) {
+		target := relationshipTarget(presentationRels, match[1])
+		if target == "" {
+			return nil, fmt.Errorf("PPTX 页面引用无效")
+		}
+		name := partTarget("ppt", target)
+		if !strings.HasPrefix(name, "ppt/slides/") || strings.Contains(name, "../") {
+			return nil, fmt.Errorf("PPTX 页面路径无效")
+		}
+		slideNames = append(slideNames, name)
+	}
+	if len(slideNames) == 0 || len(slideNames) > 500 {
+		return nil, fmt.Errorf("PPTX 页面数须在 1–500 页之间")
+	}
+	return slideNames, nil
+}
+
+func parsePptxPage(archive *zip.Reader, slideName string, index, remaining int, result *CoursewareResult) (string, int, error) {
+	slideXML, err := readZipEntry(archive, slideName, 5*1024*1024, fmt.Sprintf("PPTX 第 %d 页内容", index+1))
+	if err != nil {
+		return "", 0, err
+	}
+	parts := []string{}
+	for _, match := range textRunPattern.FindAllStringSubmatch(slideXML, -1) {
+		parts = append(parts, decodeEntities(match[1]))
+	}
+	extracted := strings.TrimSpace(strings.Join(parts, "\n"))
+	text := extracted
+	if len([]rune(text)) > remaining {
+		text = string([]rune(text)[:remaining])
+	}
+	if len(text) < len(extracted) {
+		result.Omissions = append(result.Omissions, "课件可编辑文本超过 200,000 字，本地解析仅保留前段内容")
+	}
+	pageText := text
+	if pageText == "" {
+		pageText = "（未提取到可编辑文字）"
+	}
+	imagesBefore := len(result.Images)
+	relsName := path.Join(path.Dir(slideName), "_rels", path.Base(slideName)+".rels")
+	slideRel, relErr := readZipEntry(archive, relsName, 5*1024*1024, fmt.Sprintf("PPTX 第 %d 页关系", index+1))
+	if relErr == nil {
+		collectSlideImages(archive, slideXML, slideRel, slideName, index, result)
+		if embeddedObjectPat.MatchString(slideXML) {
+			result.Omissions = append(result.Omissions, fmt.Sprintf("第 %d 页含图表、SmartArt 或嵌入对象；仅提取其中的可编辑文本，未进行完整页面渲染", index+1))
+		}
+		if text == "" && len(result.Images) == imagesBefore {
+			result.Omissions = append(result.Omissions, fmt.Sprintf("第 %d 页没有提取到文字或可发送的图片", index+1))
+		}
+	}
+	return fmt.Sprintf("[第 %d 页]\n%s", index+1, pageText), len([]rune(text)), nil
+}
+
 func ParsePptx(data []byte) (CoursewareResult, error) {
 	result := CoursewareResult{Images: []CoursewareImage{}, Omissions: []string{}}
 	if int64(len(data)) > 200*1024*1024 {
@@ -110,76 +178,23 @@ func ParsePptx(data []byte) (CoursewareResult, error) {
 	if err != nil {
 		return result, err
 	}
-	var slideNames []string
-	for _, match := range slideIDPattern.FindAllStringSubmatch(presentationXML, -1) {
-		id := match[1]
-		var relationship string
-		for _, row := range relationshipPat.FindAllString(presentationRels, -1) {
-			if attrPattern("Id").FindStringSubmatch(row)[1] == id {
-				relationship = row
-				break
-			}
-		}
-		target := ""
-		if relationship != "" {
-			matches := attrPattern("Target").FindStringSubmatch(relationship)
-			if len(matches) > 1 {
-				target = matches[1]
-			}
-		}
-		if relationship == "" || target == "" {
-			return result, fmt.Errorf("PPTX 页面引用无效")
-		}
-		name := partTarget("ppt", target)
-		if !strings.HasPrefix(name, "ppt/slides/") || strings.Contains(name, "../") {
-			return result, fmt.Errorf("PPTX 页面路径无效")
-		}
-		slideNames = append(slideNames, name)
-	}
-	if len(slideNames) == 0 || len(slideNames) > 500 {
-		return result, fmt.Errorf("PPTX 页面数须在 1–500 页之间")
+	slideNames, err := pptxSlideNames(presentationXML, presentationRels)
+	if err != nil {
+		return result, err
 	}
 	editableChars := 0
 	pages := make([]string, 0, len(slideNames))
 	for index, slideName := range slideNames {
-		slideXML, err := readZipEntry(archive, slideName, 5*1024*1024, fmt.Sprintf("PPTX 第 %d 页内容", index+1))
-		if err != nil {
-			return result, err
-		}
-		var parts []string
-		for _, match := range textRunPattern.FindAllStringSubmatch(slideXML, -1) {
-			parts = append(parts, decodeEntities(match[1]))
-		}
-		extracted := strings.TrimSpace(strings.Join(parts, "\n"))
 		remaining := 200000 - editableChars
 		if remaining < 0 {
 			remaining = 0
 		}
-		text := extracted
-		if len([]rune(text)) > remaining {
-			text = string([]rune(text)[:remaining])
+		pageText, used, err := parsePptxPage(archive, slideName, index, remaining, &result)
+		if err != nil {
+			return result, err
 		}
-		editableChars += len([]rune(text))
-		if len(text) < len(extracted) {
-			result.Omissions = append(result.Omissions, "课件可编辑文本超过 200,000 字，本地解析仅保留前段内容")
-		}
-		pageText := text
-		if pageText == "" {
-			pageText = "（未提取到可编辑文字）"
-		}
-		pages = append(pages, fmt.Sprintf("[第 %d 页]\n%s", index+1, pageText))
-		imagesBefore := len(result.Images)
-		relsName := path.Join(path.Dir(slideName), "_rels", path.Base(slideName)+".rels")
-		slideRel, err := readZipEntry(archive, relsName, 5*1024*1024, fmt.Sprintf("PPTX 第 %d 页关系", index+1))
-		if err == nil {
-			collectSlideImages(archive, slideXML, slideRel, slideName, index, &result)
-			if embeddedObjectPat.MatchString(slideXML) {
-				result.Omissions = append(result.Omissions, fmt.Sprintf("第 %d 页含图表、SmartArt 或嵌入对象；仅提取其中的可编辑文本，未进行完整页面渲染", index+1))
-			}
-			if text == "" && len(result.Images) == imagesBefore {
-				result.Omissions = append(result.Omissions, fmt.Sprintf("第 %d 页没有提取到文字或可发送的图片", index+1))
-			}
-		}
+		editableChars += used
+		pages = append(pages, pageText)
 	}
 	result.Text = strings.Join(pages, "\n\n")
 	if len(result.Images) > 0 {
@@ -202,26 +217,22 @@ func uniqueOmissions(values []string) []string {
 	return result
 }
 
+func slideMediaName(slideName, slideRel, id string) (string, bool) {
+	target := relationshipTarget(slideRel, id)
+	if target == "" {
+		return "", false
+	}
+	return partTarget(path.Dir(slideName), target), true
+}
+
 func collectSlideImages(archive *zip.Reader, slideXML, slideRel, slideName string, index int, result *CoursewareResult) {
 	seen := map[string]bool{}
 	var imageBudget int64 = 8 * 1024 * 1024
 	for _, match := range blipPattern.FindAllStringSubmatch(slideXML, -1) {
-		id := match[1]
-		var relationship string
-		for _, row := range relationshipPat.FindAllString(slideRel, -1) {
-			if attrPattern("Id").FindStringSubmatch(row)[1] == id {
-				relationship = row
-				break
-			}
-		}
-		if relationship == "" {
+		mediaName, ok := slideMediaName(slideName, slideRel, match[1])
+		if !ok {
 			continue
 		}
-		matches := attrPattern("Target").FindStringSubmatch(relationship)
-		if len(matches) < 2 {
-			continue
-		}
-		mediaName := partTarget(path.Dir(slideName), matches[1])
 		mime, ok := mimeByExt[strings.ToLower(path.Ext(mediaName))]
 		if !strings.HasPrefix(mediaName, "ppt/media/") || strings.Contains(mediaName, "../") || !ok {
 			result.Omissions = append(result.Omissions, fmt.Sprintf("第 %d 页有未支持的嵌入图片格式", index+1))
