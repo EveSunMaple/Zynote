@@ -106,7 +106,7 @@ func writeJobFixture(t *testing.T, root string) (*DownloadJobs, string) {
 	return jobs, list[0].ID
 }
 
-func TestJobsLifecycle(t *testing.T) {
+func TestJobsLifecycle(t *testing.T) { // NOSONAR: end-to-end test intentionally exercises one workflow; extracting helpers would obscure the scenario.
 	root := t.TempDir()
 	jobs, id := writeJobFixture(t, root)
 	if _, err := os.Stat(filepath.Join(root, "native-downloads", id, "job.json")); err != nil {

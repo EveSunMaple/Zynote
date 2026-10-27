@@ -45,7 +45,7 @@ var fencePattern = regexp.MustCompile("(?is)```(?:srt)?\\s*\\n([\\s\\S]*?)```")
 var indexPattern = regexp.MustCompile(`^\d+$`)
 var timeLinePattern = regexp.MustCompile(`^(\d{2,}:\d{2}:\d{2}[,.]\d{3})\s*-->\s*(\d{2,}:\d{2}:\d{2}[,.]\d{3})$`)
 
-func ParseSrt(raw string) ([]Segment, error) {
+func srtValue(raw string) (string, error) {
 	fenced := fencePattern.FindAllStringSubmatch(raw, -1)
 	value := raw
 	if len(fenced) > 0 {
@@ -57,39 +57,59 @@ func ParseSrt(raw string) ([]Segment, error) {
 	}
 	value = strings.TrimSpace(strings.ReplaceAll(value, "\r", ""))
 	if value == "" {
-		return nil, fmt.Errorf("回复中没有字幕内容")
+		return "", fmt.Errorf("回复中没有字幕内容")
+	}
+	return value, nil
+}
+
+func parseSrtBlock(block string, expected int, previousEnd int64) (Segment, error) {
+	lines := strings.Split(strings.TrimSpace(block), "\n")
+	if !indexPattern.MatchString(lines[0]) {
+		return Segment{}, fmt.Errorf("SRT 字幕缺少序号")
+	}
+	timeLine := ""
+	if len(lines) > 1 {
+		timeLine = strings.TrimSpace(lines[1])
+	}
+	match := timeLinePattern.FindStringSubmatch(timeLine)
+	if match == nil {
+		return Segment{}, fmt.Errorf("SRT 时间戳格式错误")
+	}
+	start, err := milliseconds(match[1])
+	if err != nil {
+		return Segment{}, err
+	}
+	end, err := milliseconds(match[2])
+	if err != nil {
+		return Segment{}, err
+	}
+	text := strings.TrimSpace(strings.Join(lines[2:], "\n"))
+	if text == "" || end <= start || (previousEnd > 0 && start < previousEnd) {
+		return Segment{}, fmt.Errorf("字幕为空或时间没有递增")
+	}
+	index, _ := strconv.Atoi(lines[0])
+	if index != expected {
+		return Segment{}, fmt.Errorf("字幕序号不连续")
+	}
+	return Segment{Start: start, End: end, Text: text}, nil
+}
+
+func ParseSrt(raw string) ([]Segment, error) {
+	value, err := srtValue(raw)
+	if err != nil {
+		return nil, err
 	}
 	result := []Segment{}
 	for _, block := range regexp.MustCompile(`\n\s*\n`).Split(value, -1) {
-		lines := strings.Split(strings.TrimSpace(block), "\n")
-		if !indexPattern.MatchString(lines[0]) {
-			return nil, fmt.Errorf("SRT 字幕缺少序号")
+		previousEnd := int64(0)
+		if len(result) > 0 {
+			previousEnd = result[len(result)-1].End
 		}
-		timeLine := ""
-		if len(lines) > 1 {
-			timeLine = strings.TrimSpace(lines[1])
-		}
-		match := timeLinePattern.FindStringSubmatch(timeLine)
-		if match == nil {
-			return nil, fmt.Errorf("SRT 时间戳格式错误")
-		}
-		start, err := milliseconds(match[1])
+		segment, err := parseSrtBlock(block, len(result)+1, previousEnd)
 		if err != nil {
 			return nil, err
 		}
-		end, err := milliseconds(match[2])
-		if err != nil {
-			return nil, err
-		}
-		text := strings.TrimSpace(strings.Join(lines[2:], "\n"))
-		if text == "" || end <= start || (len(result) > 0 && start < result[len(result)-1].End) {
-			return nil, fmt.Errorf("字幕为空或时间没有递增")
-		}
-		index, _ := strconv.Atoi(lines[0])
-		if index != len(result)+1 {
-			return nil, fmt.Errorf("字幕序号不连续")
-		}
-		result = append(result, Segment{Start: start, End: end, Text: text})
+		result = append(result, segment)
 	}
 	return result, nil
 }

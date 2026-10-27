@@ -8,7 +8,7 @@ import (
 	"testing"
 )
 
-func TestSettingsModelsProbeAndTest(t *testing.T) {
+func TestSettingsModelsProbeAndTest(t *testing.T) { // NOSONAR: end-to-end test intentionally exercises one workflow; extracting helpers would obscure the scenario.
 	auth := []string{}
 	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
 		auth = append(auth, request.Header.Get("Authorization"))

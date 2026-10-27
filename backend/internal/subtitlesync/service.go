@@ -264,14 +264,104 @@ func (service *Service) Read(id string) (Task, error) {
 	return service.read(id)
 }
 
-func (service *Service) Run(ctx context.Context, id string, dependencies Dependencies) (Task, error) {
+func (service *Service) prepareSyncTask(id string) (Task, error) {
 	service.mu.Lock()
+	defer service.mu.Unlock()
 	task, err := service.read(id)
-	if err == nil {
-		task.Interrupted = true
-		err = service.save(task)
+	if err != nil {
+		return Task{}, err
 	}
-	service.mu.Unlock()
+	task.Interrupted = true
+	if err := service.save(task); err != nil {
+		return Task{}, err
+	}
+	return task, nil
+}
+
+func loadItemSRT(service *Service, item *Item) (string, error) {
+	if item.Path == "" || item.Hash == "" || !inside(service.Library, item.Path) {
+		return "", nil
+	}
+	body, err := os.ReadFile(item.Path)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return "", nil
+		}
+		return "", err
+	}
+	if digest(string(body)) != item.Hash {
+		return "", nil
+	}
+	if _, err := documents.ParseSrt(string(body)); err != nil {
+		return "", nil
+	}
+	return string(body), nil
+}
+
+func (service *Service) acquireItemSRT(ctx context.Context, task *Task, item *Item, dependencies Dependencies) (string, error) {
+	if dependencies.Acquire == nil {
+		return "", fmt.Errorf("字幕获取不可用")
+	}
+	acquired, path, err := dependencies.Acquire(ctx, *item)
+	if err != nil {
+		return "", err
+	}
+	body, err := os.ReadFile(path)
+	if err != nil || string(body) != acquired {
+		return "", fmt.Errorf("字幕保存校验失败")
+	}
+	item.Path = path
+	item.Hash = digest(acquired)
+	item.SourceMethod = "站内字幕"
+	item.Status = "等待处理"
+	if err := service.save(*task); err != nil {
+		return "", err
+	}
+	return acquired, nil
+}
+
+func (service *Service) syncItem(ctx context.Context, task *Task, index int, dependencies Dependencies) error {
+	item := &task.Items[index]
+	if item.Generation == nil && dependencies.Generation != nil {
+		generation, err := dependencies.Generation(ctx, item.URL)
+		if err != nil {
+			return err
+		}
+		if generation != "" {
+			item.Generation = &generation
+		}
+		if err := service.save(*task); err != nil {
+			return err
+		}
+	}
+	srt, err := loadItemSRT(service, item)
+	if err != nil {
+		return err
+	}
+	if srt == "" {
+		srt, err = service.acquireItemSRT(ctx, task, item, dependencies)
+		if err != nil {
+			return err
+		}
+	}
+	if dependencies.Publish == nil {
+		return fmt.Errorf("知识库发布不可用")
+	}
+	unchanged, generation, err := dependencies.Publish(ctx, *item, srt, task.Category)
+	if err != nil {
+		return err
+	}
+	if generation != "" {
+		item.Generation = &generation
+	}
+	item.Status = "已完成"
+	item.Unchanged = unchanged
+	item.Error = ""
+	return nil
+}
+
+func (service *Service) Run(ctx context.Context, id string, dependencies Dependencies) (Task, error) {
+	task, err := service.prepareSyncTask(id)
 	if err != nil {
 		return Task{}, err
 	}
@@ -288,66 +378,7 @@ func (service *Service) Run(ctx context.Context, id string, dependencies Depende
 		if dependencies.Progress != nil {
 			dependencies.Progress(fmt.Sprintf("同步知识库 %d/%d · P%d %s", index+1, len(task.Items), item.Page, item.Title))
 		}
-		if err := func() error {
-			if item.Generation == nil && dependencies.Generation != nil {
-				generation, err := dependencies.Generation(ctx, item.URL)
-				if err != nil {
-					return err
-				}
-				if generation != "" {
-					item.Generation = &generation
-				}
-				if err := service.save(task); err != nil {
-					return err
-				}
-			}
-			var srt string
-			if item.Path != "" && item.Hash != "" {
-				if inside(service.Library, item.Path) {
-					if body, err := os.ReadFile(item.Path); err == nil && digest(string(body)) == item.Hash {
-						if _, err := documents.ParseSrt(string(body)); err == nil {
-							srt = string(body)
-						}
-					} else if err != nil && !os.IsNotExist(err) {
-						return err
-					}
-				}
-			}
-			if srt == "" {
-				if dependencies.Acquire == nil {
-					return fmt.Errorf("字幕获取不可用")
-				}
-				acquired, path, err := dependencies.Acquire(ctx, *item)
-				if err != nil {
-					return err
-				}
-				if body, err := os.ReadFile(path); err != nil || string(body) != acquired {
-					return fmt.Errorf("字幕保存校验失败")
-				}
-				srt = acquired
-				item.Path = path
-				item.Hash = digest(srt)
-				item.SourceMethod = "站内字幕"
-				item.Status = "等待处理"
-				if err := service.save(task); err != nil {
-					return err
-				}
-			}
-			if dependencies.Publish == nil {
-				return fmt.Errorf("知识库发布不可用")
-			}
-			unchanged, generation, err := dependencies.Publish(ctx, *item, srt, task.Category)
-			if err != nil {
-				return err
-			}
-			if generation != "" {
-				item.Generation = &generation
-			}
-			item.Status = "已完成"
-			item.Unchanged = unchanged
-			item.Error = ""
-			return nil
-		}(); err != nil {
+		if err := service.syncItem(ctx, &task, index, dependencies); err != nil {
 			if ctx.Err() != nil {
 				return Task{}, ctx.Err()
 			}

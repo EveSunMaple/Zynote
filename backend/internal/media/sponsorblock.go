@@ -65,10 +65,7 @@ func sponsorDurationWarning(row SponsorSegment, duration float64) bool {
 		row.Segment[1] > duration || row.Segment[1] <= row.Segment[0]
 }
 
-func SponsorBlockPlan(source Source, options NativeMediaOptions, directory string, fetcher AuthFetcher, ctx context.Context) (*SponsorPlan, error) {
-	if source.Platform != "youtube" || !sponsorSourcePattern.MatchString(source.SourceID) {
-		return nil, fmt.Errorf("片段移除目前仅支持 YouTube；其它平台请使用时间片段")
-	}
+func sponsorCategories(options NativeMediaOptions) ([]string, map[string]bool, error) {
 	categorySet := map[string]bool{}
 	for _, value := range strings.Split(options.Sponsorblock, ",") {
 		categorySet[value] = true
@@ -79,12 +76,131 @@ func SponsorBlockPlan(source Source, options NativeMediaOptions, directory strin
 	}
 	sort.Strings(categories)
 	if len(categories) == 0 {
-		return nil, fmt.Errorf("片段移除分类无效")
+		return nil, nil, fmt.Errorf("片段移除分类无效")
 	}
 	for _, category := range categories {
 		if !inList(category, MediaSponsors) {
-			return nil, fmt.Errorf("片段移除分类无效")
+			return nil, nil, fmt.Errorf("片段移除分类无效")
 		}
+	}
+	return categories, categorySet, nil
+}
+
+func readSponsorReceipt(path string, source Source, duration float64, categories []string) ([]SponsorSegment, bool, error) {
+	info, err := os.Lstat(path)
+	if os.IsNotExist(err) {
+		return nil, false, nil
+	}
+	if err != nil {
+		return nil, false, err
+	}
+	if !info.Mode().IsRegular() || info.Mode()&os.ModeSymlink != 0 || info.Size() > 1_000_000 {
+		return nil, false, fmt.Errorf("片段移除恢复记录无效")
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return nil, false, err
+	}
+	var receipt SponsorReceipt
+	decoder := json.NewDecoder(strings.NewReader(string(data)))
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(&receipt); err != nil {
+		return nil, false, fmt.Errorf("片段移除恢复记录无效")
+	}
+	if receipt.SourceID != source.SourceID || receipt.Duration != duration ||
+		!sameStrings(receipt.Categories, categories) ||
+		receipt.SHA256 != sponsorReceiptHash(receipt.SourceID, receipt.Duration, receipt.Categories, receipt.Segments) {
+		return nil, false, fmt.Errorf("片段移除恢复记录已改变，原文件保留")
+	}
+	return receipt.Segments, true, nil
+}
+
+func parseSponsorRows(data []byte, source Source, categorySet map[string]bool) ([]SponsorSegment, error) {
+	var rows []struct {
+		VideoID  string `json:"videoID"`
+		Segments []any  `json:"segments"`
+	}
+	if err := json.Unmarshal(data, &rows); err != nil || len(rows) > 1000 {
+		return nil, fmt.Errorf("片段来源响应格式异常")
+	}
+	matched := []any{}
+	matchedCount := 0
+	for _, row := range rows {
+		if row.VideoID != source.SourceID {
+			continue
+		}
+		matchedCount++
+		matched = row.Segments
+	}
+	if matchedCount > 1 {
+		return nil, fmt.Errorf("片段来源身份重复，未修改视频")
+	}
+	segments := []SponsorSegment{}
+	for _, item := range matched {
+		parsed, ok := parseSponsorSegment(item)
+		if !ok || !categorySet[parsed.Category] || parsed.ActionType != "skip" {
+			continue
+		}
+		segments = append(segments, parsed)
+	}
+	return segments, nil
+}
+
+func fetchSponsorSegments(ctx context.Context, fetcher AuthFetcher, source Source, categories []string, categorySet map[string]bool) ([]SponsorSegment, error) {
+	sum := sha256.Sum256([]byte(source.SourceID))
+	query := url.Values{}
+	encodedCategories, _ := json.Marshal(categories)
+	query.Set("categories", string(encodedCategories))
+	query.Set("actionTypes", `["skip"]`)
+	query.Set("service", "YouTube")
+	target := "https://sponsor.ajay.app/api/skipSegments/" + hex.EncodeToString(sum[:])[:4] + "?" + query.Encode()
+	child, cancel := context.WithTimeout(ctx, 20*time.Second)
+	response, err := fetcher(target, map[string]string{"Accept": "application/json"}, child)
+	if err != nil {
+		cancel()
+		return nil, err
+	}
+	if response.StatusCode == 404 {
+		_ = response.Body.Close()
+		cancel()
+		return []SponsorSegment{}, nil
+	}
+	data, readErr := readBoundedBody(response, 1_000_000)
+	cancel()
+	if readErr != nil {
+		return nil, readErr
+	}
+	return parseSponsorRows(data, source, categorySet)
+}
+
+func writeSponsorReceipt(path string, source Source, duration float64, categories []string, segments []SponsorSegment) error {
+	receipt := SponsorReceipt{
+		Version: 1, SourceID: source.SourceID, Duration: duration, Categories: categories,
+		Segments: segments, SHA256: sponsorReceiptHash(source.SourceID, duration, categories, segments),
+		Attribution: sponsorAttribution, Source: sponsorSource, License: sponsorLicense,
+	}
+	encoded, err := json.MarshalIndent(receipt, "", "  ")
+	if err != nil {
+		return err
+	}
+	file, err := os.OpenFile(path, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o644)
+	if err != nil {
+		return err
+	}
+	if _, err := file.Write(encoded); err != nil {
+		_ = file.Close()
+		return err
+	}
+	return file.Close()
+}
+
+func SponsorBlockPlan(source Source, options NativeMediaOptions, directory string, fetcher AuthFetcher, ctx context.Context) (*SponsorPlan, error) {
+	if source.Platform != "youtube" || !sponsorSourcePattern.MatchString(source.SourceID) {
+		return nil, fmt.Errorf("片段移除目前仅支持 YouTube；其它平台请使用时间片段")
+	}
+	categories, categorySet, err := sponsorCategories(options)
+	if err != nil {
+		return nil, err
 	}
 	duration := 0.0
 	if source.Catalog.Duration != nil {
@@ -95,115 +211,27 @@ func SponsorBlockPlan(source Source, options NativeMediaOptions, directory strin
 	}
 	relative := "sponsorblock-plan.json"
 	path := filepath.Join(directory, relative)
-	segments := []SponsorSegment{}
-	cached := false
-	if info, err := os.Lstat(path); err == nil {
-		if !info.Mode().IsRegular() || info.Mode()&os.ModeSymlink != 0 || info.Size() > 1_000_000 {
-			return nil, fmt.Errorf("片段移除恢复记录无效")
-		}
-		data, err := os.ReadFile(path)
-		if err != nil {
-			return nil, err
-		}
-		var receipt SponsorReceipt
-		decoder := json.NewDecoder(strings.NewReader(string(data)))
-		decoder.DisallowUnknownFields()
-		if err := decoder.Decode(&receipt); err != nil {
-			return nil, fmt.Errorf("片段移除恢复记录无效")
-		}
-		if receipt.SourceID != source.SourceID || receipt.Duration != duration ||
-			!sameStrings(receipt.Categories, categories) ||
-			receipt.SHA256 != sponsorReceiptHash(receipt.SourceID, receipt.Duration, receipt.Categories, receipt.Segments) {
-			return nil, fmt.Errorf("片段移除恢复记录已改变，原文件保留")
-		}
-		segments = receipt.Segments
-		cached = true
-	} else if !os.IsNotExist(err) {
+	segments, cached, err := readSponsorReceipt(path, source, duration, categories)
+	if err != nil {
 		return nil, err
 	}
 	if !cached {
-		sum := sha256.Sum256([]byte(source.SourceID))
-		query := url.Values{}
-		encodedCategories, _ := json.Marshal(categories)
-		query.Set("categories", string(encodedCategories))
-		query.Set("actionTypes", `["skip"]`)
-		query.Set("service", "YouTube")
-		target := "https://sponsor.ajay.app/api/skipSegments/" + hex.EncodeToString(sum[:])[:4] + "?" + query.Encode()
-		child, cancel := context.WithTimeout(ctx, 20*time.Second)
-		response, err := fetcher(target, map[string]string{"Accept": "application/json"}, child)
+		segments, err = fetchSponsorSegments(ctx, fetcher, source, categories, categorySet)
 		if err != nil {
-			cancel()
 			return nil, err
-		}
-		if response.StatusCode == 404 {
-			_ = response.Body.Close()
-			cancel()
-			segments = []SponsorSegment{}
-		} else {
-			data, readErr := readBoundedBody(response, 1_000_000)
-			cancel()
-			if readErr != nil {
-				return nil, readErr
-			}
-			var rows []struct {
-				VideoID  string `json:"videoID"`
-				Segments []any  `json:"segments"`
-			}
-			if err := json.Unmarshal(data, &rows); err != nil || len(rows) > 1000 {
-				return nil, fmt.Errorf("片段来源响应格式异常")
-			}
-			matched := []any{}
-			matchedCount := 0
-			for _, row := range rows {
-				if row.VideoID != source.SourceID {
-					continue
-				}
-				matchedCount++
-				matched = row.Segments
-			}
-			if matchedCount > 1 {
-				return nil, fmt.Errorf("片段来源身份重复，未修改视频")
-			}
-			for _, item := range matched {
-				parsed, ok := parseSponsorSegment(item)
-				if !ok || !categorySet[parsed.Category] || parsed.ActionType != "skip" {
-					continue
-				}
-				segments = append(segments, parsed)
-			}
 		}
 		if len(segments) > 200 {
 			return nil, fmt.Errorf("片段来源响应格式异常")
-		}
-		for _, row := range segments {
-			if sponsorDurationWarning(row, duration) {
-				return nil, fmt.Errorf("片段标注与当前视频时长不符，未执行裁剪")
-			}
-		}
-		receipt := SponsorReceipt{
-			Version: 1, SourceID: source.SourceID, Duration: duration, Categories: categories,
-			Segments: segments, SHA256: sponsorReceiptHash(source.SourceID, duration, categories, segments),
-			Attribution: sponsorAttribution, Source: sponsorSource, License: sponsorLicense,
-		}
-		encoded, err := json.MarshalIndent(receipt, "", "  ")
-		if err != nil {
-			return nil, err
-		}
-		file, err := os.OpenFile(path, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o644)
-		if err != nil {
-			return nil, err
-		}
-		if _, err := file.Write(encoded); err != nil {
-			_ = file.Close()
-			return nil, err
-		}
-		if err := file.Close(); err != nil {
-			return nil, err
 		}
 	}
 	for _, row := range segments {
 		if sponsorDurationWarning(row, duration) {
 			return nil, fmt.Errorf("片段标注与当前视频时长不符，未执行裁剪")
+		}
+	}
+	if !cached {
+		if err := writeSponsorReceipt(path, source, duration, categories, segments); err != nil {
+			return nil, err
 		}
 	}
 	removed := []MediaInterval{}

@@ -154,7 +154,7 @@ func writeFixtureFile(t *testing.T, dir, name, content string) {
 	}
 }
 
-func TestP0Contract(t *testing.T) {
+func TestP0Contract(t *testing.T) { // NOSONAR: end-to-end test intentionally exercises one workflow; extracting helpers would obscure the scenario.
 	dataRoot := t.TempDir()
 	resourcesRoot := t.TempDir()
 	writeFixtureFile(t, dataRoot, "settings.json", `{

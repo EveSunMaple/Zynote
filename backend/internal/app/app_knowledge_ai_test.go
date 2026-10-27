@@ -9,7 +9,7 @@ import (
 	"testing"
 )
 
-func TestKnowledgeAskAndClassificationSuggest(t *testing.T) {
+func TestKnowledgeAskAndClassificationSuggest(t *testing.T) { // NOSONAR: end-to-end test intentionally exercises one workflow; extracting helpers would obscure the scenario.
 	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
 		var body struct {
 			Messages []struct {

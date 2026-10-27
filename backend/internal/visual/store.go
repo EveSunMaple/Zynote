@@ -152,6 +152,66 @@ func (service *Service) Prepare(ctx context.Context, id, connection string) (Tas
 
 type RecognizeFunc func(context.Context, Frame) (string, error)
 
+func (service *Service) checkVisualSource(task *Task) error {
+	hash, err := fileDigest(task.Source)
+	if err != nil || hash != task.SourceHash {
+		return badRequest("源文件已经改变，请新建画面识别任务")
+	}
+	return nil
+}
+
+func (service *Service) verifyVisualOutput(task *Task) error {
+	if task.Output == "" {
+		return nil
+	}
+	output, _ := service.outputPath(*task)
+	current, err := service.optionalDigest(output)
+	if err != nil || current != task.OutputHash {
+		return badRequest("识别成果已改变，保留当前文件，请重新建立任务")
+	}
+	return nil
+}
+
+func (service *Service) failVisualFrame(task *Task, frame *Frame, message string) error {
+	frame.Status = StatusFailed
+	frame.Error = message
+	frame.Text = ""
+	return service.save(*task)
+}
+
+func (service *Service) recognizeFrame(ctx context.Context, task *Task, index int, recognize RecognizeFunc, progress func(string)) error {
+	frame := &task.Frames[index]
+	if progress != nil {
+		progress("识别画面 " + itoa(index+1) + "/" + itoa(len(task.Frames)))
+	}
+	if hash, err := fileDigest(frame.Path); err != nil || hash != frame.Hash {
+		return service.failVisualFrame(task, frame, "所选画面已改变")
+	}
+	text, err := recognize(ctx, *frame)
+	if err != nil {
+		if ctx.Err() != nil {
+			return ctx.Err()
+		}
+		return service.failVisualFrame(task, frame, err.Error())
+	}
+	if ctx.Err() != nil {
+		return ctx.Err()
+	}
+	if err := service.checkVisualSource(task); err != nil {
+		return err
+	}
+	if strings.TrimSpace(text) == "" {
+		frame.Status = StatusFailed
+		frame.Error = "识别未返回文字"
+		frame.Text = ""
+	} else {
+		frame.Text = text
+		frame.Status = StatusDone
+		frame.Error = ""
+	}
+	return service.save(*task)
+}
+
 func (service *Service) Recognize(
 	ctx context.Context,
 	id string,
@@ -172,19 +232,10 @@ func (service *Service) Recognize(
 	if err := service.recoverJournal(&task); err != nil {
 		return Task{}, err
 	}
-	if task.Output != "" {
-		output, _ := service.outputPath(task)
-		if current, err := service.optionalDigest(output); err != nil || current != task.OutputHash {
-			return Task{}, badRequest("识别成果已改变，保留当前文件，请重新建立任务")
-		}
+	if err := service.verifyVisualOutput(&task); err != nil {
+		return Task{}, err
 	}
-	sourceCheck := func() error {
-		if hash, err := fileDigest(task.Source); err != nil || hash != task.SourceHash {
-			return badRequest("源文件已经改变，请新建画面识别任务")
-		}
-		return nil
-	}
-	if err := sourceCheck(); err != nil {
+	if err := service.checkVisualSource(&task); err != nil {
 		return Task{}, err
 	}
 	task.OutputPending = true
@@ -195,55 +246,14 @@ func (service *Service) Recognize(
 		if err := ctx.Err(); err != nil {
 			return Task{}, err
 		}
-		frame := &task.Frames[index]
-		if frame.Status == StatusDone {
+		if task.Frames[index].Status == StatusDone {
 			continue
 		}
-		if progress != nil {
-			progress("识别画面 " + itoa(index+1) + "/" + itoa(len(task.Frames)))
-		}
-		if hash, err := fileDigest(frame.Path); err != nil || hash != frame.Hash {
-			frame.Status = StatusFailed
-			frame.Error = "所选画面已改变"
-			frame.Text = ""
-			if err := service.save(task); err != nil {
-				return Task{}, err
-			}
-			continue
-		}
-		text, err := recognize(ctx, *frame)
-		if err != nil {
-			if ctx.Err() != nil {
-				return Task{}, ctx.Err()
-			}
-			frame.Status = StatusFailed
-			frame.Error = err.Error()
-			frame.Text = ""
-			if err := service.save(task); err != nil {
-				return Task{}, err
-			}
-			continue
-		}
-		if ctx.Err() != nil {
-			return Task{}, ctx.Err()
-		}
-		if err := sourceCheck(); err != nil {
-			return Task{}, err
-		}
-		if strings.TrimSpace(text) == "" {
-			frame.Status = StatusFailed
-			frame.Error = "识别未返回文字"
-			frame.Text = ""
-		} else {
-			frame.Text = text
-			frame.Status = StatusDone
-			frame.Error = ""
-		}
-		if err := service.save(task); err != nil {
+		if err := service.recognizeFrame(ctx, &task, index, recognize, progress); err != nil {
 			return Task{}, err
 		}
 	}
-	if err := sourceCheck(); err != nil {
+	if err := service.checkVisualSource(&task); err != nil {
 		return Task{}, err
 	}
 	if err := service.commitOutput(&task, outputText(&task)); err != nil {

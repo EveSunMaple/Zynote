@@ -36,18 +36,11 @@ type RemovalResult struct {
 	Duration float64
 }
 
-func RemovalTimeline(duration float64, removed []MediaInterval, clip *MediaInterval) (RemovalResult, error) {
-	window := MediaInterval{Start: 0, End: duration}
-	if clip != nil {
-		window = *clip
-	}
-	if _, err := CheckedMediaIntervals([]MediaInterval{window}, duration); err != nil {
-		return RemovalResult{}, err
-	}
+func clippedRemovals(duration float64, removed []MediaInterval, window MediaInterval) ([]MediaInterval, error) {
 	sorted := []MediaInterval{}
 	for _, value := range removed {
 		if _, err := CheckedMediaIntervals([]MediaInterval{value}, duration); err != nil {
-			return RemovalResult{}, err
+			return nil, err
 		}
 		start := math.Max(window.Start, value.Start)
 		end := math.Min(window.End, value.End)
@@ -56,16 +49,24 @@ func RemovalTimeline(duration float64, removed []MediaInterval, clip *MediaInter
 		}
 	}
 	sort.SliceStable(sorted, func(i, j int) bool { return sorted[i].Start < sorted[j].Start })
+	return sorted, nil
+}
+
+func mergeRemovals(sorted []MediaInterval) []MediaInterval {
 	merged := []MediaInterval{}
 	for _, value := range sorted {
 		if len(merged) > 0 && value.Start <= merged[len(merged)-1].End {
 			if value.End > merged[len(merged)-1].End {
 				merged[len(merged)-1].End = value.End
 			}
-		} else {
-			merged = append(merged, value)
+			continue
 		}
+		merged = append(merged, value)
 	}
+	return merged
+}
+
+func keptIntervals(window MediaInterval, merged []MediaInterval) []MediaInterval {
 	kept := []MediaInterval{}
 	cursor := window.Start
 	for _, value := range merged {
@@ -77,6 +78,23 @@ func RemovalTimeline(duration float64, removed []MediaInterval, clip *MediaInter
 	if cursor < window.End {
 		kept = append(kept, MediaInterval{Start: cursor, End: window.End})
 	}
+	return kept
+}
+
+func RemovalTimeline(duration float64, removed []MediaInterval, clip *MediaInterval) (RemovalResult, error) {
+	window := MediaInterval{Start: 0, End: duration}
+	if clip != nil {
+		window = *clip
+	}
+	if _, err := CheckedMediaIntervals([]MediaInterval{window}, duration); err != nil {
+		return RemovalResult{}, err
+	}
+	sorted, err := clippedRemovals(duration, removed, window)
+	if err != nil {
+		return RemovalResult{}, err
+	}
+	merged := mergeRemovals(sorted)
+	kept := keptIntervals(window, merged)
 	if len(kept) == 0 {
 		return RemovalResult{}, fmt.Errorf("所选片段移除后没有剩余内容，请调整分类或时间范围")
 	}

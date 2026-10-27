@@ -37,7 +37,7 @@ func practiceLLMReply(t *testing.T, input map[string]any) any {
 	}
 }
 
-func TestPracticeGenerateAndAnswer(t *testing.T) {
+func TestPracticeGenerateAndAnswer(t *testing.T) { // NOSONAR: end-to-end test intentionally exercises one workflow; extracting helpers would obscure the scenario.
 	var llmCalls int
 	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
 		if request.URL.Path == "/tavily" {

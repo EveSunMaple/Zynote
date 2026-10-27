@@ -18,18 +18,19 @@ var layoutNameForbidden = regexp.MustCompile(`[\\/:\x00-\x1f]`)
 var layoutNameTrailing = regexp.MustCompile(`[. ]$`)
 var layoutDatePattern = regexp.MustCompile(`^\d{4}-(?:0[1-9]|1[0-2])`)
 
-func PublishMediaLayout(directory string, names []string, options NativeMediaOptions, created string) (LayoutResult, error) {
-	if options.FolderLayout == "source" {
-		return LayoutResult{Outputs: names, Cleanup: []string{}}, nil
-	}
+func layoutBase(directory string) (string, error) {
 	base, err := filepath.EvalSymlinks(directory)
 	if err != nil {
-		return LayoutResult{}, fmt.Errorf("目录整理根路径无效")
+		return "", fmt.Errorf("目录整理根路径无效")
 	}
 	info, err := os.Lstat(base)
 	if err != nil || info.Mode()&os.ModeSymlink != 0 || !info.IsDir() {
-		return LayoutResult{}, fmt.Errorf("目录整理根路径无效")
+		return "", fmt.Errorf("目录整理根路径无效")
 	}
+	return base, nil
+}
+
+func layoutFolder(base string, options NativeMediaOptions, created string) (string, []string, error) {
 	parts := []string{}
 	if strings.Contains(options.FolderLayout, "type") {
 		category := "视频"
@@ -43,7 +44,7 @@ func PublishMediaLayout(directory string, names []string, options NativeMediaOpt
 	if strings.Contains(options.FolderLayout, "date") {
 		date := layoutDatePattern.FindString(created)
 		if date == "" {
-			return LayoutResult{}, fmt.Errorf("下载创建月份无效")
+			return "", nil, fmt.Errorf("下载创建月份无效")
 		}
 		parts = append(parts, date)
 	}
@@ -51,46 +52,68 @@ func PublishMediaLayout(directory string, names []string, options NativeMediaOpt
 	for _, part := range parts {
 		folder = filepath.Join(folder, part)
 		if err := os.MkdirAll(folder, 0o755); err != nil {
-			return LayoutResult{}, fmt.Errorf("整理目录包含链接")
+			return "", nil, fmt.Errorf("整理目录包含链接")
 		}
 		dirInfo, err := os.Lstat(folder)
 		if err != nil || dirInfo.Mode()&os.ModeSymlink != 0 || !dirInfo.IsDir() {
-			return LayoutResult{}, fmt.Errorf("整理目录包含链接")
+			return "", nil, fmt.Errorf("整理目录包含链接")
 		}
+	}
+	return folder, parts, nil
+}
+
+func publishLayoutFile(base, folder, name string) error {
+	if name == "" || layoutNameForbidden.MatchString(name) || strings.HasPrefix(name, ".") ||
+		layoutNameTrailing.MatchString(name) ||
+		strings.EqualFold(name, "job.json") || strings.EqualFold(name, "job.writing") {
+		return fmt.Errorf("待整理成果文件名无效")
+	}
+	source := filepath.Join(base, name)
+	target := filepath.Join(folder, name)
+	item, err := os.Lstat(source)
+	if err != nil || !item.Mode().IsRegular() || item.Mode()&os.ModeSymlink != 0 {
+		return fmt.Errorf("待整理成果不是普通文件")
+	}
+	hash, err := MediaFileHash(source)
+	if err != nil {
+		return fmt.Errorf("待整理成果不是普通文件")
+	}
+	if copyErr := copyExclusive(source, target); copyErr != nil {
+		if !os.IsExist(copyErr) {
+			return copyErr
+		}
+	}
+	copied, err := os.Lstat(target)
+	if err != nil || !copied.Mode().IsRegular() || copied.Mode()&os.ModeSymlink != 0 || copied.Size() != item.Size() {
+		return fmt.Errorf("目录整理成果校验失败，原文件和已有目标均保留")
+	}
+	copiedHash, err := MediaFileHash(target)
+	if err != nil || copiedHash != hash {
+		return fmt.Errorf("目录整理成果校验失败，原文件和已有目标均保留")
+	}
+	sourceHash, err := MediaFileHash(source)
+	if err != nil || sourceHash != hash {
+		return fmt.Errorf("目录整理成果校验失败，原文件和已有目标均保留")
+	}
+	return nil
+}
+
+func PublishMediaLayout(directory string, names []string, options NativeMediaOptions, created string) (LayoutResult, error) {
+	if options.FolderLayout == "source" {
+		return LayoutResult{Outputs: names, Cleanup: []string{}}, nil
+	}
+	base, err := layoutBase(directory)
+	if err != nil {
+		return LayoutResult{}, err
+	}
+	folder, parts, err := layoutFolder(base, options, created)
+	if err != nil {
+		return LayoutResult{}, err
 	}
 	outputs := []string{}
 	for _, name := range names {
-		if name == "" || layoutNameForbidden.MatchString(name) || strings.HasPrefix(name, ".") ||
-			layoutNameTrailing.MatchString(name) ||
-			strings.EqualFold(name, "job.json") || strings.EqualFold(name, "job.writing") {
-			return LayoutResult{}, fmt.Errorf("待整理成果文件名无效")
-		}
-		source := filepath.Join(base, name)
-		target := filepath.Join(folder, name)
-		item, err := os.Lstat(source)
-		if err != nil || !item.Mode().IsRegular() || item.Mode()&os.ModeSymlink != 0 {
-			return LayoutResult{}, fmt.Errorf("待整理成果不是普通文件")
-		}
-		hash, err := MediaFileHash(source)
-		if err != nil {
-			return LayoutResult{}, fmt.Errorf("待整理成果不是普通文件")
-		}
-		if copyErr := copyExclusive(source, target); copyErr != nil {
-			if !os.IsExist(copyErr) {
-				return LayoutResult{}, copyErr
-			}
-		}
-		copied, err := os.Lstat(target)
-		if err != nil || !copied.Mode().IsRegular() || copied.Mode()&os.ModeSymlink != 0 || copied.Size() != item.Size() {
-			return LayoutResult{}, fmt.Errorf("目录整理成果校验失败，原文件和已有目标均保留")
-		}
-		copiedHash, err := MediaFileHash(target)
-		if err != nil || copiedHash != hash {
-			return LayoutResult{}, fmt.Errorf("目录整理成果校验失败，原文件和已有目标均保留")
-		}
-		sourceHash, err := MediaFileHash(source)
-		if err != nil || sourceHash != hash {
-			return LayoutResult{}, fmt.Errorf("目录整理成果校验失败，原文件和已有目标均保留")
+		if err := publishLayoutFile(base, folder, name); err != nil {
+			return LayoutResult{}, err
 		}
 		outputs = append(outputs, strings.Join(append(append([]string{}, parts...), name), "/"))
 	}

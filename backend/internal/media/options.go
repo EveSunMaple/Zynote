@@ -147,63 +147,67 @@ func inList(value string, list []string) bool {
 
 func inEnum(value string, key string) bool { return inList(value, MediaEnums[key]) }
 
-func MediaOptions(input any) (NativeMediaOptions, error) {
-	raw, err := json.Marshal(input)
-	if err != nil {
-		return NativeMediaOptions{}, fmt.Errorf("下载选项无效")
-	}
-	value := defaultOptions()
-	if err := json.Unmarshal(raw, &value); err != nil {
-		return NativeMediaOptions{}, fmt.Errorf("下载选项无效")
-	}
+func validateMediaEnums(value NativeMediaOptions) error {
 	if !inList(strconv.Itoa(value.Height), heightStrings()) {
-		return value, fmt.Errorf("下载画质无效")
+		return fmt.Errorf("下载画质无效")
 	}
 	if !inEnum(value.AudioQuality, "audio_quality") {
-		return value, fmt.Errorf("下载音质无效")
+		return fmt.Errorf("下载音质无效")
 	}
 	if !inEnum(value.SubtitleFormat, "subtitle_format") || !inEnum(value.Container, "container") ||
 		!inEnum(value.AudioFormat, "audio_format") || !inEnum(value.VideoCodec, "video_codec") ||
 		!inEnum(value.Downloader, "downloader") || !inEnum(value.FolderLayout, "folder_layout") {
-		return value, fmt.Errorf("下载选项无效")
+		return fmt.Errorf("下载选项无效")
 	}
+	return nil
+}
+
+func validateMediaText(value NativeMediaOptions) error {
 	if controlChars.MatchString(value.SubtitleLanguages + value.FormatIDs + value.FormatSort + value.Sponsorblock + value.Proxy + value.FilenameTemplate + value.CustomArgs) {
-		return value, fmt.Errorf("下载文本不能包含控制字符")
+		return fmt.Errorf("下载文本不能包含控制字符")
 	}
 	if len(value.SubtitleLanguages) > 240 || !subtitleLanguagesPattern.MatchString(value.SubtitleLanguages) ||
 		len(value.FormatIDs) > 300 || !formatIDsPattern.MatchString(value.FormatIDs) ||
 		len(value.FormatSort) > 240 || !formatSortPattern.MatchString(value.FormatSort) ||
 		len(value.CookieProfile) > 32 || !cookieProfilePattern.MatchString(value.CookieProfile) {
-		return value, fmt.Errorf("下载选项无效")
+		return fmt.Errorf("下载选项无效")
 	}
 	if value.CookieProfile != "" && !value.UseCookies {
-		return value, fmt.Errorf("选择登录档案时需启用使用登录档案")
+		return fmt.Errorf("选择登录档案时需启用使用登录档案")
 	}
+	return nil
+}
+
+func validateMediaClip(value NativeMediaOptions) error {
 	if (value.ClipStart == nil) != (value.ClipEnd == nil) ||
 		(value.ClipEnd != nil && value.ClipStart != nil && *value.ClipEnd <= *value.ClipStart) ||
 		(value.ClipEnd != nil && (*value.ClipEnd < 0 || *value.ClipEnd > 86400)) ||
 		(value.ClipStart != nil && (*value.ClipStart < 0 || *value.ClipStart > 86400)) {
-		return value, fmt.Errorf("片段结束时间必须大于开始时间")
+		return fmt.Errorf("片段结束时间必须大于开始时间")
 	}
-	if value.Sponsorblock != "" {
-		for _, sponsor := range strings.Split(value.Sponsorblock, ",") {
-			if !inList(sponsor, MediaSponsors) {
-				return value, fmt.Errorf("SponsorBlock 分类无效")
-			}
-		}
-		if value.SubtitleOnly || value.SplitChapters {
-			return value, fmt.Errorf("片段移除与仅字幕或章节拆分请分别建立任务")
-		}
+	return nil
+}
+
+func validateMediaSponsor(value NativeMediaOptions) error {
+	if value.Sponsorblock == "" {
+		return nil
 	}
-	if value.Proxy != "" {
-		if err := validateProxy(value.Proxy); err != nil {
-			return value, err
+	for _, sponsor := range strings.Split(value.Sponsorblock, ",") {
+		if !inList(sponsor, MediaSponsors) {
+			return fmt.Errorf("SponsorBlock 分类无效")
 		}
 	}
+	if value.SubtitleOnly || value.SplitChapters {
+		return fmt.Errorf("片段移除与仅字幕或章节拆分请分别建立任务")
+	}
+	return nil
+}
+
+func normalizeMediaOptions(value *NativeMediaOptions) error {
 	if value.FilenameTemplate == "" || filenameForbidden.MatchString(value.FilenameTemplate) ||
 		strings.Contains(value.FilenameTemplate, "..") ||
 		!strings.HasSuffix(value.FilenameTemplate, ".%(ext)s") {
-		return value, fmt.Errorf("文件名模板须为单层文件名，以 .%%(ext)s 结尾")
+		return fmt.Errorf("文件名模板须为单层文件名，以 .%%(ext)s 结尾")
 	}
 	if value.TranslatedSubtitles {
 		value.AutoSubtitles = true
@@ -213,24 +217,56 @@ func MediaOptions(input any) (NativeMediaOptions, error) {
 	}
 	if value.SubtitleOnly {
 		if value.AudioOnly || value.EmbedSubtitles || value.ClipEnd != nil {
-			return value, fmt.Errorf("仅字幕不能同时选纯音频、嵌入或裁剪")
+			return fmt.Errorf("仅字幕不能同时选纯音频、嵌入或裁剪")
 		}
 		value.Subtitles = true
 	}
 	if value.EmbedSubtitles {
 		if value.AudioOnly || !value.Subtitles {
-			return value, fmt.Errorf("嵌入字幕需选择视频及下载字幕")
+			return fmt.Errorf("嵌入字幕需选择视频及下载字幕")
 		}
 		value.Container = "mkv"
 	}
 	if value.SplitChapters && value.ClipEnd != nil {
-		return value, fmt.Errorf("章节拆分和时间片段请分别建立任务")
+		return fmt.Errorf("章节拆分和时间片段请分别建立任务")
 	}
 	if value.CropArtwork && !value.EmbedThumbnail {
-		return value, fmt.Errorf("裁剪封面需启用嵌入封面")
+		return fmt.Errorf("裁剪封面需启用嵌入封面")
 	}
 	if value.SubtitleOnly && value.EmbedThumbnail {
-		return value, fmt.Errorf("仅字幕没有可嵌入封面的媒体，可单独下载封面")
+		return fmt.Errorf("仅字幕没有可嵌入封面的媒体，可单独下载封面")
+	}
+	return nil
+}
+
+func MediaOptions(input any) (NativeMediaOptions, error) {
+	raw, err := json.Marshal(input)
+	if err != nil {
+		return NativeMediaOptions{}, fmt.Errorf("下载选项无效")
+	}
+	value := defaultOptions()
+	if err := json.Unmarshal(raw, &value); err != nil {
+		return NativeMediaOptions{}, fmt.Errorf("下载选项无效")
+	}
+	if err := validateMediaEnums(value); err != nil {
+		return value, err
+	}
+	if err := validateMediaText(value); err != nil {
+		return value, err
+	}
+	if err := validateMediaClip(value); err != nil {
+		return value, err
+	}
+	if err := validateMediaSponsor(value); err != nil {
+		return value, err
+	}
+	if value.Proxy != "" {
+		if err := validateProxy(value.Proxy); err != nil {
+			return value, err
+		}
+	}
+	if err := normalizeMediaOptions(&value); err != nil {
+		return value, err
 	}
 	if _, err := MediaTuning(value.CustomArgs); err != nil {
 		return value, err

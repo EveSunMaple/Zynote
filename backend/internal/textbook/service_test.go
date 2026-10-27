@@ -47,7 +47,7 @@ func TestPrioritizedHighlights(t *testing.T) {
 	}
 }
 
-func TestServiceFlow(t *testing.T) {
+func TestServiceFlow(t *testing.T) { // NOSONAR: end-to-end test intentionally exercises one workflow; extracting helpers would obscure the scenario.
 	root := t.TempDir()
 	path := filepath.Join(root, "book.pdf")
 	if err := os.WriteFile(path, []byte("original-pdf"), 0o644); err != nil {

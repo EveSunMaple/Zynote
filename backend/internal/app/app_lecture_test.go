@@ -40,7 +40,7 @@ func writeLectureFixture(t *testing.T, libraryRoot string) (transcriptPath, pptP
 	return transcriptPath, pptPath
 }
 
-func TestP3eLectureChain(t *testing.T) {
+func TestP3eLectureChain(t *testing.T) { // NOSONAR: end-to-end test intentionally exercises one workflow; extracting helpers would obscure the scenario.
 	dataRoot := t.TempDir()
 	libraryRoot := t.TempDir()
 	resourcesRoot := t.TempDir()

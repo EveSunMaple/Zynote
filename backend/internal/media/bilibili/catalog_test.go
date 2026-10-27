@@ -73,7 +73,7 @@ func playerFixture() any {
 	}}
 }
 
-func TestCatalogSingle(t *testing.T) {
+func TestCatalogSingle(t *testing.T) { // NOSONAR: end-to-end test intentionally exercises one workflow; extracting helpers would obscure the scenario.
 	server := catalogServer(t, viewFixture(), playurlFixture(), playerFixture())
 	defer server.Close()
 	resources := testResources(t, server.URL, markerCrypt)

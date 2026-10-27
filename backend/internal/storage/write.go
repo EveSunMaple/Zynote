@@ -281,15 +281,7 @@ func (w *WriteDB) CreateSession(courseID, title, lectureID string) (map[string]a
 	return session, nil
 }
 
-func createSessionTx(tx *sql.Tx, courseID, title, lectureID string) (map[string]any, error) {
-	course, err := queryOneTx(tx, "SELECT * FROM courses WHERE id=?", courseID)
-	if err != nil {
-		return nil, err
-	}
-	if course == nil {
-		return nil, contract.NewError(contract.CodeNotFound, "课程不存在")
-	}
-	var lecture map[string]any
+func sessionLecture(tx *sql.Tx, courseID, lectureID string) (map[string]any, error) {
 	if lectureID != "" {
 		value, err := queryOneTx(tx, "SELECT * FROM lectures WHERE id=?", lectureID)
 		if err != nil {
@@ -301,18 +293,29 @@ func createSessionTx(tx *sql.Tx, courseID, title, lectureID string) (map[string]
 		if toStringValue(value["course_id"]) != courseID {
 			return nil, contract.InputInvalid(msgLectureNotInCourse)
 		}
-		lecture = value
-	} else {
-		value, err := queryOneTx(tx, "SELECT * FROM lectures WHERE course_id=? ORDER BY created_at,id LIMIT 1", courseID)
-		if err != nil {
-			return nil, err
-		}
-		if value != nil {
-			if toStringValue(value["course_id"]) != courseID {
-				return nil, contract.InputInvalid(msgLectureNotInCourse)
-			}
-			lecture = value
-		}
+		return value, nil
+	}
+	value, err := queryOneTx(tx, "SELECT * FROM lectures WHERE course_id=? ORDER BY created_at,id LIMIT 1", courseID)
+	if err != nil {
+		return nil, err
+	}
+	if value != nil && toStringValue(value["course_id"]) != courseID {
+		return nil, contract.InputInvalid(msgLectureNotInCourse)
+	}
+	return value, nil
+}
+
+func createSessionTx(tx *sql.Tx, courseID, title, lectureID string) (map[string]any, error) {
+	course, err := queryOneTx(tx, "SELECT * FROM courses WHERE id=?", courseID)
+	if err != nil {
+		return nil, err
+	}
+	if course == nil {
+		return nil, contract.NewError(contract.CodeNotFound, "课程不存在")
+	}
+	lecture, err := sessionLecture(tx, courseID, lectureID)
+	if err != nil {
+		return nil, err
 	}
 	base := strings.TrimSpace(title)
 	if base == "" && lecture != nil {

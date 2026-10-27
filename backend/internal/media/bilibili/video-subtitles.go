@@ -194,35 +194,28 @@ type subtitleCue struct {
 	Content string  `json:"content"`
 }
 
-func FetchVideoSubtitles(ctx context.Context, client *http.Client, value string) (FetchedSubtitle, error) {
-	normalized, err := VideoURL(value)
-	if err != nil {
-		return FetchedSubtitle{}, err
-	}
-	pages, err := fetchPageList(ctx, client, normalized)
-	if err != nil {
-		return FetchedSubtitle{}, err
-	}
-	parsed, _ := url.Parse(normalized)
+func selectSubtitlePage(parsed *url.URL, pages []pageRow) (*pageRow, int, error) {
 	pageNumber := 1
 	if raw := parsed.Query().Get("p"); raw != "" {
 		pageNumber, _ = strconv.Atoi(raw)
 	}
-	var selected *pageRow
 	for index := range pages {
 		if pages[index].Page == pageNumber {
-			selected = &pages[index]
-			break
+			if pages[index].CID <= 0 {
+				break
+			}
+			return &pages[index], pageNumber, nil
 		}
 	}
-	if selected == nil || selected.CID <= 0 {
-		return FetchedSubtitle{}, contract.InputInvalid("所选分集不存在")
-	}
+	return nil, pageNumber, contract.InputInvalid("所选分集不存在")
+}
+
+func fetchSubtitleTracks(ctx context.Context, client *http.Client, parsed *url.URL, selected *pageRow) ([]subtitleTrack, error) {
 	key, id, _ := videoIDOf(parsed)
 	query := url.Values{key: []string{id}, "cid": []string{strconv.FormatInt(selected.CID, 10)}}
 	body, err := biliGet(ctx, client, biliAPIBase()+"/x/player/v2?"+query.Encode())
 	if err != nil {
-		return FetchedSubtitle{}, err
+		return nil, err
 	}
 	var detail struct {
 		Code int `json:"code"`
@@ -233,11 +226,11 @@ func FetchVideoSubtitles(ctx context.Context, client *http.Client, value string)
 		} `json:"data"`
 	}
 	if json.Unmarshal(body, &detail) != nil || detail.Code != 0 {
-		return FetchedSubtitle{}, contract.Unavailable("无法读取此分集的字幕目录")
+		return nil, contract.Unavailable("无法读取此分集的字幕目录")
 	}
 	tracks := detail.Data.Subtitle.Subtitles
 	if len(tracks) == 0 {
-		return FetchedSubtitle{}, contract.InputInvalid("此分集没有站内字幕；可下载视频后在课程字幕功能中转写")
+		return nil, contract.InputInvalid("此分集没有站内字幕；可下载视频后在课程字幕功能中转写")
 	}
 	sort.SliceStable(tracks, func(left, right int) bool {
 		leftCN := subtitleCN.MatchString(tracks[left].Lan)
@@ -249,14 +242,102 @@ func FetchVideoSubtitles(ctx context.Context, client *http.Client, value string)
 		rightAuto := subtitleAds.MatchString(tracks[right].Lan) || tracks[right].AIType != 0
 		return !leftAuto && rightAuto
 	})
+	return tracks, nil
+}
+
+func validSubtitleCue(cue subtitleCue) bool {
+	content := strings.TrimSpace(controlChars.ReplaceAllString(cue.Content, " "))
+	return cue.From >= 0 && cue.To > cue.From && content != "" && len([]rune(content)) <= 2000 &&
+		!math.IsNaN(cue.From) && !math.IsNaN(cue.To) && !math.IsInf(cue.From, 0) && !math.IsInf(cue.To, 0)
+}
+
+func normalizedSubtitleCues(body []subtitleCue) ([]subtitleCue, error) {
+	cues := make([]subtitleCue, 0, len(body))
+	for _, cue := range body {
+		content := strings.TrimSpace(controlChars.ReplaceAllString(cue.Content, " "))
+		if !validSubtitleCue(cue) {
+			return nil, contract.Unavailable("字幕时间或文字异常")
+		}
+		cues = append(cues, subtitleCue{From: cue.From, To: cue.To, Content: content})
+	}
+	sort.SliceStable(cues, func(left, right int) bool { return cues[left].From < cues[right].From })
+	return cues, nil
+}
+
+func subtitleCueSegments(cues []subtitleCue) []documents.Segment {
+	segments := []documents.Segment{}
+	for index, cue := range cues {
+		end := cue.To
+		if index+1 < len(cues) && cues[index+1].From < end {
+			end = cues[index+1].From
+		}
+		start := int64(cue.From*1000 + 0.5)
+		stop := int64(end*1000 + 0.5)
+		if stop > start {
+			segments = append(segments, documents.Segment{Start: start, End: stop, Text: cue.Content})
+		}
+	}
+	return segments
+}
+
+func readSubtitleTrack(ctx context.Context, client *http.Client, track subtitleTrack, duration float64) ([]documents.Segment, string, error) {
+	address, err := trustedSubtitleAddress(track.SubtitleURL)
+	if err != nil {
+		return nil, "", err
+	}
+	raw, err := biliGet(ctx, client, address)
+	if err != nil {
+		return nil, "", err
+	}
+	var payload struct {
+		Body []subtitleCue `json:"body"`
+	}
+	if json.Unmarshal(raw, &payload) != nil || len(payload.Body) == 0 || len(payload.Body) > 20000 {
+		return nil, "", contract.Unavailable(errSubtitleContentInvalid)
+	}
+	cues, err := normalizedSubtitleCues(payload.Body)
+	if err != nil {
+		return nil, "", err
+	}
+	if duration > 0 && cues[len(cues)-1].To > duration*1.25+30 {
+		return nil, "", contract.Unavailable("字幕时间超出视频，可能属于其他视频")
+	}
+	segments := subtitleCueSegments(cues)
+	if len(segments) == 0 {
+		return nil, "", contract.Unavailable(errSubtitleContentInvalid)
+	}
+	srt := learning.ToSrt(segments)
+	if _, err := documents.ParseSrt(srt); err != nil {
+		return nil, "", contract.Unavailable(errSubtitleContentInvalid)
+	}
+	warning := ""
+	if subtitleAds.MatchString(track.Lan) || track.AIType != 0 {
+		warning = "自动字幕可能有错，请核对后再作为课堂原文使用。"
+	}
+	return segments, warning, nil
+}
+
+func FetchVideoSubtitles(ctx context.Context, client *http.Client, value string) (FetchedSubtitle, error) {
+	normalized, err := VideoURL(value)
+	if err != nil {
+		return FetchedSubtitle{}, err
+	}
+	pages, err := fetchPageList(ctx, client, normalized)
+	if err != nil {
+		return FetchedSubtitle{}, err
+	}
+	parsed, _ := url.Parse(normalized)
+	selected, pageNumber, err := selectSubtitlePage(parsed, pages)
+	if err != nil {
+		return FetchedSubtitle{}, err
+	}
+	tracks, err := fetchSubtitleTracks(ctx, client, parsed, selected)
+	if err != nil {
+		return FetchedSubtitle{}, err
+	}
 	var lastErr error
 	for _, track := range tracks {
-		address, err := trustedSubtitleAddress(track.SubtitleURL)
-		if err != nil {
-			lastErr = err
-			continue
-		}
-		raw, err := biliGet(ctx, client, address)
+		segments, warning, err := readSubtitleTrack(ctx, client, track, selected.Duration)
 		if err != nil {
 			if ctx.Err() != nil {
 				return FetchedSubtitle{}, ctx.Err()
@@ -264,64 +345,13 @@ func FetchVideoSubtitles(ctx context.Context, client *http.Client, value string)
 			lastErr = err
 			continue
 		}
-		var payload struct {
-			Body []subtitleCue `json:"body"`
-		}
-		if json.Unmarshal(raw, &payload) != nil || len(payload.Body) == 0 || len(payload.Body) > 20000 {
-			lastErr = contract.Unavailable(errSubtitleContentInvalid)
-			continue
-		}
-		cues := make([]subtitleCue, 0, len(payload.Body))
-		for _, cue := range payload.Body {
-			content := strings.TrimSpace(controlChars.ReplaceAllString(cue.Content, " "))
-			if cue.From < 0 || cue.To <= cue.From || content == "" || len([]rune(content)) > 2000 ||
-				math.IsNaN(cue.From) || math.IsNaN(cue.To) || math.IsInf(cue.From, 0) || math.IsInf(cue.To, 0) {
-				lastErr = contract.Unavailable("字幕时间或文字异常")
-				cues = nil
-				break
-			}
-			cues = append(cues, subtitleCue{From: cue.From, To: cue.To, Content: content})
-		}
-		if cues == nil {
-			continue
-		}
-		sort.SliceStable(cues, func(left, right int) bool { return cues[left].From < cues[right].From })
-		if selected.Duration > 0 && cues[len(cues)-1].To > selected.Duration*1.25+30 {
-			lastErr = contract.Unavailable("字幕时间超出视频，可能属于其他视频")
-			continue
-		}
-		segments := []documents.Segment{}
-		for index, cue := range cues {
-			end := cue.To
-			if index+1 < len(cues) && cues[index+1].From < end {
-				end = cues[index+1].From
-			}
-			start := int64(cue.From*1000 + 0.5)
-			stop := int64(end*1000 + 0.5)
-			if stop > start {
-				segments = append(segments, documents.Segment{Start: start, End: stop, Text: cue.Content})
-			}
-		}
-		if len(segments) == 0 {
-			lastErr = contract.Unavailable(errSubtitleContentInvalid)
-			continue
-		}
-		srt := learning.ToSrt(segments)
-		if _, err := documents.ParseSrt(srt); err != nil {
-			lastErr = contract.Unavailable(errSubtitleContentInvalid)
-			continue
-		}
-		warning := ""
-		if subtitleAds.MatchString(track.Lan) || track.AIType != 0 {
-			warning = "自动字幕可能有错，请核对后再作为课堂原文使用。"
-		}
 		source := track.LanDoc
 		if source == "" {
 			source = track.Lan
 		}
 		return FetchedSubtitle{
 			Title: selected.Part, Page: pageNumber, Source: source, Warning: warning,
-			SRT: srt, Count: len(segments),
+			SRT: learning.ToSrt(segments), Count: len(segments),
 		}, nil
 	}
 	if lastErr != nil {

@@ -103,7 +103,16 @@ func validateTransferDirectory(directory string) error {
 	return nil
 }
 
-func TransferMedia(input TransferInput) (*TransferResult, error) {
+type transferSetup struct {
+	directory   string
+	path        string
+	journal     string
+	lock        string
+	limit       int64
+	writeBuffer int64
+}
+
+func prepareTransfer(input TransferInput) (*transferSetup, error) {
 	if !transferKeyPattern.MatchString(input.Key) || input.Identity == "" || len(input.Identity) > 500 {
 		return nil, fmt.Errorf("下载分段标识无效")
 	}
@@ -136,43 +145,55 @@ func TransferMedia(input TransferInput) (*TransferResult, error) {
 	if limit == 0 {
 		limit = 50 * 1024 * 1024 * 1024
 	}
-	lockFile, err := os.OpenFile(lock, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o644)
+	return &transferSetup{directory: directory, path: path, journal: journal, lock: lock, limit: limit, writeBuffer: writeBuffer}, nil
+}
+
+func acquireTransferLock(lock, identity string) (func(), error) {
+	file, err := os.OpenFile(lock, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o644)
 	if err != nil {
 		return nil, fmt.Errorf("下载分段锁被占用")
 	}
-	defer os.Remove(lock)
-	if _, err := lockFile.Write([]byte(fmt.Sprintf(`{"version":1,"pid":%d,"identity":%q}`, os.Getpid(), input.Identity))); err != nil {
-		lockFile.Close()
+	if _, err := file.Write([]byte(fmt.Sprintf(`{"version":1,"pid":%d,"identity":%q}`, os.Getpid(), identity))); err != nil {
+		file.Close()
 		return nil, fmt.Errorf("下载分段锁写入失败")
 	}
-	if err := lockFile.Sync(); err != nil {
-		lockFile.Close()
+	if err := file.Sync(); err != nil {
+		file.Close()
 		return nil, fmt.Errorf("下载分段锁写入失败")
 	}
-	if err := lockFile.Close(); err != nil {
+	if err := file.Close(); err != nil {
 		return nil, fmt.Errorf("下载分段锁写入失败")
 	}
+	return func() { _ = os.Remove(lock) }, nil
+}
 
+func loadTransferResume(path, journal, identity string, limit int64, input TransferInput) (int64, *int64, string, error) {
 	size := int64(0)
 	total := (*int64)(nil)
 	etag := ""
-	if journalRaw, err := os.ReadFile(journal); err == nil {
-		var saved checkpointJournal
-		if json.Unmarshal(journalRaw, &saved) == nil {
-			fileInfo, statErr := os.Lstat(path)
-			if saved.Identity == input.Identity && statErr == nil && fileInfo.Size() == saved.Size &&
-				saved.ETag != "" && saved.Size > 0 && saved.Size <= limit {
-				if hash, _, hashErr := hashFileStreaming(path); hashErr == nil && hash == saved.Hash {
-					size = saved.Size
-					total = saved.Total
-					etag = saved.ETag
-				}
-			}
+	journalRaw, err := os.ReadFile(journal)
+	if err != nil {
+		if input.cancelled() != nil {
+			return 0, nil, "", input.cancelled()
 		}
-	} else if input.cancelled() != nil {
-		return nil, input.cancelled()
+		return size, total, etag, nil
 	}
+	var saved checkpointJournal
+	if json.Unmarshal(journalRaw, &saved) != nil {
+		return size, total, etag, nil
+	}
+	fileInfo, statErr := os.Lstat(path)
+	if saved.Identity != identity || statErr != nil || fileInfo.Size() != saved.Size ||
+		saved.ETag == "" || saved.Size <= 0 || saved.Size > limit {
+		return size, total, etag, nil
+	}
+	if hash, _, hashErr := hashFileStreaming(path); hashErr == nil && hash == saved.Hash {
+		return saved.Size, saved.Total, saved.ETag, nil
+	}
+	return size, total, etag, nil
+}
 
+func transferHeaders(input TransferInput, size int64, etag string) map[string]string {
 	headers := map[string]string{"Accept-Encoding": "identity"}
 	for key, value := range input.Headers {
 		headers[key] = value
@@ -181,7 +202,97 @@ func TransferMedia(input TransferInput) (*TransferResult, error) {
 		headers["Range"] = "bytes=" + strconv.FormatInt(size, 10) + "-"
 		headers["If-Range"] = etag
 	}
-	response, err := input.fetcher(input.URL, headers)
+	return headers
+}
+
+func transferLength(response *http.Response) *int64 {
+	header := response.Header.Get("Content-Length")
+	if header == "" || !lengthPattern.MatchString(header) {
+		return nil
+	}
+	parsed, _ := strconv.ParseInt(header, 10, 64)
+	return &parsed
+}
+
+func applyTransferResponse(response *http.Response, size int64, total *int64, etag string, limit int64) (int64, *int64, string, error) {
+	if response.StatusCode < 200 || response.StatusCode >= 300 || response.Body == nil {
+		return 0, nil, "", fmt.Errorf("媒体下载未完成（HTTP %d）", response.StatusCode)
+	}
+	if encoding := response.Header.Get("Content-Encoding"); encoding != "" && encoding != "identity" {
+		return 0, nil, "", fmt.Errorf("媒体响应压缩方式不支持断点校验")
+	}
+	incomingTag := strongETag(response.Header.Get("ETag"))
+	length := transferLength(response)
+	if size > 0 && response.StatusCode == http.StatusPartialContent {
+		range_ := contentRangePattern.FindStringSubmatch(response.Header.Get("Content-Range"))
+		if range_ == nil {
+			return 0, nil, "", fmt.Errorf("断点响应与原分段不一致，请重新建立下载")
+		}
+		rangeStart, _ := strconv.ParseInt(range_[1], 10, 64)
+		rangeEnd, _ := strconv.ParseInt(range_[2], 10, 64)
+		rangeTotal, _ := strconv.ParseInt(range_[3], 10, 64)
+		if rangeStart != size || rangeEnd < size || rangeTotal <= rangeEnd || incomingTag != etag ||
+			(total != nil && rangeTotal != *total) ||
+			(length != nil && *length != rangeEnd-size+1) {
+			return 0, nil, "", fmt.Errorf("断点响应与原分段不一致，请重新建立下载")
+		}
+		total = &rangeTotal
+	} else if response.StatusCode == http.StatusOK {
+		size = 0
+		total = length
+		etag = incomingTag
+	} else {
+		return 0, nil, "", fmt.Errorf("下载服务未正确响应断点请求")
+	}
+	if total != nil && *total > limit {
+		return 0, nil, "", fmt.Errorf("媒体大小超过此任务上限")
+	}
+	return size, total, etag, nil
+}
+
+func writeTransferBody(input TransferInput, handle *os.File, reader io.Reader, size int64, total *int64, limit, bufferSize int64) (int64, error) {
+	buffer := make([]byte, bufferSize)
+	for {
+		if err := input.cancelled(); err != nil {
+			return size, err
+		}
+		read, readErr := reader.Read(buffer)
+		if read > 0 {
+			if size+int64(read) > limit || (total != nil && size+int64(read) > *total) {
+				return size, fmt.Errorf("媒体响应超过声明长度")
+			}
+			if _, err := handle.Write(buffer[:read]); err != nil {
+				return size, fmt.Errorf("下载写入中断")
+			}
+			size += int64(read)
+			if input.Progress != nil {
+				input.Progress(size, total)
+			}
+		}
+		if readErr == io.EOF {
+			return size, nil
+		}
+		if readErr != nil {
+			return size, readErr
+		}
+	}
+}
+
+func TransferMedia(input TransferInput) (*TransferResult, error) {
+	setup, err := prepareTransfer(input)
+	if err != nil {
+		return nil, err
+	}
+	unlock, err := acquireTransferLock(setup.lock, input.Identity)
+	if err != nil {
+		return nil, err
+	}
+	defer unlock()
+	size, total, etag, err := loadTransferResume(setup.path, setup.journal, input.Identity, setup.limit, input)
+	if err != nil {
+		return nil, err
+	}
+	response, err := input.fetcher(input.URL, transferHeaders(input, size, etag))
 	if err != nil {
 		return nil, err
 	}
@@ -192,54 +303,19 @@ func TransferMedia(input TransferInput) (*TransferResult, error) {
 		total != nil && *total == size &&
 		response.Header.Get("Content-Range") == "bytes */"+strconv.FormatInt(size, 10) &&
 		strongETag(response.Header.Get("ETag")) == etag {
-		hash, _, _ := hashFileStreaming(path)
-		return &TransferResult{Path: path, Size: size, Hash: hash, ETag: etag, Total: total}, nil
+		hash, _, _ := hashFileStreaming(setup.path)
+		return &TransferResult{Path: setup.path, Size: size, Hash: hash, ETag: etag, Total: total}, nil
 	}
-	if response.StatusCode < 200 || response.StatusCode >= 300 || response.Body == nil {
-		return nil, fmt.Errorf("媒体下载未完成（HTTP %d）", response.StatusCode)
+	size, total, etag, err = applyTransferResponse(response, size, total, etag, setup.limit)
+	if err != nil {
+		return nil, err
 	}
-	if encoding := response.Header.Get("Content-Encoding"); encoding != "" && encoding != "identity" {
-		return nil, fmt.Errorf("媒体响应压缩方式不支持断点校验")
-	}
-	incomingTag := strongETag(response.Header.Get("ETag"))
-	lengthHeader := response.Header.Get("Content-Length")
-	length := (*int64)(nil)
-	if lengthHeader != "" && lengthPattern.MatchString(lengthHeader) {
-		parsed, _ := strconv.ParseInt(lengthHeader, 10, 64)
-		length = &parsed
-	}
-	if size > 0 && response.StatusCode == http.StatusPartialContent {
-		range_ := contentRangePattern.FindStringSubmatch(response.Header.Get("Content-Range"))
-		if range_ == nil {
-			return nil, fmt.Errorf("断点响应与原分段不一致，请重新建立下载")
-		}
-		rangeStart, _ := strconv.ParseInt(range_[1], 10, 64)
-		rangeEnd, _ := strconv.ParseInt(range_[2], 10, 64)
-		rangeTotal, _ := strconv.ParseInt(range_[3], 10, 64)
-		if rangeStart != size || rangeEnd < size || rangeTotal <= rangeEnd || incomingTag != etag ||
-			(total != nil && rangeTotal != *total) ||
-			(length != nil && *length != rangeEnd-size+1) {
-			return nil, fmt.Errorf("断点响应与原分段不一致，请重新建立下载")
-		}
-		total = &rangeTotal
-	} else if response.StatusCode == http.StatusOK {
-		size = 0
-		total = length
-		etag = incomingTag
-	} else {
-		return nil, fmt.Errorf("下载服务未正确响应断点请求")
-	}
-	if total != nil && *total > limit {
-		return nil, fmt.Errorf("媒体大小超过此任务上限")
-	}
-
-	handle, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY, 0o644)
+	handle, err := os.OpenFile(setup.path, os.O_CREATE|os.O_WRONLY, 0o644)
 	if err != nil {
 		return nil, fmt.Errorf("下载写入失败")
 	}
-	writeOffset := size
-	if writeOffset > 0 {
-		if _, err := handle.Seek(writeOffset, io.SeekStart); err != nil {
+	if size > 0 {
+		if _, err := handle.Seek(size, io.SeekStart); err != nil {
 			handle.Close()
 			return nil, fmt.Errorf("下载写入失败")
 		}
@@ -247,45 +323,13 @@ func TransferMedia(input TransferInput) (*TransferResult, error) {
 		handle.Close()
 		return nil, fmt.Errorf("下载写入失败")
 	}
-	reader := response.Body
-	var writeErr error
-	func() {
-		buffer := make([]byte, writeBuffer)
-		for {
-			if err := input.cancelled(); err != nil {
-				writeErr = err
-				return
-			}
-			read, readErr := reader.Read(buffer)
-			if read > 0 {
-				if size+int64(read) > limit || (total != nil && size+int64(read) > *total) {
-					writeErr = fmt.Errorf("媒体响应超过声明长度")
-					return
-				}
-				if _, err := handle.Write(buffer[:read]); err != nil {
-					writeErr = fmt.Errorf("下载写入中断")
-					return
-				}
-				size += int64(read)
-				if input.Progress != nil {
-					input.Progress(size, total)
-				}
-			}
-			if readErr == io.EOF {
-				return
-			}
-			if readErr != nil {
-				writeErr = readErr
-				return
-			}
-		}
-	}()
+	size, writeErr := writeTransferBody(input, handle, response.Body, size, total, setup.limit, setup.writeBuffer)
 	if writeErr == nil && (total != nil && size != *total || size == 0) {
 		writeErr = fmt.Errorf("媒体响应不完整，恢复文件已保留")
 	}
 	if writeErr != nil {
-		if hash, fileSize, hashErr := hashFileStreaming(path); hashErr == nil && fileSize > 0 {
-			_ = saveCheckpoint(journal, checkpointJournal{Version: 1, Identity: input.Identity, Size: fileSize, Hash: hash, ETag: etag, Total: total})
+		if hash, fileSize, hashErr := hashFileStreaming(setup.path); hashErr == nil && fileSize > 0 {
+			_ = saveCheckpoint(setup.journal, checkpointJournal{Version: 1, Identity: input.Identity, Size: fileSize, Hash: hash, ETag: etag, Total: total})
 		}
 		handle.Close()
 		return nil, writeErr
@@ -297,14 +341,14 @@ func TransferMedia(input TransferInput) (*TransferResult, error) {
 	if err := handle.Close(); err != nil {
 		return nil, fmt.Errorf("下载写入中断")
 	}
-	hash, _, err := hashFileStreaming(path)
+	hash, _, err := hashFileStreaming(setup.path)
 	if err != nil {
 		return nil, err
 	}
-	if err := saveCheckpoint(journal, checkpointJournal{Version: 1, Identity: input.Identity, Size: size, Hash: hash, ETag: etag, Total: total}); err != nil {
+	if err := saveCheckpoint(setup.journal, checkpointJournal{Version: 1, Identity: input.Identity, Size: size, Hash: hash, ETag: etag, Total: total}); err != nil {
 		return nil, err
 	}
-	return &TransferResult{Path: path, Size: size, Hash: hash, ETag: etag, Total: total}, nil
+	return &TransferResult{Path: setup.path, Size: size, Hash: hash, ETag: etag, Total: total}, nil
 }
 
 func saveCheckpoint(journal string, value checkpointJournal) error {

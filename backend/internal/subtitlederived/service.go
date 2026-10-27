@@ -243,6 +243,119 @@ func (service *Service) current(source Source, dependencies Dependencies, ctx co
 	return text, nil
 }
 
+type derivedFile struct {
+	Path string
+	Text string
+}
+
+func (service *Service) validDerivedOutputs(item *Item) error {
+	for _, output := range item.Outputs {
+		if !inside(service.Library, output.Path) {
+			return fmt.Errorf("笔记来源或成果不在课程资料目录")
+		}
+		body, err := os.ReadFile(output.Path)
+		if err != nil || digest(string(body)) != output.Hash {
+			return fmt.Errorf("已保存笔记被修改或缺失，请核对原文件；未自动覆盖")
+		}
+	}
+	return nil
+}
+
+func (service *Service) ensurePrepared(ctx context.Context, task *Task, item *Item, dependencies Dependencies, srt string) error {
+	if item.Prepared != nil {
+		return nil
+	}
+	if dependencies.Summarize == nil {
+		return fmt.Errorf("摘要不可用")
+	}
+	markdown, points, err := dependencies.Summarize(ctx, srt, item.Mode)
+	if err != nil {
+		return err
+	}
+	item.Prepared = &Prepared{Markdown: markdown, Points: points}
+	if _, err := service.current(item.Source, dependencies, ctx); err != nil {
+		return err
+	}
+	return service.save(*task)
+}
+
+func writeDerivedFiles(files []derivedFile, created *[]string) ([]Output, error) {
+	outputs := []Output{}
+	for _, file := range files {
+		existing, err := os.ReadFile(file.Path)
+		if err == nil {
+			if string(existing) != file.Text {
+				return nil, fmt.Errorf("同名成果已有不同内容，未覆盖，请检查任务记录")
+			}
+		} else if os.IsNotExist(err) {
+			if err := os.WriteFile(file.Path, []byte(file.Text), 0o644); err != nil {
+				return nil, err
+			}
+			*created = append(*created, file.Path)
+		} else {
+			return nil, err
+		}
+		body, err := os.ReadFile(file.Path)
+		if err != nil || string(body) != file.Text {
+			return nil, fmt.Errorf("笔记保存校验失败")
+		}
+		outputs = append(outputs, Output{Path: file.Path, Hash: digest(file.Text)})
+	}
+	return outputs, nil
+}
+
+func (service *Service) processDerivedItem(ctx context.Context, task *Task, index int, dependencies Dependencies, created *[]string) error {
+	item := &task.Items[index]
+	srt, err := service.current(item.Source, dependencies, ctx)
+	if err != nil {
+		return err
+	}
+	if len(item.Outputs) > 0 {
+		if err := service.validDerivedOutputs(item); err != nil {
+			return err
+		}
+		item.Status = "已完成"
+		item.Error = ""
+		return nil
+	}
+	if err := service.ensurePrepared(ctx, task, item, dependencies, srt); err != nil {
+		return err
+	}
+	if _, err := service.current(item.Source, dependencies, ctx); err != nil {
+		return err
+	}
+	directory, err := library.CourseDirectory(service.Library, "Notes", task.CourseName)
+	if err != nil {
+		return err
+	}
+	title := []rune(library.FolderName(item.Source.Title))
+	if len(title) > 40 {
+		title = title[:40]
+	}
+	stem := string(title) + "-" + modeTitles[item.Mode] + "-" + task.ID[:8] + "-" + itoa(index+1)
+	provenance := "\n\n---\n字幕来源：" + item.Source.URL + "\n来源版本：" + item.Source.Generation +
+		"\n字幕 SHA256：" + item.Source.Hash + "\n"
+	files := []derivedFile{
+		{Path: filepath.Join(directory, stem+".md"), Text: item.Prepared.Markdown + provenance},
+		{Path: filepath.Join(directory, stem+".json"), Text: prettyJSON(item.Prepared.Points)},
+	}
+	if item.Mode == "mindmap" && dependencies.RenderSVG != nil {
+		files = append(files, derivedFile{Path: filepath.Join(directory, stem+".svg"), Text: dependencies.RenderSVG(item.Source.Title, item.Prepared.Points)})
+	}
+	outputs, err := writeDerivedFiles(files, created)
+	if err != nil {
+		return err
+	}
+	if _, err := service.current(item.Source, dependencies, ctx); err != nil {
+		return err
+	}
+	item.Outputs = outputs
+	item.Status = "已完成"
+	item.Error = ""
+	item.Prepared = nil
+	return nil
+}
+
 func (service *Service) Run(ctx context.Context, id string, dependencies Dependencies) (Task, error) {
 	task, err := service.Read(id)
 	if err != nil {
@@ -264,99 +377,7 @@ func (service *Service) Run(ctx context.Context, id string, dependencies Depende
 			))
 		}
 		created := []string{}
-		if err := func() error {
-			srt, err := service.current(item.Source, dependencies, ctx)
-			if err != nil {
-				return err
-			}
-			if len(item.Outputs) > 0 {
-				for _, output := range item.Outputs {
-					if !inside(service.Library, output.Path) {
-						return fmt.Errorf("笔记来源或成果不在课程资料目录")
-					}
-					body, err := os.ReadFile(output.Path)
-					if err != nil || digest(string(body)) != output.Hash {
-						return fmt.Errorf("已保存笔记被修改或缺失，请核对原文件；未自动覆盖")
-					}
-				}
-				item.Status = "已完成"
-				item.Error = ""
-				return nil
-			}
-			if item.Prepared == nil {
-				if dependencies.Summarize == nil {
-					return fmt.Errorf("摘要不可用")
-				}
-				markdown, points, err := dependencies.Summarize(ctx, srt, item.Mode)
-				if err != nil {
-					return err
-				}
-				item.Prepared = &Prepared{Markdown: markdown, Points: points}
-				if _, err := service.current(item.Source, dependencies, ctx); err != nil {
-					return err
-				}
-				if err := service.save(task); err != nil {
-					return err
-				}
-			}
-			if _, err := service.current(item.Source, dependencies, ctx); err != nil {
-				return err
-			}
-			directory, err := library.CourseDirectory(service.Library, "Notes", task.CourseName)
-			if err != nil {
-				return err
-			}
-			title := []rune(library.FolderName(item.Source.Title))
-			if len(title) > 40 {
-				title = title[:40]
-			}
-			stem := string(title) + "-" + modeTitles[item.Mode] + "-" + task.ID[:8] + "-" + itoa(index+1)
-			provenance := "\n\n---\n字幕来源：" + item.Source.URL + "\n来源版本：" + item.Source.Generation +
-				"\n字幕 SHA256：" + item.Source.Hash + "\n"
-			files := []struct {
-				Path string
-				Text string
-			}{
-				{filepath.Join(directory, stem+".md"), item.Prepared.Markdown + provenance},
-				{filepath.Join(directory, stem+".json"), prettyJSON(item.Prepared.Points)},
-			}
-			if item.Mode == "mindmap" && dependencies.RenderSVG != nil {
-				files = append(files, struct {
-					Path string
-					Text string
-				}{filepath.Join(directory, stem+".svg"), dependencies.RenderSVG(item.Source.Title, item.Prepared.Points)})
-			}
-			for _, file := range files {
-				existing, err := os.ReadFile(file.Path)
-				if err == nil {
-					if string(existing) != file.Text {
-						return fmt.Errorf("同名成果已有不同内容，未覆盖，请检查任务记录")
-					}
-				} else if os.IsNotExist(err) {
-					if err := os.WriteFile(file.Path, []byte(file.Text), 0o644); err != nil {
-						return err
-					}
-					created = append(created, file.Path)
-				} else {
-					return err
-				}
-				body, err := os.ReadFile(file.Path)
-				if err != nil || string(body) != file.Text {
-					return fmt.Errorf("笔记保存校验失败")
-				}
-			}
-			if _, err := service.current(item.Source, dependencies, ctx); err != nil {
-				return err
-			}
-			item.Outputs = make([]Output, 0, len(files))
-			for _, file := range files {
-				item.Outputs = append(item.Outputs, Output{Path: file.Path, Hash: digest(file.Text)})
-			}
-			item.Status = "已完成"
-			item.Error = ""
-			item.Prepared = nil
-			return nil
-		}(); err != nil {
+		if err := service.processDerivedItem(ctx, &task, index, dependencies, &created); err != nil {
 			for _, path := range created {
 				_ = os.Remove(path)
 			}

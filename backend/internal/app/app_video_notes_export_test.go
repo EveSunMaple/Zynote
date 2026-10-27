@@ -8,7 +8,7 @@ import (
 	"testing"
 )
 
-func TestVideoNotesExport(t *testing.T) {
+func TestVideoNotesExport(t *testing.T) { // NOSONAR: end-to-end test intentionally exercises one workflow; extracting helpers would obscure the scenario.
 	dataRoot := t.TempDir()
 	libraryRoot, err := filepath.EvalSymlinks(t.TempDir())
 	if err != nil {

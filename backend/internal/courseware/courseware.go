@@ -208,40 +208,45 @@ func ParseCacheWithIdentity(value string, current *SourceIdentity) ParsedCache {
 	return cache
 }
 
+func splitLongParagraph(value string, size int) []string {
+	parts := []string{}
+	for index := 0; index < len(value); index += size {
+		end := index + size
+		if end > len(value) {
+			end = len(value)
+		}
+		parts = append(parts, value[index:end])
+	}
+	return parts
+}
+
 func Chunks(text string, size int) []string {
 	if size == 0 {
 		size = 14000
 	}
-	paragraphs := splitParagraphs(text)
 	result := []string{}
 	current := ""
-	for _, para := range paragraphs {
-		if len(current)+len(para) > size && current != "" {
+	flush := func() {
+		if current != "" {
 			result = append(result, current)
 			current = ""
 		}
-		if len(para) > size {
-			if current != "" {
-				result = append(result, current)
-				current = ""
-			}
-			for index := 0; index < len(para); index += size {
-				end := index + size
-				if end > len(para) {
-					end = len(para)
-				}
-				result = append(result, para[index:end])
-			}
-		} else {
-			if current != "" {
-				current += "\n\n"
-			}
-			current += para
+	}
+	for _, para := range splitParagraphs(text) {
+		if len(current)+len(para) > size && current != "" {
+			flush()
 		}
+		if len(para) > size {
+			flush()
+			result = append(result, splitLongParagraph(para, size)...)
+			continue
+		}
+		if current != "" {
+			current += "\n\n"
+		}
+		current += para
 	}
-	if current != "" {
-		result = append(result, current)
-	}
+	flush()
 	return result
 }
 

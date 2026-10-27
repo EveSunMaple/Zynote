@@ -175,6 +175,54 @@ func VerifyPDF(data []byte, pages int) error {
 	return nil
 }
 
+func selectFrameChoices(frames []storedFrame, choices []Choice, directory string) ([]Choice, map[int]string, error) {
+	if len(choices) != len(frames) {
+		return nil, nil, requestError("页面选择不完整")
+	}
+	seen := map[int]bool{}
+	frameFiles := map[int]string{}
+	for _, frame := range frames {
+		frameFiles[frame.Page] = filepath.Join(directory, frame.File)
+	}
+	selected := []Choice{}
+	for _, choice := range choices {
+		if seen[choice.Page] || frameFiles[choice.Page] == "" || !validCrop(choice.Crop) {
+			return nil, nil, requestError("页面选择不完整")
+		}
+		seen[choice.Page] = true
+		if choice.Keep {
+			selected = append(selected, choice)
+		}
+	}
+	sort.Slice(selected, func(left, right int) bool { return selected[left].Page < selected[right].Page })
+	return selected, frameFiles, nil
+}
+
+func renderSelectedImages(ctx context.Context, selected []Choice, frameFiles map[int]string) ([]Picture, error) {
+	images := make([]Picture, 0, len(selected))
+	for _, choice := range selected {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
+		image, err := CropPicture(frameFiles[choice.Page], choice.Crop)
+		if err != nil {
+			return nil, err
+		}
+		images = append(images, image)
+	}
+	return images, nil
+}
+
+func exportSourceName(task CreatedTask) string {
+	rawSource, _ := os.ReadFile(filepath.Join(task.Dir, "source.json"))
+	var source Source
+	_ = json.Unmarshal(rawSource, &source)
+	if source.Name != "" {
+		return source.Name
+	}
+	return task.Name
+}
+
 func (processor Processor) Export(
 	ctx context.Context,
 	task CreatedTask,
@@ -185,35 +233,13 @@ func (processor Processor) Export(
 	if err != nil || !loaded {
 		return ExportResult{}, nil, requestError("请先提取并检查课件")
 	}
-	if len(choices) != len(frames) {
-		return ExportResult{}, nil, requestError("页面选择不完整")
+	selected, frameFiles, err := selectFrameChoices(frames, choices, task.Dir)
+	if err != nil {
+		return ExportResult{}, nil, err
 	}
-	seen := map[int]bool{}
-	frameFiles := map[int]string{}
-	for _, frame := range frames {
-		frameFiles[frame.Page] = filepath.Join(task.Dir, frame.File)
-	}
-	selected := []Choice{}
-	for _, choice := range choices {
-		if seen[choice.Page] || frameFiles[choice.Page] == "" || !validCrop(choice.Crop) {
-			return ExportResult{}, nil, requestError("页面选择不完整")
-		}
-		seen[choice.Page] = true
-		if choice.Keep {
-			selected = append(selected, choice)
-		}
-	}
-	sort.Slice(selected, func(left, right int) bool { return selected[left].Page < selected[right].Page })
-	images := make([]Picture, 0, len(selected))
-	for _, choice := range selected {
-		if err := ctx.Err(); err != nil {
-			return ExportResult{}, nil, err
-		}
-		image, err := CropPicture(frameFiles[choice.Page], choice.Crop)
-		if err != nil {
-			return ExportResult{}, nil, err
-		}
-		images = append(images, image)
+	images, err := renderSelectedImages(ctx, selected, frameFiles)
+	if err != nil {
+		return ExportResult{}, nil, err
 	}
 	data, err := BuildPDF(ctx, images)
 	if err != nil {
@@ -228,18 +254,7 @@ func (processor Processor) Export(
 	if err := os.MkdirAll(outputDirectory, 0o755); err != nil {
 		return ExportResult{}, nil, requestError("导出目录不可用")
 	}
-	sourceName := ""
-	for _, frame := range frames {
-		_ = frame
-	}
-	rawSource, _ := os.ReadFile(filepath.Join(task.Dir, "source.json"))
-	var source Source
-	_ = json.Unmarshal(rawSource, &source)
-	sourceName = source.Name
-	if sourceName == "" {
-		sourceName = task.Name
-	}
-	name := sourceName
+	name := exportSourceName(task)
 	for _, extension := range []string{".mp4", ".mkv", ".mov", ".webm", ".avi"} {
 		if len(name) > len(extension) && equalFoldSuffix(name, extension) {
 			name = name[:len(name)-len(extension)]

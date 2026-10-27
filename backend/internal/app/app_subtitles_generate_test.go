@@ -267,7 +267,7 @@ func TestSubtitlesGenerateText(t *testing.T) {
 	}
 }
 
-func TestSubtitlesGenerateVisionAndResume(t *testing.T) {
+func TestSubtitlesGenerateVisionAndResume(t *testing.T) { // NOSONAR: end-to-end test intentionally exercises one workflow; extracting helpers would obscure the scenario.
 	fake := &correctionServer{failText: "第二句话"}
 	server := httptest.NewServer(fake.handler(t))
 	defer server.Close()

@@ -185,44 +185,39 @@ func ParseDiscussionChanges(input json.RawMessage) ([]DiscussionChange, error) {
 	return changes, nil
 }
 
-func (store *DiscussionStore) Select(ref string, changes []DiscussionChange) (DiscussionPack, string, error) {
-	if !discussionRefPattern.MatchString(ref) {
-		return DiscussionPack{}, "", fmt.Errorf("讨论记录编号无效")
-	}
-	db, err := store.connection()
-	if err != nil {
-		return DiscussionPack{}, "", err
-	}
-	defer db.Close()
-	tx, err := db.Begin()
-	if err != nil {
-		return DiscussionPack{}, "", err
-	}
-	defer func() { _ = tx.Rollback() }()
+func (store *DiscussionStore) loadDiscussionPack(tx *sql.Tx, ref string) (DiscussionPack, error) {
 	var payload string
 	if err := tx.QueryRow("SELECT payload FROM snapshots WHERE ref=? AND root=?", ref, store.rootID).Scan(&payload); err != nil {
 		if err == sql.ErrNoRows {
-			return DiscussionPack{}, "", fmt.Errorf("讨论来源记录不存在或已改变")
+			return DiscussionPack{}, fmt.Errorf("讨论来源记录不存在或已改变")
 		}
-		return DiscussionPack{}, "", err
+		return DiscussionPack{}, err
 	}
 	if discussionPackRef(store.rootID, payload) != ref {
-		return DiscussionPack{}, "", fmt.Errorf("讨论来源记录不存在或已改变")
+		return DiscussionPack{}, fmt.Errorf("讨论来源记录不存在或已改变")
 	}
 	var pack DiscussionPack
 	if err := json.Unmarshal([]byte(payload), &pack); err != nil {
-		return DiscussionPack{}, "", err
+		return DiscussionPack{}, err
 	}
+	return pack, nil
+}
+
+func (store *DiscussionStore) checkDiscussionHead(tx *sql.Tx, pack *DiscussionPack, ref string) error {
 	var current string
 	if err := tx.QueryRow(
 		"SELECT ref FROM heads WHERE root=? AND bvid=? AND cid=? AND page=?",
 		store.rootID, pack.Bvid, pack.Cid, pack.Page,
 	).Scan(&current); err != nil {
-		return DiscussionPack{}, "", err
+		return err
 	}
 	if current != ref {
-		return DiscussionPack{}, "", fmt.Errorf("讨论列表已有更新，请重新读取")
+		return fmt.Errorf("讨论列表已有更新，请重新读取")
 	}
+	return nil
+}
+
+func applyDiscussionChanges(pack *DiscussionPack, changes []DiscussionChange) (map[string]bool, error) {
 	seen := map[string]bool{}
 	for _, change := range changes {
 		found := -1
@@ -233,7 +228,7 @@ func (store *DiscussionStore) Select(ref string, changes []DiscussionChange) (Di
 			}
 		}
 		if found < 0 || seen[change.ID] {
-			return DiscussionPack{}, "", fmt.Errorf("讨论选择无效")
+			return nil, fmt.Errorf("讨论选择无效")
 		}
 		seen[change.ID] = true
 		item := &pack.Items[found]
@@ -242,13 +237,10 @@ func (store *DiscussionStore) Select(ref string, changes []DiscussionChange) (Di
 		item.Note = change.Note
 		item.Reviewed = true
 	}
-	text, err := renderDiscussion(&pack)
-	if err != nil {
-		return DiscussionPack{}, "", err
-	}
-	if text == "" {
-		return DiscussionPack{}, "", fmt.Errorf("请至少选择一条讨论证据")
-	}
+	return seen, nil
+}
+
+func (store *DiscussionStore) writeDiscussionReviews(tx *sql.Tx, pack *DiscussionPack, seen map[string]bool) error {
 	for id := range seen {
 		var item *DiscussionItem
 		for index := range pack.Items {
@@ -264,33 +256,79 @@ func (store *DiscussionStore) Select(ref string, changes []DiscussionChange) (Di
 			"selected": item.Selected, "labels": item.Labels, "note": item.Note, "reviewed": item.Reviewed,
 		})
 		if err != nil {
-			return DiscussionPack{}, "", err
+			return err
 		}
 		if _, err := tx.Exec(
 			"INSERT OR REPLACE INTO reviews VALUES(?,?,?,?,?,?,?)",
 			store.rootID, pack.Bvid, pack.Cid, pack.Page, id, item.TextSHA256, review,
 		); err != nil {
-			return DiscussionPack{}, "", err
+			return err
 		}
 	}
+	return nil
+}
+
+func (store *DiscussionStore) writeDiscussionHead(tx *sql.Tx, pack *DiscussionPack) (string, error) {
 	pack.Ref = ""
 	reviewedAt := time.Now().Unix()
 	pack.ReviewedAt = &reviewedAt
-	newPayload, err := CanonicalJSON(&pack)
+	newPayload, err := CanonicalJSON(pack)
 	if err != nil {
-		return DiscussionPack{}, "", err
+		return "", err
 	}
 	newRef := discussionPackRef(store.rootID, newPayload)
 	if _, err := tx.Exec(
 		"INSERT OR IGNORE INTO snapshots VALUES(?,?,?,?,?,?)",
 		newRef, store.rootID, pack.Bvid, pack.Cid, pack.Page, newPayload,
 	); err != nil {
-		return DiscussionPack{}, "", err
+		return "", err
 	}
 	if _, err := tx.Exec(
 		"UPDATE heads SET ref=? WHERE root=? AND bvid=? AND cid=? AND page=?",
 		newRef, store.rootID, pack.Bvid, pack.Cid, pack.Page,
 	); err != nil {
+		return "", err
+	}
+	return newRef, nil
+}
+
+func (store *DiscussionStore) Select(ref string, changes []DiscussionChange) (DiscussionPack, string, error) {
+	if !discussionRefPattern.MatchString(ref) {
+		return DiscussionPack{}, "", fmt.Errorf("讨论记录编号无效")
+	}
+	db, err := store.connection()
+	if err != nil {
+		return DiscussionPack{}, "", err
+	}
+	defer db.Close()
+	tx, err := db.Begin()
+	if err != nil {
+		return DiscussionPack{}, "", err
+	}
+	defer func() { _ = tx.Rollback() }()
+	pack, err := store.loadDiscussionPack(tx, ref)
+	if err != nil {
+		return DiscussionPack{}, "", err
+	}
+	if err := store.checkDiscussionHead(tx, &pack, ref); err != nil {
+		return DiscussionPack{}, "", err
+	}
+	seen, err := applyDiscussionChanges(&pack, changes)
+	if err != nil {
+		return DiscussionPack{}, "", err
+	}
+	text, err := renderDiscussion(&pack)
+	if err != nil {
+		return DiscussionPack{}, "", err
+	}
+	if text == "" {
+		return DiscussionPack{}, "", fmt.Errorf("请至少选择一条讨论证据")
+	}
+	if err := store.writeDiscussionReviews(tx, &pack, seen); err != nil {
+		return DiscussionPack{}, "", err
+	}
+	newRef, err := store.writeDiscussionHead(tx, &pack)
+	if err != nil {
 		return DiscussionPack{}, "", err
 	}
 	if err := tx.Commit(); err != nil {

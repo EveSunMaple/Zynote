@@ -73,43 +73,38 @@ func (pipeline Pipeline) report(message string) {
 	}
 }
 
-func (pipeline Pipeline) Transcribe(ctx context.Context, video, language string) (Result, error) {
+func validateASRInput(pipeline Pipeline, video string) (os.FileInfo, error) {
 	if pipeline.Call == nil {
-		return Result{}, fmt.Errorf("本地字幕转写不可用")
+		return nil, fmt.Errorf("本地字幕转写不可用")
 	}
 	if !filepath.IsAbs(pipeline.Resources) || !filepath.IsAbs(pipeline.DataRoot) {
-		return Result{}, fmt.Errorf("本地字幕模型或视频组件未安装，请在「运行组件」中安装同版本组件")
+		return nil, fmt.Errorf("本地字幕模型或视频组件未安装，请在「运行组件」中安装同版本组件")
 	}
 	if _, err := os.Stat(filepath.Join(pipeline.Resources, "asr", "onnx-small", "acquisition.json")); err != nil {
-		return Result{}, fmt.Errorf("本地字幕模型或视频组件未安装，请在「运行组件」中安装同版本组件")
+		return nil, fmt.Errorf("本地字幕模型或视频组件未安装，请在「运行组件」中安装同版本组件")
 	}
 	before, err := os.Stat(video)
 	if err != nil || !before.Mode().IsRegular() {
-		return Result{}, fmt.Errorf("视频文件不可读")
+		return nil, fmt.Errorf("视频文件不可读")
 	}
-	root := filepath.Join(pipeline.DataRoot, "asr-tasks")
-	directory := filepath.Join(root, ids.New())
-	pcm := filepath.Join(directory, "audio.f32")
-	recovery := filepath.Join(directory, "recovery.json")
-	if err := os.MkdirAll(directory, 0o755); err != nil {
-		return Result{}, fmt.Errorf("字幕暂存目录不可用")
+	return before, nil
+}
+
+func writeASRRecovery(path, video string, before os.FileInfo, state string, fields map[string]any) {
+	payload := map[string]any{
+		"source": video, "size": before.Size(), "modified": float64(before.ModTime().UnixNano()) / 1e6,
+		"state": state, "model": modelName,
 	}
-	writeRecovery := func(state string, fields map[string]any) {
-		payload := map[string]any{
-			"source": video, "size": before.Size(), "modified": float64(before.ModTime().UnixNano()) / 1e6,
-			"state": state, "model": modelName,
-		}
-		for key, value := range fields {
-			payload[key] = value
-		}
-		encoded, marshalErr := json.Marshal(payload)
-		if marshalErr == nil {
-			_ = os.WriteFile(recovery, encoded, 0o644)
-		}
+	for key, value := range fields {
+		payload[key] = value
 	}
-	writeRecovery("decoding", nil)
-	pipeline.report("正在读取完整视频音频")
-	_, err = media.MediaCommand(media.MediaCommandInput{
+	if encoded, err := json.Marshal(payload); err == nil {
+		_ = os.WriteFile(path, encoded, 0o644)
+	}
+}
+
+func decodeASRAudio(ctx context.Context, pipeline Pipeline, video, pcm string) error {
+	_, err := media.MediaCommand(media.MediaCommandInput{
 		Resources: pipeline.Resources,
 		Tool:      "ffmpeg",
 		Args: []string{
@@ -120,24 +115,66 @@ func (pipeline Pipeline) Transcribe(ctx context.Context, video, language string)
 		AllowSystemFallback: pipeline.AllowSystemFallback,
 		Platform:            pipeline.Platform,
 	})
+	if err == nil {
+		return nil
+	}
+	if ctx.Err() != nil || errors.Is(err, context.Canceled) {
+		return fmt.Errorf("字幕转写已取消，原视频与恢复记录保留")
+	}
+	message := err.Error()
+	switch {
+	case strings.Contains(message, "无法启动"):
+		return fmt.Errorf("视频处理组件无法启动")
+	case strings.Contains(message, "未找到媒体处理组件"), strings.Contains(message, "不可执行"), strings.Contains(message, "媒体执行"):
+		return fmt.Errorf("本地字幕模型或视频组件未安装，请在「运行组件」中安装同版本组件")
+	}
+	return fmt.Errorf("完整音频读取失败，原视频保留")
+}
+
+func parseASRReply(raw []byte) (float64, []Cue, error) {
+	var reply struct {
+		Duration float64 `json:"duration"`
+		Cues     []Cue   `json:"cues"`
+	}
+	if err := json.Unmarshal(raw, &reply); err != nil {
+		return 0, nil, fmt.Errorf("字幕结果无法读取")
+	}
+	if !isFinite(reply.Duration) || reply.Duration <= 0 || len(reply.Cues) > 100000 {
+		return 0, nil, fmt.Errorf("字幕结果无法读取")
+	}
+	cues := make([]Cue, 0, len(reply.Cues))
+	for _, cue := range reply.Cues {
+		content := strings.TrimSpace(cue.Content)
+		if content == "" || !isFinite(cue.From) || !isFinite(cue.To) ||
+			cue.From < 0 || cue.To <= cue.From || cue.To > reply.Duration+0.1 {
+			return 0, nil, fmt.Errorf("字幕结果无法读取")
+		}
+		cues = append(cues, Cue{From: cue.From, To: cue.To, Content: content})
+	}
+	return reply.Duration, cues, nil
+}
+
+func (pipeline Pipeline) Transcribe(ctx context.Context, video, language string) (Result, error) {
+	before, err := validateASRInput(pipeline, video)
 	if err != nil {
-		if ctx.Err() != nil || errors.Is(err, context.Canceled) {
-			return Result{}, fmt.Errorf("字幕转写已取消，原视频与恢复记录保留")
-		}
-		message := err.Error()
-		switch {
-		case strings.Contains(message, "无法启动"):
-			return Result{}, fmt.Errorf("视频处理组件无法启动")
-		case strings.Contains(message, "未找到媒体处理组件"), strings.Contains(message, "不可执行"), strings.Contains(message, "媒体执行"):
-			return Result{}, fmt.Errorf("本地字幕模型或视频组件未安装，请在「运行组件」中安装同版本组件")
-		default:
-			return Result{}, fmt.Errorf("完整音频读取失败，原视频保留")
-		}
+		return Result{}, err
+	}
+	root := filepath.Join(pipeline.DataRoot, "asr-tasks")
+	directory := filepath.Join(root, ids.New())
+	pcm := filepath.Join(directory, "audio.f32")
+	recovery := filepath.Join(directory, "recovery.json")
+	if err := os.MkdirAll(directory, 0o755); err != nil {
+		return Result{}, fmt.Errorf("字幕暂存目录不可用")
+	}
+	writeASRRecovery(recovery, video, before, "decoding", nil)
+	pipeline.report("正在读取完整视频音频")
+	if err := decodeASRAudio(ctx, pipeline, video, pcm); err != nil {
+		return Result{}, err
 	}
 	if info, statErr := os.Stat(pcm); statErr != nil || info.Size() == 0 || info.Size()%4 != 0 {
 		return Result{}, fmt.Errorf("完整音频读取失败，原视频保留")
 	}
-	writeRecovery("transcribing", nil)
+	writeASRRecovery(recovery, video, before, "transcribing", nil)
 	if ctx.Err() != nil {
 		return Result{}, fmt.Errorf("字幕转写已取消，原视频与恢复记录保留")
 	}
@@ -152,31 +189,14 @@ func (pipeline Pipeline) Transcribe(ctx context.Context, video, language string)
 			return Result{}, fmt.Errorf("字幕转写已取消，原视频与恢复记录保留")
 		}
 		message := cleanNativeError(err)
-		switch {
-		case strings.Contains(message, "原生助手已退出"), strings.Contains(message, "请求超时"):
+		if strings.Contains(message, "原生助手已退出") || strings.Contains(message, "请求超时") {
 			return Result{}, fmt.Errorf("转写工作进程中断，原视频与恢复记录保留")
-		default:
-			return Result{}, fmt.Errorf("%s", message)
 		}
+		return Result{}, fmt.Errorf("%s", message)
 	}
-	var reply struct {
-		Duration float64 `json:"duration"`
-		Cues     []Cue   `json:"cues"`
-	}
-	if err := json.Unmarshal(raw, &reply); err != nil {
-		return Result{}, fmt.Errorf("字幕结果无法读取")
-	}
-	if !isFinite(reply.Duration) || reply.Duration <= 0 || len(reply.Cues) > 100000 {
-		return Result{}, fmt.Errorf("字幕结果无法读取")
-	}
-	cues := make([]Cue, 0, len(reply.Cues))
-	for _, cue := range reply.Cues {
-		content := strings.TrimSpace(cue.Content)
-		if content == "" || !isFinite(cue.From) || !isFinite(cue.To) ||
-			cue.From < 0 || cue.To <= cue.From || cue.To > reply.Duration+0.1 {
-			return Result{}, fmt.Errorf("字幕结果无法读取")
-		}
-		cues = append(cues, Cue{From: cue.From, To: cue.To, Content: content})
+	_, cues, err := parseASRReply(raw)
+	if err != nil {
+		return Result{}, err
 	}
 	after, err := os.Stat(video)
 	if err != nil || before.Size() != after.Size() || !before.ModTime().Equal(after.ModTime()) {
@@ -193,7 +213,7 @@ func (pipeline Pipeline) Transcribe(ctx context.Context, video, language string)
 	if err := os.WriteFile(filepath.Join(directory, "result.srt"), []byte(srt), 0o644); err != nil {
 		return Result{}, fmt.Errorf("字幕暂存结果写入失败")
 	}
-	writeRecovery("ready-to-save", map[string]any{"count": len(segments)})
+	writeASRRecovery(recovery, video, before, "ready-to-save", map[string]any{"count": len(segments)})
 	return Result{SRT: srt, Count: len(segments), Directory: directory}, nil
 }
 

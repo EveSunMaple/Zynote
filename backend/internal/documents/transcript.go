@@ -20,53 +20,54 @@ type SplitResult struct {
 	Estimated bool      `json:"estimated"`
 }
 
-func SplitTranscript(text string) (SplitResult, error) {
+func transcriptBlocks(text string) []string {
 	blocks := []string{}
 	for _, line := range regexp.MustCompile(`\r?\n`).Split(text, -1) {
-		trimmed := strings.TrimSpace(line)
-		if trimmed != "" {
+		if trimmed := strings.TrimSpace(line); trimmed != "" {
 			blocks = append(blocks, trimmed)
 		}
 	}
 	for index, block := range blocks {
 		if voiceHeadingPattern.MatchString(block) {
-			blocks = blocks[index+1:]
-			break
+			return blocks[index+1:]
 		}
 	}
-	rows := []transcriptRow{}
-	for _, block := range blocks {
-		stamp := (*int64)(nil)
-		value := block
-		if match := blockStampPattern.FindStringSubmatch(block); match != nil {
-			raw := match[1]
-			var parsed int64
-			var err error
-			if strings.Count(raw, ":") == 1 {
-				padded := raw
-				if len(padded) < 5 {
-					padded = strings.Repeat("0", 5-len(padded)) + padded
-				}
-				parsed, err = milliseconds("00:" + padded)
-			} else {
-				padded := raw
-				if len(padded) < 8 {
-					padded = strings.Repeat("0", 8-len(padded)) + padded
-				}
-				parsed, err = milliseconds(padded)
-			}
-			if err != nil {
-				return SplitResult{}, err
-			}
-			stamp = &parsed
-			value = match[2]
+	return blocks
+}
+
+func transcriptStamp(raw string) (int64, error) {
+	if strings.Count(raw, ":") == 1 {
+		padded := raw
+		if len(padded) < 5 {
+			padded = strings.Repeat("0", 5-len(padded)) + padded
 		}
-		if value != "" {
-			rows = append(rows, transcriptRow{Text: value, Stamp: stamp})
-		} else if stamp != nil {
-			rows = append(rows, transcriptRow{Text: "", Stamp: stamp})
-		}
+		return milliseconds("00:" + padded)
 	}
+	padded := raw
+	if len(padded) < 8 {
+		padded = strings.Repeat("0", 8-len(padded)) + padded
+	}
+	return milliseconds(padded)
+}
+
+func parseTranscriptRow(block string) (transcriptRow, error) {
+	value := block
+	stamp := (*int64)(nil)
+	if match := blockStampPattern.FindStringSubmatch(block); match != nil {
+		parsed, err := transcriptStamp(match[1])
+		if err != nil {
+			return transcriptRow{}, err
+		}
+		stamp = &parsed
+		value = match[2]
+	}
+	if value == "" && stamp == nil {
+		return transcriptRow{}, nil
+	}
+	return transcriptRow{Text: value, Stamp: stamp}, nil
+}
+
+func transcriptSegments(rows []transcriptRow) ([]Segment, error) {
 	segments := []Segment{}
 	cursor := int64(0)
 	pending := (*int64)(nil)
@@ -95,13 +96,31 @@ func SplitTranscript(text string) (SplitResult, error) {
 			segments[len(segments)-1].End = start
 		}
 		if len(segments) > 0 && start <= segments[len(segments)-1].Start {
-			return SplitResult{}, fmt.Errorf("原文时间戳没有递增，请先检查原文")
+			return nil, fmt.Errorf("原文时间戳没有递增，请先检查原文")
 		}
 		segments = append(segments, Segment{Start: start, End: end, Text: row.Text})
 		cursor = end
 	}
 	if len(segments) == 0 {
-		return SplitResult{}, fmt.Errorf("语音识别原文为空")
+		return nil, fmt.Errorf("语音识别原文为空")
+	}
+	return segments, nil
+}
+
+func SplitTranscript(text string) (SplitResult, error) {
+	rows := []transcriptRow{}
+	for _, block := range transcriptBlocks(text) {
+		row, err := parseTranscriptRow(block)
+		if err != nil {
+			return SplitResult{}, err
+		}
+		if row.Text != "" || row.Stamp != nil {
+			rows = append(rows, row)
+		}
+	}
+	segments, err := transcriptSegments(rows)
+	if err != nil {
+		return SplitResult{}, err
 	}
 	return SplitResult{Text: text, Segments: segments, Estimated: true}, nil
 }

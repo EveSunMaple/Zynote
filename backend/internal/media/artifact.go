@@ -99,12 +99,70 @@ func artifactAtomic(path string, value any) error {
 	return os.Rename(path+artifactWritingSuffix, path)
 }
 
+func parseArtifactOwner(raw []byte, artifact *OwnedMediaArtifact) (*artifactReservation, error) {
+	if raw == nil {
+		return nil, nil
+	}
+	owner := &artifactReservation{}
+	if json.Unmarshal(raw, owner) != nil {
+		return nil, fmt.Errorf("已有媒体恢复记录无效，原文件保留")
+	}
+	if owner.Name != artifact.name || owner.Plan != artifact.plan {
+		return nil, fmt.Errorf("已有媒体恢复记录与本次设置不同，原文件保留")
+	}
+	for _, name := range owner.Prior {
+		stem := strings.TrimPrefix(name, artifactIncompletePrefix)
+		stem = strings.TrimSuffix(stem, "-"+artifact.name)
+		if !incompletePattern.MatchString(name) ||
+			!regexp.MustCompile(`^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$`).MatchString(stem) {
+			return nil, fmt.Errorf("已有媒体恢复记录与本次设置不同，原文件保留")
+		}
+	}
+	return owner, nil
+}
+
+func (artifact *OwnedMediaArtifact) archiveOutput(owner *artifactReservation, fileInfo os.FileInfo) error {
+	if fileInfo == nil {
+		if owner == nil {
+			return nil
+		}
+		archived := artifactIncompletePrefix + owner.Owner + "-" + artifact.name
+		if _, err := os.Lstat(filepath.Join(artifact.directory, archived)); err == nil {
+			owner.Owner = ids.New()
+			owner.Prior = append(owner.Prior, archived)
+			return artifactAtomic(artifact.reserve, owner)
+		}
+		return nil
+	}
+	if owner == nil {
+		return fmt.Errorf("媒体输出已经存在，未覆盖原文件")
+	}
+	archived := artifactIncompletePrefix + owner.Owner + "-" + artifact.name
+	if _, err := os.Lstat(filepath.Join(artifact.directory, archived)); err == nil {
+		return fmt.Errorf("媒体恢复备份已存在，保留当前文件")
+	}
+	if err := os.Rename(artifact.Path, filepath.Join(artifact.directory, archived)); err != nil {
+		return err
+	}
+	owner.Owner = ids.New()
+	owner.Prior = append(owner.Prior, archived)
+	return artifactAtomic(artifact.reserve, owner)
+}
+
+func artifactProofMatches(proof artifactReceipt, owner *artifactReservation, fileInfo os.FileInfo, artifact *OwnedMediaArtifact) bool {
+	if owner == nil || fileInfo == nil || proof.Owner != owner.Owner || proof.Plan != artifact.plan ||
+		proof.Bytes != fileInfo.Size() {
+		return false
+	}
+	fileHash, _ := MediaFileHash(artifact.Path)
+	return proof.Hash == fileHash
+}
+
 func (artifact *OwnedMediaArtifact) Prepare() (bool, error) {
-	fileRaw, fileInfo, err := artifactJSON(artifact.Path)
+	_, fileInfo, err := artifactJSON(artifact.Path)
 	if err != nil {
 		return false, err
 	}
-	_ = fileRaw
 	reservedRaw, _, err := artifactJSON(artifact.reserve)
 	if err != nil {
 		return false, err
@@ -113,67 +171,23 @@ func (artifact *OwnedMediaArtifact) Prepare() (bool, error) {
 	if err != nil {
 		return false, err
 	}
-	var owner *artifactReservation
-	if reservedRaw != nil {
-		owner = &artifactReservation{}
-		if json.Unmarshal(reservedRaw, owner) != nil {
-			return false, fmt.Errorf("已有媒体恢复记录无效，原文件保留")
-		}
-		if owner.Name != artifact.name || owner.Plan != artifact.plan {
-			return false, fmt.Errorf("已有媒体恢复记录与本次设置不同，原文件保留")
-		}
-		for _, name := range owner.Prior {
-			stem := strings.TrimPrefix(name, artifactIncompletePrefix)
-			stem = strings.TrimSuffix(stem, "-"+artifact.name)
-			if !incompletePattern.MatchString(name) ||
-				!regexp.MustCompile(`^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$`).MatchString(stem) {
-				return false, fmt.Errorf("已有媒体恢复记录与本次设置不同，原文件保留")
-			}
-		}
+	owner, err := parseArtifactOwner(reservedRaw, artifact)
+	if err != nil {
+		return false, err
 	}
 	if proofRaw != nil {
 		proof := artifactReceipt{}
 		if json.Unmarshal(proofRaw, &proof) != nil {
 			return false, fmt.Errorf("媒体核验记录无效，原文件保留")
 		}
-		fileHash := ""
-		fileSize := int64(0)
-		if fileInfo != nil {
-			fileHash, _ = MediaFileHash(artifact.Path)
-			fileSize = fileInfo.Size()
-		}
-		if owner == nil || fileInfo == nil || proof.Owner != owner.Owner || proof.Plan != artifact.plan ||
-			proof.Bytes != fileSize || proof.Hash != fileHash {
+		if !artifactProofMatches(proof, owner, fileInfo, artifact) {
 			return false, fmt.Errorf("已有待发布成果被修改或缺失，原文件保留")
 		}
 		artifact.owner = owner
 		return true, nil
 	}
-	if fileInfo != nil {
-		if owner == nil {
-			return false, fmt.Errorf("媒体输出已经存在，未覆盖原文件")
-		}
-		archived := artifactIncompletePrefix + owner.Owner + "-" + artifact.name
-		if _, err := os.Lstat(filepath.Join(artifact.directory, archived)); err == nil {
-			return false, fmt.Errorf("媒体恢复备份已存在，保留当前文件")
-		}
-		if err := os.Rename(artifact.Path, filepath.Join(artifact.directory, archived)); err != nil {
-			return false, err
-		}
-		owner.Owner = ids.New()
-		owner.Prior = append(owner.Prior, archived)
-		if err := artifactAtomic(artifact.reserve, owner); err != nil {
-			return false, err
-		}
-	} else if owner != nil {
-		archived := artifactIncompletePrefix + owner.Owner + "-" + artifact.name
-		if _, err := os.Lstat(filepath.Join(artifact.directory, archived)); err == nil {
-			owner.Owner = ids.New()
-			owner.Prior = append(owner.Prior, archived)
-			if err := artifactAtomic(artifact.reserve, owner); err != nil {
-				return false, err
-			}
-		}
+	if err := artifact.archiveOutput(owner, fileInfo); err != nil {
+		return false, err
 	}
 	if owner == nil {
 		owner = &artifactReservation{Version: 1, Owner: ids.New(), Name: artifact.name, Plan: artifact.plan, Prior: []string{}}

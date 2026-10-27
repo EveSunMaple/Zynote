@@ -2,7 +2,6 @@ package media
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"io"
 	"os/exec"
@@ -20,6 +19,48 @@ type MediaCommandInput struct {
 	OnStarted           func(pid int)
 	AllowSystemFallback bool
 	Platform            string
+}
+
+func streamMediaOutput(stdout io.Reader, stream func([]byte)) error {
+	buffer := make([]byte, 65536)
+	for {
+		read, err := stdout.Read(buffer)
+		if read > 0 {
+			chunk := make([]byte, read)
+			copy(chunk, buffer[:read])
+			stream(chunk)
+		}
+		if err == io.EOF {
+			return nil
+		}
+		if err != nil {
+			return fmt.Errorf("媒体读取失败")
+		}
+	}
+}
+
+func readMediaOutput(stdout io.Reader, stream func([]byte)) ([]byte, error) {
+	if stream != nil {
+		return nil, streamMediaOutput(stdout, stream)
+	}
+	output, err := io.ReadAll(io.LimitReader(stdout, 2000000+1))
+	if err != nil {
+		return nil, err
+	}
+	if len(output) > 2000000 {
+		return nil, fmt.Errorf("媒体检查响应过大")
+	}
+	return output, nil
+}
+
+func mediaWaitError(ctx context.Context, waitErr error) error {
+	if ctx.Err() != nil {
+		return contract.NewError(contract.CodeCancelled, "媒体处理已取消，恢复文件保留")
+	}
+	if waitErr != nil {
+		return fmt.Errorf("媒体处理失败，未发布成果")
+	}
+	return nil
 }
 
 func MediaCommand(input MediaCommandInput) (string, error) {
@@ -56,47 +97,14 @@ func MediaCommand(input MediaCommandInput) (string, error) {
 	if input.OnStarted != nil {
 		input.OnStarted(command.Process.Pid)
 	}
-	var output []byte
-	readErr := error(nil)
-	if input.Stream != nil {
-		buffer := make([]byte, 65536)
-		for {
-			read, err := stdout.Read(buffer)
-			if read > 0 {
-				chunk := make([]byte, read)
-				copy(chunk, buffer[:read])
-				input.Stream(chunk)
-			}
-			if err == io.EOF {
-				break
-			}
-			if err != nil {
-				readErr = fmt.Errorf("媒体读取失败")
-				break
-			}
-		}
-	} else {
-		limited := io.LimitReader(stdout, 2000000+1)
-		output, readErr = io.ReadAll(limited)
-		if readErr == nil && len(output) > 2000000 {
-			readErr = fmt.Errorf("媒体检查响应过大")
-		}
-	}
+	output, readErr := readMediaOutput(stdout, input.Stream)
 	if readErr != nil {
 		_ = killMediaProcess(command)
 		_ = command.Wait()
 		return "", readErr
 	}
-	waitErr := command.Wait()
-	if ctx.Err() != nil {
-		return "", contract.NewError(contract.CodeCancelled, "媒体处理已取消，恢复文件保留")
-	}
-	if waitErr != nil {
-		var exitError *exec.ExitError
-		if errors.As(waitErr, &exitError) {
-			return "", fmt.Errorf("媒体处理失败，未发布成果")
-		}
-		return "", fmt.Errorf("媒体处理失败，未发布成果")
+	if err := mediaWaitError(ctx, command.Wait()); err != nil {
+		return "", err
 	}
 	return string(output), nil
 }

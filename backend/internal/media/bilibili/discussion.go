@@ -206,17 +206,21 @@ type DiscussionChange struct {
 	Note     string `json:"note"`
 }
 
-func renderDiscussion(pack *DiscussionPack) (string, error) {
+func discussionIndex(pack *DiscussionPack) (map[string]*DiscussionItem, map[string]bool) {
 	all := map[string]*DiscussionItem{}
+	included := map[string]bool{}
 	for index := range pack.Items {
 		all[pack.Items[index].ID] = &pack.Items[index]
 	}
-	included := map[string]bool{}
 	for _, item := range pack.Items {
 		if item.Selected {
 			included[item.ID] = true
 		}
 	}
+	return all, included
+}
+
+func includeDiscussionParents(all map[string]*DiscussionItem, included map[string]bool) {
 	for id := range included {
 		current := all[id]
 		walked := map[string]bool{}
@@ -241,6 +245,57 @@ func renderDiscussion(pack *DiscussionPack) (string, error) {
 			}
 		}
 	}
+}
+
+func discussionCoverageLine(label string, coverage map[string]any, states map[string]string) string {
+	status, _ := coverage["status"].(string)
+	state := states[status]
+	if state == "" {
+		state = "覆盖未知"
+	}
+	codes := []string{}
+	for index, item := range coverageErrors(coverage) {
+		if index >= 8 {
+			break
+		}
+		if code, ok := item["code"].(string); ok && code != "" {
+			codes = append(codes, code)
+		}
+	}
+	hint := strings.Join(codes, ",")
+	if hint == "" {
+		hint = "无"
+	}
+	return fmt.Sprintf("%s采集：%s；提示：%s", label, state, hint)
+}
+
+func discussionItemBlock(item *DiscussionItem, all map[string]*DiscussionItem, kinds map[string]string) []string {
+	heading := "上下文"
+	if item.Selected {
+		heading = "重要"
+	}
+	labels := []string{}
+	for _, label := range item.Labels {
+		labels = append(labels, discussionLabels[label])
+	}
+	line := fmt.Sprintf("\n### %s · %s · %s · 未核实\n证据 %s；父项 %s；赞 %d", heading, kinds[item.Kind], strings.Join(labels, "、"), item.ID, orDefault(pointerValue(item.ParentID), "无"), pointerInt(item.Likes))
+	if item.TimeSec != nil {
+		line += fmt.Sprintf("；视频时间 %.2fs", *item.TimeSec)
+	}
+	line += "\n来源：" + item.URL + "\n" + quoteDiscussion(item.Text)
+	lines := []string{line}
+	if item.ParentID != nil && *item.ParentID != "" && all[*item.ParentID] == nil {
+		lines = append(lines, "直接回复对象未采集；勿脱离上下文解读。")
+	}
+	if item.Note != "" {
+		lines = append(lines, "人工备注（不等于事实核验）：\n"+quoteDiscussion(item.Note))
+	}
+	return lines
+}
+
+func renderDiscussion(pack *DiscussionPack) (string, error) {
+	all, included := discussionIndex(pack)
+	includeDiscussionParents(all, included)
 	if len(included) == 0 {
 		return "", nil
 	}
@@ -255,56 +310,17 @@ func renderDiscussion(pack *DiscussionPack) (string, error) {
 		"complete": "本次范围已取齐", "partial": "部分采集", "failed": "读取失败",
 		"empty": "返回为空", "closed": "已关闭", "unknown": "覆盖未知",
 	}
-	for _, entry := range []struct{ key, label string }{{"comments", "评论"}, {"danmaku", "弹幕"}} {
-		coverage := pack.Coverage.Comments
-		if entry.key == "danmaku" {
-			coverage = pack.Coverage.Danmaku
-		}
-		status, _ := coverage["status"].(string)
-		state := states[status]
-		if state == "" {
-			state = "覆盖未知"
-		}
-		codes := []string{}
-		for index, item := range coverageErrors(coverage) {
-			if index >= 8 {
-				break
-			}
-			if code, ok := item["code"].(string); ok && code != "" {
-				codes = append(codes, code)
-			}
-		}
-		hint := strings.Join(codes, ",")
-		if hint == "" {
-			hint = "无"
-		}
-		lines = append(lines, fmt.Sprintf("%s采集：%s；提示：%s", entry.label, state, hint))
-	}
+	lines = append(lines,
+		discussionCoverageLine("评论", pack.Coverage.Comments, states),
+		discussionCoverageLine("弹幕", pack.Coverage.Danmaku, states),
+	)
 	kinds := map[string]string{"description": "作者简介", "comment": "主评论", "reply": "子评论", "danmaku": "弹幕"}
-	for _, item := range pack.Items {
+	for index := range pack.Items {
+		item := &pack.Items[index]
 		if !included[item.ID] {
 			continue
 		}
-		heading := "上下文"
-		if item.Selected {
-			heading = "重要"
-		}
-		labels := []string{}
-		for _, label := range item.Labels {
-			labels = append(labels, discussionLabels[label])
-		}
-		line := fmt.Sprintf("\n### %s · %s · %s · 未核实\n证据 %s；父项 %s；赞 %d", heading, kinds[item.Kind], strings.Join(labels, "、"), item.ID, orDefault(pointerValue(item.ParentID), "无"), pointerInt(item.Likes))
-		if item.TimeSec != nil {
-			line += fmt.Sprintf("；视频时间 %.2fs", *item.TimeSec)
-		}
-		line += "\n来源：" + item.URL + "\n" + quoteDiscussion(item.Text)
-		lines = append(lines, line)
-		if item.ParentID != nil && *item.ParentID != "" && all[*item.ParentID] == nil {
-			lines = append(lines, "直接回复对象未采集；勿脱离上下文解读。")
-		}
-		if item.Note != "" {
-			lines = append(lines, "人工备注（不等于事实核验）：\n"+quoteDiscussion(item.Note))
-		}
+		lines = append(lines, discussionItemBlock(item, all, kinds)...)
 	}
 	return strings.Join(lines, "\n"), nil
 }

@@ -112,38 +112,33 @@ func (engine *Engine) CreateWorkflow(ctx context.Context, input map[string]any) 
 	return engine.readWorkflow(text(result.(map[string]any)["id"]))
 }
 
-func (engine *Engine) ActionWorkflow(ctx context.Context, input map[string]any) (any, error) {
-	id := text(input["id"])
-	op := text(input["op"])
-	kind := text(input["kind"])
-	if !opPattern.MatchString(id) || !opPattern.MatchString(op) || (kind != "stop" && kind != "resume") {
-		return nil, fmt.Errorf("工作流参数无效")
-	}
-	if kind == "stop" {
-		result, err := engine.Store.Operation(op, input, func() (any, error) {
-			flow, err := engine.readWorkflow(id)
-			if err != nil {
-				return nil, err
-			}
-			if flow.Revision != int(number(input["revision"])) || flow.Fence != int(number(input["fence"])) {
-				return nil, fmt.Errorf("工作流版本已改变，请刷新")
-			}
-			if flow.Status != "running" {
-				return nil, fmt.Errorf("工作流未运行")
-			}
-			flow.Status = "stopped"
-			flow.Fence++
-			flow.ErrorCode = "用户停止工作流"
-			if err := engine.putWorkflow(&flow); err != nil {
-				return nil, err
-			}
-			return map[string]any{"id": flow.WorkflowID}, nil
-		})
+func (engine *Engine) stopWorkflow(input map[string]any, id, op string) (any, error) {
+	result, err := engine.Store.Operation(op, input, func() (any, error) {
+		flow, err := engine.readWorkflow(id)
 		if err != nil {
 			return nil, err
 		}
-		return engine.readWorkflow(text(result.(map[string]any)["id"]))
+		if flow.Revision != int(number(input["revision"])) || flow.Fence != int(number(input["fence"])) {
+			return nil, fmt.Errorf("工作流版本已改变，请刷新")
+		}
+		if flow.Status != "running" {
+			return nil, fmt.Errorf("工作流未运行")
+		}
+		flow.Status = "stopped"
+		flow.Fence++
+		flow.ErrorCode = "用户停止工作流"
+		if err := engine.putWorkflow(&flow); err != nil {
+			return nil, err
+		}
+		return map[string]any{"id": flow.WorkflowID}, nil
+	})
+	if err != nil {
+		return nil, err
 	}
+	return engine.readWorkflow(text(result.(map[string]any)["id"]))
+}
+
+func (engine *Engine) resumeWorkflow(ctx context.Context, input map[string]any, id string) (any, error) {
 	flow, err := engine.readWorkflow(id)
 	if err != nil {
 		return nil, err
@@ -177,6 +172,19 @@ func (engine *Engine) ActionWorkflow(ctx context.Context, input map[string]any) 
 		return nil, err
 	}
 	return engine.readWorkflow(flow.WorkflowID)
+}
+
+func (engine *Engine) ActionWorkflow(ctx context.Context, input map[string]any) (any, error) {
+	id := text(input["id"])
+	op := text(input["op"])
+	kind := text(input["kind"])
+	if !opPattern.MatchString(id) || !opPattern.MatchString(op) || (kind != "stop" && kind != "resume") {
+		return nil, fmt.Errorf("工作流参数无效")
+	}
+	if kind == "stop" {
+		return engine.stopWorkflow(input, id, op)
+	}
+	return engine.resumeWorkflow(ctx, input, id)
 }
 
 func (engine *Engine) runWorkflow(ctx context.Context, flow *Workflow) error {

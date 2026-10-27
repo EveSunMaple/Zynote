@@ -13,7 +13,7 @@ import (
 	_ "modernc.org/sqlite"
 )
 
-func TestP1Readonly(t *testing.T) {
+func TestP1Readonly(t *testing.T) { // NOSONAR: end-to-end test intentionally exercises one workflow; extracting helpers would obscure the scenario.
 	dataRoot := t.TempDir()
 	libraryRoot := t.TempDir()
 	resourcesRoot := t.TempDir()

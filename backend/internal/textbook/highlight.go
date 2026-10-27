@@ -58,6 +58,46 @@ func PrioritizedHighlights(rows []Highlight) []Highlight {
 	return prioritizedHighlights(rows)
 }
 
+func subtractHighlightRect(rect, above [4]float64) [][4]float64 {
+	x, y, width, height := rect[0], rect[1], rect[2], rect[3]
+	ax, ay, aw, ah := above[0], above[1], above[2], above[3]
+	left := math.Max(x, ax)
+	bottom := math.Max(y, ay)
+	right := math.Min(x+width, ax+aw)
+	top := math.Min(y+height, ay+ah)
+	if right <= left || top <= bottom {
+		return [][4]float64{rect}
+	}
+	pieces := [][4]float64{}
+	if bottom > y {
+		pieces = append(pieces, [4]float64{x, y, width, bottom - y})
+	}
+	if top < y+height {
+		pieces = append(pieces, [4]float64{x, top, width, y + height - top})
+	}
+	if left > x {
+		pieces = append(pieces, [4]float64{x, bottom, left - x, top - bottom})
+	}
+	if right < x+width {
+		pieces = append(pieces, [4]float64{right, bottom, x + width - right, top - bottom})
+	}
+	result := [][4]float64{}
+	for _, piece := range pieces {
+		if piece[2] > 0.2 && piece[3] > 0.2 {
+			result = append(result, piece)
+		}
+	}
+	return result
+}
+
+func subtractHighlightRects(rects [][4]float64, above [4]float64) [][4]float64 {
+	next := [][4]float64{}
+	for _, rect := range rects {
+		next = append(next, subtractHighlightRect(rect, above)...)
+	}
+	return next
+}
+
 func prioritizedHighlights(rows []Highlight) []Highlight {
 	sorted := append([]Highlight(nil), rows...)
 	sortHighlights(sorted)
@@ -68,38 +108,7 @@ func prioritizedHighlights(rows []Highlight) []Highlight {
 			if above.Page != row.Page {
 				continue
 			}
-			next := [][4]float64{}
-			for _, rect := range rects {
-				x, y, width, height := rect[0], rect[1], rect[2], rect[3]
-				ax, ay, aw, ah := above.Rect[0], above.Rect[1], above.Rect[2], above.Rect[3]
-				left := math.Max(x, ax)
-				bottom := math.Max(y, ay)
-				right := math.Min(x+width, ax+aw)
-				top := math.Min(y+height, ay+ah)
-				if right <= left || top <= bottom {
-					next = append(next, rect)
-					continue
-				}
-				pieces := [][4]float64{}
-				if bottom > y {
-					pieces = append(pieces, [4]float64{x, y, width, bottom - y})
-				}
-				if top < y+height {
-					pieces = append(pieces, [4]float64{x, top, width, y + height - top})
-				}
-				if left > x {
-					pieces = append(pieces, [4]float64{x, bottom, left - x, top - bottom})
-				}
-				if right < x+width {
-					pieces = append(pieces, [4]float64{right, bottom, x + width - right, top - bottom})
-				}
-				for _, piece := range pieces {
-					if piece[2] > 0.2 && piece[3] > 0.2 {
-						next = append(next, piece)
-					}
-				}
-			}
-			rects = next
+			rects = subtractHighlightRects(rects, above.Rect)
 		}
 		for index, rect := range rects {
 			copied := row

@@ -8,7 +8,7 @@ import (
 	"testing"
 )
 
-func TestVideoSubtitleSaveAndExport(t *testing.T) {
+func TestVideoSubtitleSaveAndExport(t *testing.T) { // NOSONAR: end-to-end test intentionally exercises one workflow; extracting helpers would obscure the scenario.
 	dataRoot := t.TempDir()
 	libraryRoot := t.TempDir()
 	resourcesRoot := t.TempDir()

@@ -128,19 +128,61 @@ func addColumnIfMissing(db *sql.DB, table, column string) error {
 
 var placeholderPattern = regexp.MustCompile(`^(会话 \d+|新对话(?: · \d+)?)$`)
 
+func preferredSessionLecture(tx *sql.Tx, courseID, lectureID string) (map[string]any, error) {
+	if lectureID == "" {
+		return nil, nil
+	}
+	lecture, err := queryOneTx(tx, "SELECT * FROM lectures WHERE id=?", lectureID)
+	if err != nil {
+		return nil, err
+	}
+	if lecture == nil {
+		return nil, nil
+	}
+	if toStringValue(lecture["course_id"]) != courseID {
+		return nil, sql.ErrNoRows
+	}
+	return lecture, nil
+}
+
+func sessionLectureRow(tx *sql.Tx, session map[string]any, courseID string, preferred map[string]any) (map[string]any, error) {
+	if preferred != nil {
+		return preferred, nil
+	}
+	row, err := queryOneTx(
+		tx,
+		"SELECT l.* FROM messages m JOIN lectures l ON l.id=m.lecture_id WHERE m.session_id=? ORDER BY m.rowid LIMIT 1",
+		toStringValue(session["id"]),
+	)
+	if err != nil || row != nil {
+		return row, err
+	}
+	return queryOneTx(tx, "SELECT * FROM lectures WHERE course_id=? ORDER BY created_at,id LIMIT 1", courseID)
+}
+
+func uniqueSessionName(base string, sessions []map[string]any, currentID string) string {
+	used := map[string]bool{}
+	for _, other := range sessions {
+		if toStringValue(other["id"]) == currentID {
+			continue
+		}
+		used[toStringValue(other["title"])] = true
+	}
+	if !used[base] {
+		return base
+	}
+	for number := 2; ; number++ {
+		candidate := base + " · " + itoa(number)
+		if !used[candidate] {
+			return candidate
+		}
+	}
+}
+
 func renamePlaceholderSessionsTx(tx *sql.Tx, courseID, lectureID string) error {
-	var preferred map[string]any
-	if lectureID != "" {
-		lecture, err := queryOneTx(tx, "SELECT * FROM lectures WHERE id=?", lectureID)
-		if err != nil {
-			return err
-		}
-		if lecture != nil {
-			if toStringValue(lecture["course_id"]) != courseID {
-				return sql.ErrNoRows
-			}
-			preferred = lecture
-		}
+	preferred, err := preferredSessionLecture(tx, courseID, lectureID)
+	if err != nil {
+		return err
 	}
 	sessions, err := queryAllTx(tx, "SELECT * FROM chat_sessions WHERE course_id=? ORDER BY rowid", courseID)
 	if err != nil {
@@ -151,28 +193,9 @@ func renamePlaceholderSessionsTx(tx *sql.Tx, courseID, lectureID string) error {
 		if !placeholderPattern.MatchString(title) {
 			continue
 		}
-		var row map[string]any
-		if preferred != nil {
-			row = preferred
-		} else {
-			row, err = queryOneTx(
-				tx,
-				"SELECT l.* FROM messages m JOIN lectures l ON l.id=m.lecture_id WHERE m.session_id=? ORDER BY m.rowid LIMIT 1",
-				toStringValue(session["id"]),
-			)
-			if err != nil {
-				return err
-			}
-			if row == nil {
-				row, err = queryOneTx(
-					tx,
-					"SELECT * FROM lectures WHERE course_id=? ORDER BY created_at,id LIMIT 1",
-					courseID,
-				)
-				if err != nil {
-					return err
-				}
-			}
+		row, err := sessionLectureRow(tx, session, courseID, preferred)
+		if err != nil {
+			return err
 		}
 		base := "新对话"
 		if row != nil {
@@ -180,23 +203,7 @@ func renamePlaceholderSessionsTx(tx *sql.Tx, courseID, lectureID string) error {
 				base = value
 			}
 		}
-		used := map[string]bool{}
-		for _, other := range sessions {
-			if toStringValue(other["id"]) == toStringValue(session["id"]) {
-				continue
-			}
-			used[toStringValue(other["title"])] = true
-		}
-		name := base
-		if used[name] {
-			for number := 2; ; number++ {
-				candidate := base + " · " + itoa(number)
-				if !used[candidate] {
-					name = candidate
-					break
-				}
-			}
-		}
+		name := uniqueSessionName(base, sessions, toStringValue(session["id"]))
 		lectureRef := ""
 		if row != nil {
 			lectureRef = toStringValue(row["id"])

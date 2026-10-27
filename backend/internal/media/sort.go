@@ -64,64 +64,66 @@ func freeStream(row NativeMediaStream) bool {
 		strings.HasPrefix(row.Codec, "vorbis")
 }
 
+func preferredCodec(value string) string {
+	switch value {
+	case "h264":
+		return "avc"
+	case "h265":
+		return "hev"
+	case "av1":
+		return "av01"
+	}
+	return value
+}
+
+func sortFieldValue(row NativeMediaStream, field MediaSortField) float64 {
+	if field.Field == "res" || field.Field == "height" {
+		return float64(row.Height)
+	}
+	if field.Field == "br" || field.Field == "tbr" {
+		return row.Bandwidth
+	}
+	preferred := preferredCodec(field.Preferred)
+	if preferred != "" {
+		if strings.HasPrefix(row.Codec, preferred) {
+			return 1
+		}
+		return 0
+	}
+	return float64(codecScore(row.Codec))
+}
+
+func mediaRowLess(a, b NativeMediaStream, fields []MediaSortField, freeFormats bool) bool {
+	for _, field := range fields {
+		av, bv := sortFieldValue(a, field), sortFieldValue(b, field)
+		if av == bv {
+			continue
+		}
+		if field.Ascending {
+			return av < bv
+		}
+		return av > bv
+	}
+	if freeFormats {
+		freeA, freeB := freeStream(a), freeStream(b)
+		if freeA != freeB {
+			return freeB
+		}
+	}
+	if b.Height != a.Height {
+		return b.Height < a.Height
+	}
+	if b.Bandwidth != a.Bandwidth {
+		return b.Bandwidth < a.Bandwidth
+	}
+	return a.ID < b.ID
+}
+
 func SortMediaStreams(rows []NativeMediaStream, input string, freeFormats bool) []NativeMediaStream {
 	fields, _ := MediaSort(input)
 	sorted := append([]NativeMediaStream{}, rows...)
-	codecStarts := func(codec, preferred string) bool {
-		if preferred == "" {
-			return false
-		}
-		return strings.HasPrefix(codec, preferred)
-	}
 	sort.SliceStable(sorted, func(i, j int) bool {
-		a, b := sorted[i], sorted[j]
-		for _, field := range fields {
-			var av, bv float64
-			if field.Field == "res" || field.Field == "height" {
-				av, bv = float64(a.Height), float64(b.Height)
-			} else if field.Field == "br" || field.Field == "tbr" {
-				av, bv = a.Bandwidth, b.Bandwidth
-			} else {
-				preferred := field.Preferred
-				if preferred == "h264" {
-					preferred = "avc"
-				} else if preferred == "h265" {
-					preferred = "hev"
-				} else if preferred == "av1" {
-					preferred = "av01"
-				}
-				if preferred != "" {
-					if codecStarts(a.Codec, preferred) {
-						av = 1
-					}
-					if codecStarts(b.Codec, preferred) {
-						bv = 1
-					}
-				} else {
-					av = float64(codecScore(a.Codec))
-					bv = float64(codecScore(b.Codec))
-				}
-			}
-			if av != bv {
-				if field.Ascending {
-					return av < bv
-				}
-				return av > bv
-			}
-		}
-		if freeFormats {
-			freeA, freeB := freeStream(a), freeStream(b)
-			if freeA != freeB {
-				return freeB
-			}
-		}
-		if b.Height != a.Height {
-			return b.Height < a.Height
-		}
-		if b.Bandwidth != a.Bandwidth {
-			return b.Bandwidth < a.Bandwidth
-		}
-		return a.ID < b.ID
+		return mediaRowLess(sorted[i], sorted[j], fields, freeFormats)
 	})
 	return sorted
 }

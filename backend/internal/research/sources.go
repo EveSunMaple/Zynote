@@ -53,14 +53,7 @@ func (sources *Sources) binding(citation map[string]any) Binding {
 	}
 }
 
-func (sources *Sources) Catalog(query string, offset int) (any, error) {
-	if len([]rune(query)) > 200 || offset < 0 || offset > 100000 {
-		return nil, fmt.Errorf("资料目录参数无效")
-	}
-	list, err := sources.knowledge.List()
-	if err != nil {
-		return nil, err
-	}
+func catalogEntries(list map[string]any, query string) []map[string]any {
 	entries, _ := list["entries"].([]any)
 	filtered := []map[string]any{}
 	lowerQuery := strings.ToLower(strings.TrimSpace(query))
@@ -74,16 +67,59 @@ func (sources *Sources) Catalog(query string, offset int) (any, error) {
 			filtered = append(filtered, entry)
 		}
 	}
-	inventory, err := sources.knowledge.Inventory()
-	if err != nil {
-		return nil, err
-	}
+	return filtered
+}
+
+func firstEvidenceBySource(inventory []knowledge.StoredChunk) map[string]string {
 	firstEvidence := map[string]string{}
 	for _, chunk := range inventory {
 		if _, exists := firstEvidence[chunk.SourceID]; !exists {
 			firstEvidence[chunk.SourceID] = chunk.EvidenceID
 		}
 	}
+	return firstEvidence
+}
+
+func (sources *Sources) catalogItems(entries []map[string]any, firstEvidence map[string]string) ([]any, int) {
+	items := []any{}
+	unavailable := 0
+	for _, entry := range entries {
+		evidenceID := firstEvidence[text(entry["bvid"])]
+		if evidenceID == "" {
+			unavailable++
+			continue
+		}
+		citation, err := sources.knowledge.Citation(evidenceID)
+		if err != nil {
+			unavailable++
+			continue
+		}
+		kind := text(entry["sourceMethod"])
+		if kind == "" {
+			kind = "知识库资料"
+		}
+		items = append(items, map[string]any{
+			"binding": sources.binding(citation), "title": entry["title"],
+			"kind": kind, "category": entry["folder"],
+		})
+	}
+	return items, unavailable
+}
+
+func (sources *Sources) Catalog(query string, offset int) (any, error) {
+	if len([]rune(query)) > 200 || offset < 0 || offset > 100000 {
+		return nil, fmt.Errorf("资料目录参数无效")
+	}
+	list, err := sources.knowledge.List()
+	if err != nil {
+		return nil, err
+	}
+	filtered := catalogEntries(list, query)
+	inventory, err := sources.knowledge.Inventory()
+	if err != nil {
+		return nil, err
+	}
+	firstEvidence := firstEvidenceBySource(inventory)
 	end := offset + 12
 	if end > len(filtered) {
 		end = len(filtered)
@@ -91,28 +127,7 @@ func (sources *Sources) Catalog(query string, offset int) (any, error) {
 	items := []any{}
 	unavailable := 0
 	if offset < len(filtered) {
-		for _, entry := range filtered[offset:end] {
-			evidenceID := firstEvidence[text(entry["bvid"])]
-			if evidenceID == "" {
-				unavailable++
-				continue
-			}
-			citation, err := sources.knowledge.Citation(evidenceID)
-			if err != nil {
-				unavailable++
-				continue
-			}
-			kind := text(entry["sourceMethod"])
-			if kind == "" {
-				kind = "知识库资料"
-			}
-			items = append(items, map[string]any{
-				"binding": sources.binding(citation), "title": entry["title"],
-				"kind": kind, "category": entry["folder"],
-			})
-		}
-	} else {
-		unavailable = 0
+		items, unavailable = sources.catalogItems(filtered[offset:end], firstEvidence)
 	}
 	var next any
 	if offset+12 < len(filtered) {
