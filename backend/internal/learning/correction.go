@@ -298,47 +298,54 @@ func whitespaceByte(value byte) bool {
 	return false
 }
 
-func slicePages(text string) []string {
-	matches := pageHeaderPattern.FindAllStringSubmatchIndex(text, -1)
-	if len(matches) == 0 {
-		pages := []string{}
-		for offset := 0; offset < len(text); {
-			chunk := sliceUTF16(text[offset:], 2000)
-			if chunk == "" {
-				break
-			}
-			pages = append(pages, chunk)
-			offset += len(chunk)
+func fallbackPages(text string) []string {
+	pages := []string{}
+	for offset := 0; offset < len(text); {
+		chunk := sliceUTF16(text[offset:], 2000)
+		if chunk == "" {
+			break
 		}
-		return pages
-	}
-	pages := make([]string, 0, len(matches))
-	for index, match := range matches {
-		start := match[0]
-		end := len(text)
-		if index+1 < len(matches) {
-			next := matches[index+1][0]
-			end = next
-			position := next
-			for position > start && whitespaceByte(text[position-1]) {
-				position--
-			}
-			for position < next && whitespaceByte(text[position]) {
-				if text[position] == '\n' {
-					end = position
-					break
-				}
-				position++
-			}
-		}
-		pages = append(pages, text[start:end])
+		pages = append(pages, chunk)
+		offset += len(chunk)
 	}
 	return pages
 }
 
-func grams(value string) map[string]bool {
-	tokens := map[string]bool{}
-	var words []string
+func pageEnd(text string, matches [][]int, index int) int {
+	start := matches[index][0]
+	if index+1 >= len(matches) {
+		return len(text)
+	}
+	next := matches[index+1][0]
+	end := next
+	position := next
+	for position > start && whitespaceByte(text[position-1]) {
+		position--
+	}
+	for position < next && whitespaceByte(text[position]) {
+		if text[position] == '\n' {
+			end = position
+			break
+		}
+		position++
+	}
+	return end
+}
+
+func slicePages(text string) []string {
+	matches := pageHeaderPattern.FindAllStringSubmatchIndex(text, -1)
+	if len(matches) == 0 {
+		return fallbackPages(text)
+	}
+	pages := make([]string, 0, len(matches))
+	for index, match := range matches {
+		pages = append(pages, text[match[0]:pageEnd(text, matches, index)])
+	}
+	return pages
+}
+
+func splitWords(value string) []string {
+	words := []string{}
 	var current strings.Builder
 	flush := func() {
 		if current.Len() > 0 {
@@ -354,24 +361,33 @@ func grams(value string) map[string]bool {
 		}
 	}
 	flush()
-	for _, word := range words {
-		runes := []rune(word)
-		han := false
-		for _, char := range runes {
-			if isHan(char) {
-				han = true
-				break
+	return words
+}
+
+func addWordGrams(tokens map[string]bool, word string) {
+	runes := []rune(word)
+	han := false
+	for _, char := range runes {
+		if isHan(char) {
+			han = true
+			break
+		}
+	}
+	if han {
+		for _, size := range []int{2, 3} {
+			for index := 0; index+size <= len(runes); index++ {
+				tokens[string(runes[index:index+size])] = true
 			}
 		}
-		if han {
-			for _, size := range []int{2, 3} {
-				for index := 0; index+size <= len(runes); index++ {
-					tokens[string(runes[index:index+size])] = true
-				}
-			}
-		} else if len(runes) > 1 {
-			tokens[word] = true
-		}
+	} else if len(runes) > 1 {
+		tokens[word] = true
+	}
+}
+
+func grams(value string) map[string]bool {
+	tokens := map[string]bool{}
+	for _, word := range splitWords(value) {
+		addWordGrams(tokens, word)
 	}
 	return tokens
 }
@@ -393,6 +409,179 @@ func uniqueStrings(values []string) []string {
 	return result
 }
 
+type scoredImage struct {
+	image CoursewareImage
+	index int
+	score int
+}
+
+func correctionLimits(mode CorrectionMode) (int, int, int) {
+	if mode == CorrectionQuality {
+		return 8000, 1200, 6
+	}
+	return 4000, 800, 4
+}
+
+func correctionAdjacent(source []documents.Segment, batch CorrectionBatch, remaining, distanceLimit int) []AdjacentRow {
+	adjacent := []AdjacentRow{}
+	for distance := 1; distance <= distanceLimit; distance++ {
+		for _, id := range []int{batch.Start - distance, batch.Start + len(batch.Rows) - 1 + distance} {
+			if id < 0 || id >= len(source) || remaining <= 0 {
+				continue
+			}
+			text := sliceUTF16(source[id].Text, remaining)
+			adjacent = append(adjacent, AdjacentRow{ID: id, Text: text})
+			remaining -= utf16Len(text)
+		}
+	}
+	sort.Slice(adjacent, func(left, right int) bool { return adjacent[left].ID < adjacent[right].ID })
+	return adjacent
+}
+
+func correctionQuery(batch CorrectionBatch, adjacent []AdjacentRow) map[string]bool {
+	queryText := []string{}
+	for _, row := range batch.Rows {
+		queryText = append(queryText, row.Text)
+	}
+	for _, row := range adjacent {
+		queryText = append(queryText, row.Text)
+	}
+	return grams(strings.Join(queryText, "\n"))
+}
+
+func rankPages(pages []page, query map[string]bool) []page {
+	ranked := append([]page(nil), pages...)
+	for index := range ranked {
+		score := 0
+		for token := range ranked[index].Tokens {
+			if query[token] {
+				score++
+			}
+		}
+		ranked[index].Score = score
+	}
+	sort.SliceStable(ranked, func(left, right int) bool {
+		if ranked[left].Score != ranked[right].Score {
+			return ranked[left].Score > ranked[right].Score
+		}
+		return ranked[left].Index < ranked[right].Index
+	})
+	return ranked
+}
+
+func progressCenter(start, total, count int) int {
+	if count == 0 {
+		return 0
+	}
+	center := int(math.Floor(float64(start) / float64(maxInt(1, total)) * float64(count)))
+	if center >= count {
+		center = count - 1
+	}
+	return center
+}
+
+func selectedCorrectionPages(ranked, pages []page, start, sourceLen int) ([]page, bool) {
+	selected := []page{}
+	matched := false
+	for _, item := range ranked {
+		if item.Score > 0 {
+			matched = true
+			selected = append(selected, item)
+		}
+	}
+	if !matched && len(pages) > 0 {
+		center := progressCenter(start, sourceLen, len(pages))
+		from := maxInt(0, center-1)
+		to := minInt(len(pages), center+2)
+		selected = append(selected, pages[from:to]...)
+	}
+	return selected, matched
+}
+
+func rankImages(images []CoursewareImage, ranked []page) []scoredImage {
+	scored := make([]scoredImage, 0, len(images))
+	for index, image := range images {
+		score := 0
+		if match := imagePagePattern.FindStringSubmatch(image.Label); match != nil {
+			number := 0
+			fmt.Sscanf(match[1], "%d", &number)
+			for _, item := range ranked {
+				if item.Number == number {
+					score = item.Score
+					break
+				}
+			}
+		}
+		scored = append(scored, scoredImage{image: image, index: index, score: score})
+	}
+	sort.SliceStable(scored, func(left, right int) bool {
+		if scored[left].score != scored[right].score {
+			return scored[left].score > scored[right].score
+		}
+		return scored[left].index < scored[right].index
+	})
+	return scored
+}
+
+func chooseImages(scored []scoredImage, quality bool) []scoredImage {
+	candidates := []scoredImage{}
+	for _, item := range scored {
+		if item.score > 0 {
+			candidates = append(candidates, item)
+		}
+		if len(candidates) >= 3 && quality {
+			break
+		}
+		if len(candidates) >= 1 && !quality {
+			break
+		}
+	}
+	return candidates
+}
+
+func fallbackImages(scored []scoredImage, imageCount, start, sourceLen int) []scoredImage {
+	if imageCount == 0 {
+		return nil
+	}
+	center := progressCenter(start, sourceLen, imageCount)
+	from := maxInt(0, center-1)
+	to := minInt(len(scored), center+2)
+	return append([]scoredImage{}, scored[from:to]...)
+}
+
+func budgetImages(candidates []scoredImage, omissions []string) ([]CoursewareImage, []string) {
+	chosen := []CoursewareImage{}
+	bytesUsed := 0
+	for _, item := range candidates {
+		size := len([]byte(item.image.URL))
+		if size > 900000 || size+bytesUsed > 1800000 {
+			omissions = append(omissions, item.image.Label+" 图片超出请求字节预算，未附加。")
+			continue
+		}
+		bytesUsed += size
+		chosen = append(chosen, item.image)
+	}
+	return chosen, omissions
+}
+
+func correctionNotes(limit int, truncated, matched, hasPages bool, mode CorrectionMode) []string {
+	notes := []string{}
+	if truncated {
+		notes = append(notes, fmt.Sprintf("课件文字按本批相关性择取，最多 %d 字；未发送整份课件。", limit))
+	}
+	if !matched && hasPages {
+		notes = append(notes, "未找到课件文字匹配，按字幕进度选取候选页面，不能视为可靠对齐。")
+	}
+	if mode != CorrectionQuality {
+		if mode == CorrectionText {
+			notes = append(notes, "快速文字模式未附图片，图表与扫描页不可猜测。")
+		} else {
+			notes = append(notes, "均衡模式只附文字匹配图片，未匹配图表不可猜测。")
+		}
+	}
+	return notes
+}
+
 func CorrectionContextFor(ppt string, images []CoursewareImage) func(CorrectionBatch, []documents.Segment, CorrectionMode) CorrectionContext {
 	texts := slicePages(ppt)
 	pages := make([]page, 0, len(texts))
@@ -405,128 +594,20 @@ func CorrectionContextFor(ppt string, images []CoursewareImage) func(CorrectionB
 	}
 	return func(batch CorrectionBatch, source []documents.Segment, mode CorrectionMode) CorrectionContext {
 		quality := mode == CorrectionQuality
-		limit := 8000
-		remaining := 1200
-		distanceLimit := 6
-		if !quality {
-			limit = 4000
-			remaining = 800
-			distanceLimit = 4
-		}
-		adjacent := []AdjacentRow{}
-		for distance := 1; distance <= distanceLimit; distance++ {
-			for _, id := range []int{batch.Start - distance, batch.Start + len(batch.Rows) - 1 + distance} {
-				if id < 0 || id >= len(source) || remaining <= 0 {
-					continue
-				}
-				text := sliceUTF16(source[id].Text, remaining)
-				adjacent = append(adjacent, AdjacentRow{ID: id, Text: text})
-				remaining -= utf16Len(text)
-			}
-		}
-		sort.Slice(adjacent, func(left, right int) bool { return adjacent[left].ID < adjacent[right].ID })
-		queryText := []string{}
-		for _, row := range batch.Rows {
-			queryText = append(queryText, row.Text)
-		}
-		for _, row := range adjacent {
-			queryText = append(queryText, row.Text)
-		}
-		query := grams(strings.Join(queryText, "\n"))
-		ranked := append([]page(nil), pages...)
-		for index := range ranked {
-			score := 0
-			for token := range ranked[index].Tokens {
-				if query[token] {
-					score++
-				}
-			}
-			ranked[index].Score = score
-		}
-		sort.SliceStable(ranked, func(left, right int) bool {
-			if ranked[left].Score != ranked[right].Score {
-				return ranked[left].Score > ranked[right].Score
-			}
-			return ranked[left].Index < ranked[right].Index
-		})
-		selected := []page{}
-		matched := false
-		for _, item := range ranked {
-			if item.Score > 0 {
-				matched = true
-				selected = append(selected, item)
-			}
-		}
-		center := 0
-		if len(pages) > 0 {
-			center = int(math.Floor(float64(batch.Start) / float64(maxInt(1, len(source))) * float64(len(pages))))
-			if center >= len(pages) {
-				center = len(pages) - 1
-			}
-		}
-		if !matched && len(pages) > 0 {
-			from := maxInt(0, center-1)
-			to := minInt(len(pages), center+2)
-			selected = append(selected, pages[from:to]...)
-		}
+		limit, remaining, distanceLimit := correctionLimits(mode)
+		adjacent := correctionAdjacent(source, batch, remaining, distanceLimit)
+		ranked := rankPages(pages, correctionQuery(batch, adjacent))
+		selected, matched := selectedCorrectionPages(ranked, pages, batch.Start, len(source))
 		parts := make([]string, 0, len(selected))
 		for _, item := range selected {
 			parts = append(parts, item.Text)
 		}
 		text := sliceUTF16(strings.Join(parts, "\n"), limit)
-		omissions := []string{}
-		if len(text) < len(ppt) {
-			omissions = append(omissions, fmt.Sprintf("课件文字按本批相关性择取，最多 %d 字；未发送整份课件。", limit))
-		}
-		if !matched && len(pages) > 0 {
-			omissions = append(omissions, "未找到课件文字匹配，按字幕进度选取候选页面，不能视为可靠对齐。")
-		}
-		type scoredImage struct {
-			image CoursewareImage
-			index int
-			score int
-		}
-		scored := make([]scoredImage, 0, len(images))
-		for index, image := range images {
-			score := 0
-			if match := imagePagePattern.FindStringSubmatch(image.Label); match != nil {
-				number := 0
-				fmt.Sscanf(match[1], "%d", &number)
-				for _, item := range ranked {
-					if item.Number == number {
-						score = item.Score
-						break
-					}
-				}
-			}
-			scored = append(scored, scoredImage{image: image, index: index, score: score})
-		}
-		sort.SliceStable(scored, func(left, right int) bool {
-			if scored[left].score != scored[right].score {
-				return scored[left].score > scored[right].score
-			}
-			return scored[left].index < scored[right].index
-		})
-		candidates := []scoredImage{}
-		for _, item := range scored {
-			if item.score > 0 {
-				candidates = append(candidates, item)
-			}
-			if len(candidates) >= 3 && quality {
-				break
-			}
-			if len(candidates) >= 1 && !quality {
-				break
-			}
-		}
+		omissions := correctionNotes(limit, len(text) < len(ppt), matched, len(pages) > 0, mode)
+		scored := rankImages(images, ranked)
+		candidates := chooseImages(scored, quality)
 		if quality && len(candidates) == 0 && len(images) > 0 {
-			imageCenter := int(math.Floor(float64(batch.Start) / float64(maxInt(1, len(source))) * float64(len(images))))
-			if imageCenter >= len(images) {
-				imageCenter = len(images) - 1
-			}
-			from := maxInt(0, imageCenter-1)
-			to := minInt(len(scored), imageCenter+2)
-			candidates = append(candidates, scored[from:to]...)
+			candidates = fallbackImages(scored, len(images), batch.Start, len(source))
 			if len(candidates) > 0 {
 				omissions = append(omissions, "附图按进度猜选，未经可靠页面对齐。")
 			}
@@ -534,25 +615,8 @@ func CorrectionContextFor(ppt string, images []CoursewareImage) func(CorrectionB
 		if mode == CorrectionText {
 			candidates = nil
 		}
-		if mode != CorrectionQuality {
-			if mode == CorrectionText {
-				omissions = append(omissions, "快速文字模式未附图片，图表与扫描页不可猜测。")
-			} else {
-				omissions = append(omissions, "均衡模式只附文字匹配图片，未匹配图表不可猜测。")
-			}
-		}
 		sort.Slice(candidates, func(left, right int) bool { return candidates[left].index < candidates[right].index })
-		chosen := []CoursewareImage{}
-		bytesUsed := 0
-		for _, item := range candidates {
-			size := len([]byte(item.image.URL))
-			if size > 900000 || size+bytesUsed > 1800000 {
-				omissions = append(omissions, item.image.Label+" 图片超出请求字节预算，未附加。")
-				continue
-			}
-			bytesUsed += size
-			chosen = append(chosen, item.image)
-		}
+		chosen, omissions := budgetImages(candidates, omissions)
 		return CorrectionContext{
 			Courseware: text, LectureContext: adjacent, Images: chosen,
 			Omissions: uniqueStrings(omissions),
@@ -574,6 +638,59 @@ func minInt(left, right int) int {
 	return right
 }
 
+func runCorrectionChunk[T any](
+	ctx context.Context,
+	batches []CorrectionBatch,
+	start int,
+	run func(context.Context, CorrectionBatch, int) (T, error),
+	commit func(T, CorrectionBatch) error,
+) error {
+	chunkContext, cancel := context.WithCancel(ctx)
+	defer cancel()
+	var mutex sync.Mutex
+	pending := map[int]T{}
+	next := start
+	var firstErr error
+	var once sync.Once
+	var wait sync.WaitGroup
+	for offset := 0; offset < 2 && start+offset < len(batches); offset++ {
+		index := start + offset
+		batch := batches[index]
+		wait.Add(1)
+		go func() {
+			defer wait.Done()
+			result, err := run(chunkContext, batch, index)
+			if err != nil {
+				once.Do(func() {
+					firstErr = err
+					cancel()
+				})
+				return
+			}
+			mutex.Lock()
+			defer mutex.Unlock()
+			pending[index] = result
+			for {
+				ready, ok := pending[next]
+				if !ok {
+					break
+				}
+				if err := commit(ready, batches[next]); err != nil {
+					once.Do(func() {
+						firstErr = err
+						cancel()
+					})
+					return
+				}
+				delete(pending, next)
+				next++
+			}
+		}()
+	}
+	wait.Wait()
+	return firstErr
+}
+
 func RunCorrectionBatches[T any](
 	ctx context.Context,
 	batches []CorrectionBatch,
@@ -584,54 +701,12 @@ func RunCorrectionBatches[T any](
 		if err := ctx.Err(); err != nil {
 			return err
 		}
-		chunkContext, cancel := context.WithCancel(ctx)
-		var mutex sync.Mutex
-		pending := map[int]T{}
-		next := start
-		var firstErr error
-		var once sync.Once
-		var wait sync.WaitGroup
-		for offset := 0; offset < 2 && start+offset < len(batches); offset++ {
-			index := start + offset
-			batch := batches[index]
-			wait.Add(1)
-			go func() {
-				defer wait.Done()
-				result, err := run(chunkContext, batch, index)
-				if err != nil {
-					once.Do(func() {
-						firstErr = err
-						cancel()
-					})
-					return
-				}
-				mutex.Lock()
-				defer mutex.Unlock()
-				pending[index] = result
-				for {
-					ready, ok := pending[next]
-					if !ok {
-						break
-					}
-					if err := commit(ready, batches[next]); err != nil {
-						once.Do(func() {
-							firstErr = err
-							cancel()
-						})
-						return
-					}
-					delete(pending, next)
-					next++
-				}
-			}()
+		err := runCorrectionChunk(ctx, batches, start, run, commit)
+		if ctxErr := ctx.Err(); ctxErr != nil {
+			return ctxErr
 		}
-		wait.Wait()
-		cancel()
-		if err := ctx.Err(); err != nil {
+		if err != nil {
 			return err
-		}
-		if firstErr != nil {
-			return firstErr
 		}
 	}
 	return nil
