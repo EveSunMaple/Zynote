@@ -43,15 +43,62 @@ var (
 	vimeoTokenPattern  = regexp.MustCompile(`^[A-Za-z0-9]{1,64}$`)
 )
 
+func parseInputURL(raw string) (*url.URL, error) {
+	parsed, err := url.Parse(raw)
+	if err != nil || (parsed.Scheme != "http" && parsed.Scheme != "https") ||
+		parsed.User != nil || parsed.Port() != "" || parsed.Fragment != "" {
+		return nil, fmt.Errorf("视频网址无效")
+	}
+	return parsed, nil
+}
+
+func vimeoInput(parsed *url.URL) (Selection, error) {
+	match := vimeoPathPattern.FindStringSubmatch(parsed.Path)
+	hashes := parsed.Query()["h"]
+	if match == nil || len(hashes) > 1 {
+		return Selection{}, fmt.Errorf("请使用具体的 Vimeo 视频网址")
+	}
+	for _, hash := range hashes {
+		if !vimeoTokenPattern.MatchString(hash) {
+			return Selection{}, fmt.Errorf("请使用具体的 Vimeo 视频网址")
+		}
+	}
+	token := match[2]
+	if token == "" && len(hashes) == 1 {
+		token = hashes[0]
+	}
+	if match[2] != "" && len(hashes) == 1 && match[2] != hashes[0] {
+		return Selection{}, fmt.Errorf("视频访问标识有歧义")
+	}
+	value := "https://vimeo.com/" + match[1]
+	if token != "" {
+		value += "/" + token
+	}
+	return Selection{Platform: "vimeo", URL: value, ID: match[1], Hash: token}, nil
+}
+
+func dailymotionInput(parsed *url.URL) (Selection, error) {
+	pattern := dailymotionPattern
+	if parsed.Hostname() == "dai.ly" {
+		pattern = shortDailymotion
+	}
+	match := pattern.FindStringSubmatch(parsed.Path)
+	if match == nil {
+		return Selection{}, fmt.Errorf("请使用具体的 Dailymotion 视频网址")
+	}
+	return Selection{
+		Platform: "dailymotion", URL: "https://www.dailymotion.com/video/" + match[1], ID: match[1],
+	}, nil
+}
+
 func Input(raw string) (Selection, error) {
 	trimmed := strings.TrimSpace(raw)
 	if bvInputPattern.MatchString(trimmed) {
 		return Selection{Platform: "bilibili", URL: trimmed}, nil
 	}
-	parsed, err := url.Parse(trimmed)
-	if err != nil || (parsed.Scheme != "http" && parsed.Scheme != "https") ||
-		parsed.User != nil || parsed.Port() != "" || parsed.Fragment != "" {
-		return Selection{}, fmt.Errorf("视频网址无效")
+	parsed, err := parseInputURL(trimmed)
+	if err != nil {
+		return Selection{}, err
 	}
 	host := parsed.Hostname()
 	switch {
@@ -61,49 +108,58 @@ func Input(raw string) (Selection, error) {
 		host == "music.youtube.com" || host == hostYoutuBe:
 		return youtubeInput(parsed)
 	case host == "vimeo.com" || host == "www.vimeo.com" || host == "player.vimeo.com":
-		match := vimeoPathPattern.FindStringSubmatch(parsed.Path)
-		hashes := parsed.Query()["h"]
-		if match == nil || len(hashes) > 1 {
-			return Selection{}, fmt.Errorf("请使用具体的 Vimeo 视频网址")
-		}
-		for _, hash := range hashes {
-			if !vimeoTokenPattern.MatchString(hash) {
-				return Selection{}, fmt.Errorf("请使用具体的 Vimeo 视频网址")
-			}
-		}
-		token := match[2]
-		if token == "" && len(hashes) == 1 {
-			token = hashes[0]
-		}
-		if match[2] != "" && len(hashes) == 1 && match[2] != hashes[0] {
-			return Selection{}, fmt.Errorf("视频访问标识有歧义")
-		}
-		value := "https://vimeo.com/" + match[1]
-		if token != "" {
-			value += "/" + token
-		}
-		return Selection{Platform: "vimeo", URL: value, ID: match[1], Hash: token}, nil
+		return vimeoInput(parsed)
 	case host == "www.dailymotion.com" || host == hostDailymotion || host == "dai.ly":
-		pattern := dailymotionPattern
-		if host == "dai.ly" {
-			pattern = shortDailymotion
-		}
-		match := pattern.FindStringSubmatch(parsed.Path)
-		if match == nil {
-			return Selection{}, fmt.Errorf("请使用具体的 Dailymotion 视频网址")
-		}
-		return Selection{
-			Platform: "dailymotion", URL: "https://www.dailymotion.com/video/" + match[1], ID: match[1],
-		}, nil
+		return dailymotionInput(parsed)
 	default:
 		return Selection{}, fmt.Errorf("此站点的原生解析仍在迁移；支持 B站、YouTube、Vimeo 和 Dailymotion")
 	}
 }
 
+func validYoutubeURL(parsed *url.URL, host string) bool {
+	return parsed.Scheme == "https" && parsed.Port() == "" && parsed.User == nil && parsed.Fragment == "" &&
+		(host == hostYouTube || host == "m.youtube.com" || host == hostYoutuBe || host == "music.youtube.com")
+}
+
+func youtubeVideoID(host string, parsed *url.URL, videos []string) string {
+	switch {
+	case host == hostYoutuBe:
+		return strings.TrimPrefix(parsed.Path, "/")
+	case parsed.Path == "/watch":
+		if len(videos) == 1 {
+			return videos[0]
+		}
+	default:
+		if match := youtubeShorts.FindStringSubmatch(parsed.Path); match != nil {
+			return match[1]
+		}
+	}
+	return ""
+}
+
+func validateYoutubeSelection(id, list string) error {
+	if (id != "" && !youtubeIDPattern.MatchString(id)) ||
+		(list != "" && !youtubeListPattern.MatchString(list)) ||
+		(id == "" && list == "") {
+		return fmt.Errorf("请使用具体视频或播放列表网址")
+	}
+	return nil
+}
+
+func youtubeURL(id, list string) string {
+	if id == "" {
+		return "https://www.youtube.com/playlist?list=" + list
+	}
+	value := "https://www.youtube.com/watch?v=" + id
+	if list != "" {
+		value += "&list=" + list
+	}
+	return value
+}
+
 func youtubeInput(parsed *url.URL) (Selection, error) {
 	host := strings.TrimPrefix(parsed.Hostname(), "www.")
-	if parsed.Scheme != "https" || parsed.Port() != "" || parsed.User != nil || parsed.Fragment != "" ||
-		(host != hostYouTube && host != "m.youtube.com" && host != hostYoutuBe && host != "music.youtube.com") {
+	if !validYoutubeURL(parsed, host) {
 		return Selection{}, fmt.Errorf("YouTube 网址无效")
 	}
 	lists := parsed.Query()["list"]
@@ -111,38 +167,15 @@ func youtubeInput(parsed *url.URL) (Selection, error) {
 	if len(lists) > 1 || len(videos) > 1 {
 		return Selection{}, fmt.Errorf("视频或播放列表标识有歧义")
 	}
-	id := ""
-	switch {
-	case host == hostYoutuBe:
-		id = strings.TrimPrefix(parsed.Path, "/")
-	case parsed.Path == "/watch":
-		if len(videos) == 1 {
-			id = videos[0]
-		}
-	default:
-		if match := youtubeShorts.FindStringSubmatch(parsed.Path); match != nil {
-			id = match[1]
-		}
-	}
+	id := youtubeVideoID(host, parsed, videos)
 	list := ""
 	if len(lists) == 1 {
 		list = lists[0]
 	}
-	if (id != "" && !youtubeIDPattern.MatchString(id)) ||
-		(list != "" && !youtubeListPattern.MatchString(list)) ||
-		(id == "" && list == "") {
-		return Selection{}, fmt.Errorf("请使用具体视频或播放列表网址")
+	if err := validateYoutubeSelection(id, list); err != nil {
+		return Selection{}, err
 	}
-	value := ""
-	if id != "" {
-		value = "https://www.youtube.com/watch?v=" + id
-		if list != "" {
-			value += "&list=" + list
-		}
-	} else {
-		value = "https://www.youtube.com/playlist?list=" + list
-	}
-	return Selection{Platform: "youtube", URL: value, ID: id, Hash: list}, nil
+	return Selection{Platform: "youtube", URL: youtubeURL(id, list), ID: id, Hash: list}, nil
 }
 
 type Fetcher = media.AuthFetcher
@@ -180,6 +213,38 @@ func Read(ctx context.Context, selection Selection, playlist bool, options media
 	return dailymotionSource(selection, raw, options)
 }
 
+func readYoutubeVideo(ctx context.Context, id string, options media.NativeMediaOptions, caller NativeCaller, fetcher Fetcher) (media.Source, error) {
+	raw, err := caller.Call("youtube.video", map[string]any{"id": id}, 120000)
+	if err != nil {
+		return media.Source{}, err
+	}
+	var source media.Source
+	if err := json.Unmarshal(raw, &source); err != nil {
+		return media.Source{}, fmt.Errorf("YouTube 目录读取失败：响应格式异常")
+	}
+	if source.Identity != "youtube:"+id {
+		return media.Source{}, fmt.Errorf("YouTube 目录与所选视频身份不一致")
+	}
+	addYoutubeTranslations(ctx, &source, id, options, fetcher)
+	if err := validateYoutubeSource(source, options); err != nil {
+		return media.Source{}, err
+	}
+	return source, nil
+}
+
+func validateYoutubeSource(source media.Source, options media.NativeMediaOptions) error {
+	if len(source.Streams) == 0 && !options.SubtitleOnly {
+		return fmt.Errorf("YouTube 未返回可读取格式，请检查访问权限或站点验证要求")
+	}
+	if options.Subtitles && len(source.SubtitleTracks) == 0 {
+		return fmt.Errorf("此视频没有提供可用字幕；可下载后使用本地转写")
+	}
+	if err := validateFormats(options, source.Streams); err != nil {
+		return fmt.Errorf("YouTube 格式已改变，请重新读取")
+	}
+	return nil
+}
+
 func readYoutube(ctx context.Context, selection Selection, playlist bool, options media.NativeMediaOptions, caller NativeCaller, fetcher Fetcher) (any, error) {
 	if caller == nil {
 		return nil, fmt.Errorf("YouTube 原生执行器不可用")
@@ -193,28 +258,7 @@ func readYoutube(ctx context.Context, selection Selection, playlist bool, option
 	if selection.ID == "" {
 		return nil, fmt.Errorf("请先选择播放列表中的具体视频")
 	}
-	raw, err := caller.Call("youtube.video", map[string]any{"id": selection.ID}, 120000)
-	if err != nil {
-		return nil, err
-	}
-	var source media.Source
-	if err := json.Unmarshal(raw, &source); err != nil {
-		return nil, fmt.Errorf("YouTube 目录读取失败：响应格式异常")
-	}
-	if source.Identity != "youtube:"+selection.ID {
-		return nil, fmt.Errorf("YouTube 目录与所选视频身份不一致")
-	}
-	addYoutubeTranslations(ctx, &source, selection.ID, options, fetcher)
-	if len(source.Streams) == 0 && !options.SubtitleOnly {
-		return nil, fmt.Errorf("YouTube 未返回可读取格式，请检查访问权限或站点验证要求")
-	}
-	if options.Subtitles && len(source.SubtitleTracks) == 0 {
-		return nil, fmt.Errorf("此视频没有提供可用字幕；可下载后使用本地转写")
-	}
-	if err := validateFormats(options, source.Streams); err != nil {
-		return nil, fmt.Errorf("YouTube 格式已改变，请重新读取")
-	}
-	return source, nil
+	return readYoutubeVideo(ctx, selection.ID, options, caller, fetcher)
 }
 
 func addYoutubeTranslations(ctx context.Context, source *media.Source, id string, options media.NativeMediaOptions, fetcher Fetcher) {
@@ -408,24 +452,19 @@ func validateFormats(options media.NativeMediaOptions, streams []media.MediaStre
 	return nil
 }
 
-func vimeoSource(selection Selection, raw map[string]any, options media.NativeMediaOptions) (media.Source, error) {
-	video := objectOf(raw["video"])
-	id := ""
-	switch typed := video["id"].(type) {
+func vimeoID(value any) string {
+	switch typed := value.(type) {
 	case float64:
 		if typed >= 0 && math.Trunc(typed) == typed {
-			id = strconv.FormatInt(int64(typed), 10)
+			return strconv.FormatInt(int64(typed), 10)
 		}
 	case string:
-		id = typed
+		return typed
 	}
-	title := stringOf(video["title"])
-	duration, durationOK := positiveNumber(video["duration"])
-	if id != selection.ID || title == "" || !durationOK || len([]rune(title)) > 2000 {
-		return media.Source{}, fmt.Errorf("Vimeo 目录与所选视频身份不一致")
-	}
-	request := objectOf(raw["request"])
-	files := objectOf(request["files"])
+	return ""
+}
+
+func vimeoProgressiveStreams(files map[string]any) ([]media.MediaStream, error) {
 	streams := []media.MediaStream{}
 	progressive := arrayOf(files["progressive"])
 	if len(progressive) > 100 {
@@ -439,7 +478,7 @@ func vimeoSource(selection Selection, raw map[string]any, options media.NativeMe
 		}
 		address, err := mediaAddress(stringOf(row["url"]), []string{hostVimeoCdn, "akamaized.net"})
 		if err != nil {
-			return media.Source{}, err
+			return nil, err
 		}
 		bitrate, _ := numberValue(row["bitrate"])
 		extension := "mp4"
@@ -451,32 +490,46 @@ func vimeoSource(selection Selection, raw map[string]any, options media.NativeMe
 			Height: int(height), Codec: "avc1", Bandwidth: bitrate * 1000, Extension: extension,
 		})
 	}
-	if len(streams) == 0 {
-		if hls := objectOf(files["hls"]); len(hls) > 0 {
-			cdn := objectOf(objectOf(hls["cdns"])[stringOf(hls["default_cdn"])])
-			if address, err := mediaAddress(stringOf(cdn["url"]), []string{hostVimeoCdn, "akamaized.net"}); err == nil {
-				streams = append(streams, media.MediaStream{
-					ID: "hls-auto", Kind: "combined", URLs: []string{address}, Extension: "mp4", Transport: "hls",
-				})
-			}
-		}
+	return streams, nil
+}
+
+func vimeoHLSStream(files map[string]any) []media.MediaStream {
+	hls := objectOf(files["hls"])
+	if len(hls) == 0 {
+		return nil
 	}
-	thumbnail := ""
+	cdn := objectOf(objectOf(hls["cdns"])[stringOf(hls["default_cdn"])])
+	address, err := mediaAddress(stringOf(cdn["url"]), []string{hostVimeoCdn, "akamaized.net"})
+	if err != nil {
+		return nil
+	}
+	return []media.MediaStream{{
+		ID: "hls-auto", Kind: "combined", URLs: []string{address}, Extension: "mp4", Transport: "hls",
+	}}
+}
+
+func vimeoThumbnail(video map[string]any) string {
 	thumbs := objectOf(video["thumbs"])
-	if len(thumbs) > 0 {
-		keys := make([]string, 0, len(thumbs))
-		for key := range thumbs {
-			keys = append(keys, key)
-		}
-		sort.Slice(keys, func(left, right int) bool {
-			leftNumber, _ := strconv.Atoi(keys[left])
-			rightNumber, _ := strconv.Atoi(keys[right])
-			return leftNumber > rightNumber
-		})
-		if address, err := mediaAddress(stringOf(thumbs[keys[0]]), []string{hostVimeoCdn}); err == nil {
-			thumbnail = address
-		}
+	if len(thumbs) == 0 {
+		return ""
 	}
+	keys := make([]string, 0, len(thumbs))
+	for key := range thumbs {
+		keys = append(keys, key)
+	}
+	sort.Slice(keys, func(left, right int) bool {
+		leftNumber, _ := strconv.Atoi(keys[left])
+		rightNumber, _ := strconv.Atoi(keys[right])
+		return leftNumber > rightNumber
+	})
+	address, err := mediaAddress(stringOf(thumbs[keys[0]]), []string{hostVimeoCdn})
+	if err != nil {
+		return ""
+	}
+	return address
+}
+
+func vimeoSubtitleTracks(request map[string]any) []media.SubtitleTrack {
 	tracks := []media.SubtitleTrack{}
 	captions := arrayOf(request["text_tracks"])
 	if len(captions) > 100 {
@@ -511,22 +564,31 @@ func vimeoSource(selection Selection, raw map[string]any, options media.NativeMe
 			tracks = append(tracks, media.SubtitleTrack{Language: language, URL: address, Automatic: false, Format: "webvtt"})
 		}
 	}
-	return finishSource(selection, "vimeo", title, duration, "", thumbnail, streams, tracks, options)
+	return tracks
 }
 
-func dailymotionSource(selection Selection, raw map[string]any, options media.NativeMediaOptions) (media.Source, error) {
-	id := stringOf(raw["id"])
-	title := stringOf(raw["title"])
-	duration, durationOK := positiveNumber(raw["duration"])
-	if id != selection.ID || title == "" || !durationOK || raw["error"] != nil || len([]rune(title)) > 2000 {
-		return media.Source{}, fmt.Errorf("Dailymotion 未确认所选视频可读取")
+func vimeoSource(selection Selection, raw map[string]any, options media.NativeMediaOptions) (media.Source, error) {
+	video := objectOf(raw["video"])
+	id := vimeoID(video["id"])
+	title := stringOf(video["title"])
+	duration, durationOK := positiveNumber(video["duration"])
+	if id != selection.ID || title == "" || !durationOK || len([]rune(title)) > 2000 {
+		return media.Source{}, fmt.Errorf("Vimeo 目录与所选视频身份不一致")
 	}
-	description := stringOf(raw["description"])
-	if len([]rune(description)) > 1000000 {
-		description = ""
+	request := objectOf(raw["request"])
+	files := objectOf(request["files"])
+	streams, err := vimeoProgressiveStreams(files)
+	if err != nil {
+		return media.Source{}, err
 	}
+	if len(streams) == 0 {
+		streams = vimeoHLSStream(files)
+	}
+	return finishSource(selection, "vimeo", title, duration, "", vimeoThumbnail(video), streams, vimeoSubtitleTracks(request), options)
+}
+
+func dailymotionStreams(qualities map[string]any) ([]media.MediaStream, error) {
 	streams := []media.MediaStream{}
-	qualities := objectOf(raw["qualities"])
 	for quality, value := range qualities {
 		formats := arrayOf(value)
 		for index, item := range formats {
@@ -537,7 +599,7 @@ func dailymotionSource(selection Selection, raw map[string]any, options media.Na
 			}
 			address, err := mediaAddress(stringOf(row["url"]), []string{hostDailymotion, hostDmcdn})
 			if err != nil {
-				return media.Source{}, err
+				return nil, err
 			}
 			height := 0
 			if digitsOnly(quality) {
@@ -553,33 +615,43 @@ func dailymotionSource(selection Selection, raw map[string]any, options media.Na
 			})
 		}
 	}
-	if len(streams) == 0 {
-		hlsURL := ""
-		for _, value := range qualities {
-			for _, item := range arrayOf(value) {
-				row := objectOf(item)
-				kind := stringOf(row["type"])
-				if kind == "application/x-mpegURL" || kind == "application/vnd.apple.mpegurl" {
-					hlsURL = stringOf(row["url"])
-					break
-				}
-			}
-		}
-		if hlsURL != "" {
-			if address, err := mediaAddress(hlsURL, []string{hostDailymotion, hostDmcdn}); err == nil {
-				streams = append(streams, media.MediaStream{
-					ID: "hls-auto", Kind: "combined", URLs: []string{address}, Extension: "mp4", Transport: "hls",
-				})
+	return streams, nil
+}
+
+func dailymotionHLSStream(qualities map[string]any) []media.MediaStream {
+	hlsURL := ""
+	for _, value := range qualities {
+		for _, item := range arrayOf(value) {
+			row := objectOf(item)
+			kind := stringOf(row["type"])
+			if kind == "application/x-mpegURL" || kind == "application/vnd.apple.mpegurl" {
+				hlsURL = stringOf(row["url"])
+				break
 			}
 		}
 	}
-	thumbnail := ""
+	if hlsURL == "" {
+		return nil
+	}
+	address, err := mediaAddress(hlsURL, []string{hostDailymotion, hostDmcdn})
+	if err != nil {
+		return nil
+	}
+	return []media.MediaStream{{
+		ID: "hls-auto", Kind: "combined", URLs: []string{address}, Extension: "mp4", Transport: "hls",
+	}}
+}
+
+func dailymotionThumbnail(raw map[string]any) string {
 	for _, value := range objectOf(raw["posters"]) {
 		if address, err := mediaAddress(stringOf(value), []string{hostDmcdn, hostDailymotion}); err == nil {
-			thumbnail = address
-			break
+			return address
 		}
 	}
+	return ""
+}
+
+func dailymotionSubtitleTracks(raw map[string]any) []media.SubtitleTrack {
 	tracks := []media.SubtitleTrack{}
 	captions := objectOf(objectOf(raw["subtitles"])["data"])
 	for language, value := range captions {
@@ -594,7 +666,29 @@ func dailymotionSource(selection Selection, raw map[string]any, options media.Na
 			tracks = append(tracks, media.SubtitleTrack{Language: language, URL: address, Automatic: false, Format: "webvtt"})
 		}
 	}
-	return finishSource(selection, "dailymotion", title, duration, description, thumbnail, streams, tracks, options)
+	return tracks
+}
+
+func dailymotionSource(selection Selection, raw map[string]any, options media.NativeMediaOptions) (media.Source, error) {
+	id := stringOf(raw["id"])
+	title := stringOf(raw["title"])
+	duration, durationOK := positiveNumber(raw["duration"])
+	if id != selection.ID || title == "" || !durationOK || raw["error"] != nil || len([]rune(title)) > 2000 {
+		return media.Source{}, fmt.Errorf("Dailymotion 未确认所选视频可读取")
+	}
+	description := stringOf(raw["description"])
+	if len([]rune(description)) > 1000000 {
+		description = ""
+	}
+	qualities := objectOf(raw["qualities"])
+	streams, err := dailymotionStreams(qualities)
+	if err != nil {
+		return media.Source{}, err
+	}
+	if len(streams) == 0 {
+		streams = dailymotionHLSStream(qualities)
+	}
+	return finishSource(selection, "dailymotion", title, duration, description, dailymotionThumbnail(raw), streams, dailymotionSubtitleTracks(raw), options)
 }
 
 func finishSource(selection Selection, platformName, title string, duration float64, description, thumbnail string, streams []media.MediaStream, tracks []media.SubtitleTrack, options media.NativeMediaOptions) (media.Source, error) {
