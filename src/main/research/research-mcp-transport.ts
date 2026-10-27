@@ -8,6 +8,23 @@ const packet = z.object({
  error: z.object({code: z.number(), message: z.string()}).optional(),
  method: z.string().optional()
 })
+function sseEventData(event: string) {
+ return event
+  .split('\n')
+  .filter(line => line.startsWith('data:'))
+  .map(line => line.slice(5).trimStart())
+  .join('\n')
+}
+function handleSseEvent(event: string, id: number, messages: unknown[]) {
+ const data = sseEventData(event)
+ if (!data) return false
+ const value = JSON.parse(data),
+  parsed = packet.parse(value)
+ messages.push(value)
+ if (messages.length > 128) throw new Error('MCP 响应消息过多')
+ if (parsed.method && parsed.id !== undefined) throw new Error('MCP 服务请求客户端执行额外操作，本次未执行')
+ return parsed.id === id && !parsed.method
+}
 async function readSseReply(response: Response, id: number) {
  if (!response.body) throw new Error('MCP 响应缺少结果')
  const reader = response.body.getReader(),
@@ -27,18 +44,7 @@ async function readSseReply(response: Response, id: number) {
    while ((end = buffered.indexOf('\n\n')) >= 0) {
     const event = buffered.slice(0, end)
     buffered = buffered.slice(end + 2)
-    const data = event
-     .split('\n')
-     .filter(line => line.startsWith('data:'))
-     .map(line => line.slice(5).trimStart())
-     .join('\n')
-    if (!data) continue
-    const value = JSON.parse(data),
-     parsed = packet.parse(value)
-    messages.push(value)
-    if (messages.length > 128) throw new Error('MCP 响应消息过多')
-    if (parsed.method && parsed.id !== undefined) throw new Error('MCP 服务请求客户端执行额外操作，本次未执行')
-    if (parsed.id === id && !parsed.method) return messages
+    if (handleSseEvent(event, id, messages)) return messages
    }
   }
   throw new Error('MCP 响应不完整或请求编号不一致')
@@ -64,6 +70,32 @@ export class NativeMcpSession {
  ) {
   this.endpoint = mcpEndpoint(endpoint)
  }
+ private responseError(status: number) {
+  if (status === 429) return new Error('MCP 服务已限流，不自动重试')
+  if (status === 401 || status === 403) return new Error('MCP 服务需要身份验证，公开连接不支持密钥')
+  if (status === 404 && this.session) return new Error('MCP 会话已过期，不自动重放调用')
+  return new Error(`MCP 服务返回 HTTP ${status}`)
+ }
+ private updateSession(session: string | null, method: string) {
+  if (session && !/^[\x21-\x7e]{1,512}$/.test(session)) throw new Error('MCP 会话编号无效')
+  if (this.session && session && session !== this.session) throw new Error('MCP 会话发生改变')
+  if (method === 'initialize') this.session = session || undefined
+ }
+ private async responseMessages(response: Response, id: number) {
+  const type = response.headers.get('content-type')?.split(';')[0].trim()
+  if (type === 'application/json') return [JSON.parse(await boundedPublicText(response))]
+  if (type === 'text/event-stream') return readSseReply(response, id)
+  throw new Error('MCP 服务响应格式不支持')
+ }
+ private matchingReply(messages: unknown[], id: number) {
+  if (messages.length > 128) throw new Error('MCP 响应消息过多')
+  const replies = messages.map(message => packet.parse(message))
+  if (replies.some(reply => reply.method && reply.id !== undefined))
+   throw new Error('MCP 服务请求客户端执行额外操作，本次未执行')
+  const matching = replies.filter(reply => reply.id === id && !reply.method)
+  if (matching.length !== 1) throw new Error('MCP 响应不完整或请求编号不一致')
+  return matching[0]
+ }
  async request(method: string, params: unknown, signal: AbortSignal) {
   const id = ++this.sequence,
    headers: Record<string, string> = {
@@ -77,29 +109,9 @@ export class NativeMcpSession {
   if (Buffer.byteLength(body) > 32768) throw new Error('MCP 请求参数超过大小上限')
   const {response, close} = await this.exchange(this.endpoint, {method: 'POST', headers, body, signal})
   try {
-   if (!response.ok) {
-    let message = `MCP 服务返回 HTTP ${response.status}`
-    if (response.status === 429) message = 'MCP 服务已限流，不自动重试'
-    else if (response.status === 401 || response.status === 403) message = 'MCP 服务需要身份验证，公开连接不支持密钥'
-    else if (response.status === 404 && this.session) message = 'MCP 会话已过期，不自动重放调用'
-    throw new Error(message)
-   }
-   const session = response.headers.get('MCP-Session-Id')
-   if (session && !/^[\x21-\x7e]{1,512}$/.test(session)) throw new Error('MCP 会话编号无效')
-   if (this.session && session && session !== this.session) throw new Error('MCP 会话发生改变')
-   if (method === 'initialize') this.session = session || undefined
-   const type = response.headers.get('content-type')?.split(';')[0].trim()
-   let messages: unknown[]
-   if (type === 'application/json') messages = [JSON.parse(await boundedPublicText(response))]
-   else if (type === 'text/event-stream') messages = await readSseReply(response, id)
-   else throw new Error('MCP 服务响应格式不支持')
-   if (messages.length > 128) throw new Error('MCP 响应消息过多')
-   const replies = messages.map(message => packet.parse(message))
-   if (replies.some(reply => reply.method && reply.id !== undefined))
-    throw new Error('MCP 服务请求客户端执行额外操作，本次未执行')
-   const matching = replies.filter(reply => reply.id === id && !reply.method)
-   if (matching.length !== 1) throw new Error('MCP 响应不完整或请求编号不一致')
-   const reply = matching[0]
+   if (!response.ok) throw this.responseError(response.status)
+   this.updateSession(response.headers.get('MCP-Session-Id'), method)
+   const reply = this.matchingReply(await this.responseMessages(response, id), id)
    if (reply.error) throw new Error('MCP 服务拒绝请求，不自动重试')
    if (reply.result === undefined) throw new Error('MCP 响应缺少结果')
    return reply.result

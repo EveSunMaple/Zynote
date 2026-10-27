@@ -15,87 +15,107 @@ export type ResearchContext = {
  digest: string
 }
 /** Saved preferences and prior answers are context, never primary source citations. */
+function contextTerms(question: string) {
+ return question.toLocaleLowerCase().match(/[a-z0-9]+|[\u3400-\u9fff]{1,2}/g) || []
+}
+function contextScore(text: string, terms: string[]) {
+ const lower = text.toLocaleLowerCase()
+ return terms.reduce((sum, term) => sum + Number(lower.includes(term)), 0)
+}
 export class NativeResearchContext {
  constructor(private readonly store: NativeResearchStore) {}
+ private practiceRows(question: string): ResearchContext['rows'] {
+  return this.store.practiceQuestions(question).map(questionRow => ({
+   kind: 'practice',
+   id: questionRow.question_id,
+   title: '练习题干（未读取答案、作答或成绩）',
+   text: questionRow.question,
+   version: digest(questionRow)
+  }))
+ }
+ private memoryRows(): ResearchContext['rows'] {
+  return this.store
+   .memories()
+   .records.filter(row => row.availability === 'active')
+   .map(row => ({kind: 'memory', id: row.memory_id, title: row.title, text: row.body, version: digest(row)}))
+ }
+ private noteRows(): ResearchContext['rows'] {
+  const rows: ResearchContext['rows'] = []
+  for (const note of this.store.list<{
+   receipt: {note_id: string; title: string; body_sha256: string}
+   markdown: string
+   lifecycle: {state: string; revision: number}
+  }>('note')) {
+   if (note.lifecycle.state !== 'active') continue
+   if (createHash('sha256').update(note.markdown).digest('hex') !== note.receipt.body_sha256)
+    throw new Error('已保存笔记校验失败，未发送研究')
+   rows.push({
+    kind: 'note',
+    id: note.receipt.note_id,
+    title: note.receipt.title,
+    text: note.markdown.slice(0, 12000),
+    version: digest(note)
+   })
+  }
+  return rows
+ }
+ private conversationRows(current: Record<string, any>, excludedTask?: string): ResearchContext['rows'] {
+  const rows: ResearchContext['rows'] = []
+  for (const task of current.research_tasks as {
+   task_id: string
+   status: string
+   question: string
+   note: string
+   answerHash?: string
+  }[]) {
+   if (task.task_id === excludedTask || task.status !== 'completed' || !task.note) continue
+   if (task.answerHash && createHash('sha256').update(task.note).digest('hex') !== task.answerHash)
+    throw new Error('会话回答与保存回执不符')
+   rows.push({
+    kind: 'conversation',
+    id: task.task_id,
+    title: task.question,
+    text: task.note.slice(0, 12000),
+    version: digest(task)
+   })
+  }
+  for (const [index, turn] of (current.turns as Record<string, unknown>[]).entries()) {
+   let text = ''
+   if (typeof turn.answer === 'string') text = turn.answer
+   else if (typeof turn.text === 'string') text = turn.text
+   if (!text) continue
+   rows.push({
+    kind: 'conversation',
+    id:
+     'turn-' +
+     (typeof turn.turn_id === 'string' || typeof turn.turn_id === 'number' ? String(turn.turn_id) : String(index)),
+    title: current.title,
+    text: text.slice(0, 12000),
+    version: digest(turn)
+   })
+  }
+  return rows
+ }
  snapshot(
   channels: string[],
   question: string,
   conversation?: {id: string; revision: number},
   excludedTask?: string
  ): ResearchContext {
-  const terms = question.toLocaleLowerCase().match(/[a-z0-9]+|[\u3400-\u9fff]{1,2}/g) || []
-  const score = (text: string) => terms.reduce((sum, term) => sum + Number(text.toLocaleLowerCase().includes(term)), 0)
-  const rows: ResearchContext['rows'] = []
-  if (channels.includes('practice'))
-   for (const questionRow of this.store.practiceQuestions(question))
-    rows.push({
-     kind: 'practice',
-     id: questionRow.question_id,
-     title: '练习题干（未读取答案、作答或成绩）',
-     text: questionRow.question,
-     version: digest(questionRow)
-    })
-  if (channels.includes('memory'))
-   for (const row of this.store.memories().records.filter(row => row.availability === 'active'))
-    rows.push({kind: 'memory', id: row.memory_id, title: row.title, text: row.body, version: digest(row)})
-  if (channels.includes('notes'))
-   for (const note of this.store.list<{
-    receipt: {note_id: string; title: string; body_sha256: string}
-    markdown: string
-    lifecycle: {state: string; revision: number}
-   }>('note')) {
-    if (note.lifecycle.state !== 'active') continue
-    if (createHash('sha256').update(note.markdown).digest('hex') !== note.receipt.body_sha256)
-     throw new Error('已保存笔记校验失败，未发送研究')
-    rows.push({
-     kind: 'note',
-     id: note.receipt.note_id,
-     title: note.receipt.title,
-     text: note.markdown.slice(0, 12000),
-     version: digest(note)
-    })
-   }
+  const terms = contextTerms(question)
+  let rows: ResearchContext['rows'] = []
+  if (channels.includes('practice')) rows.push(...this.practiceRows(question))
+  if (channels.includes('memory')) rows.push(...this.memoryRows())
+  if (channels.includes('notes')) rows.push(...this.noteRows())
   if (channels.includes('conversations') && conversation) {
    const current = this.store.conversation(conversation.id)
    if (current.revision !== conversation.revision) throw new Error('所选知识会话版本已改变')
-   for (const task of current.research_tasks as {
-    task_id: string
-    status: string
-    question: string
-    note: string
-    answerHash?: string
-   }[]) {
-    if (task.task_id === excludedTask || task.status !== 'completed' || !task.note) continue
-    if (task.answerHash && createHash('sha256').update(task.note).digest('hex') !== task.answerHash)
-     throw new Error('会话回答与保存回执不符')
-    rows.push({
-     kind: 'conversation',
-     id: task.task_id,
-     title: task.question,
-     text: task.note.slice(0, 12000),
-     version: digest(task)
-    })
-   }
-   for (const [index, turn] of (current.turns as Record<string, unknown>[]).entries()) {
-    let text = ''
-    if (typeof turn.answer === 'string') text = turn.answer
-    else if (typeof turn.text === 'string') text = turn.text
-    if (text)
-     rows.push({
-      kind: 'conversation',
-      id:
-       'turn-' +
-       (typeof turn.turn_id === 'string' || typeof turn.turn_id === 'number' ? String(turn.turn_id) : String(index)),
-      title: current.title,
-      text: text.slice(0, 12000),
-      version: digest(turn)
-     })
-   }
+   rows.push(...this.conversationRows(current, excludedTask))
   }
   const selected = rows
    .toSorted(
     (a, b) =>
-     score(b.title + ' ' + b.text) - score(a.title + ' ' + a.text) ||
+     contextScore(b.title + ' ' + b.text, terms) - contextScore(a.title + ' ' + a.text, terms) ||
      a.kind.localeCompare(b.kind) ||
      a.id.localeCompare(b.id)
    )
@@ -109,28 +129,30 @@ export class NativeResearchContext {
   })
   return {channels, conversation, excludedTask, rows: bounded, digest: digest(bounded)}
  }
+ private currentContextRow(row: ResearchContext['rows'][number], conversation?: Record<string, any>): unknown {
+  if (row.kind === 'memory')
+   return this.store.memories().records.find(memory => memory.memory_id === row.id && memory.availability === 'active')
+  if (row.kind === 'note') {
+   const note = this.store.read<{lifecycle: {state: string}}>('note', row.id)
+   if (note.lifecycle.state === 'active') return note
+  }
+  if (row.kind === 'practice') return this.store.practiceQuestions('', row.id)[0]
+  if (row.kind === 'conversation')
+   return (
+    conversation?.research_tasks.find((task: {task_id: string}) => task.task_id === row.id) ||
+    conversation?.turns.find(
+     (turn: Record<string, unknown>, index: number) => 'turn-' + String(turn.turn_id || index) === row.id
+    )
+   )
+  return undefined
+ }
  verify(snapshot: ResearchContext, _question: string) {
   if (digest(snapshot.rows) !== snapshot.digest) throw new Error('研究上下文回执无效')
   const conversation = snapshot.conversation ? this.store.conversation(snapshot.conversation.id) : undefined
   if (conversation && conversation.revision !== snapshot.conversation!.revision)
    throw new Error('所选知识会话版本已改变')
   for (const row of snapshot.rows) {
-   let current: unknown
-   if (row.kind === 'memory')
-    current = this.store
-     .memories()
-     .records.find(memory => memory.memory_id === row.id && memory.availability === 'active')
-   if (row.kind === 'note') {
-    const note = this.store.read<{lifecycle: {state: string}}>('note', row.id)
-    if (note.lifecycle.state === 'active') current = note
-   }
-   if (row.kind === 'practice') current = this.store.practiceQuestions('', row.id)[0]
-   if (row.kind === 'conversation')
-    current =
-     conversation?.research_tasks.find(task => (task as {task_id: string}).task_id === row.id) ||
-     conversation?.turns.find(
-      (turn, index) => 'turn-' + String((turn as Record<string, unknown>).turn_id || index) === row.id
-     )
+   const current = this.currentContextRow(row, conversation)
    if (!current || digest(current) !== row.version) throw new Error('研究期间记忆、笔记或历史问答已改变，请重新研究')
   }
  }
