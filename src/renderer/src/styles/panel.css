@@ -1410,7 +1410,7 @@
  height: 30px;
  flex: none;
  border-radius: 10px;
- background: color-mix(in srgb, #9380ce 12%, transparent);
+ background: #f4f1fb;
  color: #46327f;
 }
 .sidebar .course-icon svg {
@@ -1418,7 +1418,7 @@
  height: 23px;
 }
 .sidebar .course.selected .course-icon {
- background: color-mix(in srgb, #9380ce 20%, transparent);
+ background: #ece7f8;
  color: #3b286f;
 }
 [data-theme="dark"] .sidebar .course-icon {

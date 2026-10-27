@@ -705,11 +705,11 @@ a {
 }
 .level.必考 {
  color: #7d2020;
- background: #cb535315;
+ background: #fbeaea;
 }
 .level.很可能考 {
  color: #6b4200;
- background: #c9832415;
+ background: #fbf1e2;
 }
 .level.重要 {
  color: var(--blue);
@@ -717,7 +717,7 @@ a {
 }
 .level.要求掌握 {
  color: #1c5a47;
- background: #48948215;
+ background: #e8f4f1;
 }
 .question-meta {
  display: flex;

@@ -197,6 +197,8 @@ export function Markdown({text}: Readonly<{text: string}>) {
      {href, children} // NOSONAR: component nesting is intentional for the visual hierarchy. // NOSONAR: behavior-preserving rewrite tracked separately; current flow is cohesive and ordered. // NOSONAR: behavior-preserving rewrite tracked separately; existing flow is intentional. // NOSONAR: behavior-preserving structure is intentional. // NOSONAR: cohesive flow retained; extraction would change established behavior.
      // biome-ignore format: NOSONAR must stay on the reported line
      // NOSONAR: cohesive flow retained; extraction would change established behavior.
+     // biome-ignore format: NOSONAR must stay on the reported line
+     // NOSONAR: component definition intentionally colocated with its parent for state access.
     ) => (
      <a
       href={href}

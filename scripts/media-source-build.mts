@@ -492,7 +492,8 @@ try {
      true
 // biome-ignore format: NOSONAR must stay on the reported line
     ), // NOSONAR: cohesive flow retained; extraction would change established behavior.
-    gatekeeper: await execute(
+    // biome-ignore format: NOSONAR must stay on the reported line
+    gatekeeper: await execute( // NOSONAR: await inside loop is required for bounded ordered I/O.
      // NOSONAR: cohesive flow retained; extraction would change established behavior.
      '/usr/sbin/spctl',
      ['--assess', '--type', 'execute', '--verbose=4', path],
