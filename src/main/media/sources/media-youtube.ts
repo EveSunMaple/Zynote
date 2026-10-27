@@ -15,6 +15,14 @@ export async function youtubeSignature(script: string, env: Record<string, unkno
  const deadline = Date.now() + 1500
  runtime.setInterruptHandler(() => Date.now() > deadline)
  const context = runtime.newContext()
+ function contextValue(context: ReturnType<typeof runtime.newContext>, value: unknown) {
+  if (typeof value === 'string') return context.newString(value)
+  if (typeof value === 'number') return context.newNumber(value)
+  if (value === true) return context.true.dup()
+  if (value === false) return context.false.dup()
+  if (value === null) return context.null.dup()
+  return context.undefined.dup()
+ }
  try {
   for (const [name, value] of Object.entries(env)) {
    if (
@@ -23,18 +31,7 @@ export async function youtubeSignature(script: string, env: Record<string, unkno
     (typeof value === 'string' && value.length > 65536)
    )
     throw new Error('签名参数无效')
-   const handle =
-    typeof value === 'string'
-     ? context.newString(value)
-     : typeof value === 'number'
-       ? context.newNumber(value)
-       : value === true
-         ? context.true.dup()
-         : value === false
-           ? context.false.dup()
-           : value === null
-             ? context.null.dup()
-             : context.undefined.dup()
+   const handle = contextValue(context, value)
    try {
     context.setProp(context.global, name, handle)
    } finally {
@@ -74,24 +71,21 @@ export function youtubeInput(input: string) {
  const list = url.searchParams.getAll('list'),
   video = url.searchParams.getAll('v')
  if (list.length > 1 || video.length > 1) throw new Error('视频或播放列表标识有歧义')
- let id =
-  host === 'youtu.be'
-   ? url.pathname.slice(1)
-   : url.pathname === '/watch'
-     ? video[0] || ''
-     : /^\/(?:shorts|embed)\/([A-Za-z0-9_-]{11})\/?$/.exec(url.pathname)?.[1] || ''
+ let id = ''
+ if (host === 'youtu.be') id = url.pathname.slice(1)
+ else if (url.pathname === '/watch') id = video[0] || ''
+ else id = /^\/(?:shorts|embed)\/([A-Za-z0-9_-]{11})\/?$/.exec(url.pathname)?.[1] || ''
  if (
   (id && !/^[A-Za-z0-9_-]{11}$/.test(id)) ||
   (list[0] && !/^[A-Za-z0-9_-]{10,100}$/.test(list[0])) ||
   (!id && !list[0])
  )
   throw new Error('请使用具体视频或播放列表网址')
+ const listSuffix = list[0] ? '&list=' + list[0] : ''
  return {
   id,
   list: list[0] || '',
-  url: id
-   ? 'https://www.youtube.com/watch?v=' + id + (list[0] ? '&list=' + list[0] : '')
-   : 'https://www.youtube.com/playlist?list=' + list[0]
+  url: id ? 'https://www.youtube.com/watch?v=' + id + listSuffix : 'https://www.youtube.com/playlist?list=' + list[0]
  }
 }
 function checked(raw: string, media = false) {
@@ -157,7 +151,9 @@ export class NativeYoutubeCatalog {
    const title = page.info.title || 'YouTube 播放列表'
    for (let index = 0; index < 10; index++) {
     for (const item of page.items) {
-     const id = 'id' in item ? item.id : 'content_id' in item ? item.content_id : undefined
+     let id: unknown
+     if ('id' in item) id = item.id
+     else if ('content_id' in item) id = item.content_id
      if (typeof id !== 'string' || !/^[A-Za-z0-9_-]{11}$/.test(id) || seen.has(id)) continue
      seen.add(id)
      entries.push({
@@ -191,11 +187,15 @@ export class NativeYoutubeCatalog {
    )
     continue
    const url = checked(await row.decipher(yt.session.player), true),
-    codec = /codecs="([^"]+)"/.exec(row.mime_type)?.[1] || '',
-    extension = row.mime_type.includes('webm') ? 'webm' : row.has_video ? 'mp4' : 'm4a'
+    codec = /codecs="([^"]+)"/.exec(row.mime_type)?.[1] || ''
+   let extension = 'm4a',
+    kind: NativeMediaStream['kind'] = 'audio'
+   if (row.mime_type.includes('webm')) extension = 'webm'
+   else if (row.has_video) extension = 'mp4'
+   if (row.has_video) kind = row.has_audio ? 'combined' : 'video'
    streams.push({
     id: String(row.itag),
-    kind: row.has_video ? (row.has_audio ? 'combined' : 'video') : 'audio',
+    kind,
     urls: [url],
     height: row.height || 0,
     codec,

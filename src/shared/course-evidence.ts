@@ -121,22 +121,20 @@ function noteItems(
   | undefined,
  category: string
 ): EvidenceBlock<NoteItem[]> {
- const data = (items || []).map(item => ({
-  status:
-   category === '教师表态含糊'
-    ? ('uncertain' as const)
-    : item.verified === true
-      ? ('verified' as const)
-      : ('uncertain' as const),
-  quoteVerified: item.verified === true,
-  category,
-  topic: item.topic,
-  quote: item.quote,
-  timestamp: item.timestamp,
-  ...(item.detail ? {detail: item.detail} : {}),
-  ...(item.level ? {level: item.level} : {}),
-  ...(item.pptRef ? {pptRef: item.pptRef} : {})
- }))
+ const data = (items || []).map(item => {
+  const status = category === '教师表态含糊' || item.verified !== true ? ('uncertain' as const) : ('verified' as const)
+  return {
+   status,
+   quoteVerified: item.verified === true,
+   category,
+   topic: item.topic,
+   quote: item.quote,
+   timestamp: item.timestamp,
+   ...(item.detail ? {detail: item.detail} : {}),
+   ...(item.level ? {level: item.level} : {}),
+   ...(item.pptRef ? {pptRef: item.pptRef} : {})
+  }
+ })
  return {
   status: category === '教师表态含糊' && data.length ? 'uncertain' : statusForNotes(items, items !== undefined),
   note: 'verified 仅表示应用的原话/时间匹配校验通过；含糊陈述仍按其类别保留。',
@@ -164,18 +162,20 @@ function practiceItems(
   },
   ...(item.answer ? {answer: item.answer} : {}),
   answerStatus: item.answer ? ('uncertain' as const) : ('unavailable' as const),
-  ...(item.answerSource ? {answerSource: item.answerSource} : item.aiAnswer ? {answerSource: 'ai'} : {}),
+  ...(item.answerSource || item.aiAnswer ? {answerSource: item.answerSource || 'ai'} : {}),
   ...(item.answerSourceUrl ? {answerSourceUrl: item.answerSourceUrl} : {}),
   ...(item.explanation ? {explanation: item.explanation} : {}),
   ...(item.attempt ? {attempt: item.attempt} : {})
  }))
+ const status: EvidenceStatus = present && data.length ? 'uncertain' : 'unavailable'
+ let note = '当前课次没有已保存的练习题集。'
+ if (present)
+  note = data.length
+   ? '题目来源、答案和应用内作答记录照原值导出；此包不对题目或参考答案作外部真实性背书。'
+   : '练习集已保存，但当前没有题目条目。'
  return {
-  status: present ? (data.length ? 'uncertain' : 'unavailable') : 'unavailable',
-  note: present
-   ? data.length
-    ? '题目来源、答案和应用内作答记录照原值导出；此包不对题目或参考答案作外部真实性背书。'
-    : '练习集已保存，但当前没有题目条目。'
-   : '当前课次没有已保存的练习题集。',
+  status,
+  note,
   ...(data.length ? {contentHash: hash(JSON.stringify(data))} : {}),
   data
  }
@@ -262,6 +262,25 @@ export function buildCourseEvidenceBundle(
    status: 'uncertain' as const
   }))
  const coursewareStatus: EvidenceStatus = coursewareAvailable ? 'uncertain' : 'unavailable'
+ let subtitleStatus: EvidenceStatus = 'verified'
+ if (!segments.length) subtitleStatus = 'unavailable'
+ else if (correction || !allSegmentsTraceable || segments.some(segment => segment.uncertain))
+  subtitleStatus = 'uncertain'
+ let subtitleNote = '字幕来源方式或原文对照未完整保存，无法据此确认每条字幕的校订来源。'
+ if (correction) subtitleNote = '字幕校订仍在进行；覆盖字段记录已保存片段数和总片段数，不能代表全课完整。'
+ else if (allSegmentsTraceable) subtitleNote = '每条字幕都有原始文本对照且没有待核对标记；这只描述应用中的校订状态。'
+ let coursewareNote = '没有关联课件。'
+ if (coursewareAvailable)
+  coursewareNote = '包含已保存的提取文本哈希；课件文件本身不打包，且原有记录未保存逐页 OCR/置信度。'
+ else if (lecture.ppt_path) coursewareNote = '已关联课件文件，但数据库没有可导出的提取文本。'
+ let evidenceSubtitleStatus: EvidenceStatus = 'verified'
+ if (!segments.length) evidenceSubtitleStatus = 'unavailable'
+ else if (correction || segments.some(segment => segment.uncertain) || !allSegmentsTraceable)
+  evidenceSubtitleStatus = 'uncertain'
+ const noteBlocks = [notesKeyPoints, notesNotTested, notesUncertain]
+ let notesStatus: EvidenceStatus = 'verified'
+ if (!notesPresent || noteBlocks.every(block => block.status === 'unavailable')) notesStatus = 'unavailable'
+ else if (noteBlocks.some(block => block.status === 'uncertain')) notesStatus = 'uncertain'
 
  return {
   schemaVersion: '1.0.0',
@@ -292,26 +311,14 @@ export function buildCourseEvidenceBundle(
     }
    },
    subtitles: {
-    status: !segments.length
-     ? 'unavailable'
-     : correction || !allSegmentsTraceable || segments.some(segment => segment.uncertain)
-       ? 'uncertain'
-       : 'verified',
-    note: correction
-     ? '字幕校订仍在进行；覆盖字段记录已保存片段数和总片段数，不能代表全课完整。'
-     : allSegmentsTraceable
-       ? '每条字幕都有原始文本对照且没有待核对标记；这只描述应用中的校订状态。'
-       : '字幕来源方式或原文对照未完整保存，无法据此确认每条字幕的校订来源。',
+    status: subtitleStatus,
+    note: subtitleNote,
     ...(segments.length ? {contentHash: subtitleHash} : {}),
     data: {segmentCount: segments.length, complete: subtitlesComplete}
    },
    courseware: {
     status: coursewareStatus,
-    note: coursewareAvailable
-     ? '包含已保存的提取文本哈希；课件文件本身不打包，且原有记录未保存逐页 OCR/置信度。'
-     : lecture.ppt_path
-       ? '已关联课件文件，但数据库没有可导出的提取文本。'
-       : '没有关联课件。',
+    note: coursewareNote,
     ...(coursewareHash ? {contentHash: coursewareHash} : {}),
     data: {
      ...(lecture.ppt_path ? {filename: filename(lecture.ppt_path)} : {}),
@@ -332,11 +339,7 @@ export function buildCourseEvidenceBundle(
   },
   evidence: {
    subtitles: {
-    status: !segments.length
-     ? 'unavailable'
-     : correction || segments.some(segment => segment.uncertain) || !allSegmentsTraceable
-       ? 'uncertain'
-       : 'verified',
+    status: evidenceSubtitleStatus,
     note: correction
      ? '当前为部分校订快照，必须结合 coverage.completed/total 阅读。'
      : 'verified 表示存在原文对照且应用未标记待核对，不代表独立人工听审。',
@@ -344,12 +347,7 @@ export function buildCourseEvidenceBundle(
     data: subtitleData
    },
    notes: {
-    status:
-     !notesPresent || [notesKeyPoints, notesNotTested, notesUncertain].every(block => block.status === 'unavailable')
-      ? 'unavailable'
-      : [notesKeyPoints, notesNotTested, notesUncertain].some(block => block.status === 'uncertain')
-        ? 'uncertain'
-        : 'verified',
+    status: notesStatus,
     note: notesPresent
      ? '各类别保留独立状态及原句时间；verified 仅表示应用内匹配校验通过。'
      : '当前课次没有已保存的课程笔记。',
