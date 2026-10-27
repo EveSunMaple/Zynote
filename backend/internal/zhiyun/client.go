@@ -79,15 +79,71 @@ func numberValue(value any) float64 {
 	return 0
 }
 
-func (client *Client) request(ctx context.Context, path string, params map[string]string) (map[string]any, error) {
-	target := client.Base + path
-	if len(params) > 0 {
-		pairs := []string{}
-		for key, value := range params {
-			pairs = append(pairs, urlEncode(key)+"="+urlEncode(value))
-		}
-		target += "?" + strings.Join(pairs, "&")
+func buildTarget(base, path string, params map[string]string) string {
+	target := base + path
+	if len(params) == 0 {
+		return target
 	}
+	pairs := []string{}
+	for key, value := range params {
+		pairs = append(pairs, urlEncode(key)+"="+urlEncode(value))
+	}
+	return target + "?" + strings.Join(pairs, "&")
+}
+
+func applySessionHeaders(request *http.Request, session Session) {
+	if session.Cookie != "" {
+		request.Header.Set("Cookie", session.Cookie)
+	}
+	if session.Authorization != "" {
+		request.Header.Set("Authorization", session.Authorization)
+	}
+	request.Header.Set("User-Agent", "Mozilla/5.0")
+}
+
+func waitRequestRetry(ctx context.Context, attempt int) error {
+	if attempt >= 2 {
+		return nil
+	}
+	timer := time.NewTimer(time.Duration(500*(attempt+1)) * time.Millisecond)
+	select {
+	case <-timer.C:
+		return nil
+	case <-ctx.Done():
+		timer.Stop()
+		return ctx.Err()
+	}
+}
+
+func readZhiyunResponse(response *http.Response) (map[string]any, bool, error) {
+	body, err := io.ReadAll(io.LimitReader(response.Body, 4*1024*1024))
+	response.Body.Close()
+	if err != nil {
+		return nil, true, nil
+	}
+	if response.StatusCode == 401 || response.StatusCode == 403 {
+		return nil, false, fmt.Errorf("请先登录智云课堂，再重试")
+	}
+	if response.StatusCode < 200 || response.StatusCode >= 300 {
+		return nil, false, fmt.Errorf("智云课堂暂时无法访问（%d）", response.StatusCode)
+	}
+	var value map[string]any
+	if err := json.Unmarshal(body, &value); err != nil {
+		if strings.Contains(strings.ToLower(response.Header.Get("Content-Type")), "text/html") ||
+			strings.HasPrefix(strings.TrimSpace(string(bytes.TrimSpace(body))), "<") {
+			return nil, false, fmt.Errorf("智云课堂返回了登录页，请先登录")
+		}
+		return nil, false, fmt.Errorf("智云课堂响应格式异常，请稍后重试")
+	}
+	code := int(numberValue(value["code"]))
+	if code == 5002 || code == 401 || code == 403 {
+		return nil, false, fmt.Errorf("请先登录智云课堂，再重试")
+	}
+	return value, false, nil
+}
+
+func (client *Client) request(ctx context.Context, path string, params map[string]string) (map[string]any, error) {
+	target := buildTarget(client.Base, path, params)
 	for attempt := 0; attempt <= 2; attempt++ {
 		if ctx.Err() != nil {
 			return nil, ctx.Err()
@@ -96,48 +152,20 @@ func (client *Client) request(ctx context.Context, path string, params map[strin
 		if err != nil {
 			return nil, fmt.Errorf("智云课堂地址无效")
 		}
-		if client.Session.Cookie != "" {
-			request.Header.Set("Cookie", client.Session.Cookie)
-		}
-		if client.Session.Authorization != "" {
-			request.Header.Set("Authorization", client.Session.Authorization)
-		}
-		request.Header.Set("User-Agent", "Mozilla/5.0")
+		applySessionHeaders(request, client.Session)
 		response, err := client.HTTP.Do(request)
 		if err != nil {
-			if attempt < 2 {
-				timer := time.NewTimer(time.Duration(500*(attempt+1)) * time.Millisecond)
-				select {
-				case <-timer.C:
-				case <-ctx.Done():
-					timer.Stop()
-					return nil, ctx.Err()
-				}
+			if err := waitRequestRetry(ctx, attempt); err != nil {
+				return nil, err
 			}
 			continue
 		}
-		body, err := io.ReadAll(io.LimitReader(response.Body, 4*1024*1024))
-		response.Body.Close()
+		value, retry, err := readZhiyunResponse(response)
+		if retry {
+			continue
+		}
 		if err != nil {
-			continue
-		}
-		if response.StatusCode == 401 || response.StatusCode == 403 {
-			return nil, fmt.Errorf("请先登录智云课堂，再重试")
-		}
-		if response.StatusCode < 200 || response.StatusCode >= 300 {
-			return nil, fmt.Errorf("智云课堂暂时无法访问（%d）", response.StatusCode)
-		}
-		var value map[string]any
-		if err := json.Unmarshal(body, &value); err != nil {
-			if strings.Contains(strings.ToLower(response.Header.Get("Content-Type")), "text/html") ||
-				strings.HasPrefix(strings.TrimSpace(string(bytes.TrimSpace(body))), "<") {
-				return nil, fmt.Errorf("智云课堂返回了登录页，请先登录")
-			}
-			return nil, fmt.Errorf("智云课堂响应格式异常，请稍后重试")
-		}
-		code := int(numberValue(value["code"]))
-		if code == 5002 || code == 401 || code == 403 {
-			return nil, fmt.Errorf("请先登录智云课堂，再重试")
+			return nil, err
 		}
 		return value, nil
 	}
@@ -161,30 +189,19 @@ func urlEncode(value string) string {
 	return strings.Join(escaped, "")
 }
 
-func (client *Client) Search(ctx context.Context, keyword string, page int) (map[string]any, error) {
-	user, err := client.request(ctx, "/userapi/v1/infosimple", nil)
-	if err != nil {
-		return nil, err
-	}
-	account, _ := user["params"].(map[string]any)
-	if stringValue(account["id"]) == "" || stringValue(account["account"]) == "" {
-		return nil, fmt.Errorf("请先在左侧智云登录页面完成登录，再重试搜索")
-	}
+func searchParams(account map[string]any, keyword string, page int) map[string]string {
 	tenant := stringValue(account["tenant_id"])
 	if tenant == "" {
 		tenant = "112"
 	}
-	data, err := client.request(ctx, "/pptnote/v1/searchlist", map[string]string{
+	return map[string]string{
 		"tenant_id": tenant, "tenant_code": tenant, "user_id": stringValue(account["id"]),
 		"user_name": stringValue(account["account"]), "title": keyword, "realname": "", "trans": "",
 		"page": strconv.Itoa(page), "per_page": "20",
-	})
-	if err != nil {
-		return nil, err
 	}
-	if int(numberValue(data["code"])) != 0 {
-		return nil, fmt.Errorf("搜索失败，请在智云课堂确认登录后重试")
-	}
+}
+
+func searchRows(data map[string]any) (map[string]any, []any, error) {
 	result := data
 	if total, ok := data["total"].(map[string]any); ok {
 		if _, ok := total["list"]; ok {
@@ -196,12 +213,36 @@ func (client *Client) Search(ctx context.Context, keyword string, page int) (map
 			result = value
 		}
 	}
-	rows := []any{}
 	if list, ok := result["list"].([]any); ok {
-		rows = list
-	} else if result["list"] != nil {
-		return nil, fmt.Errorf("智云课堂搜索返回格式异常，请稍后重试")
+		return result, list, nil
 	}
+	if result["list"] != nil {
+		return nil, nil, fmt.Errorf("智云课堂搜索返回格式异常，请稍后重试")
+	}
+	return result, []any{}, nil
+}
+
+func firstValue(values ...string) string {
+	for _, value := range values {
+		if value != "" {
+			return value
+		}
+	}
+	return ""
+}
+
+func courseFromRow(row map[string]any) (Course, bool) {
+	id := firstValue(stringValue(row["course_id"]), stringValue(row["id"]))
+	if !digitsPattern.MatchString(id) || stringValue(row["c_type"]) == "recommend" {
+		return Course{}, false
+	}
+	title := firstValue(stringValue(row["title"]), stringValue(row["course_title"]), "未命名课程")
+	teacher := firstValue(stringValue(row["lecturer_name"]), stringValue(row["realname"]), stringValue(row["teacher"]))
+	term := firstValue(stringValue(row["term_name"]), stringValue(row["term_names"]))
+	return Course{ID: id, Title: title, Teacher: teacher, Term: term}, true
+}
+
+func searchCourses(rows []any) []Course {
 	courses := []Course{}
 	seen := map[string]bool{}
 	for _, item := range rows {
@@ -209,37 +250,90 @@ func (client *Client) Search(ctx context.Context, keyword string, page int) (map
 		if row == nil {
 			continue
 		}
-		id := stringValue(row["course_id"])
-		if id == "" {
-			id = stringValue(row["id"])
-		}
-		if !digitsPattern.MatchString(id) || stringValue(row["c_type"]) == "recommend" || seen[id] {
+		course, ok := courseFromRow(row)
+		if !ok || seen[course.ID] {
 			continue
 		}
-		seen[id] = true
-		title := stringValue(row["title"])
-		if title == "" {
-			title = stringValue(row["course_title"])
-		}
-		if title == "" {
-			title = "未命名课程"
-		}
-		teacher := stringValue(row["lecturer_name"])
-		if teacher == "" {
-			teacher = stringValue(row["realname"])
-		}
-		if teacher == "" {
-			teacher = stringValue(row["teacher"])
-		}
-		term := stringValue(row["term_name"])
-		if term == "" {
-			term = stringValue(row["term_names"])
-		}
-		courses = append(courses, Course{ID: id, Title: title, Teacher: teacher, Term: term})
+		seen[course.ID] = true
+		courses = append(courses, course)
+	}
+	return courses
+}
+
+func (client *Client) Search(ctx context.Context, keyword string, page int) (map[string]any, error) {
+	user, err := client.request(ctx, "/userapi/v1/infosimple", nil)
+	if err != nil {
+		return nil, err
+	}
+	account, _ := user["params"].(map[string]any)
+	if stringValue(account["id"]) == "" || stringValue(account["account"]) == "" {
+		return nil, fmt.Errorf("请先在左侧智云登录页面完成登录，再重试搜索")
+	}
+	data, err := client.request(ctx, "/pptnote/v1/searchlist", searchParams(account, keyword, page))
+	if err != nil {
+		return nil, err
+	}
+	if int(numberValue(data["code"])) != 0 {
+		return nil, fmt.Errorf("搜索失败，请在智云课堂确认登录后重试")
+	}
+	result, rows, err := searchRows(data)
+	if err != nil {
+		return nil, err
 	}
 	return map[string]any{
-		"courses": courses, "hasMore": float64(page*20) < numberValue(result["total"]),
+		"courses": searchCourses(rows), "hasMore": float64(page*20) < numberValue(result["total"]),
 	}, nil
+}
+
+func lessonID(row map[string]any) string {
+	return firstValue(stringValue(row["sub_id"]), stringValue(row["id"]))
+}
+
+func lessonContent(row map[string]any) (map[string]any, error) {
+	switch raw := row["content"].(type) {
+	case string:
+		content := map[string]any{}
+		if err := json.Unmarshal([]byte(raw), &content); err != nil {
+			return nil, fmt.Errorf("智云课次播放信息损坏，请刷新课次列表后重试")
+		}
+		return content, nil
+	case map[string]any:
+		return raw, nil
+	case nil:
+		return map[string]any{}, nil
+	default:
+		return nil, fmt.Errorf("智云课次播放信息格式异常，请刷新课次列表后重试")
+	}
+}
+
+func lessonPlaybackURL(content map[string]any) string {
+	url := ""
+	if playback, ok := content["save_playback"].(map[string]any); ok {
+		url = stringValue(playback["contents"])
+	}
+	if url != "" {
+		return url
+	}
+	if playback, ok := content["playback"].(map[string]any); ok {
+		return stringValue(playback["url"])
+	}
+	return ""
+}
+
+func lessonFromRow(row map[string]any) (Lesson, bool, error) {
+	id := lessonID(row)
+	if !digitsPattern.MatchString(id) {
+		return Lesson{}, false, nil
+	}
+	content, err := lessonContent(row)
+	if err != nil {
+		return Lesson{}, false, err
+	}
+	title := firstValue(stringValue(row["title"]), stringValue(row["sub_title"]), "未命名课次")
+	return Lesson{
+		ID: id, Title: title, Teacher: stringValue(row["lecturer_name"]),
+		VideoAvailable: lessonPlaybackURL(content) != "",
+	}, true, nil
 }
 
 func (client *Client) Lessons(ctx context.Context, courseID string) ([]Lesson, error) {
@@ -263,42 +357,13 @@ func (client *Client) Lessons(ctx context.Context, courseID string) ([]Lesson, e
 		if row == nil {
 			continue
 		}
-		id := stringValue(row["sub_id"])
-		if id == "" {
-			id = stringValue(row["id"])
+		lesson, ok, err := lessonFromRow(row)
+		if err != nil {
+			return nil, err
 		}
-		if !digitsPattern.MatchString(id) {
-			continue
+		if ok {
+			lessons = append(lessons, lesson)
 		}
-		content := map[string]any{}
-		if raw, ok := row["content"].(string); ok {
-			if err := json.Unmarshal([]byte(raw), &content); err != nil {
-				return nil, fmt.Errorf("智云课次播放信息损坏，请刷新课次列表后重试")
-			}
-		} else if value, ok := row["content"].(map[string]any); ok {
-			content = value
-		} else if row["content"] != nil {
-			return nil, fmt.Errorf("智云课次播放信息格式异常，请刷新课次列表后重试")
-		}
-		url := ""
-		if playback, ok := content["save_playback"].(map[string]any); ok {
-			url = stringValue(playback["contents"])
-		}
-		if url == "" {
-			if playback, ok := content["playback"].(map[string]any); ok {
-				url = stringValue(playback["url"])
-			}
-		}
-		title := stringValue(row["title"])
-		if title == "" {
-			title = stringValue(row["sub_title"])
-		}
-		if title == "" {
-			title = "未命名课次"
-		}
-		lessons = append(lessons, Lesson{
-			ID: id, Title: title, Teacher: stringValue(row["lecturer_name"]), VideoAvailable: url != "",
-		})
 	}
 	return lessons, nil
 }
@@ -339,31 +404,17 @@ func (client *Client) lessonVideoURLs(ctx context.Context, courseID string) (map
 		if row == nil {
 			continue
 		}
-		id := stringValue(row["sub_id"])
-		if id == "" {
-			id = stringValue(row["id"])
+		id := lessonID(row)
+		content, err := lessonContent(row)
+		if err != nil {
+			continue
 		}
-		content := map[string]any{}
-		if raw, ok := row["content"].(string); ok {
-			if json.Unmarshal([]byte(raw), &content) != nil {
-				continue
-			}
-		} else if value, ok := row["content"].(map[string]any); ok {
-			content = value
+		url := lessonPlaybackURL(content)
+		if id == "" || url == "" {
+			continue
 		}
-		url := ""
-		if playback, ok := content["save_playback"].(map[string]any); ok {
-			url = stringValue(playback["contents"])
-		}
-		if url == "" {
-			if playback, ok := content["playback"].(map[string]any); ok {
-				url = stringValue(playback["url"])
-			}
-		}
-		if id != "" && url != "" {
-			if checked, err := mediaURL(client.Base, url); err == nil {
-				urls[id] = checked
-			}
+		if checked, err := mediaURL(client.Base, url); err == nil {
+			urls[id] = checked
 		}
 	}
 	return urls, nil
@@ -385,27 +436,83 @@ func extensionAllowed(filename, kind string) bool {
 	return strings.HasSuffix(lower, ".docx") || strings.HasSuffix(lower, ".txt") || strings.HasSuffix(lower, ".srt")
 }
 
+func findLesson(lessons []Lesson, subID string) *Lesson {
+	for index := range lessons {
+		if lessons[index].ID == subID {
+			return &lessons[index]
+		}
+	}
+	return nil
+}
+
+func resourceLabel(kind string) (label, exportType string) {
+	if kind == "ppt" {
+		return "PPT", "1"
+	}
+	return "语音识别原文", "2"
+}
+
+func resourceFilename(lesson *Lesson, kind string) string {
+	filename := stringValue(lesson.Title)
+	if kind == "ppt" {
+		return filename + ".pptx"
+	}
+	return filename + ".docx"
+}
+
+func resourceFromStatus(data map[string]any, lesson *Lesson, kind, base string) (Resource, bool, error) {
+	if int(numberValue(data["code"])) != 0 {
+		return Resource{}, false, nil
+	}
+	result, _ := data["data"].(map[string]any)
+	if result == nil || stringValue(result["path_name"]) == "" {
+		return Resource{}, false, nil
+	}
+	filename := firstValue(stringValue(result["file_name"]), resourceFilename(lesson, kind))
+	if !extensionAllowed(filename, kind) {
+		return Resource{}, false, fmt.Errorf("官网返回的文件格式暂不支持")
+	}
+	checked, err := mediaURL(base, stringValue(result["path_name"]))
+	if err != nil {
+		return Resource{}, false, err
+	}
+	return Resource{URL: checked, Filename: filename}, true, nil
+}
+
+func (client *Client) startCoursewareExport(ctx context.Context, subID, exportType, label string) error {
+	result, err := client.request(ctx, "/courseapi/v2/export/export-async", map[string]string{
+		"sub_id": subID, "export_type": "courseware", "type": exportType,
+	})
+	if err != nil {
+		return err
+	}
+	if int(numberValue(result["code"])) != 0 {
+		return fmt.Errorf("智云课堂未能生成%s", label)
+	}
+	return nil
+}
+
+func waitResource(ctx context.Context) error {
+	timer := time.NewTimer(10 * time.Second)
+	defer timer.Stop()
+	select {
+	case <-timer.C:
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+}
+
 func (client *Client) Resource(ctx context.Context, courseID, subID, kind string) (Resource, error) {
 	lessons, err := client.Lessons(ctx, courseID)
 	if err != nil {
 		return Resource{}, err
 	}
-	var lesson *Lesson
-	for index := range lessons {
-		if lessons[index].ID == subID {
-			lesson = &lessons[index]
-			break
-		}
-	}
+	lesson := findLesson(lessons, subID)
 	if lesson == nil {
 		return Resource{}, fmt.Errorf("没有找到所选课次，请重新选择")
 	}
-	label := "语音识别原文"
-	exportType := "2"
-	if kind == "ppt" {
-		label = "PPT"
-		exportType = "1"
-	}
+	label, exportType := resourceLabel(kind)
 	created := false
 	for attempt := 0; attempt < 60; attempt++ {
 		if err := ctx.Err(); err != nil {
@@ -417,88 +524,57 @@ func (client *Client) Resource(ctx context.Context, courseID, subID, kind string
 		if err != nil {
 			return Resource{}, err
 		}
-		code := int(numberValue(data["code"]))
-		if code == 0 {
-			result, _ := data["data"].(map[string]any)
-			if result != nil && stringValue(result["path_name"]) != "" {
-				filename := stringValue(result["file_name"])
-				if filename == "" {
-					filename = lesson.Title
-					if kind == "ppt" {
-						filename += ".pptx"
-					} else {
-						filename += ".docx"
-					}
-				}
-				if !extensionAllowed(filename, kind) {
-					return Resource{}, fmt.Errorf("官网返回的文件格式暂不支持")
-				}
-				checked, err := mediaURL(client.Base, stringValue(result["path_name"]))
-				if err != nil {
-					return Resource{}, err
-				}
-				return Resource{URL: checked, Filename: filename}, nil
-			}
+		resource, found, err := resourceFromStatus(data, lesson, kind, client.Base)
+		if err != nil {
+			return Resource{}, err
 		}
+		if found {
+			return resource, nil
+		}
+		code := int(numberValue(data["code"]))
 		if code != 1 && code != 200 {
 			return Resource{}, fmt.Errorf("本课次暂无可导出的%s", label)
 		}
 		if !created {
-			result, err := client.request(ctx, "/courseapi/v2/export/export-async", map[string]string{
-				"sub_id": subID, "export_type": "courseware", "type": exportType,
-			})
-			if err != nil {
+			if err := client.startCoursewareExport(ctx, subID, exportType, label); err != nil {
 				return Resource{}, err
-			}
-			if int(numberValue(result["code"])) != 0 {
-				return Resource{}, fmt.Errorf("智云课堂未能生成%s", label)
 			}
 			created = true
 		}
 		if client.Progress != nil {
 			client.Progress(fmt.Sprintf("智云课堂正在生成%s…", label))
 		}
-		timer := time.NewTimer(10 * time.Second)
-		select {
-		case <-timer.C:
-		case <-ctx.Done():
-			timer.Stop()
-			return Resource{}, ctx.Err()
+		if err := waitResource(ctx); err != nil {
+			return Resource{}, err
 		}
 	}
 	return Resource{}, fmt.Errorf("%s生成超时，请稍后再试", label)
 }
 
-func (client *Client) Download(ctx context.Context, value, destination string) error {
-	checked, err := mediaURL(client.Base, value)
-	if err != nil {
-		return err
-	}
-	partial := destination + ".part-" + strings.ReplaceAll(NewSessionID(), "-", "")
+func openResourceDownload(ctx context.Context, client *Client, checked string) (*http.Response, error) {
 	request, err := http.NewRequestWithContext(ctx, http.MethodGet, checked, nil)
 	if err != nil {
-		return fmt.Errorf("资源下载失败")
+		return nil, fmt.Errorf("资源下载失败")
 	}
-	if client.Session.Cookie != "" {
-		request.Header.Set("Cookie", client.Session.Cookie)
-	}
-	if client.Session.Authorization != "" {
-		request.Header.Set("Authorization", client.Session.Authorization)
-	}
-	request.Header.Set("User-Agent", "Mozilla/5.0")
+	applySessionHeaders(request, client.Session)
 	downloader := &http.Client{Transport: client.HTTP.Transport}
 	response, err := downloader.Do(request)
 	if err != nil {
-		return fmt.Errorf("资源下载失败")
+		return nil, fmt.Errorf("资源下载失败")
 	}
-	defer response.Body.Close()
 	if response.StatusCode < 200 || response.StatusCode >= 300 {
-		return fmt.Errorf("资源下载失败（%d）", response.StatusCode)
+		response.Body.Close()
+		return nil, fmt.Errorf("资源下载失败（%d）", response.StatusCode)
 	}
 	contentType := strings.ToLower(response.Header.Get("Content-Type"))
 	if strings.Contains(contentType, "text/html") || strings.Contains(contentType, "application/json") {
-		return fmt.Errorf("资源返回了登录页，请先登录智云课堂")
+		response.Body.Close()
+		return nil, fmt.Errorf("资源返回了登录页，请先登录智云课堂")
 	}
+	return response, nil
+}
+
+func writeResourceBody(response *http.Response, partial string, progress func(string)) error {
 	file, err := os.OpenFile(partial, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o644)
 	if err != nil {
 		return fmt.Errorf("资源下载失败")
@@ -516,17 +592,17 @@ func (client *Client) Download(ctx context.Context, value, destination string) e
 				return fmt.Errorf("资源下载失败")
 			}
 			written += int64(read)
-			if client.Progress != nil && time.Since(last) > 500*time.Millisecond {
+			if progress != nil && time.Since(last) > 500*time.Millisecond {
 				last = time.Now()
 				message := fmt.Sprintf("已下载 %.1f MB", float64(written)/1048576)
 				if total > 0 {
 					message += fmt.Sprintf(" / %.1f MB", float64(total)/1048576)
 				}
-				client.Progress(message)
+				progress(message)
 			}
 		}
 		if readErr != nil {
-			if readErr.Error() == "EOF" {
+			if readErr == io.EOF {
 				break
 			}
 			file.Close()
@@ -541,6 +617,23 @@ func (client *Client) Download(ctx context.Context, value, destination string) e
 	if written == 0 || (total > 0 && written != total) {
 		_ = os.Remove(partial)
 		return fmt.Errorf("下载文件不完整，请重试")
+	}
+	return nil
+}
+
+func (client *Client) Download(ctx context.Context, value, destination string) error {
+	checked, err := mediaURL(client.Base, value)
+	if err != nil {
+		return err
+	}
+	partial := destination + ".part-" + strings.ReplaceAll(NewSessionID(), "-", "")
+	response, err := openResourceDownload(ctx, client, checked)
+	if err != nil {
+		return err
+	}
+	defer response.Body.Close()
+	if err := writeResourceBody(response, partial, client.Progress); err != nil {
+		return err
 	}
 	if err := os.Rename(partial, destination); err != nil {
 		_ = os.Remove(partial)
