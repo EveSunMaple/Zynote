@@ -109,6 +109,69 @@ export class NativeResearchStore {
    capacity: {used: rows.length, limit: 100, remaining: Math.max(0, 100 - rows.length)}
   }
  }
+ private memoryPrior(value: {memory_id: string | null; revision: number}, deleting: boolean) {
+  if (!value.memory_id) {
+   if (value.revision !== 0 || deleting) throw new Error('新记忆的版本无效')
+   return undefined
+  }
+  const prior = memorySchema.parse(this.read('memory', value.memory_id))
+  if (prior.deleted || prior.revision !== value.revision) throw new Error('记忆版本已改变，请刷新后保存')
+  return prior
+ }
+ private deleteMemory(id: string, prior: StoredMemory, revision: number, now: number) {
+  this.put('memory', id, revision, {
+   ...prior,
+   title: '',
+   body: '',
+   source_task: null,
+   revision,
+   updated_at: now,
+   deleted: true
+  })
+  for (const kind of ['legacy:learning_memories', 'legacy:learning_memory_availability'])
+   for (const row of this.db.prepare('SELECT id,json FROM research_records WHERE kind=?').all(kind) as {
+    id: string
+    json: string
+   }[]) {
+    if (JSON.parse(row.json).memory_id === id)
+     this.db.prepare('DELETE FROM research_records WHERE kind=? AND id=?').run(kind, row.id)
+   }
+  return {memory_id: id, revision, deleted: true}
+ }
+ private saveMemory(
+  value: {
+   memory_id: string | null
+   kind?: 'preference' | 'progress' | 'correction'
+   title?: string
+   body?: string
+   source_task?: string | null
+   paused?: boolean
+   expires_at?: number | null
+  },
+  id: string,
+  prior: StoredMemory | undefined,
+  revision: number,
+  now: number
+ ) {
+  if (!value.kind || !value.title || !value.body) throw new Error('记忆类型、标题和正文不能为空')
+  if (value.source_task && value.source_task !== prior?.source_task)
+   throw new Error('记忆来源必须由已核验的研究结果确认，不接受任意任务编号')
+  const next = memorySchema.parse({
+   memory_id: id,
+   revision,
+   kind: value.kind,
+   title: value.title,
+   body: value.body,
+   source_task: value.source_task ?? prior?.source_task ?? null,
+   paused: value.paused ?? prior?.paused ?? false,
+   expires_at: value.expires_at === undefined ? (prior?.expires_at ?? null) : value.expires_at,
+   created_at: prior?.created_at ?? now,
+   updated_at: now,
+   deleted: false
+  })
+  this.put('memory', id, revision, next)
+  return {memory_id: id, revision, deleted: false}
+ }
  changeMemory(input: unknown, deleting = false) {
   const value = z
    .object({
@@ -125,53 +188,13 @@ export class NativeResearchStore {
    .strict()
    .parse(input)
   return this.operation(value.op_id, {deleting, ...value}, () => {
-   let prior: StoredMemory | undefined
-   if (value.memory_id) {
-    prior = memorySchema.parse(this.read('memory', value.memory_id))
-    if (prior.deleted || prior.revision !== value.revision) throw new Error('记忆版本已改变，请刷新后保存')
-   } else if (value.revision !== 0 || deleting) throw new Error('新记忆的版本无效')
+   const prior = this.memoryPrior(value, deleting)
    if (!prior && this.memories().capacity.used >= 100) throw new Error('学习记忆最多保存100条')
    const now = Date.now() / 1000,
     id = value.memory_id || randomUUID().replaceAll('-', ''),
     revision = value.revision + 1
-   if (deleting) {
-    this.put('memory', id, revision, {
-     ...prior!,
-     title: '',
-     body: '',
-     source_task: null,
-     revision,
-     updated_at: now,
-     deleted: true
-    })
-    for (const kind of ['legacy:learning_memories', 'legacy:learning_memory_availability'])
-     for (const row of this.db.prepare('SELECT id,json FROM research_records WHERE kind=?').all(kind) as {
-      id: string
-      json: string
-     }[]) {
-      if (JSON.parse(row.json).memory_id === id)
-       this.db.prepare('DELETE FROM research_records WHERE kind=? AND id=?').run(kind, row.id)
-     }
-    return {memory_id: id, revision, deleted: true}
-   }
-   if (!value.kind || !value.title || !value.body) throw new Error('记忆类型、标题和正文不能为空')
-   if (value.source_task && value.source_task !== prior?.source_task)
-    throw new Error('记忆来源必须由已核验的研究结果确认，不接受任意任务编号')
-   const next = memorySchema.parse({
-    memory_id: id,
-    revision,
-    kind: value.kind,
-    title: value.title,
-    body: value.body,
-    source_task: value.source_task ?? prior?.source_task ?? null,
-    paused: value.paused ?? prior?.paused ?? false,
-    expires_at: value.expires_at === undefined ? (prior?.expires_at ?? null) : value.expires_at,
-    created_at: prior?.created_at ?? now,
-    updated_at: now,
-    deleted: false
-   })
-   this.put('memory', id, revision, next)
-   return {memory_id: id, revision, deleted: false}
+   if (deleting) return this.deleteMemory(id, prior!, revision, now)
+   return this.saveMemory(value, id, prior, revision, now)
   })
  }
  createConversation(title: string) {
