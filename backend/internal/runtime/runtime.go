@@ -173,93 +173,107 @@ func checkRegular(root, relative string, size int64, digest, mode string) (bool,
 	return true, ""
 }
 
-func CheckStatus(resourcesRoot, version string) Status {
-	manifest, err := readManifest(filepath.Join(resourcesRoot, "runtime-manifest.json"))
-	if err != nil {
-		return Status{Version: version, Validation: "invalid", Reason: err.Error(), Components: []StatusComponent{}}
+func invalidStatus(version, reason string) Status {
+	return Status{Version: version, Validation: "invalid", Reason: reason, Components: []StatusComponent{}}
+}
+
+func legacyComponentInstalled(resourcesRoot string, component Component) bool {
+	if len(component.Files) == 0 {
+		return false
 	}
-	if manifest.Schema == 2 {
-		return statusV2(resourcesRoot, version, manifest)
+	for _, item := range component.Files {
+		target, err := contained(filepath.Join(resourcesRoot, component.Directory), item.Path)
+		if err != nil {
+			return false
+		}
+		if _, err := os.Lstat(target); err != nil {
+			return false
+		}
 	}
-	if manifest.Schema != 1 {
-		return Status{Version: version, Validation: "invalid", Reason: "组件清单格式或应用版本不符", Components: []StatusComponent{}}
-	}
-	if manifest.ProductVersion != version || len(manifest.Components) > 10 {
-		return Status{Version: version, Validation: "invalid", Reason: "组件清单格式或应用版本不符", Components: []StatusComponent{}}
-	}
+	return true
+}
+
+func legacyStatus(resourcesRoot, version string, manifest Manifest) Status {
 	status := Status{Version: version, Validation: "legacy", Components: []StatusComponent{}}
 	for _, component := range manifest.Components {
-		installed := len(component.Files) > 0
-		for _, item := range component.Files {
-			target, err := contained(filepath.Join(resourcesRoot, component.Directory), item.Path)
-			if err != nil {
-				installed = false
-				break
-			}
-			if _, err := os.Lstat(target); err != nil {
-				installed = false
-				break
-			}
-		}
 		status.Components = append(status.Components, StatusComponent{
-			ID: component.ID, Label: component.Label, Bytes: component.Bytes, Installed: installed, Validation: "legacy",
+			ID: component.ID, Label: component.Label, Bytes: component.Bytes,
+			Installed: legacyComponentInstalled(resourcesRoot, component), Validation: "legacy",
 		})
 	}
 	return status
 }
 
+func CheckStatus(resourcesRoot, version string) Status {
+	manifest, err := readManifest(filepath.Join(resourcesRoot, "runtime-manifest.json"))
+	if err != nil {
+		return invalidStatus(version, err.Error())
+	}
+	if manifest.Schema == 2 {
+		return statusV2(resourcesRoot, version, manifest)
+	}
+	if manifest.Schema != 1 {
+		return invalidStatus(version, "组件清单格式或应用版本不符")
+	}
+	if manifest.ProductVersion != version || len(manifest.Components) > 10 {
+		return invalidStatus(version, "组件清单格式或应用版本不符")
+	}
+	return legacyStatus(resourcesRoot, version, manifest)
+}
+
+func validV2Component(component Component, manifest Manifest, ids, directories map[string]bool) bool {
+	if !idPattern.MatchString(component.ID) || ids[component.ID] || !relativePath(component.Directory) ||
+		directories[strings.ToLower(component.Directory)] {
+		return false
+	}
+	ids[component.ID] = true
+	directories[strings.ToLower(component.Directory)] = true
+	return component.Target.Platform == manifest.Target.Platform && component.Target.Arch == manifest.Target.Arch
+}
+
+func v2ComponentState(resourcesRoot string, component Component, compatible bool) (string, string) {
+	if !compatible {
+		return "unsupported_target", "组件目标与当前系统或架构不符"
+	}
+	validation, reason := "verified", "文件完整性与权限已校验；v2 安装尚未开放"
+	total := int64(0)
+	paths := map[string]bool{}
+	base, _ := contained(resourcesRoot, component.Directory)
+	for _, file := range component.Files {
+		total += file.Size
+		if !relativePath(file.Path) || paths[strings.ToLower(file.Path)] {
+			validation, reason = "invalid", errRuntimeIntegrity
+			break
+		}
+		paths[strings.ToLower(file.Path)] = true
+		ok, why := checkRegular(base, file.Path, file.Size, file.SHA256, file.Mode)
+		if !ok {
+			validation, reason = "invalid", why
+			if strings.Contains(why, "缺失") {
+				validation = "missing"
+			}
+			break
+		}
+	}
+	if total != component.Bytes {
+		validation, reason = "invalid", errRuntimeIntegrity
+	}
+	return validation, reason
+}
+
 func statusV2(resourcesRoot, version string, manifest Manifest) Status {
 	if manifest.ProductVersion != version || len(manifest.Components) == 0 || len(manifest.Components) > 10 {
-		return Status{Version: version, Validation: "invalid", Reason: errRuntimeManifest, Components: []StatusComponent{}}
+		return invalidStatus(version, errRuntimeManifest)
 	}
 	ids := map[string]bool{}
 	directories := map[string]bool{}
 	compatible := manifest.Target.Platform == targetPlatform() && manifest.Target.Arch == targetArch()
 	status := Status{Version: version, Components: []StatusComponent{}}
 	for _, component := range manifest.Components {
-		if !idPattern.MatchString(component.ID) || ids[component.ID] || !relativePath(component.Directory) ||
-			directories[strings.ToLower(component.Directory)] {
-			return Status{Version: version, Validation: "invalid", Reason: errRuntimeManifest, Components: []StatusComponent{}}
+		if !validV2Component(component, manifest, ids, directories) {
+			return invalidStatus(version, errRuntimeManifest)
 		}
-		ids[component.ID] = true
-		directories[strings.ToLower(component.Directory)] = true
-		if component.Target.Platform != manifest.Target.Platform || component.Target.Arch != manifest.Target.Arch {
-			return Status{Version: version, Validation: "invalid", Reason: errRuntimeManifest, Components: []StatusComponent{}}
-		}
-		validation := "missing"
-		reason := "组件文件缺失；v2 安装尚未开放"
-		if compatible {
-			validation = "verified"
-			reason = "文件完整性与权限已校验；v2 安装尚未开放"
-			total := int64(0)
-			paths := map[string]bool{}
-			base, _ := contained(resourcesRoot, component.Directory)
-			for _, file := range component.Files {
-				total += file.Size
-				if !relativePath(file.Path) || paths[strings.ToLower(file.Path)] {
-					validation = "invalid"
-					reason = errRuntimeIntegrity
-					break
-				}
-				paths[strings.ToLower(file.Path)] = true
-				ok, why := checkRegular(base, file.Path, file.Size, file.SHA256, file.Mode)
-				if !ok {
-					validation = "invalid"
-					reason = why
-					if strings.Contains(why, "缺失") {
-						validation = "missing"
-					}
-					break
-				}
-			}
-			if total != component.Bytes {
-				validation = "invalid"
-				reason = errRuntimeIntegrity
-			}
-		} else {
-			validation = "unsupported_target"
-			reason = "组件目标与当前系统或架构不符"
-		}
+		validation, reason := v2ComponentState(resourcesRoot, component, compatible)
 		status.Components = append(status.Components, StatusComponent{
 			ID: component.ID, Label: component.Label, Bytes: component.Bytes,
 			Installed: validation == "verified", Validation: validation, Reason: reason,
