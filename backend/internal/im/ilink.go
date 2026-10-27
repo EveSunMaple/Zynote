@@ -194,8 +194,8 @@ func (session *ILinkSession) SubmitCode(code string) error {
 	return nil
 }
 
-func regexpDigits(value string, min, max int) bool {
-	if len(value) < min || len(value) > max {
+func regexpDigits(value string, minimum, maximum int) bool {
+	if len(value) < minimum || len(value) > maximum {
 		return false
 	}
 	for _, item := range value {

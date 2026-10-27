@@ -49,10 +49,13 @@ export function zhiyunLessons(rows: Record<string, unknown>[]): ZhiyunLesson[] {
    if (!content || typeof content !== 'object' || Array.isArray(content))
     throw new Error('智云课次播放信息格式异常，请刷新课次列表后重试')
    const url = content.save_playback?.contents || content.playback?.url || ''
+   let title = '未命名课次'
+   if (typeof row.title === 'string') title = row.title
+   else if (typeof row.sub_title === 'string') title = row.sub_title
    return {
     id: String(row.sub_id || row.id),
-    title: String(row.title || row.sub_title || '未命名课次'),
-    teacher: String(row.lecturer_name || ''),
+    title,
+    teacher: typeof row.lecturer_name === 'string' ? row.lecturer_name : '',
     videoAvailable: !!url,
     videoUrl: url
    }
@@ -187,7 +190,8 @@ export class Zhiyun {
      done += chunk.length
      if (Date.now() - last > 500) {
       last = Date.now()
-      this.progress(`已下载 ${(done / 1048576).toFixed(1)} MB${total ? ` / ${(total / 1048576).toFixed(1)} MB` : ''}`)
+      const totalLabel = total ? ` / ${(total / 1048576).toFixed(1)} MB` : ''
+      this.progress(`已下载 ${(done / 1048576).toFixed(1)} MB${totalLabel}`)
      }
      callback(null, chunk)
     }

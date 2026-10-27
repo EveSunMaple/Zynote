@@ -213,7 +213,7 @@ func (service *Service) commitLocked(
 	item book,
 	expected string,
 	rows []Highlight,
-	clear bool,
+	clearExisting bool,
 ) (writeResult, error) {
 	current, err := fileHash(item.path)
 	if err != nil {
@@ -227,7 +227,7 @@ func (service *Service) commitLocked(
 		return writeResult{}, err
 	}
 	resolved := []Highlight{}
-	if !clear {
+	if !clearExisting {
 		merged := append(append([]Highlight{}, rows...), info.Previous...)
 		resolved = prioritizedHighlights(merged)
 	}

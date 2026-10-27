@@ -311,15 +311,12 @@ export class VisualTasks {
   return (
    `# 画面文字与内容\n\n来源：${task.source}\n源文件 SHA256：${task.sourceHash}\n总时长：${task.duration.toFixed(2)} 秒\n\n仅识别所选的 ${task.frames.filter(frame => frame.status === '已完成').length}/${task.frames.length} 个画面，不代表视频全部内容。\n\n## 抽样缺口\n\n${gapText}\n\n## 识别结果\n\n` +
    task.frames
-    .map(
-     frame =>
-      `### ${Math.floor(frame.time / 60)}:${Math.floor(frame.time % 60)
-       .toString()
-       .padStart(
-        2,
-        '0'
-       )} · ${frame.status}\n\n${frame.status === '已完成' ? frame.text : `未得到可用识别结果：${frame.error || '仍待处理'}`}\n\n画面 SHA256：${frame.hash}`
-    )
+    .map(frame => {
+     const detail = frame.status === '已完成' ? frame.text : `未得到可用识别结果：${frame.error || '仍待处理'}`
+     return `### ${Math.floor(frame.time / 60)}:${Math.floor(frame.time % 60)
+      .toString()
+      .padStart(2, '0')} · ${frame.status}\n\n${detail}\n\n画面 SHA256：${frame.hash}`
+    })
     .join('\n\n') +
    `\n\n## 未完成项目\n\n${
     failed.length

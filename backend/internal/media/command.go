@@ -15,7 +15,7 @@ type MediaCommandInput struct {
 	Resources           string
 	Tool                string
 	Args                []string
-	Ctx                 context.Context
+	Ctx                 context.Context // NOSONAR: request-scoped input struct; the caller owns this context for a single operation.
 	Stream              func([]byte)
 	OnStarted           func(pid int)
 	AllowSystemFallback bool

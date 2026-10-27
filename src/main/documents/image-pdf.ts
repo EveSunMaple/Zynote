@@ -24,7 +24,8 @@ export async function imagePdf(images: Array<() => Picture>, signal?: AbortSigna
  const stream = (dictionary: string, data: Buffer) =>
   Buffer.concat([Buffer.from(`<< ${dictionary} /Length ${data.length} >>\nstream\n`), data, Buffer.from('\nendstream')])
  object(1, '<< /Type /Catalog /Pages 2 0 R >>')
- object(2, `<< /Type /Pages /Count ${images.length} /Kids [${images.map((_, i) => `${3 + i * 3} 0 R`).join(' ')}] >>`)
+ const kids = images.map((_, i) => `${3 + i * 3} 0 R`).join(' ')
+ object(2, `<< /Type /Pages /Count ${images.length} /Kids [${kids}] >>`)
  for (const [i, load] of images.entries()) {
   signal?.throwIfAborted()
   const image = load(),

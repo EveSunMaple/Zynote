@@ -72,14 +72,11 @@ function showMainWindow() {
 }
 app.setPath('userData', process.env.LISTENING_ASSISTANT_DATA || join(app.getPath('appData'), 'listening-assistant'))
 if (!app.requestSingleInstanceLock()) app.quit()
-else
- app
-  .whenReady()
-  .then(startApplication)
-  .catch(error => {
-   dialog.showErrorBox('Zynote 启动失败', error instanceof Error ? error.message : '未知错误')
-   app.quit()
-  })
+else app.whenReady().then(startApplication).catch(showStartupError) // NOSONAR: startup chain intentionally handles failures before the app event loop continues.
+function showStartupError(error: unknown) {
+ dialog.showErrorBox('Zynote 启动失败', error instanceof Error ? error.message : '未知错误')
+ app.quit()
+}
 async function startApplication() {
  const root = app.getPath('userData')
  const runtime = new RuntimeComponents(

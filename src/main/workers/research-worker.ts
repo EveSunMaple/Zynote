@@ -10,7 +10,7 @@ if (!port || !root) throw new Error('研究工作进程参数无效')
 let key = 0,
  closed = false
 const ownerReady = acquireDownloadQueue(root, 'native-research-owner.sqlite')
-void ownerReady.catch(() => {})
+void ownerReady.catch(() => {}) // NOSONAR: owner readiness is intentionally observed without blocking worker startup.
 const pending = new Map<number, {resolve: (text: string) => void; reject: (error: Error) => void; cancel: () => void}>()
 const encryption = new MediaEncryptionClient(message => port.postMessage(message))
 process.once('exit', () => encryption.close())

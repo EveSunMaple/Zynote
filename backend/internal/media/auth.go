@@ -166,8 +166,8 @@ func (auth *MediaAuth) path() (string, error) {
 	if err != nil || info.Mode()&os.ModeSymlink != 0 || !info.IsDir() {
 		return "", fmt.Errorf("登录档案目录无效")
 	}
-	real, err := filepath.EvalSymlinks(folder)
-	if err != nil || strings.ToLower(real) != strings.ToLower(folder) {
+	resolved, err := filepath.EvalSymlinks(folder)
+	if err != nil || strings.ToLower(resolved) != strings.ToLower(folder) {
 		return "", fmt.Errorf("登录档案目录无效")
 	}
 	return filepath.Join(folder, "profiles.dpapi"), nil

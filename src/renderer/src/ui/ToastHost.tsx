@@ -65,7 +65,7 @@ function messageOf(error: unknown) {
   const message = (error as {message?: unknown}).message
   if (typeof message === 'string') return message
  }
- return error == null ? '' : String(error)
+ return typeof error === 'number' || typeof error === 'boolean' ? String(error) : ''
 }
 
 function fingerprint(message: ReactNode) {

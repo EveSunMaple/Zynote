@@ -81,7 +81,9 @@ export class NativeResearchContext {
     if (text)
      rows.push({
       kind: 'conversation',
-      id: 'turn-' + String(turn.turn_id || index),
+      id:
+       'turn-' +
+       (typeof turn.turn_id === 'string' || typeof turn.turn_id === 'number' ? String(turn.turn_id) : String(index)),
       title: current.title,
       text: text.slice(0, 12000),
       version: digest(turn)
@@ -89,7 +91,7 @@ export class NativeResearchContext {
    }
   }
   const selected = rows
-   .sort(
+   .toSorted(
     (a, b) =>
      score(b.title + ' ' + b.text) - score(a.title + ' ' + a.text) ||
      a.kind.localeCompare(b.kind) ||

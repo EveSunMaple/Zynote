@@ -103,7 +103,7 @@ export class NativeDownloadJobs {
   this.records.set(job.id, job)
  }
  initialize() {
-  return (this.initialized ??= this.exclusive(async () => {
+  this.initialized ??= this.exclusive(async () => {
    const base = await this.base()
    for (const entry of await readdir(base, {withFileTypes: true})) {
     if (!idSchema.safeParse(entry.name).success || !entry.isDirectory() || entry.isSymbolicLink()) continue
@@ -155,7 +155,8 @@ export class NativeDownloadJobs {
      }
     }
    }
-  }))
+  })
+  return this.initialized
  }
  async create(input: {
   identity: string

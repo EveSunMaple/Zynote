@@ -7,7 +7,14 @@ import {weixinBootstrap} from '@main/im/weixin/im-weixin-html'
 import {WEIXIN_WEB_APPID} from '@main/im/weixin/weixin-web-appid'
 
 const hosts = ['wx.qq.com', 'wx2.qq.com', 'wx8.qq.com', 'web.wechat.com', 'web2.wechat.com']
-const cookieHosts = [...hosts, 'qq.com', 'wechat.com', 'weixin.qq.com', 'login.wx.qq.com', 'login.weixin.qq.com']
+const cookieHosts = new Set([
+ ...hosts,
+ 'qq.com',
+ 'wechat.com',
+ 'weixin.qq.com',
+ 'login.wx.qq.com',
+ 'login.weixin.qq.com'
+])
 const secret = z
  .string()
  .min(1)
@@ -130,7 +137,7 @@ export class NativeWeixinWebSession {
     const legacy = item.key === undefined
     if (legacy && item.port_specified) throw new Error('保存的微信 Cookie 端口范围无法兼容，请重新扫码')
     const domain = z.string().parse(item.domain).replace(/^\./, '').toLowerCase()
-    if (!cookieHosts.includes(domain)) throw new Error('保存的微信 Cookie 域无效')
+    if (!cookieHosts.has(domain)) throw new Error('保存的微信 Cookie 域无效')
     const cookie = legacy
      ? new Cookie({
         key: z.string().parse(item.name),

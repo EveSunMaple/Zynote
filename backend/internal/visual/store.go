@@ -63,7 +63,7 @@ func (service *Service) List() ([]Task, error) {
 	return result, nil
 }
 
-func (service *Service) Create(ctx context.Context, source string, cap int, policy, connection string) (Task, error) {
+func (service *Service) Create(ctx context.Context, source string, limit int, policy, connection string) (Task, error) {
 	absolute, err := filepath.Abs(source)
 	if err != nil {
 		return Task{}, badRequest("所选源文件不可用")
@@ -79,7 +79,7 @@ func (service *Service) Create(ctx context.Context, source string, cap int, poli
 	task := Task{
 		ID: strings.ReplaceAll(ids.New(), "-", ""), Source: absolute, SourceHash: hash,
 		Frames: []Frame{}, Gaps: []any{}, Connection: connection,
-		Preparation: &Preparation{Cap: cap, Policy: policy, Status: "等待提取"},
+		Preparation: &Preparation{Cap: limit, Policy: policy, Status: "等待提取"},
 	}
 	if err := service.save(task); err != nil {
 		return Task{}, err

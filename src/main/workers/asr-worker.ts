@@ -25,7 +25,8 @@ async function run() {
  const cues = await transcribePcm(audio, modelPath, message => port.postMessage({kind: 'progress', message}))
  port.postMessage({kind: 'result', cues, duration: audio.length / 16000})
 }
-void run().catch(error => {
+function fail(error: unknown) {
  port?.postMessage({kind: 'error', message: error instanceof Error ? error.message : '字幕转写失败'})
  process.exitCode = 1
-})
+}
+void run().catch(fail) // NOSONAR: worker entry point starts async work and reports failures via IPC.

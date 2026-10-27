@@ -51,7 +51,7 @@ func TestVideoNotesExport(t *testing.T) {
 		switch format {
 		case "docx":
 			if len(body) < 4 || string(body[:2]) != "PK" {
-				t.Fatalf("docx mismatch: %q", body[:min(4, len(body))])
+				t.Fatalf("docx mismatch: %q", body[:minInt(4, len(body))])
 			}
 		case "svg":
 			if !strings.Contains(string(body), "<svg") || !strings.Contains(string(body), "核心结论") {
@@ -65,7 +65,7 @@ func TestVideoNotesExport(t *testing.T) {
 	}
 }
 
-func min(left, right int) int {
+func minInt(left, right int) int {
 	if left < right {
 		return left
 	}

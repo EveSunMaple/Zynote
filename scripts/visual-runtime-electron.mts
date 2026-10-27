@@ -290,7 +290,8 @@ async function run() {
   app.exit(report.status === 'passed' ? 0 : 1)
  }
 }
-void run().catch(async error => {
+async function fail(error: Error) {
  await writeFile(join(results, phase + '.json'), JSON.stringify({status: 'failed', error: error.message}))
  app.exit(1)
-})
+}
+void run().catch(fail) // NOSONAR: Electron entry point starts async work and exits explicitly; top-level await would delay it.

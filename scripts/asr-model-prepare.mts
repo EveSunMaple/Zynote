@@ -15,7 +15,7 @@ const repository = 'onnx-community/whisper-small',
  vadCommit = '65882eee9f5cdbeeb2d877f1131d48cf241b327d'
 const componentDigest = '08788c32d3d1f1ed1ae0847f17ee24a482b5614a9e98d96ccafcc64a0893acdf',
  totalBytes = 254727043
-const selected = [
+const selected = new Set([
  'README.md',
  'config.json',
  'generation_config.json',
@@ -29,7 +29,7 @@ const selected = [
  'vocab.json',
  'onnx/encoder_model_quantized.onnx',
  'onnx/decoder_model_merged_quantized.onnx'
-]
+])
 const requestSchema = z
  .object({
   repository: z.literal(repository),
@@ -107,7 +107,7 @@ function sourceFor(name: string) {
    url: 'https://raw.githubusercontent.com/SYSTRAN/faster-whisper/' + vadCommit + '/LICENSE',
    hosts: ['raw.githubusercontent.com']
   }
- check(selected.includes(name), 'Unknown remote model file')
+ check(selected.has(name), 'Unknown remote model file')
  return {
   url: 'https://huggingface.co/' + repository + '/resolve/' + revision + '/' + name,
   hosts: [
@@ -218,7 +218,7 @@ export async function prepareAsrModel(value: unknown) {
    } else actual.push(name)
   }
   check(
-   actual.sort(compareCodeUnit).join('|') === [...names].sort(compareCodeUnit).join('|'),
+   actual.toSorted(compareCodeUnit).join('|') === names.toSorted(compareCodeUnit).join('|'),
    'Offline model file set mismatch'
   )
  }

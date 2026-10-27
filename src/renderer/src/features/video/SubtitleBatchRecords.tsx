@@ -208,8 +208,8 @@ export function SubtitleBatchRecords({
       .map(task => (
        <article key={task.id}>
         <div>
-         {task.items.map((item, index) => (
-          <div className="batch-item" key={index}>
+         {task.items.map(item => (
+          <div className="batch-item" key={item.source.url}>
            <strong>
             {item.source.title} · {noteTitles[item.mode]} · {item.status}
            </strong>

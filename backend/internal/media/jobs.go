@@ -112,8 +112,8 @@ func (jobs *DownloadJobs) validateDirectory(path string) error {
 	if info.Mode()&os.ModeSymlink != 0 || !info.IsDir() {
 		return fmt.Errorf("下载记录目录无效")
 	}
-	real, err := filepath.EvalSymlinks(path)
-	if err != nil || strings.ToLower(real) != strings.ToLower(path) {
+	resolved, err := filepath.EvalSymlinks(path)
+	if err != nil || strings.ToLower(resolved) != strings.ToLower(path) {
 		return fmt.Errorf("下载记录目录无效")
 	}
 	return nil
@@ -146,8 +146,8 @@ func (jobs *DownloadJobs) directory(id string) (string, error) {
 	if err != nil || info.Mode()&os.ModeSymlink != 0 || !info.IsDir() {
 		return "", fmt.Errorf("下载任务目录无效")
 	}
-	real, err := filepath.EvalSymlinks(path)
-	if err != nil || strings.ToLower(real) != strings.ToLower(path) {
+	resolved, err := filepath.EvalSymlinks(path)
+	if err != nil || strings.ToLower(resolved) != strings.ToLower(path) {
 		return "", fmt.Errorf("下载任务目录无效")
 	}
 	return path, nil
@@ -433,8 +433,8 @@ func (jobs *DownloadJobs) ownedFile(id, name string) (string, os.FileInfo, error
 	if err != nil || !info.Mode().IsRegular() || info.Mode()&os.ModeSymlink != 0 {
 		return "", nil, fmt.Errorf("下载成果文件不可用")
 	}
-	real, err := filepath.EvalSymlinks(path)
-	if err != nil || strings.ToLower(real) != strings.ToLower(path) {
+	resolved, err := filepath.EvalSymlinks(path)
+	if err != nil || strings.ToLower(resolved) != strings.ToLower(path) {
 		return "", nil, fmt.Errorf("下载成果文件不可用")
 	}
 	return path, info, nil

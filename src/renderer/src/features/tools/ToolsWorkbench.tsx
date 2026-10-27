@@ -511,8 +511,8 @@ export function ToolsWorkbench({visible, close}: Readonly<{visible: boolean; clo
        {task.limitations && <p className="hint">{task.limitations}</p>}
        <details>
         <summary>处理过程与来源</summary>
-        {task.events.map((event, index) => (
-         <p key={index}>{event.message || event.kind}</p>
+        {task.events.map(event => (
+         <p key={`${event.kind}-${event.message ?? ''}`}>{event.message || event.kind}</p>
         ))}
         {task.sources.map(source => (
          <details key={source.source_id}>

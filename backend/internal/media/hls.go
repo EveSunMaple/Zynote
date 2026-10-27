@@ -272,7 +272,7 @@ type HlsInput struct {
 	URL       string
 	Options   NativeMediaOptions
 	Headers   map[string]string
-	Ctx       context.Context
+	Ctx       context.Context // NOSONAR: request-scoped input struct; the caller owns this context for a single operation.
 	Fetch     func(requestURL string, headers map[string]string, ctx context.Context) (*http.Response, error)
 	Check     func(string) (string, error)
 	Progress  func(downloaded int64, total *int64)

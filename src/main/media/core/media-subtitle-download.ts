@@ -52,7 +52,7 @@ export function matchesSubtitleLanguage(language: string, patterns: string) {
    '^' +
     pattern
      .replaceAll('.*', '*')
-     .replace(/[.+?^${}()|[\]\\]/g, '\\$&')
+     .replace(/[.+?^${}()|[\]\\]/g, String.raw`\$&`)
      .replaceAll('*', '.*') +
     '$',
    'i'

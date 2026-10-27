@@ -34,7 +34,8 @@ function api() {
  }
 }
 function a() {
- return (cached ??= api())
+ cached ??= api()
+ return cached
 }
 function invalid(h: bigint) {
  return !h || h === 0xffffffffffffffffn

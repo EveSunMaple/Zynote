@@ -371,11 +371,16 @@ export function KnowledgeBase({visible, close}: Readonly<{visible: boolean; clos
     {answer && (
      <Card className="knowledge-card">
       <h3>资料回答</h3>
-      {answer.answer.paragraphs.map((paragraph, index) => (
-       <div key={index}>
+      {answer.answer.paragraphs.map(paragraph => (
+       <div key={paragraph.text}>
         <p>{paragraph.text}</p>
-        {paragraph.citations.map((citation, i) => (
-         <button key={i} className="knowledge-citation" disabled={busy} onClick={() => void readCitation(citation.id)}>
+        {paragraph.citations.map(citation => (
+         <button
+          key={citation.id}
+          className="knowledge-citation"
+          disabled={busy}
+          onClick={() => void readCitation(citation.id)}
+         >
           {answer.sources.find(source => source.evidence_id === citation.id)?.title || '原文来源'} · 查看引用
          </button>
         ))}

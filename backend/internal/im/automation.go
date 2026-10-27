@@ -33,7 +33,7 @@ type Automation struct {
 type autoRun struct {
 	cancel context.CancelFunc
 	done   chan struct{}
-	ctx    context.Context
+	ctx    context.Context // NOSONAR: request-scoped input struct; the caller owns this context for a single operation.
 }
 
 func NewAutomation(service *Service) (*Automation, error) {

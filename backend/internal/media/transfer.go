@@ -72,7 +72,7 @@ type TransferInput struct {
 	Buffer    int
 	Progress  func(downloaded int64, total *int64)
 	Fetch     func(requestURL string, headers map[string]string, ctx context.Context) (*http.Response, error)
-	Ctx       context.Context
+	Ctx       context.Context // NOSONAR: request-scoped input struct; the caller owns this context for a single operation.
 }
 
 func (input *TransferInput) cancelled() error {
@@ -96,8 +96,8 @@ func validateTransferDirectory(directory string) error {
 	if err != nil || !info.IsDir() || info.Mode()&os.ModeSymlink != 0 {
 		return fmt.Errorf("下载任务目录无效")
 	}
-	real, err := filepath.EvalSymlinks(directory)
-	if err != nil || strings.ToLower(real) != strings.ToLower(directory) {
+	resolved, err := filepath.EvalSymlinks(directory)
+	if err != nil || strings.ToLower(resolved) != strings.ToLower(directory) {
 		return fmt.Errorf("下载任务目录无效")
 	}
 	return nil
@@ -132,9 +132,9 @@ func TransferMedia(input TransferInput) (*TransferResult, error) {
 			return nil, fmt.Errorf("下载分段文件无效")
 		}
 	}
-	max := input.MaxBytes
-	if max == 0 {
-		max = 50 * 1024 * 1024 * 1024
+	limit := input.MaxBytes
+	if limit == 0 {
+		limit = 50 * 1024 * 1024 * 1024
 	}
 	lockFile, err := os.OpenFile(lock, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o644)
 	if err != nil {
@@ -161,7 +161,7 @@ func TransferMedia(input TransferInput) (*TransferResult, error) {
 		if json.Unmarshal(journalRaw, &saved) == nil {
 			fileInfo, statErr := os.Lstat(path)
 			if saved.Identity == input.Identity && statErr == nil && fileInfo.Size() == saved.Size &&
-				saved.ETag != "" && saved.Size > 0 && saved.Size <= max {
+				saved.ETag != "" && saved.Size > 0 && saved.Size <= limit {
 				if hash, _, hashErr := hashFileStreaming(path); hashErr == nil && hash == saved.Hash {
 					size = saved.Size
 					total = saved.Total
@@ -229,7 +229,7 @@ func TransferMedia(input TransferInput) (*TransferResult, error) {
 	} else {
 		return nil, fmt.Errorf("下载服务未正确响应断点请求")
 	}
-	if total != nil && *total > max {
+	if total != nil && *total > limit {
 		return nil, fmt.Errorf("媒体大小超过此任务上限")
 	}
 
@@ -258,7 +258,7 @@ func TransferMedia(input TransferInput) (*TransferResult, error) {
 			}
 			read, readErr := reader.Read(buffer)
 			if read > 0 {
-				if size+int64(read) > max || (total != nil && size+int64(read) > *total) {
+				if size+int64(read) > limit || (total != nil && size+int64(read) > *total) {
 					writeErr = fmt.Errorf("媒体响应超过声明长度")
 					return
 				}

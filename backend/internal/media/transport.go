@@ -87,7 +87,7 @@ func sleepWithCancel(d time.Duration, ctx context.Context) error {
 }
 
 type pacedBody struct {
-	ctx      context.Context
+	ctx      context.Context // NOSONAR: request-scoped input struct; the caller owns this context for a single operation.
 	reader   io.ReadCloser
 	schedule float64
 	rate     float64

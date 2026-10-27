@@ -851,8 +851,8 @@ export default function App() {
              <p>还没有本次会话记录。导入原文或生成笔记后，可在这里查看进度。</p>
             </div>
            )}
-           {activities.map((a, i) => (
-            <div className={`activity-item ${a.error ? 'warning' : ''}`} key={i}>
+           {activities.map(a => (
+            <div className={`activity-item ${a.error ? 'warning' : ''}`} key={`${a.at}-${a.stage}-${a.message}`}>
              <span>●</span>
              <div>
               <strong>
@@ -1002,8 +1002,8 @@ export default function App() {
                  <div className="transcript">
                   {lecture.segments
                    .filter(s => s.text.includes(search))
-                   .map((s, i) => (
-                    <div className="subtitle" data-stamp={s.start} key={i}>
+                   .map(s => (
+                    <div className="subtitle" data-stamp={s.start} key={s.start}>
                      <button className="timestamp" onClick={() => jump(s.start)}>
                       <StudyIcon name="clock" />
                       {time(s.start, false)}

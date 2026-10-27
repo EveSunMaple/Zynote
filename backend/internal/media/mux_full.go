@@ -65,7 +65,7 @@ type MuxInput struct {
 	Options          NativeMediaOptions
 	ExpectedDuration float64
 	Title            string
-	Ctx              context.Context
+	Ctx              context.Context // NOSONAR: request-scoped input struct; the caller owns this context for a single operation.
 	Subtitles        []MuxSubtitle
 	Chapters         []MuxChapter
 	Cover            string
@@ -116,8 +116,8 @@ func (mux *NativeMediaMux) Mux(input MuxInput) (MuxResult, error) {
 	if err != nil || !info.IsDir() || info.Mode()&os.ModeSymlink != 0 {
 		return MuxResult{}, fmt.Errorf("媒体成果目录无效")
 	}
-	real, err := filepath.EvalSymlinks(directory)
-	if err != nil || !strings.EqualFold(real, directory) {
+	resolved, err := filepath.EvalSymlinks(directory)
+	if err != nil || !strings.EqualFold(resolved, directory) {
 		return MuxResult{}, fmt.Errorf("媒体成果目录无效")
 	}
 	if len(input.Tracks) == 0 || len(input.Tracks) > 8 || input.Options.SubtitleOnly {
@@ -505,8 +505,8 @@ func (mux *NativeMediaMux) PrepareCover(directory string, bytes []byte, crop boo
 	if err != nil || info.Mode()&os.ModeSymlink != 0 || !info.IsDir() {
 		return nil, fmt.Errorf("封面目录无效")
 	}
-	real, err := filepath.EvalSymlinks(base)
-	if err != nil || !strings.EqualFold(real, base) {
+	resolved, err := filepath.EvalSymlinks(base)
+	if err != nil || !strings.EqualFold(resolved, base) {
 		return nil, fmt.Errorf("封面目录无效")
 	}
 	source := filepath.Join(base, "cover-source."+extension)

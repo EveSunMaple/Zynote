@@ -598,9 +598,9 @@ func (external *External) Verify(rows []ExternalEvidence) error {
 		if _, err := publicHTTPS(row.URL); err != nil {
 			return fmt.Errorf("外部来源快照校验失败")
 		}
-		copy := row
-		copy.SHA256 = ""
-		encoded, _ := json.Marshal(copy)
+		copied := row
+		copied.SHA256 = ""
+		encoded, _ := json.Marshal(copied)
 		if hashText(string(encoded)) != row.SHA256 {
 			return fmt.Errorf("外部来源快照校验失败")
 		}

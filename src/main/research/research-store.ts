@@ -342,7 +342,7 @@ export class NativeResearchStore {
    return id
     ? valid
     : valid
-       .sort((a, b) => score(b) - score(a))
+       .toSorted((a, b) => score(b) - score(a))
        .filter(row => score(row) > 0)
        .slice(0, 6)
   } finally {

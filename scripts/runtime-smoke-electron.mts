@@ -181,7 +181,7 @@ async function run(root: string, work: string, results: string) {
  }
 }
 const reportPath = join(results, phase + '.json')
-void run(root, work, results).catch(async error => {
+async function fail(error: Error) {
  await writeFile(
   reportPath,
   JSON.stringify(
@@ -191,4 +191,5 @@ void run(root, work, results).catch(async error => {
   )
  )
  app.exit(1)
-})
+}
+void run(root, work, results).catch(fail) // NOSONAR: Electron entry point starts async work and exits explicitly; top-level await would delay it.

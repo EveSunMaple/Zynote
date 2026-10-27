@@ -9,7 +9,7 @@ const [resources, root, mediaPermission] = process.argv.slice(2)
 if (!port || !resources || !root || !['system-fallback', 'app-owned'].includes(mediaPermission))
  throw new Error('下载工作进程参数无效')
 const ownerReady = acquireDownloadQueue(root)
-void ownerReady.catch(() => {})
+void ownerReady.catch(() => {}) // NOSONAR: owner readiness is intentionally observed without blocking worker startup.
 let sequence = 0
 const pending = new Map<
  number,

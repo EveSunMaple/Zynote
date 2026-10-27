@@ -266,7 +266,7 @@ export class NativeWeixinReader {
        createHash('sha256')
         .update(name + ':' + local)
         .digest('hex'),
-      sender: String(sender?.name || ''),
+      sender: typeof sender?.name === 'string' ? sender.name : '',
       ts: z
        .number()
        .nonnegative()
@@ -295,7 +295,7 @@ export class NativeWeixinReader {
    ])
   )
   return {
-   messages: messages.sort((a, b) => a.ts - b.ts || a.mid.localeCompare(b.mid)).map(({seq, local, ...row}) => row),
+   messages: messages.toSorted((a, b) => a.ts - b.ts || a.mid.localeCompare(b.mid)).map(({seq, local, ...row}) => row),
    session: {reader_id: this.readerId, cursors: encodedCursors},
    coverage: {
     state: limited ? 'bounded_window' : 'scanned_local_shards',

@@ -31,8 +31,8 @@ func localMediaFile(path string) (string, error) {
 	if err != nil || !info.Mode().IsRegular() || info.Mode()&os.ModeSymlink != 0 {
 		return "", fmt.Errorf("媒体输入不是可验证的本地文件")
 	}
-	real, err := filepath.EvalSymlinks(target)
-	if err != nil || strings.ToLower(real) != strings.ToLower(target) {
+	resolved, err := filepath.EvalSymlinks(target)
+	if err != nil || strings.ToLower(resolved) != strings.ToLower(target) {
 		return "", fmt.Errorf("媒体输入不是可验证的本地文件")
 	}
 	return target, nil

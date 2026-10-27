@@ -26,9 +26,10 @@ export function markdown(detail: LectureDetail, kind: 'notes' | 'practice'): str
   ] as const
   for (const [title, points] of groups) {
    out.push(`## ${title}`, '')
-   for (const p of points)
+   for (const p of points) {
+    const levelPrefix = 'level' in p ? `[${p.level}] ` : ''
     out.push(
-     `### ${'level' in p ? `[${p.level}] ` : ''}${p.topic}`,
+     `### ${levelPrefix}${p.topic}`,
      `${p.timestamp} · ${p.verified ? '原话已核验' : '⚠ 疑似编造或时间不符'}`,
      '',
      `> ${p.quote}`,
@@ -37,6 +38,7 @@ export function markdown(detail: LectureDetail, kind: 'notes' | 'practice'): str
      'pptRef' in p && p.pptRef ? `课件：${p.pptRef}` : '',
      ''
     )
+   }
   }
  } else {
   if (!detail.practice) throw new Error('还没有练习题')

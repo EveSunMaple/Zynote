@@ -168,7 +168,7 @@ export function correctionContext(ppt: string, images: {label: string; url: stri
    )
   let bytes = 0
   const chosen = candidates
-   .sort((a, b) => a.index - b.index)
+   .toSorted((a, b) => a.index - b.index)
    .flatMap(({image}) => {
     const size = Buffer.byteLength(image.url, 'utf8')
     if (size > 900000 || size + bytes > 1800000) {

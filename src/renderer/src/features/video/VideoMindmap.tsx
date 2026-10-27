@@ -14,8 +14,8 @@ export function VideoMindmap({title, points}: Readonly<{title: string; points: V
        <span>{group.items.length}</span>
       </summary>
       <div>
-       {group.items.map((point, i) => (
-        <article key={i}>
+       {group.items.map(point => (
+        <article key={`${point.timestamp}-${point.point}`}>
          <strong>{point.point}</strong>
          <small>{point.timestamp}</small>
          <p>“{point.quote}”</p>

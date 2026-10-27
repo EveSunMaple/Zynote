@@ -233,16 +233,18 @@ export function VisualAnalysisPanel({visible}: Readonly<{visible: boolean}>) {
        <details>
         <summary>抽样缺口 · {task.gaps.length}</summary>
         <ul>
-         {task.gaps.map((gap, index) => (
-          <li key={index}>{typeof gap === 'string' ? gap : JSON.stringify(gap)}</li>
+         {task.gaps.map(gap => (
+          <li key={typeof gap === 'string' ? gap : JSON.stringify(gap)}>
+           {typeof gap === 'string' ? gap : JSON.stringify(gap)}
+          </li>
          ))}
         </ul>
        </details>
       ) : (
        <p className="hint">提取器未报告明确缺口；视频抽样依然不覆盖全部时段。</p>
       )}
-      {task.frames.map((frame, index) => (
-       <details key={index} open={!!frame.error}>
+      {task.frames.map(frame => (
+       <details key={frame.time} open={!!frame.error}>
         <summary>
          {Math.floor(frame.time / 60)}:
          {Math.floor(frame.time % 60)

@@ -310,7 +310,7 @@ test('API freezes actual model/output settings and preserves Retry-After without
  }
  let sent: Record<string, unknown> = {}
  const api = new Api(settings, (_url: string, init: RequestInit) => {
-  sent = JSON.parse(String(init.body))
+  sent = JSON.parse(typeof init.body === 'string' ? init.body : '')
   return Promise.resolve(
    new Response(JSON.stringify({choices: [{message: {content: '[]'}, finish_reason: 'stop'}]}), {status: 200})
   )

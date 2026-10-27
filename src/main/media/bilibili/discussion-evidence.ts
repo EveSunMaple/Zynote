@@ -260,7 +260,7 @@ export function renderDiscussion(pack: DiscussionPack): string {
    .replaceAll('&', '&amp;')
    .replaceAll('<', '&lt;')
    .replaceAll('>', '&gt;')
-   .replace(/([\\`*_{}[\]()!#])/g, '\\$1')
+   .replace(/([\\`*_{}[\]()!#])/g, String.raw`\$1`)
    .split(/\r?\n/)
    .map(line => '> ' + line)
    .join('\n')
@@ -295,8 +295,9 @@ export function renderDiscussion(pack: DiscussionPack): string {
  }
  const kinds = {description: '作者简介', comment: '主评论', reply: '子评论', danmaku: '弹幕'}
  for (const item of pack.items.filter(item => included.has(item.id))) {
+  const timeLabel = item.time_sec != null ? `；视频时间 ${item.time_sec.toFixed(2)}s` : ''
   lines.push(
-   `\n### ${item.selected ? '重要' : '上下文'} · ${kinds[item.kind]} · ${item.labels.map(label => discussionLabels[label]).join('、')} · 未核实\n证据 ${item.id}；父项 ${item.parent_id || '无'}；赞 ${item.likes || 0}${item.time_sec != null ? `；视频时间 ${item.time_sec.toFixed(2)}s` : ''}\n来源：${item.url}\n${quote(item.text)}`
+   `\n### ${item.selected ? '重要' : '上下文'} · ${kinds[item.kind]} · ${item.labels.map(label => discussionLabels[label]).join('、')} · 未核实\n证据 ${item.id}；父项 ${item.parent_id || '无'}；赞 ${item.likes || 0}${timeLabel}\n来源：${item.url}\n${quote(item.text)}`
   )
   if (item.parent_id && !all.has(item.parent_id)) lines.push('直接回复对象未采集；勿脱离上下文解读。')
   if (item.note) lines.push('人工备注（不等于事实核验）：\n' + quote(item.note))

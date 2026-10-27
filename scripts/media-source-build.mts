@@ -296,7 +296,8 @@ try {
      await copyFile(join(cwd, file), join(logs, id + '-' + file.replaceAll('/', '-')))
     } catch (error) {
      if ((error as NodeJS.ErrnoException).code !== 'ENOENT') {
-      const failures = (report.diagnosticCopyFailures ??= []) as string[]
+      report.diagnosticCopyFailures ??= []
+      const failures = report.diagnosticCopyFailures as string[]
       failures.push(id + '/' + file + ': ' + String((error as NodeJS.ErrnoException).code))
      }
     }
@@ -424,7 +425,7 @@ try {
     ['GLIBC', 'GLIBCXX', 'CXXABI'].map(family => {
      const values = [
       ...new Set(
-       [...versions.output.matchAll(new RegExp('Name: ' + family + '_([0-9]+(?:\\.[0-9]+)*)', 'g'))].map(
+       [...versions.output.matchAll(new RegExp(String.raw`Name: ${family}_([0-9]+(?:\.[0-9]+)*)`, 'g'))].map(
         match => match[1]
        )
       )

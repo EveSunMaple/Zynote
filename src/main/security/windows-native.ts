@@ -129,7 +129,8 @@ function createApi() {
  }
 }
 function api() {
- return (cached ??= createApi())
+ cached ??= createApi()
+ return cached
 }
 function checked(value: unknown) {
  if (!value) throw new Error('Windows 系统调用失败：' + api().lastError())

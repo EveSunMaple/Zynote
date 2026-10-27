@@ -128,8 +128,8 @@ export class NativeMediaMux {
    .parse(JSON.parse(raw)).streams[0]
   if (size.width * size.height > 40_000_000) throw new Error('封面图片像素过大')
   const filter =
-   (crop ? 'crop=min(iw\\,ih):min(iw\\,ih),' : '') +
-   'scale=w=min(1200\\,iw):h=min(1200\\,ih):force_original_aspect_ratio=decrease'
+   (crop ? String.raw`crop=min(iw\,ih):min(iw\,ih),` : '') +
+   String.raw`scale=w=min(1200\,iw):h=min(1200\,ih):force_original_aspect_ratio=decrease`
   const prepared = await artifact.prepare()
   if (!prepared.reused)
    await this.command(

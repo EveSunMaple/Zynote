@@ -424,10 +424,10 @@ func (inv *Invoker) generatePractice(
 			if question == nil || selectedIDs[match.ID] {
 				continue
 			}
-			copy := maps.Clone(question)
-			copy["topic"] = match.Topic
-			copy["reason"] = match.Reason
-			selected = append(selected, copy)
+			copied := maps.Clone(question)
+			copied["topic"] = match.Topic
+			copied["reason"] = match.Reason
+			selected = append(selected, copied)
 			selectedIDs[match.ID] = true
 		}
 	}

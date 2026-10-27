@@ -156,8 +156,8 @@ export async function verifySourceCodecs(
   ['-protocols', ['file', 'pipe']]
  ] as const) {
   const capabilities = await invoke('ffmpeg', ['-hide_banner', flag])
-  const tokens = (capabilities.stdout.toString('utf8') + '\n' + capabilities.stderr).split(/[\s,]+/)
-  for (const name of names) check(tokens.includes(name), 'Missing capability ' + flag + ': ' + name)
+  const tokens = new Set((capabilities.stdout.toString('utf8') + '\n' + capabilities.stderr).split(/[\s,]+/))
+  for (const name of names) check(tokens.has(name), 'Missing capability ' + flag + ': ' + name)
  }
  checks.push('application encoder/filter/demuxer/muxer/protocol capability matrix')
  const video = join(work, 'h264.mp4')
@@ -180,13 +180,13 @@ export async function verifySourceCodecs(
   'aac',
   video
  ])
- const primaryCodecs = (await probe(video)).streams.map((s: {codec_name: string}) => s.codec_name)
- check(primaryCodecs.includes('h264') && primaryCodecs.includes('aac'), 'H264/AAC encoding failed')
+ const primaryCodecs = new Set((await probe(video)).streams.map((s: {codec_name: string}) => s.codec_name))
+ check(primaryCodecs.has('h264') && primaryCodecs.has('aac'), 'H264/AAC encoding failed')
  checks.push('libx264 H264 and AAC MP4')
  const webm = join(work, 'vp9.webm')
  await run(['-i', video, '-c:v', 'libvpx-vp9', '-deadline', 'realtime', '-cpu-used', '8', '-c:a', 'libopus', webm])
- const webmStreams = (await probe(webm)).streams.map((s: {codec_name: string}) => s.codec_name)
- check(webmStreams.includes('vp9') && webmStreams.includes('opus'), 'VP9/Opus encoding failed')
+ const webmStreams = new Set((await probe(webm)).streams.map((s: {codec_name: string}) => s.codec_name))
+ check(webmStreams.has('vp9') && webmStreams.has('opus'), 'VP9/Opus encoding failed')
  checks.push('libvpx-vp9 and libopus WebM')
  for (const [encoder, extension, expected] of [
   ['libmp3lame', 'mp3', 'mp3'],

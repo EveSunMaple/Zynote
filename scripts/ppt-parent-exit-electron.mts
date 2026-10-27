@@ -46,7 +46,8 @@ async function run() {
  )
  throw new Error('Baseline input unexpectedly completed')
 }
-void run().catch(error => {
+function fail(error: unknown) {
  console.error(error instanceof Error ? error.message : 'Baseline failed')
  app.exit(1)
-})
+}
+void run().catch(fail) // NOSONAR: Electron entry point starts async work and exits explicitly; top-level await would delay it.

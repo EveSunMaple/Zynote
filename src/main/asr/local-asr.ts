@@ -136,7 +136,7 @@ export async function transcribeLocalVideo(video: string, signal: AbortSignal, p
  const after = await stat(video)
  if (before.size !== after.size || before.mtimeMs !== after.mtimeMs) throw new Error('转写期间原视频改变，请重新选择')
  const segments = cues
-  .sort((a, b) => a.from - b.from)
+  .toSorted((a, b) => a.from - b.from)
   .map((cue, index) => ({
    start: Math.round(cue.from * 1000),
    end: Math.round(Math.min(cue.to, cues[index + 1]?.from ?? cue.to) * 1000),

@@ -103,11 +103,11 @@ export class NativeQqSession {
      typeof message === 'string'
       ? message
       : message.map(part => (part.type === 'text' ? z.string().parse(part.data.text) : '[' + part.type + ']')).join('')
+   const sender = typeof row.sender === 'object' && row.sender ? (row.sender as {user_id?: unknown}).user_id : undefined
    return {
     mid: z.union([z.string(), z.number().int().finite().transform(String)]).parse(row.message_id),
     ts: z.number().finite().nonnegative().parse(row.time),
-    sender:
-     typeof row.sender === 'object' && row.sender ? String((row.sender as {user_id?: unknown}).user_id || '') : '',
+    sender: typeof sender === 'string' || typeof sender === 'number' ? String(sender) : '',
     text: text.slice(0, 50000),
     kind: 'text'
    }

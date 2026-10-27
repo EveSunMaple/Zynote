@@ -102,12 +102,12 @@ func prioritizedHighlights(rows []Highlight) []Highlight {
 			rects = next
 		}
 		for index, rect := range rects {
-			copy := row
+			copied := row
 			if index > 0 {
-				copy.ID = ids.New()
+				copied.ID = ids.New()
 			}
-			copy.Rect = rect
-			result = append(result, copy)
+			copied.Rect = rect
+			result = append(result, copied)
 		}
 	}
 	return result

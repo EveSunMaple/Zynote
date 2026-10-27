@@ -405,19 +405,21 @@ function codeFence(value: string): string {
 }
 
 export function courseEvidenceMarkdown(bundle: CourseEvidenceBundle): string {
- const lines = [
-  `# ${bundle.course.name} · ${bundle.lecture.title} · 课程学习证据包`,
-  '',
-  `- Schema：${bundle.schemaVersion}`,
-  `- 生成应用：${bundle.producer.name} ${bundle.producer.version || '版本未知'}`,
-  `- 生成时间：${bundle.generatedAt}`,
-  `- 课程 ID：${bundle.course.id}；创建：${bundle.course.createdAt}`,
-  `- 课次 ID：${bundle.lecture.id}；创建：${bundle.lecture.createdAt}；当前状态：${bundle.lecture.status}`,
-  `- 内容修订指纹：${bundle.revisionId}`,
-  `- 核验范围：${bundle.verificationScope}`,
-  `- 字幕覆盖：${bundle.lecture.coverage.segmentCount} 条${bundle.lecture.coverage.partial ? `，部分校订 ${bundle.lecture.coverage.completed}/${bundle.lecture.coverage.total}` : ''}`,
-  ''
- ]
+ const coverage = bundle.lecture.coverage,
+  partialLabel = coverage.partial ? `，部分校订 ${coverage.completed}/${coverage.total}` : '',
+  lines = [
+   `# ${bundle.course.name} · ${bundle.lecture.title} · 课程学习证据包`,
+   '',
+   `- Schema：${bundle.schemaVersion}`,
+   `- 生成应用：${bundle.producer.name} ${bundle.producer.version || '版本未知'}`,
+   `- 生成时间：${bundle.generatedAt}`,
+   `- 课程 ID：${bundle.course.id}；创建：${bundle.course.createdAt}`,
+   `- 课次 ID：${bundle.lecture.id}；创建：${bundle.lecture.createdAt}；当前状态：${bundle.lecture.status}`,
+   `- 内容修订指纹：${bundle.revisionId}`,
+   `- 核验范围：${bundle.verificationScope}`,
+   `- 字幕覆盖：${coverage.segmentCount} 条${partialLabel}`,
+   ''
+  ]
  const section = (title: string, block: EvidenceBlock<unknown>) =>
   lines.push(
    `## ${title} · ${statusText[block.status]}`,
@@ -451,10 +453,14 @@ export function courseEvidenceMarkdown(bundle: CourseEvidenceBundle): string {
  const renderNotes = (title: string, block: EvidenceBlock<NoteItem[]> | undefined) => {
   const current = block || {status: 'unavailable' as const, note: '当前课次没有已保存的课程笔记。', data: []}
   section(title, current)
-  for (const item of current.data || [])
+  for (const item of current.data || []) {
+   const levelLabel = item.level ? `（${item.level}）` : '',
+    pptLabel = item.pptRef ? `；课件引用：${item.pptRef}` : '',
+    detailLabel = item.detail ? `\n  ${item.detail}` : ''
    lines.push(
-    `- [${statusText[item.status]}] ${item.timestamp} · ${item.topic}: “${item.quote}”${item.level ? `（${item.level}）` : ''}${item.pptRef ? `；课件引用：${item.pptRef}` : ''}${item.detail ? `\n  ${item.detail}` : ''}`
+    `- [${statusText[item.status]}] ${item.timestamp} · ${item.topic}: “${item.quote}”${levelLabel}${pptLabel}${detailLabel}`
    )
+  }
   lines.push('')
  }
  section('课程笔记', bundle.evidence.notes)
@@ -498,10 +504,11 @@ export function courseEvidenceMarkdown(bundle: CourseEvidenceBundle): string {
  ] as const) {
   lines.push(`### ${title} · ${block ? statusText[block.status] : '不可用'}`, '')
   for (const item of block?.data || []) {
+   const yearLabel = item.source.year ? ` · ${item.source.year}` : ''
    lines.push(
     `- [${statusText[item.status]}] ${item.topic} · ${item.type}`,
     `  ${item.stem}`,
-    `  来源：${item.source.url || item.source.file || '未记录'}${item.source.year ? ` · ${item.source.year}` : ''}`,
+    `  来源：${item.source.url || item.source.file || '未记录'}${yearLabel}`,
     `  关联：${item.reason}`
    )
    if (item.answer) lines.push(`  参考答案（${statusText[item.answerStatus]}）：${item.answer}`)

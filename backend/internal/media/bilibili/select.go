@@ -51,17 +51,17 @@ func SelectStreams(source Source, options media.NativeMediaOptions) ([]MediaStre
 	}
 	free := tuning["--prefer-free-formats"] == true
 	audio := sortBiliStreams(filterKind(source.Streams, "audio"), options.FormatSort, free)
-	cap := math.Inf(1)
+	limit := math.Inf(1)
 	if options.AudioQuality != "best" {
 		parsed, err := strconv.ParseFloat(options.AudioQuality, 64)
 		if err != nil {
 			return nil, contract.InputInvalid("下载音质无效")
 		}
-		cap = parsed * 1000
+		limit = parsed * 1000
 	}
 	var pickedAudio *MediaStream
 	for index := range audio {
-		if audio[index].Bandwidth <= cap {
+		if audio[index].Bandwidth <= limit {
 			pickedAudio = &audio[index]
 			break
 		}

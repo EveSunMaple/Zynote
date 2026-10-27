@@ -19,7 +19,8 @@ export class NativeKnowledgeService {
   this.embedding = new KnowledgeEmbedding(this.modelPath)
  }
  private ensureBaseline(): Promise<unknown> {
-  return (this.baseline ??= this.store.importLegacyBaseline())
+  this.baseline ??= this.store.importLegacyBaseline()
+  return this.baseline
  }
  async execute(action: string, input: unknown = {}): Promise<unknown> {
   await this.ensureBaseline()

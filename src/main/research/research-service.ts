@@ -51,7 +51,8 @@ export class NativeResearchService {
  }
  async execute(action: string, input: unknown = {}): Promise<unknown> {
   if (this.closed) throw new Error('研究后台已关闭')
-  await (this.ready ??= this.knowledge.importLegacyBaseline().then(() => this.store.baselineLegacy()))
+  this.ready ??= this.knowledge.importLegacyBaseline().then(() => this.store.baselineLegacy())
+  await this.ready
   const args = z.record(z.string(), z.unknown()).parse(input)
   switch (action) {
    case 'im': {

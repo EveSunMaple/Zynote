@@ -99,8 +99,8 @@ func validateAppearance(value Appearance) error {
 	return nil
 }
 
-func outOfRange(value, min, max float64) bool {
-	return math.IsNaN(value) || value < min || value > max
+func outOfRange(value, minimum, maximum float64) bool {
+	return math.IsNaN(value) || value < minimum || value > maximum
 }
 
 func SaveAppearance(dataRoot string, raw json.RawMessage, courseID *string) (AppearanceState, error) {

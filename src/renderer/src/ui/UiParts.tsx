@@ -132,7 +132,7 @@ export function FilePicker({
    )}
    {(single ? !selected && paths.length > 0 : paths.length > 0) &&
     paths.map((p, i) => (
-     <div key={i} className="file-chip">
+     <div key={p} className="file-chip">
       <div>
        <strong>{basename(p)}</strong>
        <Input className="local-path" aria-label="文件路径" readOnly value={displayPath(p)} title={displayPath(p)} />

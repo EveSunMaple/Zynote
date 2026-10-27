@@ -126,7 +126,7 @@ try {
    for (const family of ['GLIBC', 'GLIBCXX', 'CXXABI']) {
     const actual = [
      ...new Set(
-      [...versions.matchAll(new RegExp('Name: ' + family + '_([0-9]+(?:\\.[0-9]+)*)', 'g'))].map(match => match[1])
+      [...versions.matchAll(new RegExp(String.raw`Name: ${family}_([0-9]+(?:\.[0-9]+)*)`, 'g'))].map(match => match[1])
      )
     ].sort(compareCodeUnit)
     if (

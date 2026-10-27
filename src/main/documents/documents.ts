@@ -360,7 +360,7 @@ export async function parseCourseware(path: string): Promise<CoursewareParseResu
    .replaceAll('&quot;', '"')
    .replaceAll('&apos;', "'")
    .replaceAll('&amp;', '&')
- const attr = (xml: string, name: string) => new RegExp(`\\b${name}=["']([^"']+)["']`).exec(xml)?.[1]
+ const attr = (xml: string, name: string) => new RegExp(String.raw`\b${name}=["']([^"']+)["']`).exec(xml)?.[1]
  const rels = (xml: string) => Array.from(xml.matchAll(/<Relationship\b[^>]*>/g), m => m[0])
  const partTarget = (parent: string, value: string) => {
   const target = decode(value)
@@ -408,7 +408,8 @@ export async function parseCourseware(path: string): Promise<CoursewareParseResu
    : undefined
   if (!slideRel) continue
   const relationRows = rels(slideRel),
-   seen = new Set<string>()
+   seen = new Set<string>(),
+   pageLabel = `课件第 ${index + 1} 页`
   for (const id of new Set(Array.from(xml.matchAll(/<a:blip\b[^>]*\br:embed=["']([^"']+)["']/g), m => m[1]))) {
    const relation = relationRows.find(row => attr(row, 'Id') === id)
    if (!relation || attr(relation, 'TargetMode') === 'External') continue
@@ -451,13 +452,13 @@ export async function parseCourseware(path: string): Promise<CoursewareParseResu
    const data = await readBounded(entry, Math.min(4 * 1024 * 1024, remainingBytes), `PPTX 第 ${index + 1} 页嵌入图片`)
    rawImageBytes += data.length
    images.push({
-    label: `课件第 ${index + 1} 页嵌入图片 ${images.filter(image => image.label.startsWith(`课件第 ${index + 1} 页`)).length + 1}`,
+    label: `${pageLabel}嵌入图片 ${images.filter(image => image.label.startsWith(pageLabel)).length + 1}`,
     url: `data:${mime};base64,${data.toString('base64')}`
    })
   }
   if (/<p:graphicFrame\b|<p:oleObj\b|<p:contentPart\b/.test(xml))
    omissions.push(`第 ${index + 1} 页含图表、SmartArt 或嵌入对象；仅提取其中的可编辑文本，未进行完整页面渲染`)
-  if (!text && !images.some(image => image.label.startsWith(`课件第 ${index + 1} 页`)))
+  if (!text && !images.some(image => image.label.startsWith(pageLabel)))
    omissions.push(`第 ${index + 1} 页没有提取到文字或可发送的图片`)
  }
  if (images.length) omissions.push('PPTX 嵌入图片以原图附加；没有还原幻灯片版式、裁切、遮罩、动画或位置关系')

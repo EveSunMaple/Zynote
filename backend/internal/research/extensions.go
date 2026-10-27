@@ -208,8 +208,8 @@ func (store *Store) ChangeExtensions(input map[string]any) (any, error) {
 			skills := []Skill{}
 			for _, skill := range catalog.Skills {
 				if skill.ID == id {
-					copy := skill
-					previous = &copy
+					copied := skill
+					previous = &copied
 					continue
 				}
 				skills = append(skills, skill)

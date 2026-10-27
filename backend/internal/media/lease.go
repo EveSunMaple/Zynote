@@ -31,8 +31,8 @@ func AcquireDownloadQueue(root string, ownerName string) (*DownloadQueueLease, e
 	if err != nil || info.Mode()&os.ModeSymlink != 0 || !info.IsDir() {
 		return nil, fmt.Errorf("下载进程目录无效")
 	}
-	real, err := filepath.EvalSymlinks(directory)
-	if err != nil || strings.ToLower(real) != strings.ToLower(directory) {
+	resolved, err := filepath.EvalSymlinks(directory)
+	if err != nil || strings.ToLower(resolved) != strings.ToLower(directory) {
 		return nil, fmt.Errorf("下载进程目录无效")
 	}
 	path := filepath.Join(directory, ownerName)

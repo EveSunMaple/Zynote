@@ -232,7 +232,7 @@ export function Notes({
      </h3>
      {!notes[group]?.length && <p className="hint">本课未提取到相关表态</p>}
      {notes[group]?.map((p, i) => (
-      <article key={i} className={`note-card ${p.verified ? '' : 'unverified'}`}>
+      <article key={`${p.topic}-${p.timestamp}-${p.quote}`} className={`note-card ${p.verified ? '' : 'unverified'}`}>
        <div className="row">
         <span className={`level ${'level' in p ? p.level : ''}`}>
          {'level' in p ? p.level : group === 'notTested' ? '不考' : '待判断'}

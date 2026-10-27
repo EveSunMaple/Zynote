@@ -527,13 +527,14 @@ export class NativeImService {
   return this.persist(login)
  }
  dispose() {
-  return (this.closing ??= (async () => {
+  this.closing ??= (async () => {
    this.controller.abort()
    for (const login of this.logins.values()) login.controller.abort()
    await this.automation.dispose()
    await this.local.dispose()
    this.runtime.dispose()
    this.store.close()
-  })())
+  })()
+  return this.closing
  }
 }
