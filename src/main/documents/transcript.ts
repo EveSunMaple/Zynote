@@ -23,25 +23,32 @@ function transcriptRow(block: string) {
  if (value.startsWith(':') || value.startsWith('：')) value = value.slice(1).trimStart()
  return {stamp: time[1], text: value}
 }
-export function splitTranscript(text: string) {
- let blocks = text
+function transcriptStamp(row: {stamp: string} | undefined) {
+ if (!row) return null
+ return milliseconds(
+  row.stamp.split(':').length === 2 ? '00:' + row.stamp.padStart(5, '0') : row.stamp.padStart(8, '0')
+ )
+}
+function transcriptBlocks(text: string) {
+ const blocks = text
   .split(/\r?\n/)
   .map(line => line.trim())
   .filter(Boolean)
  const heading = blocks.findIndex(line => /^\d+\.\s*语音识别$/.test(line))
- if (heading >= 0) blocks = blocks.slice(heading + 1)
+ return heading >= 0 ? blocks.slice(heading + 1) : blocks
+}
+function transcriptRows(blocks: string[]) {
  const rows: {text: string; stamp: number | null}[] = []
  for (const block of blocks) {
   const row = transcriptRow(block)
-  let stamp: number | null = null
-  if (row)
-   stamp = milliseconds(
-    row.stamp.split(':').length === 2 ? '00:' + row.stamp.padStart(5, '0') : row.stamp.padStart(8, '0')
-   )
+  const stamp = transcriptStamp(row)
   const value = row ? row.text : block
   if (value) rows.push({text: value, stamp})
   else if (stamp !== null) rows.push({text: '', stamp})
  }
+ return rows
+}
+function transcriptSegments(rows: {text: string; stamp: number | null}[]) {
  const segments: Segment[] = []
  let cursor = 0,
   pending: number | null = null
@@ -60,6 +67,10 @@ export function splitTranscript(text: string) {
   segments.push({start, end, text: row.text})
   cursor = end
  }
+ return segments
+}
+export function splitTranscript(text: string) {
+ const segments = transcriptSegments(transcriptRows(transcriptBlocks(text)))
  if (!segments.length) throw new Error('语音识别原文为空')
  return {text, segments, estimated: true}
 }

@@ -79,16 +79,18 @@ function commentRecord(value: unknown, owner: number, root = '', pinned = false)
   replies_complete: ('rcount' in raw || 'count' in raw) && count <= replies.length
  }
 }
+const failurePatterns: [RegExp, string][] = [
+ [/HTTP (\d+)/, 'http_'],
+ [/（(-?\d+)）/, 'api_']
+]
 function failureCode(error: unknown): string {
- if (error instanceof Error) {
-  const http = /HTTP (\d+)/.exec(error.message)
-  if (http) return 'http_' + http[1]
-  const api = /（(-?\d+)）/.exec(error.message)
-  if (api) return 'api_' + api[1]
-  if (error.name === 'TimeoutError' || error.name === 'AbortError') return 'timeout'
-  if (error instanceof z.ZodError) return 'invalid_response'
+ const message = error instanceof Error ? error.message : ''
+ for (const [pattern, prefix] of failurePatterns) {
+  const match = pattern.exec(message)
+  if (match) return prefix + match[1]
  }
- return 'network_or_protocol'
+ if (error instanceof Error && (error.name === 'TimeoutError' || error.name === 'AbortError')) return 'timeout'
+ return error instanceof z.ZodError ? 'invalid_response' : 'network_or_protocol'
 }
 function* fields(bytes: Uint8Array): Generator<[number, bigint | Uint8Array]> {
  let position = 0
@@ -225,7 +227,33 @@ export class BiliDiscussion {
   )
   return z.record(z.string(), z.unknown()).parse(value)
  }
- private async comments(aid: number, owner: number, pages: number) {
+ private rootCandidates(data: Raw): [unknown, boolean][] {
+  return [
+   ...array(data.replies).map(value => [value, false] as [unknown, boolean]),
+   ...array(data.top_replies).map(value => [value, true] as [unknown, boolean]),
+   ...Object.values(object(data.top))
+    .filter(value => identity(object(value).rpid))
+    .map(value => [value, true] as [unknown, boolean])
+  ]
+ }
+ private mergeRootComments(rows: Comment[], seen: Set<string>, candidates: [unknown, boolean][], owner: number) {
+  for (const [raw, pinned] of candidates) {
+   const row = commentRecord(raw, owner, '', pinned)
+   if (row && !seen.has(row.rpid)) {
+    seen.add(row.rpid)
+    rows.push(row)
+   } else if (row && pinned) rows.find(value => value.rpid === row.rpid)!.pinned = true
+  }
+ }
+ private rootPageEnded(data: Raw, page: number, sort: number, coverage: Coverage) {
+  const pagination = object(data.page),
+   cursor = object(data.cursor)
+  const ended =
+   cursor.is_end === true || ('count' in pagination && page * number(pagination.size, 20) >= number(pagination.count))
+  if (sort === 2) coverage.root_end = ended
+  return ended || coverage.fallback_first_page_only === true
+ }
+ private async fetchRootComments(aid: number, owner: number, pages: number, signal: AbortSignal) {
   const rows: Comment[] = [],
    seen = new Set<string>()
   const coverage: Coverage = {
@@ -237,7 +265,6 @@ export class BiliDiscussion {
    root_end: false,
    sort: 'hot_and_recent'
   }
-  const signal = AbortSignal.timeout(22000)
   for (const [sort, budget] of [
    [2, pages],
    [0, 1]
@@ -270,28 +297,14 @@ export class BiliDiscussion {
      }
     }
     coverage.root_pages = number(coverage.root_pages) + 1
-    const candidates: [unknown, boolean][] = [
-     ...array(data.replies).map(value => [value, false] as [unknown, boolean]),
-     ...array(data.top_replies).map(value => [value, true] as [unknown, boolean]),
-     ...Object.values(object(data.top))
-      .filter(value => identity(object(value).rpid))
-      .map(value => [value, true] as [unknown, boolean])
-    ]
-    for (const [raw, pinned] of candidates) {
-     const row = commentRecord(raw, owner, '', pinned)
-     if (row && !seen.has(row.rpid)) {
-      seen.add(row.rpid)
-      rows.push(row)
-     } else if (row && pinned) rows.find(value => value.rpid === row.rpid)!.pinned = true
-    }
-    const pagination = object(data.page),
-     cursor = object(data.cursor)
-    const ended =
-     cursor.is_end === true || ('count' in pagination && page * number(pagination.size, 20) >= number(pagination.count))
-    if (sort === 2) coverage.root_end = ended
-    if (ended || !candidates.length || coverage.fallback_first_page_only) break
+    const candidates = this.rootCandidates(data)
+    this.mergeRootComments(rows, seen, candidates, owner)
+    if (this.rootPageEnded(data, page, sort, coverage) || !candidates.length) break
    }
   }
+  return {rows, coverage}
+ }
+ private commentTargets(rows: Comment[]) {
   const rank = (comment: Comment) =>
    Math.max(
     classifyDiscussion(comment.content).score,
@@ -299,10 +312,18 @@ export class BiliDiscussion {
    ) +
    2 * Number(comment.is_uploader) +
    Number(comment.pinned)
-  const targets = rows
+  return rows
    .filter(row => !row.replies_complete && row.reply_count > row.replies.length)
    .sort((a, b) => rank(b) - rank(a) || b.likes - a.likes)
    .slice(0, 6)
+ }
+ private async fetchChildComments(
+  aid: number,
+  owner: number,
+  targets: Comment[],
+  signal: AbortSignal,
+  coverage: Coverage
+ ) {
   await boundedMap(targets, 2, async parent => {
    const seen = new Set(parent.replies.map(row => row.rpid))
    for (let page = 1; page <= 2; page++) {
@@ -334,12 +355,20 @@ export class BiliDiscussion {
     if (parent.replies_complete || !added) break
    }
   })
+ }
+ private finalizeCommentCoverage(rows: Comment[], coverage: Coverage, signal: AbortSignal) {
   if (signal.aborted) coverage.errors.push({stage: 'collection', code: 'deadline'})
   coverage.root_count = rows.length
   coverage.reply_count = rows.reduce((sum, row) => sum + row.replies.length, 0)
   coverage.partial_threads = rows.filter(row => !row.replies_complete).length
   coverage.complete = !!coverage.root_end && !coverage.errors.length && !coverage.partial_threads
   coverage.status = coverageStatus(coverage.complete, rows.length, coverage.errors.length)
+ }
+ private async comments(aid: number, owner: number, pages: number) {
+  const signal = AbortSignal.timeout(22000)
+  const {rows, coverage} = await this.fetchRootComments(aid, owner, pages, signal)
+  await this.fetchChildComments(aid, owner, this.commentTargets(rows), signal, coverage)
+  this.finalizeCommentCoverage(rows, coverage, signal)
   return {rows, coverage}
  }
  private async raw(path: string, params: Record<string, string>, signal: AbortSignal) {
@@ -374,49 +403,56 @@ export class BiliDiscussion {
    reader.releaseLock()
   }
  }
- private async danmaku(cid: number, duration: number, owner: number) {
-  const total = Math.max(1, Math.ceil(duration / 360)),
-   cap = 12
-  const segments =
-   total > cap
-    ? [...new Set(Array.from({length: cap}, (_, index) => 1 + Math.round((index * (total - 1)) / (cap - 1))))]
-    : Array.from({length: total}, (_, index) => index + 1)
-  const ok: number[] = [],
-   rows: Danmaku[] = [],
-   coverage: Coverage = {
-    status: 'partial',
-    complete: false,
-    errors: [],
-    segments_total: total,
-    segments_requested: segments,
-    segments_ok: ok,
-    scope: 'current_pool_not_all_historical'
-   }
-  const signal = AbortSignal.timeout(20000)
-  await boundedMap(segments, 3, async segment => {
-   try {
-    const parsed = parseDanmaku(
-     await this.raw('/x/v2/dm/web/seg.so', {type: '1', oid: String(cid), segment_index: String(segment)}, signal),
-     owner
-    )
-    if (parsed.closed) coverage.closed = true
-    rows.push(...parsed.rows)
-    ok.push(segment)
-   } catch (error) {
-    coverage.errors.push({segment, code: failureCode(error)})
-   }
-  })
-  if (signal.aborted) coverage.errors.push({code: 'deadline'})
-  if (!ok.length) {
-   try {
-    rows.push(
-     ...parseDanmaku(await this.raw('/x/v1/dm/list.so', {oid: String(cid)}, AbortSignal.timeout(5000)), owner).rows
-    )
-    coverage.fallback = 'xml_pool'
-   } catch {
-    coverage.errors.push({code: 'xml_unavailable'})
-   }
+ private danmakuSegments(total: number, cap = 12) {
+  return total > cap
+   ? [...new Set(Array.from({length: cap}, (_, index) => 1 + Math.round((index * (total - 1)) / (cap - 1))))]
+   : Array.from({length: total}, (_, index) => index + 1)
+ }
+ private async fetchDanmakuSegment(
+  cid: number,
+  segment: number,
+  signal: AbortSignal,
+  owner: number,
+  rows: Danmaku[],
+  ok: number[],
+  coverage: Coverage
+ ) {
+  try {
+   const parsed = parseDanmaku(
+    await this.raw('/x/v2/dm/web/seg.so', {type: '1', oid: String(cid), segment_index: String(segment)}, signal),
+    owner
+   )
+   if (parsed.closed) coverage.closed = true
+   rows.push(...parsed.rows)
+   ok.push(segment)
+  } catch (error) {
+   coverage.errors.push({segment, code: failureCode(error)})
   }
+ }
+ private async danmakuPool(
+  cid: number,
+  owner: number,
+  segments: number[],
+  signal: AbortSignal,
+  rows: Danmaku[],
+  ok: number[],
+  coverage: Coverage
+ ) {
+  await boundedMap(segments, 3, async segment =>
+   this.fetchDanmakuSegment(cid, segment, signal, owner, rows, ok, coverage)
+  )
+ }
+ private async fallbackDanmaku(cid: number, owner: number, rows: Danmaku[], coverage: Coverage) {
+  try {
+   rows.push(
+    ...parseDanmaku(await this.raw('/x/v1/dm/list.so', {oid: String(cid)}, AbortSignal.timeout(5000)), owner).rows
+   )
+   coverage.fallback = 'xml_pool'
+  } catch {
+   coverage.errors.push({code: 'xml_unavailable'})
+  }
+ }
+ private finalizeDanmaku(rows: Danmaku[], ok: number[], total: number, coverage: Coverage) {
   const unique = [...new Map(rows.map(row => [row.id || canonicalJsonKey(row), row])).values()]
   unique.sort(
    (a, b) =>
@@ -431,6 +467,27 @@ export class BiliDiscussion {
   coverage.complete = ok.length === total && !coverage.errors.length && !coverage.retention_limited
   coverage.status = coverageStatus(coverage.complete, unique.length, coverage.errors.length, coverage.closed === true)
   return {rows: unique.slice(0, 800), coverage}
+ }
+ private async danmaku(cid: number, duration: number, owner: number) {
+  const total = Math.max(1, Math.ceil(duration / 360)),
+   cap = 12
+  const segments = this.danmakuSegments(total, cap)
+  const ok: number[] = [],
+   rows: Danmaku[] = [],
+   coverage: Coverage = {
+    status: 'partial',
+    complete: false,
+    errors: [],
+    segments_total: total,
+    segments_requested: segments,
+    segments_ok: ok,
+    scope: 'current_pool_not_all_historical'
+   }
+  const signal = AbortSignal.timeout(20000)
+  await this.danmakuPool(cid, owner, segments, signal, rows, ok, coverage)
+  if (signal.aborted) coverage.errors.push({code: 'deadline'})
+  if (!ok.length) await this.fallbackDanmaku(cid, owner, rows, coverage)
+  return this.finalizeDanmaku(rows, ok, total, coverage)
  }
  async collect(input: string, pages: number) {
   z.number().int().min(1).max(10).parse(pages)
@@ -461,75 +518,13 @@ export class BiliDiscussion {
    this.comments(info.aid, info.owner.mid, pages),
    this.danmaku(selected.cid, selected.duration, info.owner.mid)
   ])
-  const items: DiscussionItem[] = [],
-   base = 'https://www.bilibili.com/video/' + info.bvid
-  const add = (kind: DiscussionItem['kind'], text: string, identity: string, meta: Partial<DiscussionItem> = {}) => {
-   text = text.trim().slice(0, 12000)
-   if (!text) return
-   const {labels, score} = classifyDiscussion(text)
-   items.push({
-    id: kind + ':' + (identity || discussionDigest([info.bvid, selected.cid, text]).slice(0, 20)),
-    kind,
-    text,
-    text_sha256: discussionDigest(text),
-    labels,
-    score:
-     Math.round(
-      (score +
-       2 * Number(!!meta.is_uploader) +
-       Number(!!meta.pinned) +
-       Math.min(1, Math.log10(Math.max(1, meta.likes || 0)))) *
-       100
-     ) / 100,
-    selected: false,
-    verification: 'unverified',
-    reviewed: false,
-    note: '',
-    url: base,
-    ...meta
-   })
-  }
-  add('description', info.desc, info.bvid, {is_uploader: true})
-  const seen = new Set<string>()
-  for (const comment of comments.rows) {
-   if (seen.has(comment.rpid)) continue
-   seen.add(comment.rpid)
-   const meta = (row: Comment) => ({
-    author: row.user,
-    likes: row.likes,
-    rpid: row.rpid,
-    is_uploader: row.is_uploader,
-    created_at: row.created_at,
-    url: base + '#reply' + row.rpid
-   })
-   add('comment', comment.content, comment.rpid, {
-    ...meta(comment),
-    root_id: '',
-    parent_id: '',
-    pinned: comment.pinned,
-    reply_count: comment.reply_count,
-    replies_complete: comment.replies_complete
-   })
-   for (const reply of comment.replies) {
-    if (seen.has(reply.rpid)) continue
-    seen.add(reply.rpid)
-    add('reply', reply.content, reply.rpid, {
-     ...meta(reply),
-     root_id: 'comment:' + comment.rpid,
-     parent_id:
-      reply.parent_id && reply.parent_id !== comment.rpid ? 'reply:' + reply.parent_id : 'comment:' + comment.rpid
-    })
-   }
-  }
-  for (const row of danmaku.rows)
-   add('danmaku', row.text, row.id, {
-    time_sec: row.time_sec,
-    created_at: row.created_at,
-    is_uploader: row.is_uploader,
-    cid: selected.cid,
-    page,
-    url: `${base}?p=${page}&t=${Math.floor(row.time_sec)}`
-   })
+  const base = 'https://www.bilibili.com/video/' + info.bvid
+  const items: DiscussionItem[] = []
+  this.addDiscussionItem(items, info.bvid, selected.cid, page, base, 'description', info.desc, info.bvid, {
+   is_uploader: true
+  })
+  this.appendDiscussionComments(items, info.bvid, selected.cid, page, base, comments.rows)
+  this.appendDiscussionDanmaku(items, info.bvid, selected.cid, page, base, danmaku.rows)
   return this.store.save({
    schema: 'video-discussion-v1',
    bvid: info.bvid,
@@ -542,7 +537,104 @@ export class BiliDiscussion {
    items: items.slice(0, 1200)
   })
  }
+ private addDiscussionItem(
+  items: DiscussionItem[],
+  bvid: string,
+  cid: number,
+  page: number,
+  base: string,
+  kind: DiscussionItem['kind'],
+  text: string,
+  identity: string,
+  meta: Partial<DiscussionItem> = {}
+ ) {
+  text = text.trim().slice(0, 12000)
+  if (!text) return
+  const {labels, score} = classifyDiscussion(text)
+  items.push({
+   id: kind + ':' + (identity || discussionDigest([bvid, cid, text]).slice(0, 20)),
+   kind,
+   text,
+   text_sha256: discussionDigest(text),
+   labels,
+   score:
+    Math.round(
+     (score +
+      2 * Number(!!meta.is_uploader) +
+      Number(!!meta.pinned) +
+      Math.min(1, Math.log10(Math.max(1, meta.likes || 0)))) *
+      100
+    ) / 100,
+   selected: false,
+   verification: 'unverified',
+   reviewed: false,
+   note: '',
+   url: base,
+   ...meta
+  })
+ }
+ private commentMeta(row: Comment, base: string) {
+  return {
+   author: row.user,
+   likes: row.likes,
+   rpid: row.rpid,
+   is_uploader: row.is_uploader,
+   created_at: row.created_at,
+   url: base + '#reply' + row.rpid
+  }
+ }
+ private appendDiscussionComments(
+  items: DiscussionItem[],
+  bvid: string,
+  cid: number,
+  page: number,
+  base: string,
+  comments: Comment[]
+ ) {
+  const seen = new Set<string>()
+  for (const comment of comments) {
+   if (seen.has(comment.rpid)) continue
+   seen.add(comment.rpid)
+   this.addDiscussionItem(items, bvid, cid, page, base, 'comment', comment.content, comment.rpid, {
+    ...this.commentMeta(comment, base),
+    root_id: '',
+    parent_id: '',
+    pinned: comment.pinned,
+    reply_count: comment.reply_count,
+    replies_complete: comment.replies_complete
+   })
+   for (const reply of comment.replies) {
+    if (seen.has(reply.rpid)) continue
+    seen.add(reply.rpid)
+    this.addDiscussionItem(items, bvid, cid, page, base, 'reply', reply.content, reply.rpid, {
+     ...this.commentMeta(reply, base),
+     root_id: 'comment:' + comment.rpid,
+     parent_id:
+      reply.parent_id && reply.parent_id !== comment.rpid ? 'reply:' + reply.parent_id : 'comment:' + comment.rpid
+    })
+   }
+  }
+ }
+ private appendDiscussionDanmaku(
+  items: DiscussionItem[],
+  bvid: string,
+  cid: number,
+  page: number,
+  base: string,
+  rows: Danmaku[]
+ ) {
+  for (const row of rows)
+   this.addDiscussionItem(items, bvid, cid, page, base, 'danmaku', row.text, row.id, {
+    time_sec: row.time_sec,
+    created_at: row.created_at,
+    is_uploader: row.is_uploader,
+    cid,
+    page,
+    url: `${base}?p=${page}&t=${Math.floor(row.time_sec)}`
+   })
+ }
 }
+
 function canonicalJsonKey(row: Danmaku) {
  return JSON.stringify([row.time_sec, row.text])
 }

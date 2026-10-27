@@ -64,49 +64,59 @@ async function requestError(response: Response, nativeFile: boolean, hasFile: bo
  }
  return error
 }
+type SseState = {all: string; finishReason: string; completed: boolean}
+function sseData(value: string) {
+ return value
+  .split('\n')
+  .filter(l => l.startsWith('data:'))
+  .map(l => l.slice(5).trimStart())
+  .join('\n')
+  .trim()
+}
+function sseTerminal(obj: any, state: SseState): boolean {
+ if (obj.error || obj.type === 'response.failed' || obj.type === 'response.incomplete')
+  throw new Error('API 未完成流式输出，请检查服务配置或输出长度限制')
+ if (obj.type !== 'response.completed') return false
+ if (obj.response?.status && obj.response.status !== 'completed') throw new Error('API 未完成流式输出')
+ state.completed = true
+ return true
+}
+function sseFinishReason(obj: any, state: SseState) {
+ const reason = obj.choices?.[0]?.finish_reason
+ if (typeof reason !== 'string') return
+ state.finishReason = reason
+ if (reason === 'length' || reason === 'content_filter')
+  throw new Error(
+   reason === 'length' ? 'API 输出达到长度限制，未保存不完整结果' : 'API 输出被内容安全过滤，未保存不完整结果'
+  )
+ if (reason && reason !== 'stop') throw new Error('API 未正常结束文本输出，未保存结果')
+ if (reason === 'stop') state.completed = true
+}
+function sseDelta(obj: any): string | undefined {
+ const delta = obj.type === 'response.output_text.delta' ? obj.delta : obj.choices?.[0]?.delta?.content
+ return typeof delta === 'string' ? delta : undefined
+}
+function handleSse(value: string, state: SseState, onText: (text: string) => void) {
+ const data = sseData(value)
+ if (!data) return
+ if (data === '[DONE]') {
+  if (!state.finishReason || state.finishReason === 'stop') state.completed = true
+  return
+ }
+ const obj = JSON.parse(data)
+ if (sseTerminal(obj, state)) return
+ sseFinishReason(obj, state)
+ const delta = sseDelta(obj)
+ if (delta !== undefined) {
+  state.all += delta
+  onText(delta)
+ }
+}
 export async function readSse(body: ReadableStream<Uint8Array>, onText: (text: string) => void): Promise<string> {
  const reader = body.getReader(),
   decoder = new TextDecoder()
- let buffer = '',
-  all = '',
-  finishReason = '',
-  completed = false
- const event = (value: string) => {
-  const data = value
-   .split('\n')
-   .filter(l => l.startsWith('data:'))
-   .map(l => l.slice(5).trimStart())
-   .join('\n')
-   .trim()
-  if (!data) return
-  if (data === '[DONE]') {
-   if (!finishReason || finishReason === 'stop') completed = true
-   return
-  }
-  const obj = JSON.parse(data)
-  if (obj.error || obj.type === 'response.failed' || obj.type === 'response.incomplete')
-   throw new Error('API 未完成流式输出，请检查服务配置或输出长度限制')
-  if (obj.type === 'response.completed') {
-   if (obj.response?.status && obj.response.status !== 'completed') throw new Error('API 未完成流式输出')
-   completed = true
-   return
-  }
-  const reason = obj.choices?.[0]?.finish_reason
-  if (typeof reason === 'string') {
-   finishReason = reason
-   if (reason === 'length' || reason === 'content_filter')
-    throw new Error(
-     reason === 'length' ? 'API 输出达到长度限制，未保存不完整结果' : 'API 输出被内容安全过滤，未保存不完整结果'
-    )
-   if (reason && reason !== 'stop') throw new Error('API 未正常结束文本输出，未保存结果')
-   if (reason === 'stop') completed = true
-  }
-  const delta = obj.type === 'response.output_text.delta' ? obj.delta : obj.choices?.[0]?.delta?.content
-  if (typeof delta === 'string') {
-   all += delta
-   onText(delta)
-  }
- }
+ let buffer = ''
+ const state: SseState = {all: '', finishReason: '', completed: false}
  try {
   for (;;) {
    // biome-ignore format: NOSONAR must stay on the await line
@@ -114,20 +124,117 @@ export async function readSse(body: ReadableStream<Uint8Array>, onText: (text: s
    buffer += decoder.decode(value, {stream: !done}).replaceAll('\r', '')
    let index: number
    while ((index = buffer.indexOf('\n\n')) >= 0) {
-    event(buffer.slice(0, index))
+    handleSse(buffer.slice(0, index), state, onText)
     buffer = buffer.slice(index + 2)
    }
    if (done) {
-    if (buffer.trim()) event(buffer)
+    if (buffer.trim()) handleSse(buffer, state, onText)
     break
    }
   }
-  if (!completed) throw new ApiConnectionError('API 流提前结束，缺少有效完成标记，未保存不完整结果')
-  if (!all.trim()) throw new Error('API 未返回文本')
-  return all
+  if (!state.completed) throw new ApiConnectionError('API 流提前结束，缺少有效完成标记，未保存不完整结果')
+  if (!state.all.trim()) throw new Error('API 未返回文本')
+  return state.all
  } finally {
   reader.releaseLock()
  }
+}
+type ChatParameters = NonNullable<Profile['parameters']>[string]
+type ChatInput = Record<string, unknown>
+function chatModel(profile: Profile & {key?: string}, hasImages: boolean) {
+ const model = hasImages ? profile.visionModel?.trim() || '' : profile.model
+ if (!model.trim()) throw new Error(hasImages ? '请先在设置中选择千问视觉模型' : '请先在设置中选择千问文本模型')
+ return model
+}
+function routedChatMessages(messages: ChatMessage[], optionImages: {label: string; url: string}[]): ChatMessage[] {
+ const routed = messages.map(m => ({...m, content: Array.isArray(m.content) ? [...m.content] : m.content}))
+ if (!optionImages.length) return routed
+ const index = routed.map(m => m.role).lastIndexOf('user')
+ if (index < 0) throw new Error('图片输入缺少用户消息')
+ const current = routed[index].content
+ const parts: Exclude<ChatMessage['content'], string> =
+  typeof current === 'string' ? [{type: 'text', text: current}] : [...current]
+ for (const image of optionImages) {
+  parts.push({type: 'text', text: image.label})
+  parts.push({type: 'image_url', image_url: {url: image.url}})
+ }
+ routed[index] = {...routed[index], content: parts}
+ return routed
+}
+function responsesChatInput(messages: ChatMessage[]): ChatInput {
+ return {
+  input: messages.map(m => ({
+   role: m.role,
+   content:
+    typeof m.content === 'string'
+     ? m.content
+     : m.content.map(part => {
+        if (part.type === 'text') return {type: 'input_text', text: part.text}
+        if (part.type === 'image_url') return {type: 'input_image', image_url: part.image_url.url}
+        return {type: 'input_file', filename: part.file.filename, file_data: part.file.file_data}
+       })
+  })),
+  store: false
+ }
+}
+function chatRequestBody(
+ profile: Profile & {key?: string},
+ model: string,
+ input: ChatInput,
+ parameters: ChatParameters,
+ responses: boolean,
+ stream: boolean
+) {
+ const reasoning: Record<string, unknown> = parameters.reasoningEffort
+  ? responses
+   ? {reasoning: {effort: parameters.reasoningEffort}}
+   : {reasoning_effort: parameters.reasoningEffort}
+  : {}
+ return {
+  model,
+  ...input,
+  stream,
+  ...(parameters.temperature !== undefined ? {temperature: parameters.temperature} : {}),
+  ...(parameters.topP !== undefined ? {top_p: parameters.topP} : {}),
+  ...(parameters.maxTokens !== undefined
+   ? {[responses ? 'max_output_tokens' : 'max_tokens']: parameters.maxTokens}
+   : {}),
+  ...reasoning
+ }
+}
+type ChatResponseData = {
+ status?: string
+ incomplete_details?: unknown
+ output?: {type: string; content?: {type: string; text?: string}[]}[]
+ choices?: {finish_reason?: string; message?: {content?: string | {type: string; text?: string}[]}}[]
+}
+function chatResponseValue(data: ChatResponseData, responses: boolean) {
+ if (data.status === 'incomplete' || data.status === 'failed' || (responses && data.status !== 'completed'))
+  throw new Error('API 未完成输出，请检查输出长度限制或服务状态')
+ const choice = data.choices?.[0]
+ const finish = choice?.finish_reason
+ if (!responses && finish && finish !== 'stop') {
+  if (finish === 'length') throw new Error('API 输出达到长度限制，未保存不完整结果')
+  if (finish === 'content_filter') throw new Error('API 输出被内容安全过滤，未保存不完整结果')
+  throw new Error('API 未正常结束，未保存结果')
+ }
+ const body = choice?.message?.content
+ let value: string | undefined
+ if (responses)
+  value = data.output
+   ?.filter(item => item.type === 'message')
+   .flatMap(item => item.content || [])
+   .filter(part => part.type === 'output_text')
+   .map(part => part.text || '')
+   .join('')
+ else if (Array.isArray(body))
+  value = body
+   .filter(part => part.type === 'text')
+   .map(part => part.text || '')
+   .join('')
+ else value = body
+ if (!value?.trim()) throw new Error('API 未返回有效文本')
+ return value
 }
 export class Api {
  constructor(
@@ -151,60 +258,17 @@ export class Api {
     Array.isArray(m.content) ? m.content.filter(part => part.type === 'image_url') : []
    ),
    hasImages = optionImages.length > 0 || inlineImages.length > 0
-  const model = hasImages ? p.visionModel?.trim() || '' : p.model
-  if (!model.trim()) throw new Error(hasImages ? '请先在设置中选择千问视觉模型' : '请先在设置中选择千问文本模型')
+  const model = chatModel(p, hasImages)
   const responses = nativeFile || p.apiFormat === 'responses',
    endpoint = p.baseUrl.replace(/\/$/, '') + (responses ? '/responses' : '/chat/completions')
   const parameters = p.parameters?.[model] || {}
   const controller = AbortSignal.any([AbortSignal.timeout(180000), ...(signal ? [signal] : [])])
-  let routedMessages = messages.map(m => ({...m, content: Array.isArray(m.content) ? [...m.content] : m.content}))
-  if (optionImages.length) {
-   const index = routedMessages.map(m => m.role).lastIndexOf('user')
-   if (index < 0) throw new Error('图片输入缺少用户消息')
-   const current = routedMessages[index].content,
-    parts: Exclude<ChatMessage['content'], string> =
-     typeof current === 'string' ? [{type: 'text', text: current}] : [...current]
-   for (const image of optionImages) {
-    parts.push({type: 'text', text: image.label})
-    parts.push({type: 'image_url', image_url: {url: image.url}})
-   }
-   routedMessages[index] = {...routedMessages[index], content: parts}
-  }
-  const input = responses
-   ? {
-      input: routedMessages.map(m => ({
-       role: m.role,
-       content:
-        typeof m.content === 'string'
-         ? m.content
-         : m.content.map(part => {
-            if (part.type === 'text') return {type: 'input_text', text: part.text}
-            if (part.type === 'image_url') return {type: 'input_image', image_url: part.image_url.url}
-            return {type: 'input_file', filename: part.file.filename, file_data: part.file.file_data}
-           })
-      })),
-      store: false
-     }
-   : {messages: routedMessages}
-  let reasoning: Record<string, unknown> = {}
-  if (parameters.reasoningEffort) {
-   if (responses) reasoning = {reasoning: {effort: parameters.reasoningEffort}}
-   else reasoning = {reasoning_effort: parameters.reasoningEffort}
-  }
+  const routedMessages = routedChatMessages(messages, optionImages)
+  const input = responses ? responsesChatInput(routedMessages) : {messages: routedMessages}
   const response = await this.request(endpoint, {
    method: 'POST',
    headers: {'Content-Type': 'application/json', ...(p.key ? {Authorization: `Bearer ${p.key}`} : {})},
-   body: JSON.stringify({
-    model,
-    ...input,
-    stream: !!onText,
-    ...(parameters.temperature !== undefined ? {temperature: parameters.temperature} : {}),
-    ...(parameters.topP !== undefined ? {top_p: parameters.topP} : {}),
-    ...(parameters.maxTokens !== undefined
-     ? {[responses ? 'max_output_tokens' : 'max_tokens']: parameters.maxTokens}
-     : {}),
-    ...reasoning
-   }),
+   body: JSON.stringify(chatRequestBody(p, model, input, parameters, responses, !!onText)),
    signal: controller
   })
   if (!response.ok)
@@ -214,40 +278,8 @@ export class Api {
     messages.some(m => Array.isArray(m.content) && m.content.some(p => p.type === 'file'))
    )
   if (onText && response.body) return readSse(response.body, onText)
-  const data = (await response.json()) as {
-   status?: string
-   incomplete_details?: unknown
-   output?: {type: string; content?: {type: string; text?: string}[]}[]
-   choices?: {finish_reason?: string; message?: {content?: string | {type: string; text?: string}[]}}[]
-  }
-  if (data.status === 'incomplete' || data.status === 'failed' || (responses && data.status !== 'completed'))
-   throw new Error('API 未完成输出，请检查输出长度限制或服务状态')
-  const choice = data.choices?.[0],
-   finish = choice?.finish_reason
-  // 兼容未返回 finish_reason 的完整 JSON 响应。
-  if (!responses && finish && finish !== 'stop') {
-   let finishMessage = 'API 未正常结束，未保存结果'
-   if (finish === 'length') finishMessage = 'API 输出达到长度限制，未保存不完整结果'
-   else if (finish === 'content_filter') finishMessage = 'API 输出被内容安全过滤，未保存不完整结果'
-   throw new Error(finishMessage)
-  }
-  const body = choice?.message?.content
-  let value: string | undefined
-  if (responses)
-   value = data.output
-    ?.filter(item => item.type === 'message')
-    .flatMap(item => item.content || [])
-    .filter(part => part.type === 'output_text')
-    .map(part => part.text || '')
-    .join('')
-  else if (Array.isArray(body))
-   value = body
-    .filter(part => part.type === 'text')
-    .map(part => part.text || '')
-    .join('')
-  else value = body
-  if (!value?.trim()) throw new Error('API 未返回有效文本')
-  return value
+  const data = (await response.json()) as ChatResponseData
+  return chatResponseValue(data, responses)
  }
  async models(profile: Profile): Promise<string[]> {
   const p = this.settings.draft(profile)

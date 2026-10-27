@@ -160,23 +160,23 @@ async function withCoursewareMetadata(
  return {...result, metadata: createCoursewareMetadata(source, result.text, 'local', result.needsOcr, result.omissions)}
 }
 export function chunks(text: string, size = 14000): string[] {
- const paragraphs = text.split(/\n(?=#{1,6}\s|第[一二三四五六七八九十\d]+[章节])|\n\s*\n/),
-  result: string[] = []
+ const paragraphs = text.split(/\n(?=#{1,6}\s|第[一二三四五六七八九十\d]+[章节])|\n\s*\n/)
+ const result: string[] = []
  let current = ''
- for (const para of paragraphs) {
-  if (current.length + para.length > size && current) {
+ const flush = () => {
+  if (current) {
    result.push(current)
    current = ''
   }
+ }
+ for (const para of paragraphs) {
+  if (current.length + para.length > size && current) flush()
   if (para.length > size) {
-   if (current) {
-    result.push(current)
-    current = ''
-   }
+   flush()
    for (let i = 0; i < para.length; i += size) result.push(para.slice(i, i + size))
   } else current += (current ? '\n\n' : '') + para
  }
- if (current) result.push(current)
+ flush()
  return result
 }
 export async function parseDocument(path: string): Promise<{text: string; needsOcr: boolean}> {
@@ -274,15 +274,203 @@ export async function importDocument(
  }
 }
 
+function decodeCoursewareXml(value: string) {
+ return value
+  .replace(/&#x([\da-f]+);/gi, (_m, n) => String.fromCodePoint(Number.parseInt(n, 16)))
+  .replace(/&#(\d+);/g, (_m, n) => String.fromCodePoint(Number(n)))
+  .replaceAll('&lt;', '<')
+  .replaceAll('&gt;', '>')
+  .replaceAll('&quot;', '"')
+  .replaceAll('&apos;', "'")
+  .replaceAll('&amp;', '&')
+}
+function coursewareAttr(xml: string, name: string) {
+ return new RegExp(String.raw`\b${name}=["']([^"']+)["']`).exec(xml)?.[1]
+}
+function coursewareRelationships(xml: string) {
+ return Array.from(xml.matchAll(/<Relationship\b[^>]*>/g), m => m[0])
+}
+function coursewarePartTarget(parent: string, value: string) {
+ const target = decodeCoursewareXml(value)
+ return posix.normalize(target.startsWith('/') ? target.slice(1) : posix.join(parent, target))
+}
+function coursewareDeclaredSize(entry: JSZip.JSZipObject) {
+ const size = (entry as unknown as {_data?: {uncompressedSize?: unknown}})._data?.uncompressedSize
+ return typeof size === 'number' && Number.isSafeInteger(size) && size >= 0 ? size : undefined
+}
+async function readCoursewareEntry(entry: JSZip.JSZipObject, limit: number, label: string) {
+ const declared = coursewareDeclaredSize(entry)
+ if (declared === undefined || declared > limit) throw new Error(`${label}超过 ${limit} 字节本地解析上限或大小无法验证`)
+ type Worker = {error(error: Error): boolean}
+ type Stream = {
+  on(event: 'data' | 'error' | 'end', listener: (value?: unknown) => void): Stream
+  resume(): void
+  pause(): void
+  _worker: Worker
+ }
+ // JSZip's Node stream adapter does not cancel its decompressor on destroy; stop the worker chain on overflow.
+ const stream = (entry as unknown as {internalStream(type: string): Stream}).internalStream('nodebuffer')
+ const maxBytes = Math.min(limit, declared)
+ return await new Promise<Buffer>((resolve, reject) => {
+  const parts: Buffer[] = []
+  let total = 0,
+   settled = false
+  const fail = (error: Error) => {
+   if (settled) return
+   settled = true
+   stream.pause()
+   queueMicrotask(() => {
+    try {
+     stream._worker.error(error)
+    } catch {}
+    reject(error)
+   })
+  }
+  stream
+   .on('data', value => {
+    if (settled) return
+    const bytes = Buffer.isBuffer(value) ? value : Buffer.from(value as Uint8Array)
+    total += bytes.length
+    if (total > maxBytes) {
+     fail(new Error(`${label}实际展开超过声明或本地上限 ${maxBytes} 字节`))
+     return
+    }
+    parts.push(bytes)
+   })
+   .on('error', value => {
+    if (!settled) {
+     settled = true
+     reject(value instanceof Error ? value : new Error(`${label}展开失败`))
+    }
+   })
+   .on('end', () => {
+    if (settled) return
+    settled = true
+    if (total !== declared) reject(new Error(`${label}实际展开大小与压缩目录不一致`))
+    else resolve(Buffer.concat(parts, total))
+   })
+  stream.resume()
+ })
+}
+function coursewareSlideNames(presentation: string, presentationRels: string) {
+ const slideLinks = coursewareRelationships(presentationRels)
+ return Array.from(presentation.matchAll(/<p:sldId\b[^>]*>/g), m => coursewareAttr(m[0], 'r:id'))
+  .filter((id): id is string => !!id)
+  .map(id => {
+   const rel = slideLinks.find(row => coursewareAttr(row, 'Id') === id)
+   if (!rel || coursewareAttr(rel, 'TargetMode') === 'External') throw new Error('PPTX 页面引用无效')
+   const name = coursewarePartTarget('ppt', coursewareAttr(rel, 'Target') || '')
+   if (!name.startsWith('ppt/slides/') || name.includes('../')) throw new Error('PPTX 页面路径无效')
+   return name
+  })
+}
+function coursewareMime(extension: string) {
+ return {
+  '.png': 'image/png',
+  '.jpg': 'image/jpeg',
+  '.jpeg': 'image/jpeg',
+  '.webp': 'image/webp',
+  '.gif': 'image/gif'
+ }[extension]
+}
+async function appendCoursewareSlideImages(
+ zip: JSZip,
+ xml: string,
+ slideRel: string,
+ name: string,
+ index: number,
+ rawImageBytes: number,
+ images: {label: string; url: string}[],
+ omissions: string[]
+) {
+ const relationRows = coursewareRelationships(slideRel)
+ const seen = new Set<string>()
+ const pageLabel = `课件第 ${index + 1} 页`
+ for (const id of new Set(Array.from(xml.matchAll(/<a:blip\b[^>]*\br:embed=["']([^"']+)["']/g), m => m[1]))) {
+  const relation = relationRows.find(row => coursewareAttr(row, 'Id') === id)
+  if (!relation || coursewareAttr(relation, 'TargetMode') === 'External') continue
+  const mediaName = coursewarePartTarget(posix.dirname(name), coursewareAttr(relation, 'Target') || '')
+  const mime = coursewareMime(extname(mediaName).toLowerCase())
+  if (!mediaName.startsWith('ppt/media/') || mediaName.includes('../') || !mime) {
+   omissions.push(`第 ${index + 1} 页有未支持的嵌入图片格式`)
+   continue
+  }
+  if (seen.has(mediaName)) continue
+  seen.add(mediaName)
+  const entry = zip.file(mediaName)
+  if (!entry) {
+   omissions.push(`第 ${index + 1} 页嵌入图片缺失`)
+   continue
+  }
+  const remainingBytes = 8 * 1024 * 1024 - rawImageBytes
+  const entrySize = coursewareDeclaredSize(entry)
+  if (images.length >= 40) {
+   omissions.push(`第 ${index + 1} 页嵌入图片因 40 张数量上限未发送`)
+   continue
+  }
+  if (remainingBytes <= 0) {
+   omissions.push(`第 ${index + 1} 页嵌入图片因 8 MB 图片总量上限未读取或发送`)
+   continue
+  }
+  if (entrySize === undefined) {
+   omissions.push(`第 ${index + 1} 页嵌入图片展开大小无法验证，未读取或发送`)
+   continue
+  }
+  if (entrySize > 4 * 1024 * 1024) {
+   omissions.push(`第 ${index + 1} 页嵌入图片超过 4 MB 单张上限，未读取或发送`)
+   continue
+  }
+  if (entrySize > remainingBytes) {
+   omissions.push(`第 ${index + 1} 页嵌入图片超过剩余图片预算 ${remainingBytes} 字节，未读取或发送`)
+   continue
+  }
+  // biome-ignore format: NOSONAR must stay on the await line
+  const data = await readCoursewareEntry(entry, Math.min(4 * 1024 * 1024, remainingBytes), `PPTX 第 ${index + 1} 页嵌入图片`) // NOSONAR: ordered/limited operation; parallelizing would change atomicity, rate limits, or deterministic progress.
+  rawImageBytes += data.length
+  images.push({
+   label: `${pageLabel}嵌入图片 ${images.filter(image => image.label.startsWith(pageLabel)).length + 1}`,
+   url: `data:${mime};base64,${data.toString('base64')}`
+  })
+ }
+ return rawImageBytes
+}
+async function readCoursewareSlide(
+ zip: JSZip,
+ name: string,
+ index: number,
+ editableChars: number,
+ rawImageBytes: number,
+ images: {label: string; url: string}[],
+ omissions: string[]
+) {
+ const entry = zip.file(name)
+ if (!entry) throw new Error(`PPTX 第 ${index + 1} 页内容缺失`)
+ // biome-ignore format: NOSONAR must stay on the await line
+ const xml = (await readCoursewareEntry(entry, 5 * 1024 * 1024, `PPTX 第 ${index + 1} 页内容`)).toString('utf8') // NOSONAR: ordered/limited operation; parallelizing would change atomicity, rate limits, or deterministic progress.
+ const extracted = Array.from(xml.matchAll(/<a:t(?:\s[^>]*)?>([\s\S]*?)<\/a:t>/g), m => decodeCoursewareXml(m[1]))
+  .join('\n')
+  .trim()
+ const remaining = Math.max(0, 200000 - editableChars)
+ const text = extracted.slice(0, remaining)
+ if (text.length < extracted.length) omissions.push('课件可编辑文本超过 200,000 字，本地解析仅保留前段内容')
+ const page = `[第 ${index + 1} 页]\n${text || '（未提取到可编辑文字）'}`
+ const relName = posix.join(posix.dirname(name), '_rels', posix.basename(name) + '.rels')
+ const slideRelEntry = zip.file(relName)
+ const slideRel = slideRelEntry
+  ? // biome-ignore format: NOSONAR must stay on the await line
+    (await readCoursewareEntry(slideRelEntry, 5 * 1024 * 1024, `PPTX 第 ${index + 1} 页关系`)).toString('utf8') // NOSONAR: ordered/limited operation; parallelizing would change atomicity, rate limits, or deterministic progress.
+  : undefined
+ if (!slideRel) return {page, used: text.length, rawImageBytes}
+ rawImageBytes = await appendCoursewareSlideImages(zip, xml, slideRel, name, index, rawImageBytes, images, omissions)
+ if (/<p:graphicFrame\b|<p:oleObj\b|<p:contentPart\b/.test(xml))
+  omissions.push(`第 ${index + 1} 页含图表、SmartArt 或嵌入对象；仅提取其中的可编辑文本，未进行完整页面渲染`)
+ if (!text && !images.some(image => image.label.startsWith(`课件第 ${index + 1} 页`)))
+  omissions.push(`第 ${index + 1} 页没有提取到文字或可发送的图片`)
+ return {page, used: text.length, rawImageBytes}
+}
 export async function parseCourseware(path: string): Promise<CoursewareParseResult> {
  const ext = extname(path).toLowerCase()
  if (ext === '.ppt') throw new Error('旧版 PPT 暂不支持直接解析，请在 PowerPoint 中另存为 PPTX')
- if (ext === '.pdf')
-  return withCoursewareMetadata(path, {
-   ...(await parseDocument(path)),
-   images: [] as {label: string; url: string}[],
-   omissions: [] as string[]
-  })
  if (ext !== '.pptx')
   return withCoursewareMetadata(path, {
    ...(await parseDocument(path)),
@@ -292,182 +480,25 @@ export async function parseCourseware(path: string): Promise<CoursewareParseResu
  const archive = await readFile(path)
  if (archive.length > 200 * 1024 * 1024) throw new Error('PPTX 文件超过 200 MB 本地读取上限')
  const zip = await JSZip.loadAsync(archive)
- const declaredSize = (entry: JSZip.JSZipObject) => {
-  const size = (entry as unknown as {_data?: {uncompressedSize?: unknown}})._data?.uncompressedSize
-  return typeof size === 'number' && Number.isSafeInteger(size) && size >= 0 ? size : undefined
- }
- const readBounded = async (entry: JSZip.JSZipObject, limit: number, label: string) => {
-  const declared = declaredSize(entry)
-  if (declared === undefined || declared > limit)
-   throw new Error(`${label}超过 ${limit} 字节本地解析上限或大小无法验证`)
-  type Worker = {error(error: Error): boolean}
-  type Stream = {
-   on(event: 'data' | 'error' | 'end', listener: (value?: unknown) => void): Stream
-   resume(): void
-   pause(): void
-   _worker: Worker
-  }
-  // JSZip's Node stream adapter does not cancel its decompressor on destroy; stop the worker chain on overflow.
-  const stream = (entry as unknown as {internalStream(type: string): Stream}).internalStream('nodebuffer')
-  const maxBytes = Math.min(limit, declared)
-  return await new Promise<Buffer>((resolve, reject) => {
-   const parts: Buffer[] = []
-   let total = 0,
-    settled = false
-   const fail = (error: Error) => {
-    if (settled) return
-    settled = true
-    stream.pause()
-    queueMicrotask(() => {
-     try {
-      stream._worker.error(error)
-     } catch {}
-     reject(error)
-    })
-   }
-   stream
-    .on('data', value => {
-     if (settled) return
-     const bytes = Buffer.isBuffer(value) ? value : Buffer.from(value as Uint8Array)
-     total += bytes.length
-     if (total > maxBytes) {
-      fail(new Error(`${label}实际展开超过声明或本地上限 ${maxBytes} 字节`))
-      return
-     }
-     parts.push(bytes)
-    })
-    .on('error', value => {
-     if (!settled) {
-      settled = true
-      reject(value instanceof Error ? value : new Error(`${label}展开失败`))
-     }
-    })
-    .on('end', () => {
-     if (settled) return
-     settled = true
-     if (total !== declared) reject(new Error(`${label}实际展开大小与压缩目录不一致`))
-     else resolve(Buffer.concat(parts, total))
-    })
-   stream.resume()
-  })
- }
  const presentationEntry = zip.file('ppt/presentation.xml'),
   presentationRelsEntry = zip.file('ppt/_rels/presentation.xml.rels')
  if (!presentationEntry || !presentationRelsEntry) throw new Error('PPTX 缺少有效的页面目录')
- const presentation = (await readBounded(presentationEntry, 5 * 1024 * 1024, 'PPTX 页面目录')).toString('utf8')
- const presentationRels = (await readBounded(presentationRelsEntry, 5 * 1024 * 1024, 'PPTX 页面关系')).toString('utf8')
- const decode = (value: string) =>
-  value
-   .replace(/&#x([\da-f]+);/gi, (_m, n) => String.fromCodePoint(Number.parseInt(n, 16)))
-   .replace(/&#(\d+);/g, (_m, n) => String.fromCodePoint(Number(n)))
-   .replaceAll('&lt;', '<')
-   .replaceAll('&gt;', '>')
-   .replaceAll('&quot;', '"')
-   .replaceAll('&apos;', "'")
-   .replaceAll('&amp;', '&')
- const attr = (xml: string, name: string) => new RegExp(String.raw`\b${name}=["']([^"']+)["']`).exec(xml)?.[1]
- const rels = (xml: string) => Array.from(xml.matchAll(/<Relationship\b[^>]*>/g), m => m[0])
- const partTarget = (parent: string, value: string) => {
-  const target = decode(value)
-  return posix.normalize(target.startsWith('/') ? target.slice(1) : posix.join(parent, target))
- }
- const slideLinks = rels(presentationRels)
- const slideNames = Array.from(presentation.matchAll(/<p:sldId\b[^>]*>/g), m => attr(m[0], 'r:id'))
-  .filter((id): id is string => !!id)
-  .map(id => {
-   const rel = slideLinks.find(row => attr(row, 'Id') === id)
-   if (!rel || attr(rel, 'TargetMode') === 'External') throw new Error('PPTX 页面引用无效')
-   const name = partTarget('ppt', attr(rel, 'Target') || '')
-   if (!name.startsWith('ppt/slides/') || name.includes('../')) throw new Error('PPTX 页面路径无效')
-   return name
-  })
+ const presentation = (await readCoursewareEntry(presentationEntry, 5 * 1024 * 1024, 'PPTX 页面目录')).toString('utf8')
+ const presentationRels = (await readCoursewareEntry(presentationRelsEntry, 5 * 1024 * 1024, 'PPTX 页面关系')).toString(
+  'utf8'
+ )
+ const slideNames = coursewareSlideNames(presentation, presentationRels)
  if (!slideNames.length || slideNames.length > 500) throw new Error('PPTX 页面数须在 1–500 页之间')
  const pages: string[] = [],
   images: {label: string; url: string}[] = [],
   omissions: string[] = []
  let rawImageBytes = 0,
   editableChars = 0
- const mimeByExt: Record<string, string> = {
-  '.png': 'image/png',
-  '.jpg': 'image/jpeg',
-  '.jpeg': 'image/jpeg',
-  '.webp': 'image/webp',
-  '.gif': 'image/gif'
- }
  for (const [index, name] of slideNames.entries()) {
-  const entry = zip.file(name)
-  if (!entry) throw new Error(`PPTX 第 ${index + 1} 页内容缺失`)
-  // biome-ignore format: NOSONAR must stay on the await line
-  const xml = (await readBounded(entry, 5 * 1024 * 1024, `PPTX 第 ${index + 1} 页内容`)).toString('utf8') // NOSONAR: ordered/limited operation; parallelizing would change atomicity, rate limits, or deterministic progress.
-  const extracted = Array.from(xml.matchAll(/<a:t(?:\s[^>]*)?>([\s\S]*?)<\/a:t>/g), m => decode(m[1]))
-   .join('\n')
-   .trim()
-  const remaining = Math.max(0, 200000 - editableChars),
-   text = extracted.slice(0, remaining)
-  editableChars += text.length
-  if (text.length < extracted.length) omissions.push('课件可编辑文本超过 200,000 字，本地解析仅保留前段内容')
-  pages.push(`[第 ${index + 1} 页]\n${text || '（未提取到可编辑文字）'}`)
-  const relName = posix.join(posix.dirname(name), '_rels', posix.basename(name) + '.rels'),
-   slideRelEntry = zip.file(relName)
-  const slideRel = slideRelEntry
-   ? // biome-ignore format: NOSONAR must stay on the await line
-     (await readBounded(slideRelEntry, 5 * 1024 * 1024, `PPTX 第 ${index + 1} 页关系`)).toString('utf8') // NOSONAR: ordered/limited operation; parallelizing would change atomicity, rate limits, or deterministic progress.
-   : undefined
-  if (!slideRel) continue
-  const relationRows = rels(slideRel),
-   seen = new Set<string>(),
-   pageLabel = `课件第 ${index + 1} 页`
-  for (const id of new Set(Array.from(xml.matchAll(/<a:blip\b[^>]*\br:embed=["']([^"']+)["']/g), m => m[1]))) {
-   const relation = relationRows.find(row => attr(row, 'Id') === id)
-   if (!relation || attr(relation, 'TargetMode') === 'External') continue
-   const mediaName = partTarget(posix.dirname(name), attr(relation, 'Target') || ''),
-    extension = extname(mediaName).toLowerCase(),
-    mime = mimeByExt[extension]
-   if (!mediaName.startsWith('ppt/media/') || mediaName.includes('../') || !mime) {
-    omissions.push(`第 ${index + 1} 页有未支持的嵌入图片格式`)
-    continue
-   }
-   if (seen.has(mediaName)) continue
-   seen.add(mediaName)
-   const entry = zip.file(mediaName)
-   if (!entry) {
-    omissions.push(`第 ${index + 1} 页嵌入图片缺失`)
-    continue
-   }
-   const remainingBytes = 8 * 1024 * 1024 - rawImageBytes,
-    entrySize = declaredSize(entry)
-   if (images.length >= 40) {
-    omissions.push(`第 ${index + 1} 页嵌入图片因 40 张数量上限未发送`)
-    continue
-   }
-   if (remainingBytes <= 0) {
-    omissions.push(`第 ${index + 1} 页嵌入图片因 8 MB 图片总量上限未读取或发送`)
-    continue
-   }
-   if (entrySize === undefined) {
-    omissions.push(`第 ${index + 1} 页嵌入图片展开大小无法验证，未读取或发送`)
-    continue
-   }
-   if (entrySize > 4 * 1024 * 1024) {
-    omissions.push(`第 ${index + 1} 页嵌入图片超过 4 MB 单张上限，未读取或发送`)
-    continue
-   }
-   if (entrySize > remainingBytes) {
-    omissions.push(`第 ${index + 1} 页嵌入图片超过剩余图片预算 ${remainingBytes} 字节，未读取或发送`)
-    continue
-   }
-   // biome-ignore format: NOSONAR must stay on the await line
-   const data = await readBounded(entry, Math.min(4 * 1024 * 1024, remainingBytes), `PPTX 第 ${index + 1} 页嵌入图片`) // NOSONAR: ordered/limited operation; parallelizing would change atomicity, rate limits, or deterministic progress.
-   rawImageBytes += data.length
-   images.push({
-    label: `${pageLabel}嵌入图片 ${images.filter(image => image.label.startsWith(pageLabel)).length + 1}`,
-    url: `data:${mime};base64,${data.toString('base64')}`
-   })
-  }
-  if (/<p:graphicFrame\b|<p:oleObj\b|<p:contentPart\b/.test(xml))
-   omissions.push(`第 ${index + 1} 页含图表、SmartArt 或嵌入对象；仅提取其中的可编辑文本，未进行完整页面渲染`)
-  if (!text && !images.some(image => image.label.startsWith(pageLabel)))
-   omissions.push(`第 ${index + 1} 页没有提取到文字或可发送的图片`)
+  const slide = await readCoursewareSlide(zip, name, index, editableChars, rawImageBytes, images, omissions)
+  editableChars += slide.used
+  rawImageBytes = slide.rawImageBytes
+  pages.push(slide.page)
  }
  if (images.length) omissions.push('PPTX 嵌入图片以原图附加；没有还原幻灯片版式、裁切、遮罩、动画或位置关系')
  return withCoursewareMetadata(path, {
