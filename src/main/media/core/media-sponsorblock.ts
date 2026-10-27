@@ -29,7 +29,7 @@ const receipt = z
  })
  .strict()
 const hash = (value: unknown) => createHash('sha256').update(JSON.stringify(value)).digest('hex')
-const compareCodeUnit = (a: string, b: string) => (a < b ? -1 : a > b ? 1 : 0)
+const compareCodeUnit = (a: string, b: string) => Number(a > b) - Number(a < b)
 /** Read-only hash-prefix lookup. This never sends a complete video ID, account cookies or submissions. */
 export async function sponsorBlockPlan(
  source: NativeMediaSource,
@@ -124,11 +124,10 @@ export async function sponsorBlockPlan(
   rows.map(row => ({start: row.segment[0], end: row.segment[1]})),
   options.clip_start !== null ? {start: options.clip_start, end: options.clip_end!} : undefined
  )
- return {
-  ...plan,
-  relative,
-  warning: plan.removed.length
-   ? `已按所选分类移除 ${plan.removed.length} 段，共 ${Number((duration - (options.clip_start === null ? 0 : options.clip_start) - (options.clip_end === null ? 0 : duration - options.clip_end) - plan.duration).toFixed(2))} 秒；标注来自 SponsorBlock 社区`
-   : '所选范围没有匹配的社区片段标注，未额外移除内容'
- }
+ const trimmedStart = options.clip_start === null ? 0 : options.clip_start
+ const trimmedEnd = options.clip_end === null ? 0 : duration - options.clip_end
+ const warning = plan.removed.length
+  ? `已按所选分类移除 ${plan.removed.length} 段，共 ${Number((duration - trimmedStart - trimmedEnd - plan.duration).toFixed(2))} 秒；标注来自 SponsorBlock 社区`
+  : '所选范围没有匹配的社区片段标注，未额外移除内容'
+ return {...plan, relative, warning}
 }

@@ -120,7 +120,9 @@ export function parseCoursewareCache(
    (resolve(currentSource.path) !== resolve(metadata.sourcePath) ||
     currentSource.sha256 !== metadata.sourceSha256 ||
     currentSource.size !== metadata.sourceSize))
- const state = textChanged || sourceChanged ? 'stale' : currentSource ? 'verified' : 'unknown'
+ let state: 'stale' | 'verified' | 'unknown' = 'unknown'
+ if (textChanged || sourceChanged) state = 'stale'
+ else if (currentSource) state = 'verified'
  return {
   text,
   state,
@@ -189,11 +191,12 @@ export async function parseDocument(path: string): Promise<{text: string; needsO
    for (let i = 1; i <= pdf.numPages; i++) {
     const page = await pdf.getPage(i),
      content = await page.getTextContent()
-    text +=
-     `\n[第 ${i} 页]\n` +
-     content.items
-      .map(item => ('str' in item ? item.str + ('hasEOL' in item && item.hasEOL ? '\n' : ' ') : ''))
-      .join('')
+    const textItem = (item: unknown) => {
+     if (typeof item !== 'object' || item === null) return ''
+     const value = item as {str?: unknown; hasEOL?: boolean}
+     return typeof value.str === 'string' ? value.str + (value.hasEOL ? '\n' : ' ') : ''
+    }
+    text += `\n[第 ${i} 页]\n` + content.items.map(textItem).join('')
    }
   } finally {
    await task.destroy()

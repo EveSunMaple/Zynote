@@ -53,6 +53,14 @@ export function RuntimePanel() {
    setBusy(false)
   }
  }
+ const validationLabel = (component: RuntimeStatus['components'][number]) => {
+  if (component.validation === 'verified') return '已校验'
+  if (component.validation === 'invalid') return '校验失败'
+  if (component.validation === 'unsupported_target') return '目标不支持'
+  if (component.validation === 'missing') return '文件缺失'
+  return component.installed ? '已安装' : '未安装'
+ }
+
  return (
   <section aria-label="运行组件">
    <h3>运行组件</h3>
@@ -73,18 +81,7 @@ export function RuntimePanel() {
      <div className="runtime-component__copy">
       <strong>{c.label}</strong>
       <span>
-       {(c.bytes / 1048576).toFixed(1)} MiB ·{' '}
-       {c.validation === 'verified'
-        ? '已校验'
-        : c.validation === 'invalid'
-          ? '校验失败'
-          : c.validation === 'unsupported_target'
-            ? '目标不支持'
-            : c.validation === 'missing'
-              ? '文件缺失'
-              : c.installed
-                ? '已安装'
-                : '未安装'}
+       {(c.bytes / 1048576).toFixed(1)} MiB · {validationLabel(c)}
       </span>
       {c.reason && <p className="hint">{c.reason}</p>}
      </div>

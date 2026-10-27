@@ -166,12 +166,12 @@ export class SettingsStore {
    models: [...new Set([model, visionModel, ...(input.models || [])])],
    encryptedKey: input.apiKey?.trim() ? this.encrypt(input.apiKey.trim()) : old?.encryptedKey
   }
-  const encryptedSearchKey =
-   settings.searchKey === undefined
-    ? this.value.encryptedSearchKey
-    : settings.searchKey
-      ? this.encrypt(settings.searchKey)
-      : undefined
+  let encryptedSearchKey = this.value.encryptedSearchKey
+  if (settings.searchKey !== undefined)
+   encryptedSearchKey = settings.searchKey ? this.encrypt(settings.searchKey) : undefined
+  let resolvedTheme: 'light' | 'dark' | 'system' = 'light'
+  if (settings.theme === 'dark') resolvedTheme = 'dark'
+  else if (settings.theme === 'system') resolvedTheme = 'system'
   const next: Stored = {
    ...this.value,
    connection: 'qwen',
@@ -180,7 +180,7 @@ export class SettingsStore {
    searchProvider: settings.searchProvider === 'searxng' ? 'searxng' : 'duckduckgo',
    searchEndpoint: (settings.searchEndpoint || '').trim(),
    videoPolicyVersion: 2,
-   theme: settings.theme === 'dark' ? 'dark' : settings.theme === 'system' ? 'system' : 'light',
+   theme: resolvedTheme,
    browserWidth: Math.min(900, Math.max(280, settings.browserWidth)),
    browserOpen: !!settings.browserOpen,
    maxMinutes: settings.maxMinutes,

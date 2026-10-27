@@ -33,14 +33,16 @@ export type GoCoreOptions = {
 }
 
 export function nativeBinaryPath() {
+ const name = process.platform === 'win32' ? 'zynote-native.exe' : 'zynote-native'
  return app.isPackaged
-  ? join(process.resourcesPath, 'bin', process.platform === 'win32' ? 'zynote-native.exe' : 'zynote-native')
+  ? join(process.resourcesPath, 'bin', name)
   : join(app.getAppPath(), 'native', 'target', 'release', 'zynote-native')
 }
 
 export function coreBinaryPath() {
+ const name = process.platform === 'win32' ? 'zynote-core.exe' : 'zynote-core'
  return app.isPackaged
-  ? join(process.resourcesPath, 'bin', process.platform === 'win32' ? 'zynote-core.exe' : 'zynote-core')
+  ? join(process.resourcesPath, 'bin', name)
   : join(app.getAppPath(), 'backend', 'bin', 'zynote-core')
 }
 

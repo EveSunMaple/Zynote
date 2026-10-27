@@ -153,10 +153,10 @@ export class Workflows {
     throw new Error('当前课件含嵌入图片，所选校订策略需要视觉模型。请先在设置中选择视觉模型，或改用“快速文字”策略。')
    let retries = 0,
     cooldownUntil = 0
-   report(
-    '校订计划',
-    `${mode === 'quality' ? '视觉优先' : mode === 'balanced' ? '均衡' : '快速文字'}；${batches.length} 批，最多 2 批并发；输出预算按模型设置或保守默认估算`
-   )
+   let modeLabel = '快速文字'
+   if (mode === 'quality') modeLabel = '视觉优先'
+   else if (mode === 'balanced') modeLabel = '均衡'
+   report('校订计划', `${modeLabel}；${batches.length} 批，最多 2 批并发；输出预算按模型设置或保守默认估算`)
    const active = new Map<number, string>()
    const heartbeat = setInterval(() => {
     if (!active.size) return
@@ -279,10 +279,10 @@ export class Workflows {
   } catch (error) {
    const saved = this.store.correctionCheckpoint(lectureId),
     resumable = fingerprint ? resumableCorrection(saved, fingerprint, sourceSegments) : undefined
-   this.store.status(
-    lectureId,
-    resumable ? (signal?.aborted ? '已取消，可继续' : '校订未完成，可继续') : signal?.aborted ? '已取消' : '需核对'
-   )
+   let status = '需核对'
+   if (signal?.aborted) status = resumable ? '已取消，可继续' : '已取消'
+   else if (resumable) status = '校订未完成，可继续'
+   this.store.status(lectureId, status)
    if (resumable && !signal?.aborted)
     throw new Error(
      `已保存 ${resumable.length}/${sourceSegments.length} 条，点击继续校订可从断点恢复。${error instanceof Error ? error.message : '当前批次失败'}`

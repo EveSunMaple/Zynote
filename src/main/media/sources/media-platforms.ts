@@ -21,15 +21,12 @@ const address = (raw: string, domains: string[]) => {
   throw new Error('站点媒体地址未通过核验')
  return url.href
 }
-export const platformMediaAddress = (platform: string, url: string) =>
- address(
-  url,
-  platform === 'vimeo'
-   ? ['vimeocdn.com', 'akamaized.net']
-   : platform === 'dailymotion'
-     ? ['dailymotion.com', 'dmcdn.net']
-     : []
- )
+export const platformMediaAddress = (platform: string, url: string) => {
+ let hosts: string[] = []
+ if (platform === 'vimeo') hosts = ['vimeocdn.com', 'akamaized.net']
+ else if (platform === 'dailymotion') hosts = ['dailymotion.com', 'dmcdn.net']
+ return address(url, hosts)
+}
 export function platformInput(input: string) {
  const raw = input.trim()
  if (/^BV[A-Za-z0-9]{10}$/.test(raw)) return {platform: 'bilibili' as const, url: raw, id: '', hash: ''}
@@ -100,9 +97,10 @@ export class NativePlatformCatalog implements NativeMediaCatalog {
    return new NativeYoutubeCatalog(fetcher).read(selected.url, playlist, signal, settings)
   signal.throwIfAborted()
   if (playlist) throw new Error('此平台当前请逐条选择视频，不把单个视频误当作完整播放列表')
+  const hashQuery = selected.hash ? '?h=' + selected.hash : ''
   const endpoint =
    selected.platform === 'vimeo'
-    ? `https://player.vimeo.com/video/${selected.id}/config${selected.hash ? '?h=' + selected.hash : ''}`
+    ? `https://player.vimeo.com/video/${selected.id}/config${hashQuery}`
     : `https://www.dailymotion.com/player/metadata/video/${selected.id}`
   const response = await fetcher(endpoint, {
    signal: AbortSignal.any([signal, AbortSignal.timeout(30000)]),

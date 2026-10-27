@@ -48,7 +48,16 @@ export function markdown(detail: LectureDetail, kind: 'notes' | 'practice'): str
    ['AI 自测题（非历年真题）', detail.practice.generated || []]
   ] as const) {
    out.push(`## ${title}（${items.length} 道）`, '')
-   items.forEach((q, i) =>
+   items.forEach((q, i) => {
+    const answerLabel = q.aiAnswer ? 'AI 生成，仅供参考' : '参考答案'
+    const answerText = q.answer ? `${answerLabel}：\n${q.answer}` : '暂无答案'
+    let attemptText = ''
+    if (q.attempt) {
+     let verdict = '待自查'
+     if (q.attempt.verdict === 'correct') verdict = '正确'
+     else if (q.attempt.verdict === 'incorrect') verdict = '需要再练习'
+     attemptText = `我的回答：${q.attempt.response}\n判定：${verdict}\n${q.attempt.feedback}`
+    }
     out.push(
      `### ${i + 1}. ${q.topic} · ${q.type}`,
      '',
@@ -57,15 +66,13 @@ export function markdown(detail: LectureDetail, kind: 'notes' | 'practice'): str
      `来源：${q.sourceUrl || q.sourceFile || ''}${q.year ? ' · ' + q.year : ''}`,
      `关联：${q.reason}`,
      '',
-     q.answer ? `${q.aiAnswer ? 'AI 生成，仅供参考' : '参考答案'}：\n${q.answer}` : '暂无答案',
+     answerText,
      q.answerSourceUrl ? `答案来源：${q.answerSourceUrl}` : '',
      q.explanation ? `详解（AI 辅助整理）：\n${q.explanation}` : '',
-     q.attempt
-      ? `我的回答：${q.attempt.response}\n判定：${q.attempt.verdict === 'correct' ? '正确' : q.attempt.verdict === 'incorrect' ? '需要再练习' : '待自查'}\n${q.attempt.feedback}`
-      : '',
+     attemptText,
      ''
     )
-   )
+   })
   }
   if (detail.practice.shortage) out.push(`拓展题不足 ${detail.practice.shortage} 道，未用 AI 编题冒充搜索结果。`)
  }
@@ -86,14 +93,10 @@ export async function exportFile(
   kind === 'evidence-bundle'
    ? buildCourseEvidenceBundle(course!, detail, new Date().toISOString(), app.getVersion())
    : undefined
- const text =
-  kind === 'subtitles'
-   ? ''
-   : kind === 'evidence-bundle'
-     ? format === 'md'
-      ? courseEvidenceMarkdown(bundle!)
-      : JSON.stringify(bundle, null, 2)
-     : markdown(detail, kind)
+ let text = ''
+ if (kind === 'evidence-bundle')
+  text = format === 'md' ? courseEvidenceMarkdown(bundle!) : JSON.stringify(bundle, null, 2)
+ else if (kind !== 'subtitles') text = markdown(detail, kind)
  const path = await reserveFile(directory, `${filename}-${kind}.${format}`)
  try {
   if (kind === 'subtitles') {

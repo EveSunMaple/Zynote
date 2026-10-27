@@ -218,10 +218,12 @@ export class NativeKnowledgeStore {
    | {json: string}
    | undefined
   const state = pointer ? (JSON.parse(pointer.json) as {digest: string; count: number}) : undefined
+  let index: 'not_built' | 'ready' | 'stale' = 'not_built'
+  if (state) index = state.digest === this.inventoryDigest() ? 'ready' : 'stale'
   return {
    model: 'bge-small-zh-v1-5',
    active: !!active,
-   index: !state ? 'not_built' : state.digest === this.inventoryDigest() ? 'ready' : 'stale',
+   index,
    vector_count: state?.count || 0
   }
  }
@@ -264,7 +266,11 @@ export class NativeKnowledgeStore {
     trace: {...lexical.trace, vector: {state: status.index, note: '资料或语义索引尚未就绪，本次使用当前关键词结果。'}}
    }
   if (vector.length !== 512 || vector.some(value => !Number.isFinite(value))) throw new Error('查询向量无效')
-  const scope = ids ? (ids.length ? ' WHERE c.source_id IN (' + ids.map(() => '?').join(',') + ')' : ' WHERE 0') : ''
+  let scope = ''
+  if (ids) {
+   if (ids.length) scope = ' WHERE c.source_id IN (' + ids.map(() => '?').join(',') + ')'
+   else scope = ' WHERE 0'
+  }
   const rows = this.db
    .prepare(
     'SELECT v.evidence_id,v.vector,c.source_id FROM native_vectors v JOIN native_chunks c ON c.evidence_id=v.evidence_id' +
@@ -462,7 +468,11 @@ export class NativeKnowledgeStore {
   if (!terms.length) return {hits: [], trace: {keyword: {verified: 0}}}
   const longTerms = terms.filter(term => Array.from(term).length >= 3)
   const condition = terms.map(() => 'instr(lower(content),?)>0').join(' OR ')
-  const scope = ids ? (ids.length ? ' AND source_id IN (' + ids.map(() => '?').join(',') + ')' : ' AND 0') : ''
+  let scope = ''
+  if (ids) {
+   if (ids.length) scope = ' AND source_id IN (' + ids.map(() => '?').join(',') + ')'
+   else scope = ' AND 0'
+  }
   const match = longTerms.map(term => '"' + term.replaceAll('"', '""') + '"').join(' OR ')
   const candidates =
    longTerms.length === terms.length

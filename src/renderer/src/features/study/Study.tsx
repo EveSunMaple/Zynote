@@ -407,6 +407,13 @@ export function Study({
   onManual: manual,
   onGoSchedule: () => setTab('schedule')
  }
+ let subheading = '先在课表里选择一个课次'
+ if (tab === 'schedule') subheading = `${entries.length} 个课次 · 保存后会同步已关联课次的名称`
+ else if (entry) subheading = `${entry.title || '未命名课次'}${courseName ? ' · ' + courseName : ''}`
+ let modeStatus = '未选择教材'
+ if (busy) modeStatus = `${progress?.stage || '正在处理'}…`
+ else if (tab === 'schedule') modeStatus = '课表设置'
+ else if (book) modeStatus = `${book.pages} 页教材`
  return (
   <>
    <WindowPanel
@@ -416,13 +423,7 @@ export function Study({
     title="课表与教材"
     description="先准备课表，再为每节课设置教材页面与划线。"
     heading={tab === 'schedule' ? '课表' : '教材划线'}
-    subheading={
-     tab === 'schedule'
-      ? `${entries.length} 个课次 · 保存后会同步已关联课次的名称`
-      : entry
-        ? `${entry.title || '未命名课次'}${courseName ? ' · ' + courseName : ''}`
-        : '先在课表里选择一个课次'
-    }
+    subheading={subheading}
     close={() => {
      if (dirty) setConfirmClose(true)
      else close()
@@ -449,15 +450,7 @@ export function Study({
         </Tabs.Tab>
        </Tabs.List>
       </Tabs.ListContainer>
-      <small className="study-modebar__status">
-       {busy
-        ? `${progress?.stage || '正在处理'}…`
-        : tab === 'schedule'
-          ? '课表设置'
-          : book
-            ? `${book.pages} 页教材`
-            : '未选择教材'}
-      </small>
+      <small className="study-modebar__status">{modeStatus}</small>
      </div>
      <Tabs.Panel
       className={'study-panel' + (tab !== 'schedule' ? ' study-panel--hidden' : '')}

@@ -120,6 +120,12 @@ export function VisualAnalysisPanel({visible}: Readonly<{visible: boolean}>) {
     const completed = task.frames.filter(frame => frame.status === '已完成').length
     const recoverable = completed > 0 && Boolean(task.outputRecovery || task.outputPending || task.outputJournal)
     const incomplete = task.frames.some(frame => frame.status !== '已完成')
+    const recoveryLabel = (() => {
+     if (task.outputRecovery === 'journal') return '上次保存未完成'
+     if (task.outputRecovery === 'pending') return '任务中断'
+     if (task.outputRecovery === 'changed') return '文件已改变'
+     return '旧任务缺少成果记录'
+    })()
 
     return (
      <Card className="knowledge-card" key={task.id}>
@@ -210,13 +216,7 @@ export function VisualAnalysisPanel({visible}: Readonly<{visible: boolean}>) {
       {task.outputRecovery && (
        <p className="hint" role="status">
         识别成果需要恢复（
-        {task.outputRecovery === 'journal'
-         ? '上次保存未完成'
-         : task.outputRecovery === 'pending'
-           ? '任务中断'
-           : task.outputRecovery === 'changed'
-             ? '文件已改变'
-             : '旧任务缺少成果记录'}
+        {recoveryLabel}
         ），当前文件会被保留。
        </p>
       )}

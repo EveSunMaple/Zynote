@@ -7,6 +7,16 @@ import {questionOptions, questionStem} from '@shared/practice'
 import {notify} from '@renderer/ui/ToastHost'
 import {StudyIcon} from '@renderer/ui/StudyIcon'
 import {IdentityAvatar} from '@renderer/features/identity/Identity'
+const groupLabels: Record<Group, string> = {
+ past: '历年真题',
+ extended: '有来源的拓展练习',
+ generated: 'AI 自测题（非历年真题）'
+}
+const verdictLabel = (verdict: string) => {
+ if (verdict === 'correct') return '回答正确'
+ if (verdict === 'incorrect') return '需要再练习'
+ return '待自查'
+}
 type Group = 'past' | 'extended' | 'generated'
 type Actions = {
  disabled: boolean
@@ -22,7 +32,7 @@ export function PracticePanel({data, ...actions}: Actions & {data: PracticeSet})
     <section key={group}>
      <h3>
       <StudyIcon name="practice" />
-      {group === 'past' ? '历年真题' : group === 'extended' ? '有来源的拓展练习' : 'AI 自测题（非历年真题）'}
+      {groupLabels[group]}
       <span>{data[group]?.length || 0} 道</span>
      </h3>
      {!data[group]?.length && <p className="hint">暂无可核验的相关题目</p>}
@@ -61,12 +71,9 @@ function Question({
    setPending(false)
   }
  }
- const origin =
-  q.answerSource === 'searched'
-   ? '搜索答案 · 同题来源已核验'
-   : q.answerSource === 'imported' || (q.answer && !q.aiAnswer)
-     ? '题库附带答案'
-     : ''
+ let origin = ''
+ if (q.answerSource === 'searched') origin = '搜索答案 · 同题来源已核验'
+ else if (q.answerSource === 'imported' || (q.answer && !q.aiAnswer)) origin = '题库附带答案'
  return (
   <article className="question-card practice-card" aria-label={'题目 ' + (index + 1)}>
    <div className="question-meta">
@@ -193,9 +200,7 @@ function Question({
    </div>
    {!!options.length && q.attempt && (
     <div className={'practice-feedback ' + q.attempt.verdict} role="status">
-     <strong>
-      {q.attempt.verdict === 'correct' ? '回答正确' : q.attempt.verdict === 'incorrect' ? '需要再练习' : '待自查'}
-     </strong>
+     <strong>{verdictLabel(q.attempt.verdict)}</strong>
      <p>{q.attempt.feedback}</p>
     </div>
    )}

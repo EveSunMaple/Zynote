@@ -106,6 +106,13 @@ export function KnowledgeBase({visible, close}: Readonly<{visible: boolean; clos
    setCategoryTarget('')
   }
  }
+ const vectorHint = (() => {
+  if (!vector) return '正在检查本地模型…'
+  if (vector.index === 'ready') return `模型已启用，已建立 ${vector.vector_count} 个向量片段。`
+  if (vector.active) return '模型已启用；导入或更新资料后，请建立语义索引。'
+  if (vector.bundled) return '已附带中文模型，启用后可以建立语义索引。'
+  return '本地模型文件不可用，仍可使用关键词检索。'
+ })()
  return (
   <>
    <datalist id="knowledge-categories">
@@ -223,17 +230,7 @@ export function KnowledgeBase({visible, close}: Readonly<{visible: boolean; clos
      <header>
       <div>
        <h3>本地语义检索</h3>
-       <p className="hint">
-        {!vector
-         ? '正在检查本地模型…'
-         : vector.index === 'ready'
-           ? `模型已启用，已建立 ${vector.vector_count} 个向量片段。`
-           : vector.active
-             ? '模型已启用；导入或更新资料后，请建立语义索引。'
-             : vector.bundled
-               ? '已附带中文模型，启用后可以建立语义索引。'
-               : '本地模型文件不可用，仍可使用关键词检索。'}
-       </p>
+       <p className="hint">{vectorHint}</p>
       </div>
       <div className="row">
        {!vector?.active && (
