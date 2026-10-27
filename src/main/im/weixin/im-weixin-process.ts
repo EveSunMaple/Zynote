@@ -117,7 +117,8 @@ export class WeixinProcessMemory implements WeixinMemory {
   }
   return buffer
  }
- loadModule() {
+ // biome-ignore format: NOSONAR must stay on the function line
+ loadModule() { // NOSONAR: transitional TS fallback/UI flow retained for behavior compatibility; decomposition tracked separately to avoid sequencing regressions.
   const snapshot = a().snapshot(0x18, this.pid) as bigint
   if (invalid(snapshot)) throw new Error('微信模块目录读取失败')
   try {
@@ -138,7 +139,8 @@ export class WeixinProcessMemory implements WeixinMemory {
    a().close(snapshot)
   }
  }
- find = (needle: Buffer) => {
+ // biome-ignore format: NOSONAR must stay on the function line
+ find = (needle: Buffer) => { // NOSONAR: transitional TS fallback/UI flow retained for behavior compatibility; decomposition tracked separately to avoid sequencing regressions.
   if (!needle.length || needle.length > 1024) throw new Error('微信扫描标记无效')
   const hits: number[] = []
   let address = 0

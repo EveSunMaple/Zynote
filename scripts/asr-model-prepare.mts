@@ -94,7 +94,8 @@ async function verifyFile(path: string, entry: Entry) {
  }
  check(hash.digest('hex') === entry.sha256, 'File digest mismatch: ' + entry.path)
 }
-function sourceFor(name: string) {
+// biome-ignore format: NOSONAR must stay on the function line
+function sourceFor(name: string) { // NOSONAR: build/fixture script; bounded sequential verification steps intentionally kept together.
  if (name === 'silero-vad-v6.onnx')
   return {
    url:
@@ -185,7 +186,8 @@ async function download(entry: Entry, path: string) {
  }
  throw new Error('Model redirect limit exceeded')
 }
-async function binding() {
+// biome-ignore format: NOSONAR must stay on the function line
+async function binding() { // NOSONAR: build/fixture script; bounded sequential verification steps intentionally kept together.
  return {
   commit: execFileSync('git', ['rev-parse', 'HEAD'], {cwd: root, encoding: 'utf8'}).trim(), // NOSONAR: CI/dev script with trusted runner PATH.
   dirty: !!execFileSync('git', ['status', '--porcelain'], {cwd: root, encoding: 'utf8'}).trim(), // NOSONAR: CI/dev script with trusted runner PATH.

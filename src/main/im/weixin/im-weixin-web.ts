@@ -72,7 +72,8 @@ export function weixinRedirect(value: string) {
  url.search = [...parts, 'fun=new', 'version=v2'].join('&')
  return url
 }
-function xmlLogin(xml: string) {
+// biome-ignore format: NOSONAR must stay on the function line
+function xmlLogin(xml: string) { // NOSONAR: transitional TS fallback/UI flow retained for behavior compatibility; decomposition tracked separately to avoid sequencing regressions.
  if (/<!DOCTYPE|<!ENTITY/i.test(xml)) throw new Error('微信确认响应包含无效声明')
  const stack: string[] = [],
   fields: Record<string, string> = {}

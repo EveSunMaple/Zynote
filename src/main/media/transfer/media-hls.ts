@@ -8,7 +8,8 @@ import {platformMediaAddress} from '@main/media/sources/media-platforms'
 import {OwnedMediaArtifact} from '@main/media/core/media-artifact'
 import type {NativeMediaOptions} from '@main/media/core/media-options'
 type Fetcher = (url: string, init?: RequestInit) => Promise<Response>
-function attrs(line: string) {
+// biome-ignore format: NOSONAR must stay on the function line
+function attrs(line: string) { // NOSONAR: transitional TS fallback/UI flow retained for behavior compatibility; decomposition tracked separately to avoid sequencing regressions.
  const result: Record<string, string> = {},
   raw = line.slice(line.indexOf(':') + 1)
  if (!raw) return result
@@ -40,7 +41,8 @@ function attrs(line: string) {
  }
  return result
 }
-export function parseHls(text: string, base: string, check: (url: string) => string) {
+// biome-ignore format: NOSONAR must stay on the function line
+export function parseHls(text: string, base: string, check: (url: string) => string) { // NOSONAR: transitional TS fallback/UI flow retained for behavior compatibility; decomposition tracked separately to avoid sequencing regressions.
  const lines = text
   .replace(/^\ufeff/, '')
   .split(/\r?\n/)

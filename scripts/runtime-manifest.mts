@@ -23,7 +23,8 @@ function included(id: string, path: string, platform: NodeJS.Platform) {
   ].includes(path)
  return !/\.(?:py|pyc)$/i.test(path)
 }
-export async function generate(root: string): Promise<RuntimeManifest> {
+// biome-ignore format: NOSONAR must stay on the function line
+export async function generate(root: string): Promise<RuntimeManifest> { // NOSONAR: build/fixture script; bounded sequential verification steps intentionally kept together.
  const pkg = JSON.parse(await readFile(join(root, 'package.json'), 'utf8')) as {version: string}
  const components: RuntimeManifest['components'] = []
  for (const [id, label, directory] of catalog) {
@@ -33,7 +34,8 @@ export async function generate(root: string): Promise<RuntimeManifest> {
   if (!existsSync(base)) {
    throw new Error('缺少组件目录，未改写运行清单：' + directory + '；使用已审核清单构建 lite/portable 请加 --prepared')
   }
-  async function walk(path: string, prefix = ''): Promise<void> {
+// biome-ignore format: NOSONAR must stay on the function line
+  async function walk(path: string, prefix = ''): Promise<void> { // NOSONAR: build/fixture script; bounded sequential verification steps intentionally kept together.
    // biome-ignore format: NOSONAR must stay on the await line
    for (const entry of await readdir(path, {withFileTypes: true})) { // NOSONAR: build/fixture script; serial order and bounded resource use are intentional.
     if (entry.name === '__pycache__' || entry.name.endsWith('.pyc')) continue

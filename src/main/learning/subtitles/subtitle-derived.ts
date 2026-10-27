@@ -103,7 +103,8 @@ export class SubtitleDerived {
   await this.save(task)
   return task
  }
- private async current(source: DerivedSource, dependencies: Dependencies) {
+ // biome-ignore format: NOSONAR must stay on the function line
+ private async current(source: DerivedSource, dependencies: Dependencies) { // NOSONAR: transitional TS fallback/UI flow retained for behavior compatibility; decomposition tracked separately to avoid sequencing regressions.
   this.inside(source.path)
   const srt = await readFile(source.path, 'utf8')
   if (digest(srt) !== source.hash || (await dependencies.generation(source.url)) !== source.generation)

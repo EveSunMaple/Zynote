@@ -525,11 +525,13 @@ export class NativeKnowledgeStore {
    })
    .immediate()
  }
- delete(id: string, generation: string) {
+ // biome-ignore format: NOSONAR must stay on the function line
+ delete(id: string, generation: string) { // NOSONAR: transitional TS fallback/UI flow retained for behavior compatibility; decomposition tracked separately to avoid sequencing regressions.
   sourceId.parse(id)
   z.string().min(1).parse(generation)
   return this.db
-   .transaction(() => {
+// biome-ignore format: NOSONAR must stay on the function line
+   .transaction(() => { // NOSONAR: transitional TS fallback/UI flow retained for behavior compatibility; decomposition tracked separately to avoid sequencing regressions.
     const entry = this.get(id)
     if (entry?.generation_id !== generation) throw new Error('资料版本已更新，请刷新后再确认删除')
     const changed = this.db

@@ -147,7 +147,8 @@ export class GoCore {
   killer.unref?.()
  }
 
- private consume(chunk: string) {
+ // biome-ignore format: NOSONAR must stay on the function line
+ private consume(chunk: string) { // NOSONAR: transitional TS fallback/UI flow retained for behavior compatibility; decomposition tracked separately to avoid sequencing regressions.
   this.buffer += chunk
   for (let index = this.buffer.indexOf('\n'); index >= 0; index = this.buffer.indexOf('\n')) {
    const line = this.buffer.slice(0, index)

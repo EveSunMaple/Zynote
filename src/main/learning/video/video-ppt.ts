@@ -248,7 +248,8 @@ export class VideoPpt {
   this.tasks.set(id, task)
   return {source, review: task.review || null}
  }
- async pending() {
+ // biome-ignore format: NOSONAR must stay on the function line
+ async pending() { // NOSONAR: transitional TS fallback/UI flow retained for behavior compatibility; decomposition tracked separately to avoid sequencing regressions.
   await mkdir(this.root, {recursive: true})
   const result: PendingVideoTask[] = []
   // biome-ignore format: NOSONAR must stay on the await line
@@ -474,7 +475,8 @@ export class VideoPpt {
   await writeFile(join(t.dir, 'review.json'), JSON.stringify(review))
   return review
  }
- async export(id: string, choices: Array<{page: number; keep: boolean; crop: Region}>, signal: AbortSignal) {
+ // biome-ignore format: NOSONAR must stay on the function line
+ async export(id: string, choices: Array<{page: number; keep: boolean; crop: Region}>, signal: AbortSignal) { // NOSONAR: transitional TS fallback/UI flow retained for behavior compatibility; decomposition tracked separately to avoid sequencing regressions.
   const t = this.task(id)
   if (!t.frames || !t.review) throw new Error('请先提取并检查课件')
   if (

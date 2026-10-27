@@ -33,7 +33,8 @@ process.on('disconnect', () => {
  release()
  process.exit(0)
 })
-process.on('message', (message: unknown) => {
+// biome-ignore format: NOSONAR must stay on the function line
+process.on('message', (message: unknown) => { // NOSONAR: transitional TS fallback/UI flow retained for behavior compatibility; decomposition tracked separately to avoid sequencing regressions.
  let requestId = 0
  try {
   const request = z

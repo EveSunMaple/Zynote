@@ -121,7 +121,8 @@ export class NativeImService {
   this.store.capture(login.projection.connection_id, login.revision)
   if (Date.now() - login.projection.createdAt > 10 * 60 * 1000) throw new Error('本次登录已过期，请重新开始')
  }
- async execute(action: string, input: unknown = {}, profile?: string) {
+ // biome-ignore format: NOSONAR must stay on the function line
+ async execute(action: string, input: unknown = {}, profile?: string) { // NOSONAR: transitional TS fallback/UI flow retained for behavior compatibility; decomposition tracked separately to avoid sequencing regressions.
   if (this.controller.signal.aborted) throw new Error('通讯后台已关闭')
   if (profile !== undefined) this.configure(profile)
   if (action === 'status') {

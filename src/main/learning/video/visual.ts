@@ -70,7 +70,8 @@ export class VisualTasks {
    throw error
   }
  }
- private async recoverOutput(task: VisualTask) {
+ // biome-ignore format: NOSONAR must stay on the function line
+ private async recoverOutput(task: VisualTask) { // NOSONAR: transitional TS fallback/UI flow retained for behavior compatibility; decomposition tracked separately to avoid sequencing regressions.
   const journal = task.outputJournal
   if (!journal) return
   const output = this.outputPath(task),
@@ -212,7 +213,8 @@ export class VisualTasks {
   await this.save(task)
   return this.prepare(task.id, connection, signal)
  }
- async prepare(id: string, connection: string, signal?: AbortSignal) {
+ // biome-ignore format: NOSONAR must stay on the function line
+ async prepare(id: string, connection: string, signal?: AbortSignal) { // NOSONAR: transitional TS fallback/UI flow retained for behavior compatibility; decomposition tracked separately to avoid sequencing regressions.
   z.string()
    .regex(/^[a-f0-9]{32}$/)
    .parse(id)

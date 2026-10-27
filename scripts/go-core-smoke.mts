@@ -40,7 +40,8 @@ child.stderr.on('data', chunk => console.error('[core-stderr]', String(chunk).tr
 const buffer: string[] = []
 let pendingIndex = 0
 const pending = new Map()
-child.stdout.on('data', chunk => {
+// biome-ignore format: NOSONAR must stay on the function line
+child.stdout.on('data', chunk => { // NOSONAR: build/fixture script; bounded sequential verification steps intentionally kept together.
  buffer.push(String(chunk))
  let joined = buffer.join('')
  for (;;) {

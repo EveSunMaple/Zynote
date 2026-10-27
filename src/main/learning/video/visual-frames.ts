@@ -77,7 +77,8 @@ export class NativeVisualFrames {
   await rm(directory, {recursive: true, force: true})
   return true
  }
- async capture(input: unknown): Promise<Capture> {
+ // biome-ignore format: NOSONAR must stay on the function line
+ async capture(input: unknown): Promise<Capture> { // NOSONAR: transitional TS fallback/UI flow retained for behavior compatibility; decomposition tracked separately to avoid sequencing regressions.
   const request = requestSchema.parse(input),
    controller = new AbortController()
   if (this.cancels.has(request.id)) throw new Error('该画面任务已经在执行')

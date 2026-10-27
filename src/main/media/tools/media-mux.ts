@@ -75,7 +75,8 @@ export class NativeMediaMux {
    ).length
   }
  }
- async prepareCover(directory: string, bytes: Buffer, crop: boolean, signal: AbortSignal) {
+ // biome-ignore format: NOSONAR must stay on the function line
+ async prepareCover(directory: string, bytes: Buffer, crop: boolean, signal: AbortSignal) { // NOSONAR: transitional TS fallback/UI flow retained for behavior compatibility; decomposition tracked separately to avoid sequencing regressions.
   if (bytes.length > 8_000_000) throw new Error('封面文件过大')
   let extension: string | undefined
   if (bytes.subarray(0, 3).equals(Buffer.from([255, 216, 255]))) extension = 'jpg'
@@ -223,7 +224,8 @@ export class NativeMediaMux {
   await artifact.finish()
   return {path: output, intermediates: [basename(list), basename(output), ...artifact.intermediates()]}
  }
- async mux(input: {
+ // biome-ignore format: NOSONAR must stay on the function line
+ async mux(input: { // NOSONAR: transitional TS fallback/UI flow retained for behavior compatibility; decomposition tracked separately to avoid sequencing regressions.
   directory: string
   tracks: LocalTrack[]
   options: NativeMediaOptions

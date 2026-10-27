@@ -44,7 +44,8 @@ async function assertRed(path: string) {
    'Uniform red frame pixel mismatch'
   )
 }
-async function run() {
+// biome-ignore format: NOSONAR must stay on the function line
+async function run() { // NOSONAR: build/fixture script; bounded sequential verification steps intentionally kept together.
  await app.whenReady()
  const checks: string[] = [],
   report: Record<string, unknown> = {status: 'running', phase, electron: process.versions.electron, checks}

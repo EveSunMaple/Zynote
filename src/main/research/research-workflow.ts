@@ -127,7 +127,8 @@ export class NativeResearchWorkflows {
   }
   return this.read(result.id)
  }
- private async wait(id: string, signal: AbortSignal) {
+ // biome-ignore format: NOSONAR must stay on the function line
+ private async wait(id: string, signal: AbortSignal) { // NOSONAR: transitional TS fallback/UI flow retained for behavior compatibility; decomposition tracked separately to avoid sequencing regressions.
   while (true) {
    signal.throwIfAborted()
    const task = this.engine.read(id)

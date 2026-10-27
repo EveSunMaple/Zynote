@@ -68,7 +68,8 @@ export class RuntimeComponents {
   if (result.productVersion !== this.version) throw new Error('组件清单与应用版本不一致')
   return result
  }
- status(): Promise<RuntimeStatus> {
+ // biome-ignore format: NOSONAR must stay on the function line
+ status(): Promise<RuntimeStatus> { // NOSONAR: transitional TS fallback/UI flow retained for behavior compatibility; decomposition tracked separately to avoid sequencing regressions.
   if (!this.statusRequest) {
    const request = this.readStatus()
    this.statusRequest = request

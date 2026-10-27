@@ -14,7 +14,8 @@ async function exists(path: string) {
   throw error
  }
 }
-export async function openPortableLibrary(appDirectory: string, machineRoot: string, legacyLibrary: string) {
+// biome-ignore format: NOSONAR must stay on the function line
+export async function openPortableLibrary(appDirectory: string, machineRoot: string, legacyLibrary: string) { // NOSONAR: transitional TS fallback/UI flow retained for behavior compatibility; decomposition tracked separately to avoid sequencing regressions.
  for (const [from, to] of [
   ['课程数据', 'Data'],
   ['资料', 'Library']

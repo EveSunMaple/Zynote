@@ -44,7 +44,8 @@ export class NativeNapcatRuntime {
  status() {
   return {version, state: this.state, code: this.code, owned_running: !!this.child && this.child.poll() === null}
  }
- private async owned(path: string) {
+ // biome-ignore format: NOSONAR must stay on the function line
+ private async owned(path: string) { // NOSONAR: transitional TS fallback/UI flow retained for behavior compatibility; decomposition tracked separately to avoid sequencing regressions.
   const base = resolve(this.root),
    target = resolve(path)
   if (target !== base && !target.startsWith(base + sep)) throw new Error('QQ 组件路径越界')

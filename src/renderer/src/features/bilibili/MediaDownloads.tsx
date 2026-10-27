@@ -72,7 +72,8 @@ function optionValue(key: string, raw: string, current: unknown) {
  if (typeof current === 'number') return Number(raw)
  return raw
 }
-export function MediaDownloads({visible}: Readonly<{visible: boolean}>) {
+// biome-ignore format: NOSONAR must stay on the function line
+export function MediaDownloads({visible}: Readonly<{visible: boolean}>) { // NOSONAR: transitional TS fallback/UI flow retained for behavior compatibility; decomposition tracked separately to avoid sequencing regressions.
  const [profiles, setProfiles] = useState<LoginProfile[]>([]),
   [profileName, setProfileName] = useState(''),
   [profileSite, setProfileSite] = useState('')

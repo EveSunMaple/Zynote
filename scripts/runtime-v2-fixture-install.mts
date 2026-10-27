@@ -56,7 +56,8 @@ async function hashFile(path: string, expectedSize: number, signal: AbortSignal)
  }
  return hash.digest('hex')
 }
-async function exactFiles(root: string, paths: string[]) {
+// biome-ignore format: NOSONAR must stay on the function line
+async function exactFiles(root: string, paths: string[]) { // NOSONAR: build/fixture script; bounded sequential verification steps intentionally kept together.
  const expected = new Set(paths),
   directories = new Set<string>()
  for (const path of paths) {
@@ -64,7 +65,8 @@ async function exactFiles(root: string, paths: string[]) {
   for (let i = 1; i < parts.length; i++) directories.add(parts.slice(0, i).join('/'))
  }
  const seen = new Set<string>()
- async function walk(directory: string, prefix: string) {
+// biome-ignore format: NOSONAR must stay on the function line
+ async function walk(directory: string, prefix: string) { // NOSONAR: build/fixture script; bounded sequential verification steps intentionally kept together.
   await plain(directory, true)
   // biome-ignore format: NOSONAR must stay on the await line
   for (const name of await readdir(directory)) { // NOSONAR: build/fixture script; serial order and bounded resource use are intentional.

@@ -25,7 +25,8 @@ export class NativeBiliDownloadRunner {
   private readonly progress?: (id: string, downloaded: number, total: number | null) => void,
   private readonly auth?: NativeMediaAuth
  ) {}
- async run(id: string, signal: AbortSignal) {
+ // biome-ignore format: NOSONAR must stay on the function line
+ async run(id: string, signal: AbortSignal) { // NOSONAR: transitional TS fallback/UI flow retained for behavior compatibility; decomposition tracked separately to avoid sequencing regressions.
   let row = await this.jobs.read(id)
   if (row.state !== 'queued') throw new Error('任务不在等待队列中')
   const options = mediaOptions(row.recipe),

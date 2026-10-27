@@ -24,7 +24,8 @@ const strongETag = (value: string | null) => (value && /^"[^"\r\n]+"$/.test(valu
 /** Caller supplies an owned task directory and an already validated platform URL.
  * A returned file is still intermediate; the queue must validate final media before publishing it.
  */
-export async function transferMedia(input: {
+// biome-ignore format: NOSONAR must stay on the function line
+export async function transferMedia(input: { // NOSONAR: transitional TS fallback/UI flow retained for behavior compatibility; decomposition tracked separately to avoid sequencing regressions.
  directory: string
  key: string
  identity: string

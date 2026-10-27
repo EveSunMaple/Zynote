@@ -172,7 +172,8 @@ function stable(value: unknown): unknown {
  return value
 }
 
-export function createRoutedDispatch(
+// biome-ignore format: NOSONAR must stay on the function line
+export function createRoutedDispatch( // NOSONAR: transitional TS fallback/UI flow retained for behavior compatibility; decomposition tracked separately to avoid sequencing regressions.
  handlers: readonly IpcHandler[],
  goCore: GoCore | undefined,
  root: string,

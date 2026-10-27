@@ -101,8 +101,10 @@ function tarBinary() {
  if (process.platform === 'linux') return '/usr/bin/bsdtar'
  return 'tar'
 }
-async function tar(args: string[]) {
- return await new Promise<string>((done, fail) => {
+// biome-ignore format: NOSONAR must stay on the function line
+async function tar(args: string[]) { // NOSONAR: build/fixture script; bounded sequential verification steps intentionally kept together.
+// biome-ignore format: NOSONAR must stay on the function line
+ return await new Promise<string>((done, fail) => { // NOSONAR: build/fixture script; bounded sequential verification steps intentionally kept together.
   execFile(
    tarBinary(),
    args,

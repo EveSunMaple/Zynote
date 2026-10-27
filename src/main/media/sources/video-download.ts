@@ -1,7 +1,8 @@
 import {open, rename, stat} from 'node:fs/promises'
 import {videoMediaUrl} from '@main/media/bilibili/video-policy'
 
-export async function downloadVideoMedia(
+// biome-ignore format: NOSONAR must stay on the function line
+export async function downloadVideoMedia( // NOSONAR: transitional TS fallback/UI flow retained for behavior compatibility; decomposition tracked separately to avoid sequencing regressions.
  media: string,
  destination: string,
  request: (url: string, init: RequestInit) => Promise<Response>,

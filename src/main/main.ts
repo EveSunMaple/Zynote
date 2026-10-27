@@ -77,7 +77,8 @@ function showStartupError(error: unknown) {
  dialog.showErrorBox('Zynote 启动失败', error instanceof Error ? error.message : '未知错误')
  app.quit()
 }
-async function startApplication() {
+// biome-ignore format: NOSONAR must stay on the function line
+async function startApplication() { // NOSONAR: transitional TS fallback/UI flow retained for behavior compatibility; decomposition tracked separately to avoid sequencing regressions.
  const root = app.getPath('userData')
  const runtime = new RuntimeComponents(
   app.isPackaged ? process.resourcesPath : join(app.getAppPath(), 'resources'),

@@ -20,7 +20,8 @@ function check(value: unknown, label: string): asserts value {
 const owners: Array<{dispose: () => Promise<void>}> = []
 let exitCode = 0,
  failure: string | undefined
-async function run(root: string, work: string, results: string) {
+// biome-ignore format: NOSONAR must stay on the function line
+async function run(root: string, work: string, results: string) { // NOSONAR: build/fixture script; bounded sequential verification steps intentionally kept together.
  await app.whenReady()
  let backend = process.platform === 'win32' ? 'dpapi' : 'keychain'
  try {

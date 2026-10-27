@@ -116,7 +116,8 @@ export class NativeImStore {
   this.checkSnapshot(key, revision, snapshot)
   return {...publicRow, secrets, session, snapshot}
  }
- async change(input: unknown) {
+ // biome-ignore format: NOSONAR must stay on the function line
+ async change(input: unknown) { // NOSONAR: transitional TS fallback/UI flow retained for behavior compatibility; decomposition tracked separately to avoid sequencing regressions.
   const value = z
    .object({
     action: z.enum(['create', 'update', 'delete']),

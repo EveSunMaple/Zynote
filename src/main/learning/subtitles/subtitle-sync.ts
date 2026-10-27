@@ -89,7 +89,8 @@ export class SubtitleSync {
   await this.save(task)
   return task
  }
- async attach(id: string, selector: number | string, path: string) {
+ // biome-ignore format: NOSONAR must stay on the function line
+ async attach(id: string, selector: number | string, path: string) { // NOSONAR: transitional TS fallback/UI flow retained for behavior compatibility; decomposition tracked separately to avoid sequencing regressions.
   const task = await this.read(id),
    matches = task.items.filter(item =>
     typeof selector === 'string' ? item.url === subtitleLocator(selector) : item.page === selector

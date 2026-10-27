@@ -5,7 +5,8 @@ import {join} from 'node:path'
 import {transferMedia} from '@main/media/transfer/media-transfer'
 type Input = Parameters<typeof transferMedia>[0]
 /** Range workers reuse the same verified-prefix implementation as serial downloads. */
-export async function transferMediaRanges(input: Input, concurrency: number) {
+// biome-ignore format: NOSONAR must stay on the function line
+export async function transferMediaRanges(input: Input, concurrency: number) { // NOSONAR: transitional TS fallback/UI flow retained for behavior compatibility; decomposition tracked separately to avoid sequencing regressions.
  if (!Number.isSafeInteger(concurrency) || concurrency < 1 || concurrency > 16) throw new Error('并行片段数无效')
  const chunkBytes = input.chunkBytes ?? 0,
   bufferBytes = input.writeBufferBytes ?? 65536

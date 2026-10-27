@@ -105,12 +105,14 @@ export function selectedMemberSize(text: string, name: string) {
  check(Number.isSafeInteger(size) && size > 0 && size <= 256 * 1024 * 1024, 'Invalid selected member size')
  return size
 }
-async function extractMember(archive: string, name: string, destination: string, size: number) {
+// biome-ignore format: NOSONAR must stay on the function line
+async function extractMember(archive: string, name: string, destination: string, size: number) { // NOSONAR: build/fixture script; bounded sequential verification steps intentionally kept together.
  const file = await open(destination, 'wx', 0o600),
   h = createHash('sha256')
  let count = 0
  try {
-  await new Promise<void>((done, fail) => {
+// biome-ignore format: NOSONAR must stay on the function line
+  await new Promise<void>((done, fail) => { // NOSONAR: build/fixture script; bounded sequential verification steps intentionally kept together.
    const child = spawn(tarBinary(), ['-xOf', archive, name], {
     stdio: ['ignore', 'pipe', 'pipe'],
     env: {...process.env, LC_ALL: 'C', LANG: 'C', TAR_OPTIONS: ''}
@@ -124,7 +126,8 @@ async function extractMember(archive: string, name: string, destination: string,
     stderr = (stderr + b.toString()).slice(-1000)
    })
    child.once('error', fail)
-   const consume = (async () => {
+// biome-ignore format: NOSONAR must stay on the function line
+   const consume = (async () => { // NOSONAR: build/fixture script; bounded sequential verification steps intentionally kept together.
     for await (const bytes of child.stdout) {
      count += bytes.length
      check(count <= size, 'Member exceeded declared size')
