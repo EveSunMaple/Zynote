@@ -137,6 +137,32 @@ export class NativeResearchMcp {
   this.store.put('mcp', 'catalog', catalog.revision, catalog)
   return catalog
  }
+ private changeServer(
+  current: Catalog,
+  edit: {id: string | null; name: string; endpoint: string; enabled: boolean; allowed_tools: string[]}
+ ) {
+  const endpoint = mcpEndpoint(edit.endpoint),
+   old = edit.id ? current.servers.find(server => server.id === edit.id) : undefined
+  if (edit.id && !old) throw new Error('MCP 连接不存在')
+  if (!old && current.servers.length >= 16) throw new Error('最多保存16个MCP连接')
+  if (current.servers.some(server => server.endpoint === endpoint && server.id !== old?.id))
+   throw new Error('MCP 地址已存在')
+  const available = old?.endpoint === endpoint ? old.tools : []
+  if (
+   new Set(edit.allowed_tools).size !== edit.allowed_tools.length ||
+   edit.allowed_tools.some(name => !available.some(tool => tool.name === name && tool.read_only_declared)) ||
+   (edit.enabled && !edit.allowed_tools.length)
+  )
+   throw new Error('请先读取清单并选择已声明只读的工具')
+  return {
+   id: old?.id || randomUUID().replaceAll('-', ''),
+   name: edit.name,
+   endpoint,
+   enabled: edit.enabled,
+   allowed_tools: edit.allowed_tools,
+   tools: available
+  } satisfies Server
+ }
  change(input: unknown) {
   const value = z
    .object({
@@ -164,27 +190,7 @@ export class NativeResearchMcp {
     if (!current.servers.some(server => server.id === edit.id)) throw new Error('MCP 连接不存在')
     next.servers = current.servers.filter(server => server.id !== edit.id)
    } else {
-    const endpoint = mcpEndpoint(edit.endpoint),
-     old = edit.id ? current.servers.find(server => server.id === edit.id) : undefined
-    if (edit.id && !old) throw new Error('MCP 连接不存在')
-    if (!old && current.servers.length >= 16) throw new Error('最多保存16个MCP连接')
-    if (current.servers.some(server => server.endpoint === endpoint && server.id !== old?.id))
-     throw new Error('MCP 地址已存在')
-    const available = old?.endpoint === endpoint ? old.tools : []
-    if (
-     new Set(edit.allowed_tools).size !== edit.allowed_tools.length ||
-     edit.allowed_tools.some(name => !available.some(tool => tool.name === name && tool.read_only_declared)) ||
-     (edit.enabled && !edit.allowed_tools.length)
-    )
-     throw new Error('请先读取清单并选择已声明只读的工具')
-    const server: Server = {
-     id: old?.id || randomUUID().replaceAll('-', ''),
-     name: edit.name,
-     endpoint,
-     enabled: edit.enabled,
-     allowed_tools: edit.allowed_tools,
-     tools: available
-    }
+    const server = this.changeServer(current, edit)
     next.servers = [...current.servers.filter(s => s.id !== server.id), server]
    }
    next.revision++

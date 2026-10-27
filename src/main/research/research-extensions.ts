@@ -140,18 +140,15 @@ export class NativeResearchExtensions {
    if (edit.kind === 'instructions') {
     if (edit.enabled && !edit.body.trim()) throw new Error('启用的固定要求不能为空')
     next.standing_instructions = {enabled: edit.enabled, body: edit.body.trim()}
-   }
-   if (edit.kind === 'plugin') {
+   } else if (edit.kind === 'plugin') {
     if (!plugins.some(plugin => plugin.id === edit.id)) throw new Error('未知工具组')
     next.disabled_plugins = edit.enabled
      ? current.disabled_plugins.filter(id => id !== edit.id)
      : [...new Set([...current.disabled_plugins, edit.id])]
-   }
-   if (edit.kind === 'remove') {
+   } else if (edit.kind === 'remove') {
     if (!current.skills.some(s => s.id === edit.id)) throw new Error('学习方法不存在')
     next.skills = current.skills.filter(s => s.id !== edit.id)
-   }
-   if (edit.kind === 'skill') {
+   } else {
     const id = edit.id || randomUUID().replaceAll('-', '')
     if (edit.id && !current.skills.some(s => s.id === id)) throw new Error('学习方法不存在')
     if (current.skills.some(s => s.name === edit.name && s.id !== id)) throw new Error('学习方法名称已存在')
