@@ -97,17 +97,7 @@ function incrementalUpdate(original: Buffer, document: PDFDocument, changed: Map
  return Buffer.concat(chunks)
 }
 
-export async function executePdfOperation(input: unknown): Promise<PdfBookInfo | {pages: number; count: number}> {
- const request = requestSchema.parse(input)
- const original = await readFile(request.path)
- const document = await PDFDocument.load(original, {updateMetadata: false})
- const info = inspect(document)
- if (request.action === 'inspect') return info
- if (resolve(request.path).toLowerCase() === resolve(request.output).toLowerCase())
-  throw new Error('请先保存至临时文件，不能直接覆盖教材')
- const changed = new Map<PDFRef, PDFObject>()
- const size = /\/Size\s+(\d+)/.exec(original.subarray(lastXref(original)).toString('latin1'))
- if (size) document.context.largestObjectNumber = Math.max(document.context.largestObjectNumber, Number(size[1]) - 1)
+function stripLegacyAnnotations(document: PDFDocument, changed: Map<PDFRef, PDFObject>) {
  for (const [index, page] of document.getPages().entries()) {
   const annotations = annotationList(document, index)
   if (!annotations) continue
@@ -119,7 +109,10 @@ export async function executePdfOperation(input: unknown): Promise<PdfBookInfo |
    changed.set(page.ref, page.node)
   }
  }
- for (const row of request.rows) {
+}
+type HighlightRow = Extract<z.infer<typeof requestSchema>, {action: 'write'}>['rows'][number]
+function appendHighlightRows(document: PDFDocument, rows: HighlightRow[], changed: Map<PDFRef, PDFObject>) {
+ for (const row of rows) {
   const page = document.getPages()[row.page - 1]
   const [x, y, width, height] = row.rect
   if (
@@ -155,29 +148,52 @@ export async function executePdfOperation(input: unknown): Promise<PdfBookInfo |
   changed.set(ref, annotation)
   changed.set(page.ref, page.node)
  }
+}
+async function verifySavedPdf(
+ path: string,
+ originalLength: number,
+ original: Buffer,
+ info: PdfBookInfo,
+ rows: HighlightRow[]
+) {
+ const saved = await readFile(path)
+ if (!saved.subarray(0, originalLength).equals(original)) throw new Error('教材在写入时发生变化，原文件未修改')
+ const verified = inspect(await PDFDocument.load(saved, {updateMetadata: false}))
+ if (verified.pages !== info.pages || verified.previous.length !== rows.length)
+  throw new Error('保存检查失败，原教材未修改')
+ for (const [index, row] of rows.entries()) {
+  if (
+   !verified.previous.some(
+    value =>
+     value.id === row.id &&
+     value.page === row.page &&
+     value.rect.every((number, coordinate) => Math.abs(number - row.rect[coordinate]) < 0.00001)
+   )
+  )
+   throw new Error(`第 ${index + 1} 项划线保存检查失败，原教材未修改`)
+ }
+ return {pages: verified.pages, count: info.previous.length}
+}
+export async function executePdfOperation(input: unknown): Promise<PdfBookInfo | {pages: number; count: number}> {
+ const request = requestSchema.parse(input)
+ const original = await readFile(request.path)
+ const document = await PDFDocument.load(original, {updateMetadata: false})
+ const info = inspect(document)
+ if (request.action !== 'write') return info
+ if (resolve(request.path).toLowerCase() === resolve(request.output).toLowerCase())
+  throw new Error('请先保存至临时文件，不能直接覆盖教材')
+ const changed = new Map<PDFRef, PDFObject>()
+ const size = /\/Size\s+(\d+)/.exec(original.subarray(lastXref(original)).toString('latin1'))
+ if (size) document.context.largestObjectNumber = Math.max(document.context.largestObjectNumber, Number(size[1]) - 1)
+ stripLegacyAnnotations(document, changed)
+ appendHighlightRows(document, request.rows, changed)
  const revision = incrementalUpdate(original, document, changed)
  let created = false
  try {
   await copyFile(request.path, request.output, constants.COPYFILE_EXCL)
   created = true
   await appendFile(request.output, revision)
-  const saved = await readFile(request.output)
-  if (!saved.subarray(0, original.length).equals(original)) throw new Error('教材在写入时发生变化，原文件未修改')
-  const verified = inspect(await PDFDocument.load(saved, {updateMetadata: false}))
-  if (verified.pages !== info.pages || verified.previous.length !== request.rows.length)
-   throw new Error('保存检查失败，原教材未修改')
-  for (const [index, row] of request.rows.entries()) {
-   if (
-    !verified.previous.some(
-     value =>
-      value.id === row.id &&
-      value.page === row.page &&
-      value.rect.every((number, coordinate) => Math.abs(number - row.rect[coordinate]) < 0.00001)
-    )
-   )
-    throw new Error(`第 ${index + 1} 项划线保存检查失败，原教材未修改`)
-  }
-  return {pages: verified.pages, count: info.previous.length}
+  return await verifySavedPdf(request.output, original.length, original, info, request.rows)
  } catch (error) {
   if (created) await rm(request.output, {force: true})
   throw error
