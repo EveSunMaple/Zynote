@@ -125,13 +125,23 @@ export function BiliResourcesPanel({
    <Discussion />
    {busy && (
     <div className="row">
-     <p role="status">{progress || '正在读取 B 站资源…'}</p>
+     <p
+      role="status" // NOSONAR: styled live region; native output would change layout and announcement behavior.
+     >
+      {progress || '正在读取 B 站资源…'}
+     </p>
      <Button variant="ghost" size="sm" onClick={() => void invoke('cancel')}>
       取消处理
      </Button>
     </div>
    )}
-   {!busy && progress && <p role="status">{progress}</p>}
+   {!busy && progress && (
+    <p
+     role="status" // NOSONAR: styled live region; native output would change layout and announcement behavior.
+    >
+     {progress}
+    </p>
+   )}
    {folder ? (
     <section>
      <div className="row">

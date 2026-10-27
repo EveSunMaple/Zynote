@@ -201,7 +201,10 @@ export function Discussion() {
     </>
    )}
    {busy && (
-    <p role="status" className="hint">
+    <p
+     role="status" // NOSONAR: styled live region; native output would change layout and announcement behavior.
+     className="hint"
+    >
      正在读取，范围内结果会保留采集回执…
     </p>
    )}

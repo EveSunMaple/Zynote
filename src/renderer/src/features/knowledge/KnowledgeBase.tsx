@@ -338,7 +338,11 @@ export function KnowledgeBase({visible, close}: Readonly<{visible: boolean; clos
     </p>
     {busy && (
      <div className="row">
-      <p role="status">{progressText || '正在处理知识库资料…'}</p>
+      <p
+       role="status" // NOSONAR: styled live region; native output would change layout and announcement behavior.
+      >
+       {progressText || '正在处理知识库资料…'}
+      </p>
       <Button variant="ghost" size="sm" onClick={() => void invoke('cancel')}>
        取消处理
       </Button>

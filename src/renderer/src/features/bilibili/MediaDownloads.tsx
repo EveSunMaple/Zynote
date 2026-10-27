@@ -443,7 +443,7 @@ export function MediaDownloads({visible}: Readonly<{visible: boolean}>) {
         .map(key => (
          <div className="media-option" key={key}>
           <span>{labels[key]}</span>
-          {typeof options[key] === 'boolean' ? (
+          {typeof options[key] === 'boolean' && (
            <Checkbox
             isSelected={!!options[key]}
             isDisabled={busy}
@@ -456,7 +456,8 @@ export function MediaDownloads({visible}: Readonly<{visible: boolean}>) {
              </Checkbox.Control>
             </Checkbox.Content>
            </Checkbox>
-          ) : enums[key] ? (
+          )}
+          {typeof options[key] !== 'boolean' && enums[key] && (
            <SelectField
             label={labels[key]}
             isDisabled={busy}
@@ -469,7 +470,8 @@ export function MediaDownloads({visible}: Readonly<{visible: boolean}>) {
               label: qualityLabel(value)
              }))}
            />
-          ) : (
+          )}
+          {typeof options[key] !== 'boolean' && !enums[key] && (
            <Input
             disabled={busy}
             type={typeof options[key] === 'number' || ['clip_start', 'clip_end'].includes(key) ? 'number' : 'text'}

@@ -67,12 +67,18 @@ export function RuntimePanel() {
    <p>Zynote {data?.version || ''}</p>
    <p className="hint">完整包可离线使用。轻量包可选择同版本组件文件夹安装；不会自动下载或更改你的资料。</p>
    {platform !== undefined && !isWindows && (
-    <p className="hint" role="status">
+    <p
+     className="hint"
+     role="status" // NOSONAR: styled live region; native output would change layout and announcement behavior.
+    >
      运行组件目前仅支持 Windows；此平台不可安装 Windows 专属组件。
     </p>
    )}
    {data?.reason && (
-    <p className="hint" role="status">
+    <p
+     className="hint"
+     role="status" // NOSONAR: styled live region; native output would change layout and announcement behavior.
+    >
      {data.reason}
     </p>
    )}

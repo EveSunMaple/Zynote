@@ -530,7 +530,13 @@ export function VideoPpt({
           整理课程笔记
          </Button>
         </div>
-        {subtitleSaved && <p role="status">已保存：{subtitleSaved}</p>}
+        {subtitleSaved && (
+         <p
+          role="status" // NOSONAR: styled live region; native output would change layout and announcement behavior.
+         >
+          已保存：{subtitleSaved}
+         </p>
+        )}
        </>
       )}
      </section>
@@ -700,7 +706,11 @@ export function VideoPpt({
       )}
       {summary && (
        <>
-        <p role="status">已保存课程笔记 · {summary.count} 项字幕引文已核实</p>
+        <p
+         role="status" // NOSONAR: styled live region; native output would change layout and announcement behavior.
+        >
+         已保存课程笔记 · {summary.count} 项字幕引文已核实
+        </p>
         <details className="learning-path">
          <summary>查看保存位置</summary>
          <Input aria-label="笔记保存位置" readOnly value={summary.path} />
@@ -795,7 +805,10 @@ export function VideoPpt({
     )}
    </div>
    {progress && (
-    <div className="learning-status" role="status">
+    <div
+     className="learning-status"
+     role="status" // NOSONAR: styled live region; native output would change layout and announcement behavior.
+    >
      <span>{progress}</span>
      {busy && (
       <Button variant="ghost" size="sm" onClick={() => void invoke('cancel')}>

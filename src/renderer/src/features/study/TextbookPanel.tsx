@@ -203,7 +203,10 @@ export function TextbookMenu(props: TextbookProps) {
     </section>
    ) : null}
    {busy ? (
-    <section className="study-progress" role="status">
+    <section
+     className="study-progress"
+     role="status" // NOSONAR: styled live region; native output would change layout and announcement behavior.
+    >
      <Spinner size="sm" />
      <div>
       <strong>{progress?.stage || '正在处理教材'}</strong>
@@ -487,7 +490,11 @@ export function TextbookContent(props: TextbookProps) {
     ) : (
      <>
       {draft || rectangle ? (
-       <div aria-label="划线方式" className="study-segmented study-segmented--full" role="group">
+       <div
+        aria-label="划线方式"
+        className="study-segmented study-segmented--full"
+        role="group" // NOSONAR: custom keyboard-interactive group; native fieldset would change layout and behavior.
+       >
         <Button
          aria-pressed={mode === 'suggestions'}
          className={'study-segmented__button' + (mode === 'suggestions' ? ' study-segmented__button--active' : '')}
@@ -591,7 +598,11 @@ export function TextbookContent(props: TextbookProps) {
          ) : null}
         </div>
         <StudyField label="划线来源">
-         <div aria-label="划线来源" className="study-source-choices" role="group">
+         <div
+          aria-label="划线来源"
+          className="study-source-choices"
+          role="group" // NOSONAR: custom keyboard-interactive group; native fieldset would change layout and behavior.
+         >
           {sourceKeys.map(key => (
            <Button
             key={key}

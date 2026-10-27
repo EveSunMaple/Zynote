@@ -110,7 +110,11 @@ export function VisualAnalysisPanel({visible}: Readonly<{visible: boolean}>) {
    </Card>
    {busy && (
     <div className="row">
-     <p role="status">{progress || '正在提取或识别…'}</p>
+     <p
+      role="status" // NOSONAR: styled live region; native output would change layout and announcement behavior.
+     >
+      {progress || '正在提取或识别…'}
+     </p>
      <Button variant="ghost" size="sm" onClick={() => void invoke('cancel')}>
       取消识别
      </Button>
@@ -131,7 +135,7 @@ export function VisualAnalysisPanel({visible}: Readonly<{visible: boolean}>) {
      <Card className="knowledge-card" key={task.id}>
       <header>
        <h3>{task.source.split(/[\\/]/).pop()}</h3>
-       {!task.frames.length ? (
+       {!task.frames.length && (
         <Button
          variant="tertiary"
          size="sm"
@@ -144,7 +148,8 @@ export function VisualAnalysisPanel({visible}: Readonly<{visible: boolean}>) {
         >
          继续提取画面
         </Button>
-       ) : recoverable ? (
+       )}
+       {task.frames.length > 0 && recoverable && (
         <>
          <Button
           variant="tertiary"
@@ -178,7 +183,8 @@ export function VisualAnalysisPanel({visible}: Readonly<{visible: boolean}>) {
           </Button>
          )}
         </>
-       ) : task.output ? (
+       )}
+       {task.frames.length > 0 && !recoverable && task.output && (
         <>
          <Button variant="tertiary" size="sm" onClick={() => void invoke('library:open-file', {path: task.output})}>
           打开识别结果
@@ -198,7 +204,8 @@ export function VisualAnalysisPanel({visible}: Readonly<{visible: boolean}>) {
           </Button>
          )}
         </>
-       ) : (
+       )}
+       {task.frames.length > 0 && !recoverable && !task.output && (
         <Button
          variant="tertiary"
          size="sm"
@@ -214,7 +221,10 @@ export function VisualAnalysisPanel({visible}: Readonly<{visible: boolean}>) {
        )}
       </header>
       {task.outputRecovery && (
-       <p className="hint" role="status">
+       <p
+        className="hint"
+        role="status" // NOSONAR: styled live region; native output would change layout and announcement behavior.
+       >
         识别成果需要恢复（
         {recoveryLabel}
         ），当前文件会被保留。

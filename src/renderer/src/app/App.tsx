@@ -963,7 +963,7 @@ export default function App() {
                  条，以下为已完成部分；点击继续校订可恢复剩余内容。
                 </p>
                )}
-               {srtEdit !== null ? (
+               {srtEdit !== null && (
                 <>
                  <p className="hint">保存修改后，旧笔记与练习会清空，需重新生成。</p>
                  <TextArea className="srt-editor" value={srtEdit} onChange={e => setSrtEdit(e.target.value)} />
@@ -983,7 +983,8 @@ export default function App() {
                   校验并保存字幕
                  </Button>
                 </>
-               ) : lecture.segments.length ? (
+               )}
+               {srtEdit === null && lecture.segments.length > 0 && (
                 <>
                  <Input
                   className="search"
@@ -1019,7 +1020,8 @@ export default function App() {
                    ))}
                  </div>
                 </>
-               ) : (
+               )}
+               {srtEdit === null && lecture.segments.length === 0 && (
                 <div className="empty">
                  <h3>完整记录，不做摘要</h3>
                  <p>

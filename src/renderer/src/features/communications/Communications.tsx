@@ -145,7 +145,13 @@ export function CommunicationsPanel() {
  }
  return (
   <div className="panel-section communications-panel">
-   {busy && <p role="status">正在处理所选操作…</p>}
+   {busy && (
+    <p
+     role="status" // NOSONAR: styled live region; native output would change layout and announcement behavior.
+    >
+     正在处理所选操作…
+    </p>
+   )}
    <Card className="knowledge-card">
     <div className="row">
      <Button variant="ghost" size="sm" isDisabled={busy} onPress={() => void run(refresh)}>

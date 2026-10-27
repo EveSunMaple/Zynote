@@ -91,7 +91,13 @@ export function BiliBrowse({
      )}
     </>
    )}
-   {busy && <p role="status">正在读取视频列表…</p>}
+   {busy && (
+    <p
+     role="status" // NOSONAR: styled live region; native output would change layout and announcement behavior.
+    >
+     正在读取视频列表…
+    </p>
+   )}
   </Card>
  )
 }

@@ -251,7 +251,10 @@ export function QwenSettings({
     ID。模型调用会将字幕、图片和课程资料发送到你配置的服务端。
    </p>
    {(notice || testing) && (
-    <p role="status" className="notice">
+    <p
+     role="status" // NOSONAR: styled live region; native output would change layout and announcement behavior.
+     className="notice"
+    >
      {testing ? '正在自动测试连接…' : notice}
     </p>
    )}

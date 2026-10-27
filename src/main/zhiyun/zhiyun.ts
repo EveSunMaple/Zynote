@@ -117,7 +117,9 @@ export class Zhiyun {
    per_page: '20'
   })
   if (Number(data.code) !== 0) throw new Error('搜索失败，请在智云课堂确认登录后重试')
-  const result = data.total?.list !== undefined ? data.total : data.data?.list !== undefined ? data.data : data
+  let result = data
+  if (data.total?.list !== undefined) result = data.total
+  else if (data.data?.list !== undefined) result = data.data
   const rows = result.list
   if (!Array.isArray(rows) && rows !== null) throw new Error('智云课堂搜索返回格式异常，请稍后重试')
   const courses: ZhiyunCourse[] = (rows || [])

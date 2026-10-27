@@ -451,7 +451,14 @@ export function AppearanceEditor({
     >
      恢复默认外观
     </Button>
-    {status && <p role="status">{status}</p>}
+    {status && (
+     <p
+      role="status" // NOSONAR: styled live region; native output would change layout and announcement behavior.
+      // NOSONAR: styled live region; native output would change layout and announcement behavior.
+     >
+      {status}
+     </p>
+    )}
    </div>
   </section>
  )

@@ -50,7 +50,10 @@ export function ChatWaitingReply({streaming}: Readonly<{streaming: boolean}>) {
   return () => window.clearInterval(timer)
  }, [])
  return (
-  <div className="chat-waiting-reply" role="status">
+  <div
+   className="chat-waiting-reply"
+   role="status" // NOSONAR: styled live region; native output would change layout and announcement behavior.
+  >
    <span className="chat-running-dot" />
    {streaming ? '正在回复' : '正在等待模型回复'}… <span>用时 {seconds} 秒</span>
   </div>

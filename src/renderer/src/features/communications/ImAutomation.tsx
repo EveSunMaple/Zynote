@@ -139,7 +139,10 @@ export function ImAutomation({
     生效。默认不运行；首次取得的历史消息建立基线，新消息才登记回复待办。关闭软件会暂停，重启后需要再次手动开启。
    </p>
    {!liveAvailable && (
-    <p className="hint" role="status">
+    <p
+     className="hint"
+     role="status" // NOSONAR: styled live region; native output would change layout and announcement behavior.
+    >
      该连接的实时收发未启用（内置 QQ 后台与本机微信读取仅支持 Windows
      x64）；会话助手仍可生成草稿与登记待办，不会自动发送。
     </p>
