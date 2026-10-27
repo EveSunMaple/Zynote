@@ -59,6 +59,45 @@ type WeixinWebSession struct {
 	qr          string
 }
 
+func validWeixinIdentity(session *WeixinWebSession) bool {
+	if !contains(weixinHosts, session.Domain) || session.Login.WxUin == "" ||
+		!digitsValue(session.Login.WxUin, 1, 20) || session.Login.WxSid == "" ||
+		len([]rune(session.Login.WxSid)) > 8192 || len([]rune(session.Login.SKey)) > 8192 {
+		return false
+	}
+	if strconv.FormatInt(session.BaseRequest.Uin, 10) != session.Login.WxUin ||
+		session.BaseRequest.Sid != session.Login.WxSid || session.BaseRequest.Skey != session.Login.SKey ||
+		!regexp.MustCompile(`^e\d{15}$`).MatchString(session.BaseRequest.DeviceID) {
+		return false
+	}
+	return true
+}
+
+func loadWeixinCookies(session *WeixinWebSession) error {
+	for _, item := range session.Cookies {
+		name := text(item["name"])
+		if name == "" {
+			name = text(item["key"])
+		}
+		value := text(item["value"])
+		domain := strings.TrimPrefix(strings.ToLower(text(item["domain"])), ".")
+		path := text(item["path"])
+		if path == "" {
+			path = "/"
+		}
+		if name == "" || len([]rune(value)) > 16384 || !contains(weixinCookieHosts, domain) {
+			return fmt.Errorf("保存的微信 Cookie 域无效")
+		}
+		cookie := &http.Cookie{Name: name, Value: value, Domain: domain, Path: path}
+		if secure, ok := item["secure"].(bool); ok {
+			cookie.Secure = secure
+		}
+		session.jar.SetCookies(&url.URL{Scheme: "https", Host: domain, Path: path}, []*http.Cookie{cookie})
+	}
+	session.Cookies = nil
+	return nil
+}
+
 func NewWeixinWebSession(saved any) (*WeixinWebSession, error) {
 	jar, err := cookiejar.New(nil)
 	if err != nil {
@@ -73,37 +112,12 @@ func NewWeixinWebSession(saved any) (*WeixinWebSession, error) {
 	if json.Unmarshal(encoded, session) != nil {
 		return nil, fmt.Errorf("保存的微信会话无效")
 	}
-	if !contains(weixinHosts, session.Domain) || session.Login.WxUin == "" ||
-		!digitsValue(session.Login.WxUin, 1, 20) || session.Login.WxSid == "" ||
-		len([]rune(session.Login.WxSid)) > 8192 || len([]rune(session.Login.SKey)) > 8192 {
+	if !validWeixinIdentity(session) {
 		return nil, fmt.Errorf("保存的微信身份不一致")
 	}
-	if strconv.FormatInt(session.BaseRequest.Uin, 10) != session.Login.WxUin ||
-		session.BaseRequest.Sid != session.Login.WxSid || session.BaseRequest.Skey != session.Login.SKey ||
-		!regexp.MustCompile(`^e\d{15}$`).MatchString(session.BaseRequest.DeviceID) {
-		return nil, fmt.Errorf("保存的微信身份不一致")
+	if err := loadWeixinCookies(session); err != nil {
+		return nil, err
 	}
-	for _, item := range session.Cookies {
-		name := text(item["name"])
-		if name == "" {
-			name = text(item["key"])
-		}
-		value := text(item["value"])
-		domain := strings.TrimPrefix(strings.ToLower(text(item["domain"])), ".")
-		path := text(item["path"])
-		if path == "" {
-			path = "/"
-		}
-		if name == "" || len([]rune(value)) > 16384 || !contains(weixinCookieHosts, domain) {
-			return nil, fmt.Errorf("保存的微信 Cookie 域无效")
-		}
-		cookie := &http.Cookie{Name: name, Value: value, Domain: domain, Path: path}
-		if secure, ok := item["secure"].(bool); ok {
-			cookie.Secure = secure
-		}
-		jar.SetCookies(&url.URL{Scheme: "https", Host: domain, Path: path}, []*http.Cookie{cookie})
-	}
-	session.Cookies = nil
 	return session, nil
 }
 
@@ -354,31 +368,28 @@ func weixinRedirect(value string) (*url.URL, error) {
 	return target, nil
 }
 
-func (session *WeixinWebSession) parseLogin(raw, domain string) (WeixinLogin, error) {
-	trimmed := strings.TrimSpace(strings.TrimPrefix(raw, "\ufeff"))
-	if strings.HasPrefix(strings.ToLower(trimmed), "<!doctype html") || strings.HasPrefix(strings.ToLower(trimmed), "<html") {
-		if !weixinBootstrap(trimmed) {
-			return WeixinLogin{}, fmt.Errorf("微信返回的网页尚不能建立已验证会话")
-		}
-		host := "https://" + domain + "/cgi-bin/mmwebwx-bin/webwxinit"
-		cookies := session.jar.Cookies(mustURL(host))
-		values := map[string]string{}
-		for _, cookie := range cookies {
-			if cookie.Name == "wxuin" || cookie.Name == "wxsid" {
-				if _, exists := values[cookie.Name]; exists {
-					return WeixinLogin{}, fmt.Errorf("微信网页会话 Cookie 缺失或有歧义")
-				}
-				values[cookie.Name] = cookie.Value
+func (session *WeixinWebSession) bootstrapLogin(domain, raw string) (WeixinLogin, error) {
+	if !weixinBootstrap(raw) {
+		return WeixinLogin{}, fmt.Errorf("微信返回的网页尚不能建立已验证会话")
+	}
+	host := "https://" + domain + "/cgi-bin/mmwebwx-bin/webwxinit"
+	cookies := session.jar.Cookies(mustURL(host))
+	values := map[string]string{}
+	for _, cookie := range cookies {
+		if cookie.Name == "wxuin" || cookie.Name == "wxsid" {
+			if _, exists := values[cookie.Name]; exists {
+				return WeixinLogin{}, fmt.Errorf("微信网页会话 Cookie 缺失或有歧义")
 			}
+			values[cookie.Name] = cookie.Value
 		}
-		if values["wxuin"] == "" || values["wxsid"] == "" {
-			return WeixinLogin{}, fmt.Errorf("微信网页会话 Cookie 缺失或有歧义")
-		}
-		return WeixinLogin{WxUin: values["wxuin"], WxSid: values["wxsid"], SKey: ""}, nil
 	}
-	if regexp.MustCompile(`(?i)<!DOCTYPE|<!ENTITY`).MatchString(raw) {
-		return WeixinLogin{}, fmt.Errorf("微信确认响应包含无效声明")
+	if values["wxuin"] == "" || values["wxsid"] == "" {
+		return WeixinLogin{}, fmt.Errorf("微信网页会话 Cookie 缺失或有歧义")
 	}
+	return WeixinLogin{WxUin: values["wxuin"], WxSid: values["wxsid"], SKey: ""}, nil
+}
+
+func parseWeixinLoginXML(raw string) (WeixinLogin, error) {
 	var value struct {
 		XMLName    xml.Name `xml:"error"`
 		Ret        string   `xml:"ret"`
@@ -394,6 +405,18 @@ func (session *WeixinWebSession) parseLogin(raw, domain string) (WeixinLogin, er
 		return WeixinLogin{}, fmt.Errorf("微信未确认有效登录")
 	}
 	return WeixinLogin{WxUin: value.Wxuin, WxSid: value.Wxsid, SKey: value.Skey, PassTicket: value.PassTicket}, nil
+}
+
+func (session *WeixinWebSession) parseLogin(raw, domain string) (WeixinLogin, error) {
+	trimmed := strings.TrimSpace(strings.TrimPrefix(raw, "\ufeff"))
+	lower := strings.ToLower(trimmed)
+	if strings.HasPrefix(lower, "<!doctype html") || strings.HasPrefix(lower, "<html") {
+		return session.bootstrapLogin(domain, trimmed)
+	}
+	if regexp.MustCompile(`(?i)<!DOCTYPE|<!ENTITY`).MatchString(raw) {
+		return WeixinLogin{}, fmt.Errorf("微信确认响应包含无效声明")
+	}
+	return parseWeixinLoginXML(raw)
 }
 
 func mustURL(value string) *url.URL {
@@ -466,6 +489,50 @@ func parseSyncKey(raw any) (*WeixinSyncKey, error) {
 	return &value, nil
 }
 
+func weixinDirectoryPeer(raw any, seen map[string]bool) (map[string]any, bool, error) {
+	item, _ := raw.(map[string]any)
+	peer := text(item["UserName"])
+	if peer == "" || len([]rune(peer)) > 256 {
+		return nil, false, fmt.Errorf("微信联系人无效")
+	}
+	if seen[peer] {
+		return nil, false, nil
+	}
+	seen[peer] = true
+	name := text(item["RemarkName"])
+	if name == "" {
+		name = text(item["DisplayName"])
+	}
+	if name == "" {
+		name = text(item["NickName"])
+	}
+	if name == "" {
+		name = peer
+	}
+	runes := []rune(name)
+	if len(runes) > 200 {
+		runes = runes[:200]
+	}
+	return map[string]any{"peer": peer, "name": string(runes)}, true, nil
+}
+
+func appendWeixinDirectoryPage(members []any, seen map[string]bool, peers []map[string]any) ([]map[string]any, error) {
+	for _, raw := range members {
+		peer, ok, err := weixinDirectoryPeer(raw, seen)
+		if err != nil {
+			return nil, err
+		}
+		if !ok {
+			continue
+		}
+		peers = append(peers, peer)
+		if len(peers) > 10000 {
+			return nil, fmt.Errorf("微信联系人超出本次读取上限")
+		}
+	}
+	return peers, nil
+}
+
 func (session *WeixinWebSession) Directory(ctx context.Context) (map[string]any, error) {
 	if session.Domain == "" {
 		return nil, fmt.Errorf("微信尚未核验身份")
@@ -486,34 +553,9 @@ func (session *WeixinWebSession) Directory(ctx context.Context) (map[string]any,
 		if len(members) > 10000 {
 			return nil, fmt.Errorf("微信联系人超出本次读取上限")
 		}
-		for _, raw := range members {
-			item, _ := raw.(map[string]any)
-			peer := text(item["UserName"])
-			if peer == "" || len([]rune(peer)) > 256 {
-				return nil, fmt.Errorf("微信联系人无效")
-			}
-			if seen[peer] {
-				continue
-			}
-			seen[peer] = true
-			name := text(item["RemarkName"])
-			if name == "" {
-				name = text(item["DisplayName"])
-			}
-			if name == "" {
-				name = text(item["NickName"])
-			}
-			if name == "" {
-				name = peer
-			}
-			runes := []rune(name)
-			if len(runes) > 200 {
-				runes = runes[:200]
-			}
-			peers = append(peers, map[string]any{"peer": peer, "name": string(runes)})
-			if len(peers) > 10000 {
-				return nil, fmt.Errorf("微信联系人超出本次读取上限")
-			}
+		peers, err = appendWeixinDirectoryPage(members, seen, peers)
+		if err != nil {
+			return nil, err
 		}
 		next := int(number(value["Seq"]))
 		if next == 0 {
@@ -538,18 +580,59 @@ type WeixinUpdates struct {
 	Session  map[string]any
 }
 
-func (session *WeixinWebSession) Receive(ctx context.Context, selected, account string) (WeixinUpdates, error) {
-	if session.User == "" || session.SyncKey == nil || session.Login.WxUin != account {
-		return WeixinUpdates{}, fmt.Errorf("微信所选会话尚未核验")
-	}
+func weixinSyncValue(ctx context.Context, session *WeixinWebSession) (map[string]any, error) {
 	query := map[string]string{"sid": session.Login.WxSid, "skey": session.Login.SKey}
 	if session.Login.PassTicket != "" {
 		query["pass_ticket"] = session.Login.PassTicket
 	}
-	value, err := session.json(ctx, "webwxsync", map[string]any{
+	return session.json(ctx, "webwxsync", map[string]any{
 		"BaseRequest": session.BaseRequest, "SyncKey": session.SyncKey,
 		"rr": strconv.FormatInt(time.Now().Unix(), 10),
 	}, query)
+}
+
+func weixinMessage(raw any, session *WeixinWebSession, selected string) (Message, bool, error) {
+	item, _ := raw.(map[string]any)
+	sender := text(item["FromUserName"])
+	to := text(item["ToUserName"])
+	if sender != session.User && to != session.User {
+		return Message{}, false, nil
+	}
+	peer := sender
+	if sender == session.User {
+		peer = to
+	}
+	if peer != selected {
+		return Message{}, false, nil
+	}
+	mid, err := messageID(item["MsgId"])
+	if err != nil {
+		mid, err = messageID(item["NewMsgId"])
+	}
+	if err != nil || mid == "" {
+		return Message{}, false, fmt.Errorf("微信消息编号无效")
+	}
+	ts := number(item["CreateTime"])
+	if ts < 0 {
+		return Message{}, false, fmt.Errorf("微信消息时间无效")
+	}
+	content := "[未读取的图片、语音或其他消息]"
+	kind := "unsupported_media"
+	if number(item["MsgType"]) == 1 {
+		content = text(item["Content"])
+		kind = "text"
+		if len([]rune(content)) > 50000 {
+			content = string([]rune(content)[:50000])
+		}
+	}
+	return Message{MID: mid, TS: ts, Sender: sender, Text: content, Kind: kind}, true, nil
+}
+
+func (session *WeixinWebSession) Receive(ctx context.Context, selected, account string) (WeixinUpdates, error) {
+	if session.User == "" || session.SyncKey == nil || session.Login.WxUin != account {
+		return WeixinUpdates{}, fmt.Errorf("微信所选会话尚未核验")
+	}
+	value, err := weixinSyncValue(ctx, session)
 	if err != nil {
 		return WeixinUpdates{}, err
 	}
@@ -563,40 +646,13 @@ func (session *WeixinWebSession) Receive(ctx context.Context, selected, account 
 	}
 	messages := []Message{}
 	for _, raw := range rows {
-		item, _ := raw.(map[string]any)
-		sender := text(item["FromUserName"])
-		to := text(item["ToUserName"])
-		if sender != session.User && to != session.User {
-			continue
-		}
-		peer := sender
-		if sender == session.User {
-			peer = to
-		}
-		if peer != selected {
-			continue
-		}
-		mid, err := messageID(item["MsgId"])
+		message, ok, err := weixinMessage(raw, session, selected)
 		if err != nil {
-			mid, err = messageID(item["NewMsgId"])
+			return WeixinUpdates{}, err
 		}
-		if err != nil || mid == "" {
-			return WeixinUpdates{}, fmt.Errorf("微信消息编号无效")
+		if ok {
+			messages = append(messages, message)
 		}
-		ts := number(item["CreateTime"])
-		if ts < 0 {
-			return WeixinUpdates{}, fmt.Errorf("微信消息时间无效")
-		}
-		content := "[未读取的图片、语音或其他消息]"
-		kind := "unsupported_media"
-		if number(item["MsgType"]) == 1 {
-			content = text(item["Content"])
-			kind = "text"
-			if len([]rune(content)) > 50000 {
-				content = string([]rune(content)[:50000])
-			}
-		}
-		messages = append(messages, Message{MID: mid, TS: ts, Sender: sender, Text: content, Kind: kind})
 	}
 	session.SyncKey = key
 	return WeixinUpdates{Messages: messages, Session: session.Session()}, nil
