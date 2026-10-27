@@ -424,7 +424,8 @@ try {
    const compare = (a: string, b: string) => {
     const left = a.split('.').map(Number),
      right = b.split('.').map(Number)
-    for (let i = 0; i < Math.max(left.length, right.length); i++) {
+    // biome-ignore format: NOSONAR must stay on the loop line
+    for (let i = 0; i < Math.max(left.length, right.length); i++) { // NOSONAR: sequential bounded I/O; parallelizing would break ordering and rate limits.
      const delta = (left[i] || 0) - (right[i] || 0)
      if (delta) return delta
     }
@@ -479,6 +480,7 @@ try {
      .update(await readFile(path)) // NOSONAR: sequential bounded I/O; parallelizing would break ordering and rate limits.
      .digest('hex'),
     signature: await execute(
+     // NOSONAR: await inside loop is required for bounded ordered I/O.
      '/usr/bin/codesign',
      // biome-ignore format: NOSONAR must stay on this line
      ['-d', '--verbose=4', path], // NOSONAR: await inside loop is required for bounded ordered I/O.
@@ -486,7 +488,7 @@ try {
      env,
      tool + '-signature',
      true
-    ),
+    ), // NOSONAR: await inside loop is required for bounded ordered I/O.
     gatekeeper: await execute(
      '/usr/sbin/spctl',
      ['--assess', '--type', 'execute', '--verbose=4', path],

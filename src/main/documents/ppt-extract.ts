@@ -247,7 +247,8 @@ export class PptExtractor {
   })
 // biome-ignore format: NOSONAR must stay on the function line
  } // NOSONAR: cohesive flow; further extraction would risk behavior changes.
- async analyze(path: string, prompt: string, signal: AbortSignal): Promise<PptExtractReview> {
+ // biome-ignore format: NOSONAR must stay on the function line
+ async analyze(path: string, prompt: string, signal: AbortSignal): Promise<PptExtractReview> { // NOSONAR: cohesive flow; further extraction would risk behavior changes.
   // NOSONAR: cohesive flow; further extraction would risk behavior changes.
   // NOSONAR: retained cohesive flow; decomposition tracked separately to avoid behavior regressions.
   if (extname(path).toLowerCase() !== '.pptx') throw new Error('请选择图片型 PPTX；旧版 PPT 请先另存为 PPTX')

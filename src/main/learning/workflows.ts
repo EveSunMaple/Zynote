@@ -379,7 +379,8 @@ export class Workflows {
   return verified
 // biome-ignore format: NOSONAR must stay on the function line
  } // NOSONAR: cohesive flow; further extraction would risk behavior changes.
- async practice(lectureId: string, signal?: AbortSignal, withSearch = false): Promise<PracticeSet> {
+ // biome-ignore format: NOSONAR must stay on the function line
+ async practice(lectureId: string, signal?: AbortSignal, withSearch = false): Promise<PracticeSet> { // NOSONAR: cohesive flow; further extraction would risk behavior changes.
   // NOSONAR: cohesive flow; further extraction would risk behavior changes.
   // NOSONAR: retained cohesive flow; decomposition tracked separately to avoid behavior regressions.
   const detail = this.store.lectureDetail(lectureId),

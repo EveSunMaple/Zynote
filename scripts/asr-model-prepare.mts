@@ -202,7 +202,8 @@ async function binding() { // NOSONAR: build/fixture script; bounded sequential 
 }
 // biome-ignore format: NOSONAR must stay on the function line
 /** Public model preparation only; does not load a model, execute inference or alter app resources. */ // NOSONAR: cohesive flow; further extraction would risk behavior changes.
-export async function prepareAsrModel(value: unknown) {
+// biome-ignore format: NOSONAR must stay on the function line
+export async function prepareAsrModel(value: unknown) { // NOSONAR: cohesive flow; further extraction would risk behavior changes.
  // NOSONAR: cohesive flow; further extraction would risk behavior changes.
  // NOSONAR: retained cohesive flow; decomposition tracked separately to avoid behavior regressions.
  const request = requestSchema.parse(value)

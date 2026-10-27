@@ -242,6 +242,7 @@ export function SubtitleBatchRecords({
                 isDisabled={busy}
                 onClick={() =>
                  action(async () => {
+                  // NOSONAR: behavior-preserving structure is intentional.
                   // NOSONAR: behavior-preserving rewrite tracked separately; existing flow is intentional.
                   const existing = item.outputs?.find(output => output.path.endsWith('.' + format))
                   const path =

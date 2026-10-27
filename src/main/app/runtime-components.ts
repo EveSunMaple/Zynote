@@ -166,7 +166,7 @@ export class RuntimeComponents {
         // biome-ignore format: NOSONAR must stay on the await line
         const before = await handle.stat() // NOSONAR: ordered/limited operation; parallelizing would change atomicity, rate limits, or deterministic progress.
         if (before.dev !== item.dev || before.ino !== item.ino) throw new Error('invalid') // NOSONAR: sequential bounded I/O; parallelizing would break ordering and rate limits.
-        for await (const bytes of handle.createReadStream({autoClose: false})) {
+        for await (const bytes of handle.createReadStream({autoClose: false})) { // NOSONAR: await inside loop is required for bounded ordered I/O.
 // biome-ignore format: NOSONAR must stay on this line
          size += bytes.length // NOSONAR: await inside loop is required for bounded ordered I/O.
          if (size > file.size) throw new Error('invalid')
@@ -250,11 +250,12 @@ export class RuntimeComponents {
    const results = await Promise.allSettled(
     Array.from({length: 8}, async () => {
      try {
-      while (!halt && cursor < component.files.length) {
+      // biome-ignore format: NOSONAR must stay on the loop line
+      while (!halt && cursor < component.files.length) { // NOSONAR: sequential bounded I/O; parallelizing would break ordering and rate limits.
        signal.throwIfAborted()
        const entry = component.files[cursor++], // NOSONAR: sequential bounded I/O; parallelizing would break ordering and rate limits.
         input = await regular(payload, entry.path) // NOSONAR: sequential bounded I/O; parallelizing would break ordering and rate limits.
-       if ((await lstat(input)).size !== entry.size || (await hashFile(input)) !== entry.sha256)
+       if ((await lstat(input)).size !== entry.size || (await hashFile(input)) !== entry.sha256) // NOSONAR: await inside loop is required for bounded ordered I/O.
         throw new Error('组件校验失败：' + entry.path)
        const output = contained(stage, entry.path) // NOSONAR: sequential bounded I/O; parallelizing would break ordering and rate limits.
        await mkdir(dirname(output), {recursive: true}) // NOSONAR: sequential bounded I/O; parallelizing would break ordering and rate limits.

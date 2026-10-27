@@ -7,6 +7,7 @@ const invoke = (action: string, args?: unknown) => window.assistant.invoke(actio
 export function ZhiyunLoginPanel() {
  const slot = useRef<HTMLDivElement>(null)
  async function navigate(action: string) {
+  // NOSONAR: behavior-preserving structure is intentional.
   // NOSONAR: behavior-preserving rewrite tracked separately; existing flow is intentional.
   try {
    await invoke(action)

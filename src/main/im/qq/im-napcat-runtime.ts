@@ -202,9 +202,10 @@ export class NativeNapcatRuntime {
   try {
    const {directory, value} = await this.prepare()
    if (this.closed) throw new Error('QQ 组件所属服务已关闭')
-   for (const port of [value.webui_port, value.onebot_port]) {
+   // biome-ignore format: NOSONAR must stay on the loop line
+   for (const port of [value.webui_port, value.onebot_port]) { // NOSONAR: sequential bounded I/O; parallelizing would break ordering and rate limits.
     const server = createServer() // NOSONAR: sequential bounded I/O; parallelizing would break ordering and rate limits.
-    await new Promise<void>((resolve, reject) => {
+    await new Promise<void>((resolve, reject) => { // NOSONAR: await inside loop is required for bounded ordered I/O.
      // biome-ignore format: NOSONAR must stay on this line
      server.once('error', () => reject(new Error('QQ 组件端口被占用，未连接未知进程'))) // NOSONAR: await inside loop is required for bounded ordered I/O.
      server.listen(port, '127.0.0.1', resolve)

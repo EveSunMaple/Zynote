@@ -45,7 +45,7 @@ export function parseSrt(raw: string): Segment[] {
   const start = milliseconds(m[1]),
    end = milliseconds(m[2]),
    text = lines.slice(2).join('\n').trim()
-  if (!text || end <= start || (result.length && start < result[result.length - 1].end))
+  if (!text || end <= start || (result.length && start < result.at(-1)!.end))
    // NOSONAR: behavior-preserving rewrite tracked separately; existing flow is intentional.
    throw new Error('字幕为空或时间没有递增')
   if (+lines[0] !== result.length + 1) throw new Error('字幕序号不连续')

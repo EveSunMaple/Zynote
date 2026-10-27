@@ -108,13 +108,13 @@ export class LegacyDownloads {
         // biome-ignore format: NOSONAR must stay on the await line
         const info = await lstat(join(path, child.name, 'state.json')) // NOSONAR: ordered/limited operation; parallelizing would change atomicity, rate limits, or deterministic progress.
         if (info.isFile()) throw new Error('旧下载记录属于另一资料路径，需确认迁移位置；原文件保留') // NOSONAR: Unicode escape is intentional for readable source and identical runtime value.
-       } catch (missing) { // NOSONAR: behavior-preserving rewrite tracked separately; current flow is cohesive and ordered.
-        if ((missing as NodeJS.ErrnoException).code !== 'ENOENT') throw missing
+       } catch (error_) { // NOSONAR: behavior-preserving rewrite tracked separately; current flow is cohesive and ordered.
+        if ((error_ as NodeJS.ErrnoException).code !== 'ENOENT') throw error_
        }
       }
     } // NOSONAR: Unicode escape is intentional for readable source and identical runtime value.
-  } catch (other) {
-   if ((other as NodeJS.ErrnoException).code !== 'ENOENT') throw other // NOSONAR: error variable name is intentional for readability.
+  } catch (error_) {
+   if ((error_ as NodeJS.ErrnoException).code !== 'ENOENT') throw error_ // NOSONAR: error variable name is intentional for readability.
   }
  }
  private legacyJob(row: LegacyDownloadRecord): MediaJob {

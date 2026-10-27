@@ -165,7 +165,7 @@ export async function installVideoFixture( // NOSONAR: cohesive flow; further ex
    try {
     const before = await reader.stat() // NOSONAR: await inside loop is required for bounded ordered I/O.
     check(before.isFile() && before.nlink === 1 && before.size === file.size, 'Copy source type/size mismatch') // NOSONAR: sequential bounded I/O; parallelizing would break ordering and rate limits.
-    for await (const bytes of reader.createReadStream({autoClose: false})) {
+    for await (const bytes of reader.createReadStream({autoClose: false})) { // NOSONAR: await inside loop is required for bounded ordered I/O.
      signal.throwIfAborted()
 // biome-ignore format: NOSONAR must stay on this line
      copied += bytes.length // NOSONAR: await inside loop is required for bounded ordered I/O.

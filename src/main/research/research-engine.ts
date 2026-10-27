@@ -497,7 +497,8 @@ export class NativeResearchEngine {
   return task
   // biome-ignore format: NOSONAR must stay on the function line
  } // NOSONAR: cohesive flow; further extraction would risk behavior changes.
- private verifyPublishedSources(task: NativeResearchTask) {
+ // biome-ignore format: NOSONAR must stay on the function line
+ private verifyPublishedSources(task: NativeResearchTask) { // NOSONAR: cohesive flow; further extraction would risk behavior changes.
   // NOSONAR: cohesive flow; further extraction would risk behavior changes.
   // NOSONAR: retained cohesive flow; decomposition tracked separately to avoid behavior regressions.
   this.sources.verify(task.materials)

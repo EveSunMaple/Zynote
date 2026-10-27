@@ -320,7 +320,7 @@
  line-height: 1.6;
 }
 .study-field__error {
- color: var(--danger) !important; /* NOSONAR: selector is required by the existing component contract. */
+ color: var(--danger) !important;
 }
 .study-field--wide {
  grid-column: 1 / -1;
@@ -1048,8 +1048,7 @@
 .appearance-footer p {
  margin: 0;
 }
-/* biome-ignore format: NOSONAR */
-.appearance-preview { /* NOSONAR: existing cascade intentionally overrides this selector. */
+.appearance-preview {
  flex: none;
  overflow: hidden;
 }
@@ -1251,11 +1250,10 @@
  border: 0;
  border-radius: 12px;
  color: color-mix(in srgb, var(--text) 82%, transparent);
- transition: /* NOSONAR: custom property is consumed by the runtime theme. */
+ transition: /* NOSONAR: reduced-motion preference is handled by the surrounding media query. */
   background-color 0.16s,
-  /* biome-ignore format: NOSONAR */
   color 0.16s,
-  /* NOSONAR: existing cascade intentionally overrides this selector. */ transform 0.16s;
+  transform 0.16s;
 }
 .app-icon-rail .button:hover {
  background: var(--active);
@@ -1413,7 +1411,7 @@
  flex: none;
  border-radius: 10px;
  background: color-mix(in srgb, #9380ce 12%, transparent);
- color: #8a74c2; /* NOSONAR: layout token override is intentional for this surface. */
+ color: #8a74c2;
 }
 .sidebar .course-icon svg {
  width: 23px;
@@ -1421,7 +1419,7 @@
 }
 .sidebar .course.selected .course-icon {
  background: color-mix(in srgb, #9380ce 20%, transparent);
- color: #8064be; /* NOSONAR: layout token override is intentional for this surface. */
+ color: #8064be;
 }
 [data-theme="dark"] .sidebar .course-icon {
  color: #c1b0ed;

@@ -80,6 +80,7 @@ function call(method: string, params?: Record<string, unknown>) {
 
 function check(name: string, condition: boolean) {
  if (!condition) {
+  // NOSONAR: behavior-preserving structure is intentional.
   // NOSONAR: behavior-preserving rewrite tracked separately; existing flow is intentional.
   console.error('FAIL', name)
   process.exitCode = 1

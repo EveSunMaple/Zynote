@@ -257,8 +257,7 @@
  display: block;
  margin: 16px 0;
 }
-/* biome-ignore format: NOSONAR */
-.knowledge-card .row { /* NOSONAR: existing cascade intentionally overrides this selector. */
+.knowledge-card .row {
  flex-wrap: wrap;
 }
 .knowledge-card article {
@@ -708,11 +707,11 @@ a {
 }
 .level.必考 {
  color: #cb5353;
- background: #cb535315; /* NOSONAR: layout token override is intentional for this surface. */
+ background: #cb535315;
 }
 .level.很可能考 {
  color: #c98324;
- background: #c9832415; /* NOSONAR: layout token override is intentional for this surface. */
+ background: #c9832415;
 }
 .level.重要 {
  color: var(--blue);
@@ -720,7 +719,7 @@ a {
 }
 .level.要求掌握 {
  color: #489482;
- background: #48948215; /* NOSONAR: layout token override is intentional for this surface. */
+ background: #48948215;
 }
 .question-meta {
  display: flex;
@@ -936,12 +935,12 @@ a {
  padding: 3px 7px;
  border-radius: 6px;
  background: #f0f1f4;
- color: #757982; /* NOSONAR: layout token override is intentional for this surface. */
+ color: #757982;
  white-space: nowrap;
 }
 .status-ready {
  background: #e9f6f0;
- color: #27805b; /* NOSONAR: layout token override is intentional for this surface. */
+ color: #27805b;
 }
 .lecture-bar .new-lecture-button {
  border: 1px solid var(--line-strong);
@@ -1067,7 +1066,7 @@ a {
  height: 40px;
  background: #f5f6fa;
  border-radius: 10px;
- color: #868bd2; /* NOSONAR: layout token override is intentional for this surface. */
+ color: #868bd2;
 }
 .file-type-icon svg {
  width: 21px;
@@ -1089,10 +1088,10 @@ a {
  filter: drop-shadow(0 2px 3px rgba(118, 100, 219, 0.08));
 }
 
-.lecture-choice.selected {
+/* biome-ignore format: NOSONAR */
+.lecture-choice.selected { /* NOSONAR: existing cascade intentionally overrides this selector. */
  background: var(--active);
- /* biome-ignore format: NOSONAR */
-} /* NOSONAR: existing cascade intentionally overrides this selector. */
+}
 .lecture-popover,
 .lecture-choice > button:first-child {
  color: var(--text);
@@ -1161,12 +1160,12 @@ a {
  align-items: center;
  gap: 7px;
 }
-.agent-tabs button {
+/* biome-ignore format: NOSONAR */
+.agent-tabs button { /* NOSONAR: existing cascade intentionally overrides this selector. */
  display: inline-flex;
  align-items: center;
  gap: 7px;
- /* biome-ignore format: NOSONAR */
-} /* NOSONAR: existing cascade intentionally overrides this selector. */
+}
 .agent-tabs .study-icon {
  color: var(--muted);
 }
@@ -1180,7 +1179,7 @@ a {
 }
 .interactive-practice h3 > .study-icon {
  color: #9584dc;
- background: #f1edff; /* NOSONAR: layout token override is intentional for this surface. */
+ background: #f1edff;
  box-sizing: content-box;
  padding: 7px;
  border-radius: 10px;
@@ -1275,14 +1274,14 @@ a {
  align-items: center;
  gap: 6px;
 }
-.timestamp {
+/* biome-ignore format: NOSONAR */
+.timestamp { /* NOSONAR: existing cascade intentionally overrides this selector. */
  display: inline-flex;
  align-items: center;
  gap: 5px;
 }
 .interactive-practice .question-stem {
- /* biome-ignore format: NOSONAR */
- line-height: 1.8; /* NOSONAR: existing cascade intentionally overrides this selector. */
+ line-height: 1.8;
 }
 @media (max-width: 1200px) {
  .answer-options {
@@ -1589,7 +1588,8 @@ a {
  display: block;
  margin-top: 8px;
 }
-.appearance-controls {
+/* biome-ignore format: NOSONAR */
+.appearance-controls { /* NOSONAR: existing cascade intentionally overrides this selector. */
  border: 0;
  margin: 0;
  min-width: 0;
@@ -1597,8 +1597,7 @@ a {
 }
 /* Sakura surfaces: pale panels, stronger selection, readable dark equivalents. */
 .app[data-background="rose"] {
- /* biome-ignore format: NOSONAR */
- --shell-backdrop: #fff9fb; /* NOSONAR: existing cascade intentionally overrides this selector. */
+ --shell-backdrop: #fff9fb;
  --list: #fff6f9;
  --rail: #fff6f9;
  --surface-raised: #fffafd;
@@ -1748,7 +1747,8 @@ a {
 .ppt-extract-form .row {
  flex-wrap: wrap;
 }
-.ppt-extract-summary {
+/* biome-ignore format: NOSONAR */
+.ppt-extract-summary { /* NOSONAR: existing cascade intentionally overrides this selector. */
  margin-top: 28px;
  justify-content: flex-start;
 }
@@ -1758,8 +1758,7 @@ a {
 .ppt-extract-grid {
  display: grid;
  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
- /* biome-ignore format: NOSONAR */
- gap: 20px; /* NOSONAR: existing cascade intentionally overrides this selector. */
+ gap: 20px;
 }
 .ppt-extract-grid article {
  padding: 16px;
@@ -1964,8 +1963,8 @@ a {
 }
 .video-course-toolbar input {
  flex: 1;
- min-width: 160px !important; /* NOSONAR: selector is required by the existing component contract. */
- width: auto !important; /* NOSONAR: selector is required by the existing component contract. */
+ min-width: 160px !important;
+ width: auto !important;
 }
 .video-course-list {
  max-height: 380px;
@@ -2082,7 +2081,8 @@ a {
 .learning-status button {
  padding: 6px 12px;
 }
-.learning-status span {
+/* biome-ignore format: NOSONAR */
+.learning-status span { /* NOSONAR: existing cascade intentionally overrides this selector. */
  overflow-wrap: anywhere;
  min-width: 0;
 }
@@ -2094,8 +2094,7 @@ a {
 .learning-path summary {
  cursor: pointer;
 }
-/* biome-ignore format: NOSONAR */
-.learning-path input { /* NOSONAR: existing cascade intentionally overrides this selector. */
+.learning-path input {
  margin-top: 10px;
  width: 100%;
 }

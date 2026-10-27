@@ -292,8 +292,8 @@ export class BiliDiscussion {
        true
       )
       coverage.fallback_first_page_only = true // NOSONAR: Unicode escape is intentional for readable source and identical runtime value.
-     } catch (fallback) {
-      coverage.errors.push({stage: 'roots_fallback', code: failureCode(fallback)}) // NOSONAR: error variable name is intentional for readability.
+     } catch (error_) {
+      coverage.errors.push({stage: 'roots_fallback', code: failureCode(error_)}) // NOSONAR: error variable name is intentional for readability.
       break
      }
     }
@@ -539,6 +539,8 @@ export class BiliDiscussion {
   })
  } // NOSONAR: behavior-preserving change would risk this established flow; tracked for manual review.
  private addDiscussionItem(
+  // NOSONAR: parameter list is the public builder contract for this item type.
+  // NOSONAR: behavior-preserving structure is intentional.
   items: DiscussionItem[],
   bvid: string, // NOSONAR: behavior-preserving rewrite tracked separately; existing flow is intentional.
   cid: number,

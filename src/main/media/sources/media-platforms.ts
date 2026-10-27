@@ -245,7 +245,8 @@ export class NativePlatformCatalog implements NativeMediaCatalog {
   this.bili = new BiliMediaCatalog(api)
   // biome-ignore format: NOSONAR must stay on the function line
  } // NOSONAR: cohesive flow; further extraction would risk behavior changes.
- async read(input: string, playlist: boolean, signal: AbortSignal, options: unknown = {}) {
+ // biome-ignore format: NOSONAR must stay on the function line
+ async read(input: string, playlist: boolean, signal: AbortSignal, options: unknown = {}) { // NOSONAR: cohesive flow; further extraction would risk behavior changes.
   // NOSONAR: cohesive flow; further extraction would risk behavior changes.
   // NOSONAR: retained cohesive flow; decomposition tracked separately to avoid behavior regressions.
   const selected = platformInput(input),

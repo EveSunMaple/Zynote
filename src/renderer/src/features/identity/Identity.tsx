@@ -5,7 +5,7 @@ import buddy from '@renderer/ui/brand/zhaiyun-mark.svg'
 import lian from '@renderer/assets/lian-avatar.jpg'
 import {notify} from '@renderer/ui/ToastHost'
 export const IdentityContext = createContext<Identity>(defaultIdentity)
-export function IdentityAvatar({role}: {role: 'user' | 'assistant'}) {
+export function IdentityAvatar({role}: Readonly<{role: 'user' | 'assistant'}>) {
  // NOSONAR: behavior-preserving rewrite tracked separately; existing flow is intentional.
  const identity = useContext(IdentityContext),
   avatar = role === 'user' ? identity.userAvatar : identity.assistantAvatar,
