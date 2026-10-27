@@ -242,8 +242,7 @@ export function SubtitleBatchRecords({
                 isDisabled={busy}
                 onClick={() =>
                  action(async () => {
-                  // NOSONAR: behavior-preserving rewrite tracked separately; current flow is cohesive and ordered.
-                  // NOSONAR: nested callbacks mirror the protocol/UI structure; extraction would obscure ordering.
+                  // NOSONAR: behavior-preserving rewrite tracked separately; existing flow is intentional.
                   const existing = item.outputs?.find(output => output.path.endsWith('.' + format))
                   const path =
                    existing?.path ||

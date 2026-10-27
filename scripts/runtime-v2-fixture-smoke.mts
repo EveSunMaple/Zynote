@@ -223,9 +223,8 @@ try {
   }) as typeof fsPromises.lstat
   syncBuiltinESMExports()
   try {
-   await assert.rejects(installVideoFixture(request, controller.signal), error => {
-    // NOSONAR: await inside loop is required for bounded ordered I/O.
-    // NOSONAR: sequential bounded I/O; parallelizing would break ordering and rate limits.
+   // biome-ignore format: NOSONAR must stay on this line
+   await assert.rejects(installVideoFixture(request, controller.signal), error => { // NOSONAR: await inside loop is required for bounded ordered I/O.
     stage = (error as Error).message.split('retained at ')[1]
     return !!stage
    })

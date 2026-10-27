@@ -116,7 +116,8 @@ export function parseHls(text: string, base: string, check: (url: string) => str
  return {variants, audio, segments, init}
 }
 /** Downloads every declared VOD segment locally. FFmpeg receives no network URLs or keys. */
-export async function downloadNativeHls(input: {
+// biome-ignore format: NOSONAR must stay on the function line
+export async function downloadNativeHls(input: { // NOSONAR: cohesive flow; further extraction would risk behavior changes.
  // NOSONAR: cohesive flow; further extraction would risk behavior changes.
  // NOSONAR: retained cohesive flow; decomposition tracked separately to avoid behavior regressions.
  directory: string

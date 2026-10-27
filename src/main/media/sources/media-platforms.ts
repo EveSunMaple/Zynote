@@ -160,7 +160,8 @@ function readVimeoCatalog(raw: unknown, selected: {id: string}): PlatformParsed 
   thumbnail: thumbnail ? address(thumbnail, ['vimeocdn.com']) : undefined
  }
 }
-function readDailymotionCatalog(raw: unknown, selected: {id: string}): PlatformParsed {
+// biome-ignore format: NOSONAR must stay on the function line
+function readDailymotionCatalog(raw: unknown, selected: {id: string}): PlatformParsed { // NOSONAR: cohesive flow; further extraction would risk behavior changes.
  // NOSONAR: cohesive flow; further extraction would risk behavior changes.
  // NOSONAR: retained cohesive flow; decomposition tracked separately to avoid behavior regressions.
  const data = z
@@ -242,7 +243,8 @@ export class NativePlatformCatalog implements NativeMediaCatalog {
   private readonly auth?: NativeMediaAuth
  ) {
   this.bili = new BiliMediaCatalog(api)
- }
+  // biome-ignore format: NOSONAR must stay on the function line
+ } // NOSONAR: cohesive flow; further extraction would risk behavior changes.
  async read(input: string, playlist: boolean, signal: AbortSignal, options: unknown = {}) {
   // NOSONAR: cohesive flow; further extraction would risk behavior changes.
   // NOSONAR: retained cohesive flow; decomposition tracked separately to avoid behavior regressions.

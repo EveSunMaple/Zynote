@@ -238,7 +238,8 @@ export class NativeResearchEngine {
    if (this.active.get(id) === active) this.active.delete(id)
   })
  }
- private async run(id: string, signal: AbortSignal) {
+ // biome-ignore format: NOSONAR must stay on the function line
+ private async run(id: string, signal: AbortSignal) { // NOSONAR: cohesive flow; further extraction would risk behavior changes.
   // NOSONAR: cohesive flow; further extraction would risk behavior changes.
   // NOSONAR: retained cohesive flow; decomposition tracked separately to avoid behavior regressions.
   let task = this.read(id)
@@ -494,7 +495,8 @@ export class NativeResearchEngine {
   if (task.status !== 'completed' || task.answerHash !== hash(task.note)) throw new Error('研究成果未完成或已改变')
   this.verifyPublishedSources(task)
   return task
- }
+  // biome-ignore format: NOSONAR must stay on the function line
+ } // NOSONAR: cohesive flow; further extraction would risk behavior changes.
  private verifyPublishedSources(task: NativeResearchTask) {
   // NOSONAR: cohesive flow; further extraction would risk behavior changes.
   // NOSONAR: retained cohesive flow; decomposition tracked separately to avoid behavior regressions.

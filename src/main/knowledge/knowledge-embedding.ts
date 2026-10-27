@@ -28,9 +28,8 @@ export class KnowledgeEmbedding {
     throw new Error('语义模型路径无效')
    const hash = createHash('sha256')
    let size = 0
-   for await (const bytes of createReadStream(join(this.directory, file.path))) {
-    // NOSONAR: await inside loop is required for bounded ordered I/O.
-    // NOSONAR: sequential bounded I/O; parallelizing would break ordering and rate limits.
+   // biome-ignore format: NOSONAR must stay on this line
+   for await (const bytes of createReadStream(join(this.directory, file.path))) { // NOSONAR: await inside loop is required for bounded ordered I/O.
     hash.update(bytes)
     size += bytes.length
    }

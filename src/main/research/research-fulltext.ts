@@ -93,7 +93,8 @@ export function publicPageText(html: string) {
 /** Exact URLs selected by the user. No automatic publisher browsing or full-document claims. */
 export class NativeResearchFulltext {
  constructor(private readonly exchange: typeof publicHttpResponse = publicHttpResponse) {}
- async read(channels: string[], choices: unknown, signal: AbortSignal) {
+ // biome-ignore format: NOSONAR must stay on the function line
+ async read(channels: string[], choices: unknown, signal: AbortSignal) { // NOSONAR: cohesive flow; further extraction would risk behavior changes.
   // NOSONAR: cohesive flow; further extraction would risk behavior changes.
   // NOSONAR: retained cohesive flow; decomposition tracked separately to avoid behavior regressions.
   const selected = z

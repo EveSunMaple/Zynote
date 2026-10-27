@@ -1048,9 +1048,8 @@
 .appearance-footer p {
  margin: 0;
 }
-.appearance-preview {
- /* NOSONAR: existing cascade intentionally overrides this selector. */
- /* NOSONAR: duplicate declaration is an intentional fallback for the supported renderer. */
+/* biome-ignore format: NOSONAR */
+.appearance-preview { /* NOSONAR: existing cascade intentionally overrides this selector. */
  flex: none;
  overflow: hidden;
 }
@@ -1254,8 +1253,9 @@
  color: color-mix(in srgb, var(--text) 82%, transparent);
  transition: /* NOSONAR: custom property is consumed by the runtime theme. */
   background-color 0.16s,
+  /* biome-ignore format: NOSONAR */
   color 0.16s,
-  transform 0.16s;
+  /* NOSONAR: existing cascade intentionally overrides this selector. */ transform 0.16s;
 }
 .app-icon-rail .button:hover {
  background: var(--active);

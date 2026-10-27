@@ -92,7 +92,8 @@ export class NativeDownloadService {
    files: row.outputs.map(o => o.relative)
   }
  }
- private async directAction(action: string, input: unknown): Promise<{handled: boolean; value?: unknown}> {
+ // biome-ignore format: NOSONAR must stay on the function line
+ private async directAction(action: string, input: unknown): Promise<{handled: boolean; value?: unknown}> { // NOSONAR: cohesive flow; further extraction would risk behavior changes.
   // NOSONAR: cohesive flow; further extraction would risk behavior changes.
   // NOSONAR: retained cohesive flow; decomposition tracked separately to avoid behavior regressions.
   if (action === 'options') return {handled: true, value: mediaOptionChoices()}

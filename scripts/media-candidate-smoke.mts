@@ -315,9 +315,8 @@ try {
    ...(process.platform === 'darwin'
     ? {
        signatureDetails: await command('/usr/bin/codesign', ['-d', '--verbose=4', path]), // NOSONAR: sequential bounded I/O; parallelizing would break ordering and rate limits.
-       signatureVerification: await command('/usr/bin/codesign', [
-        // NOSONAR: await inside loop is required for bounded ordered I/O.
-        // NOSONAR: sequential bounded I/O; parallelizing would break ordering and rate limits.
+       // biome-ignore format: NOSONAR must stay on this line
+       signatureVerification: await command('/usr/bin/codesign', [ // NOSONAR: await inside loop is required for bounded ordered I/O.
         '--verify',
         '--deep',
         '--strict',

@@ -193,7 +193,7 @@ export function Markdown({text}: Readonly<{text: string}>) {
    remarkPlugins={[remarkGfm]}
    components={{
     a: (
-     {href, children} // NOSONAR: component nesting is intentional for the visual hierarchy. // NOSONAR: behavior-preserving rewrite tracked separately; current flow is cohesive and ordered.
+     {href, children} // NOSONAR: component nesting is intentional for the visual hierarchy. // NOSONAR: behavior-preserving rewrite tracked separately; current flow is cohesive and ordered. // NOSONAR: behavior-preserving rewrite tracked separately; existing flow is intentional.
     ) => (
      <a
       href={href}

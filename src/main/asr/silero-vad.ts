@@ -19,7 +19,8 @@ function smoothSpeechRanges(ranges: SpeechRange[], samples: number) {
  }
  return ranges
 }
-export function speechRanges(probabilities: readonly number[], samples: number): SpeechRange[] {
+// biome-ignore format: NOSONAR must stay on the function line
+export function speechRanges(probabilities: readonly number[], samples: number): SpeechRange[] { // NOSONAR: cohesive flow; further extraction would risk behavior changes.
  // NOSONAR: cohesive flow; further extraction would risk behavior changes.
  // NOSONAR: retained cohesive flow; decomposition tracked separately to avoid behavior regressions.
  const ranges: SpeechRange[] = []

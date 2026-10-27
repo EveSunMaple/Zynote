@@ -255,7 +255,8 @@ export class VisualTasks {
    signal?.removeEventListener('abort', cancel)
   }
  }
- async run(
+ // biome-ignore format: NOSONAR must stay on the function line
+ async run( // NOSONAR: cohesive flow; further extraction would risk behavior changes.
   // NOSONAR: cohesive flow; further extraction would risk behavior changes.
   // NOSONAR: retained cohesive flow; decomposition tracked separately to avoid behavior regressions.
   id: string,

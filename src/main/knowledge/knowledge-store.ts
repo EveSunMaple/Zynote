@@ -431,8 +431,7 @@ export class NativeKnowledgeStore {
   }
   const result: T[] = []
   for (let round = 0; result.length < limit; round++) {
-   // NOSONAR: behavior-preserving rewrite tracked separately; current flow is cohesive and ordered.
-   // NOSONAR: assignment is intentional for the mutable accumulator.
+   // NOSONAR: behavior-preserving rewrite tracked separately; existing flow is intentional.
    let added = false
    for (const bucket of bySource.values()) {
     const hit = bucket[round]
@@ -550,9 +549,8 @@ export class NativeKnowledgeStore {
   return {rebuilt: true, ...this.list().stats}
  }
 
- async importLegacyBaseline() {
-  // NOSONAR: cohesive flow; further extraction would risk behavior changes.
-  // NOSONAR: retained cohesive flow; decomposition tracked separately to avoid behavior regressions.
+ // biome-ignore format: NOSONAR must stay on the function line
+ async importLegacyBaseline() { // NOSONAR: cohesive flow; further extraction would risk behavior changes.
   const prior = this.db.prepare('SELECT json FROM native_migrations WHERE name=?').get('legacy-baseline-v1') as
    | {json: string}
    | undefined

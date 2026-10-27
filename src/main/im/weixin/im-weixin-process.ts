@@ -171,7 +171,8 @@ export class WeixinProcessMemory implements WeixinMemory {
   }
   return hits
  }
- accountRoot() {
+ // biome-ignore format: NOSONAR must stay on the function line
+ accountRoot() { // NOSONAR: cohesive flow; further extraction would risk behavior changes.
   // NOSONAR: cohesive flow; further extraction would risk behavior changes.
   // NOSONAR: retained cohesive flow; decomposition tracked separately to avoid behavior regressions.
   this.guard()

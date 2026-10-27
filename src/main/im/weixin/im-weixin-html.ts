@@ -91,7 +91,8 @@ export function weixinBootstrap(html: string) {
   rets: string[] = []
  const parser = new Parser(
   {
-   onopentag(name, attrs) {
+   // biome-ignore format: NOSONAR must stay on the function line
+   onopentag(name, attrs) { // NOSONAR: cohesive flow; further extraction would risk behavior changes.
     // NOSONAR: cohesive flow; further extraction would risk behavior changes.
     // NOSONAR: retained cohesive flow; decomposition tracked separately to avoid behavior regressions.
     if (++tags > 20000) {

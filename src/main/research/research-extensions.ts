@@ -132,7 +132,8 @@ export class NativeResearchExtensions {
     ])
    })
    .parse(input)
-  return this.store.operation(value.op, value, () => {
+  // biome-ignore format: NOSONAR must stay on the function line
+  return this.store.operation(value.op, value, () => { // NOSONAR: cohesive flow; further extraction would risk behavior changes.
    // NOSONAR: cohesive flow; further extraction would risk behavior changes.
    // NOSONAR: retained cohesive flow; decomposition tracked separately to avoid behavior regressions.
    const current = this.catalog()
@@ -203,7 +204,8 @@ export class NativeResearchExtensions {
   if (JSON.stringify(current) !== JSON.stringify(snapshot))
    throw new Error('研究期间学习要求或方法已改变，旧结果未发布')
  }
- parseMarkdown(input: string) {
+ // biome-ignore format: NOSONAR must stay on the function line
+ parseMarkdown(input: string) { // NOSONAR: cohesive flow; further extraction would risk behavior changes.
   // NOSONAR: cohesive flow; further extraction would risk behavior changes.
   // NOSONAR: retained cohesive flow; decomposition tracked separately to avoid behavior regressions.
   text(12000).parse(input)

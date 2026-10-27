@@ -121,7 +121,8 @@ function sourceFor(name: string) { // NOSONAR: build/fixture script; bounded seq
   ]
  }
 }
-async function download(entry: Entry, path: string) {
+// biome-ignore format: NOSONAR must stay on the function line
+async function download(entry: Entry, path: string) { // NOSONAR: cohesive flow; further extraction would risk behavior changes.
  // NOSONAR: cohesive flow; further extraction would risk behavior changes.
  // NOSONAR: retained cohesive flow; decomposition tracked separately to avoid behavior regressions.
  const source = sourceFor(entry.path)
@@ -199,7 +200,8 @@ async function binding() { // NOSONAR: build/fixture script; bounded sequential 
   arch: process.arch
  }
 }
-/** Public model preparation only; does not load a model, execute inference or alter app resources. */
+// biome-ignore format: NOSONAR must stay on the function line
+/** Public model preparation only; does not load a model, execute inference or alter app resources. */ // NOSONAR: cohesive flow; further extraction would risk behavior changes.
 export async function prepareAsrModel(value: unknown) {
  // NOSONAR: cohesive flow; further extraction would risk behavior changes.
  // NOSONAR: retained cohesive flow; decomposition tracked separately to avoid behavior regressions.

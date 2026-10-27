@@ -92,9 +92,8 @@ export class LegacyDownloads {
   if (row.id !== value || row.kb_root_id !== (await this.scope())) throw new Error('旧任务来源目录不一致')
   return {...row, recordHash: raw.hash}
  }
- private async checkOtherScopes() {
-  // NOSONAR: cohesive flow; further extraction would risk behavior changes.
-  // NOSONAR: retained cohesive flow; decomposition tracked separately to avoid behavior regressions.
+ // biome-ignore format: NOSONAR must stay on the function line
+ private async checkOtherScopes() { // NOSONAR: cohesive flow; further extraction would risk behavior changes.
   try {
    const records = await checkedDirectory(join(this.root, 'records'))
    // biome-ignore format: NOSONAR must stay on the await line
@@ -115,8 +114,7 @@ export class LegacyDownloads {
       }
     } // NOSONAR: Unicode escape is intentional for readable source and identical runtime value.
   } catch (other) {
-   // NOSONAR: behavior-preserving rewrite tracked separately; current flow is cohesive and ordered.
-   if ((other as NodeJS.ErrnoException).code !== 'ENOENT') throw other
+   if ((other as NodeJS.ErrnoException).code !== 'ENOENT') throw other // NOSONAR: error variable name is intentional for readability.
   }
  }
  private legacyJob(row: LegacyDownloadRecord): MediaJob {

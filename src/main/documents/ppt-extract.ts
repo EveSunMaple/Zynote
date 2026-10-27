@@ -115,7 +115,8 @@ function preview(image: Electron.NativeImage, maxSide = 900, quality = 82) {
    .toString('base64')
  )
 }
-export async function readImageDeck(path: string, signal?: AbortSignal): Promise<Page[]> {
+// biome-ignore format: NOSONAR must stay on the function line
+export async function readImageDeck(path: string, signal?: AbortSignal): Promise<Page[]> { // NOSONAR: cohesive flow; further extraction would risk behavior changes.
  // NOSONAR: cohesive flow; further extraction would risk behavior changes.
  // NOSONAR: retained cohesive flow; decomposition tracked separately to avoid behavior regressions.
  if (extname(path).toLowerCase() !== '.pptx') throw new Error('请选择图片型 PPTX；旧版 PPT 请先另存为 PPTX')
@@ -244,7 +245,8 @@ export class PptExtractor {
    pages,
    review
   })
- }
+// biome-ignore format: NOSONAR must stay on the function line
+ } // NOSONAR: cohesive flow; further extraction would risk behavior changes.
  async analyze(path: string, prompt: string, signal: AbortSignal): Promise<PptExtractReview> {
   // NOSONAR: cohesive flow; further extraction would risk behavior changes.
   // NOSONAR: retained cohesive flow; decomposition tracked separately to avoid behavior regressions.

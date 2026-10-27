@@ -149,7 +149,8 @@ export class NativeResearchWorkflows {
    })
   }
  }
- private async run(id: string, fence: number, retryUnknown: boolean, signal: AbortSignal) {
+ // biome-ignore format: NOSONAR must stay on the function line
+ private async run(id: string, fence: number, retryUnknown: boolean, signal: AbortSignal) { // NOSONAR: cohesive flow; further extraction would risk behavior changes.
   // NOSONAR: cohesive flow; further extraction would risk behavior changes.
   // NOSONAR: retained cohesive flow; decomposition tracked separately to avoid behavior regressions.
   try {

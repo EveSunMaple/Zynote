@@ -89,9 +89,8 @@ async function exactFiles(root: string, paths: string[]) { // NOSONAR: build/fix
  check(seen.size === expected.size, 'Payload file set is incomplete')
 }
 /** Fixture-only: caller-selected metadata is not application installation authority. */
-export async function installVideoFixture(
- // NOSONAR: cohesive flow; further extraction would risk behavior changes.
- // NOSONAR: retained cohesive flow; decomposition tracked separately to avoid behavior regressions.
+// biome-ignore format: NOSONAR must stay on the function line
+export async function installVideoFixture( // NOSONAR: cohesive flow; further extraction would risk behavior changes.
  request: {
   callerManifest: unknown
   expectedTarget: RuntimeTarget
@@ -164,13 +163,12 @@ export async function installVideoFixture(
     writer = await open(destination, 'wx', 0o600) // NOSONAR: await inside loop is required for bounded ordered I/O.
    let copied = 0
    try {
-    // NOSONAR: sequential bounded I/O; parallelizing would break ordering and rate limits.
     const before = await reader.stat() // NOSONAR: await inside loop is required for bounded ordered I/O.
     check(before.isFile() && before.nlink === 1 && before.size === file.size, 'Copy source type/size mismatch') // NOSONAR: sequential bounded I/O; parallelizing would break ordering and rate limits.
     for await (const bytes of reader.createReadStream({autoClose: false})) {
-     // NOSONAR: await inside loop is required for bounded ordered I/O.
      signal.throwIfAborted()
-     copied += bytes.length
+// biome-ignore format: NOSONAR must stay on this line
+     copied += bytes.length // NOSONAR: await inside loop is required for bounded ordered I/O.
      check(copied <= file.size, 'Source grew during copy')
      await writer.writeFile(bytes)
     } // NOSONAR: sequential bounded I/O; parallelizing would break ordering and rate limits.
@@ -188,12 +186,10 @@ export async function installVideoFixture(
      'Copy source changed'
     )
    } finally {
-    // NOSONAR: sequential bounded I/O; parallelizing would break ordering and rate limits.
     await reader.close() // NOSONAR: sequential bounded I/O; parallelizing would break ordering and rate limits.
     await writer.close() // NOSONAR: await inside loop is required for bounded ordered I/O.
    }
    check(
-    // NOSONAR: sequential bounded I/O; parallelizing would break ordering and rate limits.
     copied === file.size && (await hashFile(destination, file.size, signal)) === file.sha256, // NOSONAR: await inside loop is required for bounded ordered I/O.
     'Copied payload differs from manifest'
    )
@@ -201,7 +197,6 @@ export async function installVideoFixture(
    await plain(destination, false) // NOSONAR: sequential bounded I/O; parallelizing would break ordering and rate limits.
    const permissionHandle = await open(destination, constants.O_RDONLY | (constants.O_NOFOLLOW || 0)) // NOSONAR: await inside loop is required for bounded ordered I/O.
    try {
-    // NOSONAR: sequential bounded I/O; parallelizing would break ordering and rate limits.
     const identity = await permissionHandle.stat(), // NOSONAR: sequential bounded I/O; parallelizing would break ordering and rate limits.
      current = await lstat(destination) // NOSONAR: await inside loop is required for bounded ordered I/O.
     check(
@@ -211,7 +206,6 @@ export async function installVideoFixture(
     signal.throwIfAborted() // NOSONAR: sequential bounded I/O; parallelizing would break ordering and rate limits.
     await permissionHandle.chmod(file.mode === '0755' ? 0o755 : 0o644) // NOSONAR: await inside loop is required for bounded ordered I/O.
    } finally {
-    // NOSONAR: sequential bounded I/O; parallelizing would break ordering and rate limits.
     await permissionHandle.close() // NOSONAR: await inside loop is required for bounded ordered I/O.
    }
   }

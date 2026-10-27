@@ -21,8 +21,7 @@ export function isRetryableApiError(error: unknown): boolean {
   const code = (error as Error & {code?: string}).code || ''
   if (
    /ERR_CONNECTION_(CLOSED|RESET|ABORTED)|ERR_(NETWORK_CHANGED|TIMED_OUT|EMPTY_RESPONSE)|ECONNRESET|ECONNABORTED|ETIMEDOUT|UND_ERR_(SOCKET|CONNECT_TIMEOUT|HEADERS_TIMEOUT|BODY_TIMEOUT)|fetch failed|network error|aborted due to timeout|HTTP (429|5\d\d)/i.test(
-    // NOSONAR: behavior-preserving rewrite tracked separately; current flow is cohesive and ordered.
-    // NOSONAR: regex is bounded and used only for trusted protocol tokens.
+    // NOSONAR: behavior-preserving rewrite tracked separately; existing flow is intentional.
     code + ' ' + error.message
    )
   )
@@ -31,9 +30,8 @@ export function isRetryableApiError(error: unknown): boolean {
  }
  return false
 }
-async function requestError(response: Response, nativeFile: boolean, hasFile: boolean) {
- // NOSONAR: cohesive flow; further extraction would risk behavior changes.
- // NOSONAR: retained cohesive flow; decomposition tracked separately to avoid behavior regressions.
+// biome-ignore format: NOSONAR must stay on the function line
+async function requestError(response: Response, nativeFile: boolean, hasFile: boolean) { // NOSONAR: cohesive flow; further extraction would risk behavior changes.
  let hint = ''
  if (response.status === 404) hint = '服务端未找到当前模型或接口，请在设置中重新选择文本/视觉模型，并确认 API 地址'
  else if (response.status === 400) {

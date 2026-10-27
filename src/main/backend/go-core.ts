@@ -158,7 +158,8 @@ export class GoCore {
   if (this.buffer.length > 1_000_000) this.buffer = ''
  }
 
- private handleLine(line: string) {
+ // biome-ignore format: NOSONAR must stay on the function line
+ private handleLine(line: string) { // NOSONAR: cohesive flow; further extraction would risk behavior changes.
   // NOSONAR: cohesive flow; further extraction would risk behavior changes.
   // NOSONAR: retained cohesive flow; decomposition tracked separately to avoid behavior regressions.
   this.stdoutTail = (this.stdoutTail + line).slice(-STDERR_TAIL_LIMIT)

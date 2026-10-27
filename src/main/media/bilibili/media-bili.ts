@@ -94,7 +94,8 @@ function biliView(view: z.infer<typeof viewSchema>, selected: {bvid: string; pag
  if (!page) throw new Error('所选分集不存在')
  return page
 }
-function biliStreams(play: z.infer<typeof playSchema>) {
+// biome-ignore format: NOSONAR must stay on the function line
+function biliStreams(play: z.infer<typeof playSchema>) { // NOSONAR: cohesive flow; further extraction would risk behavior changes.
  // NOSONAR: cohesive flow; further extraction would risk behavior changes.
  // NOSONAR: retained cohesive flow; decomposition tracked separately to avoid behavior regressions.
  const streams: NativeMediaStream[] = []

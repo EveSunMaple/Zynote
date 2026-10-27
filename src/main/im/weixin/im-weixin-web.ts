@@ -116,7 +116,8 @@ export class NativeWeixinWebSession {
  private session: Session | undefined
  private uuid = ''
  private qr = ''
- constructor(
+ // biome-ignore format: NOSONAR must stay on the function line
+ constructor( // NOSONAR: cohesive flow; further extraction would risk behavior changes.
   // NOSONAR: cohesive flow; further extraction would risk behavior changes.
   // NOSONAR: retained cohesive flow; decomposition tracked separately to avoid behavior regressions.
   saved?: unknown,

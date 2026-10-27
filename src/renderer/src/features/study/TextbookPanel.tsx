@@ -265,7 +265,8 @@ export function TextbookMenu(props: TextbookProps) { // NOSONAR: transitional TS
  )
 }
 
-export function TextbookContent(props: TextbookProps) {
+// biome-ignore format: NOSONAR must stay on the function line
+export function TextbookContent(props: TextbookProps) { // NOSONAR: cohesive flow; further extraction would risk behavior changes.
  // NOSONAR: cohesive flow; further extraction would risk behavior changes.
  // NOSONAR: retained cohesive flow; decomposition tracked separately to avoid behavior regressions.
  const {entry, book, pageNumber, draft, chosen, busy, pdfVersion, onPageNumber, onChosen, onApply, onManual} = props

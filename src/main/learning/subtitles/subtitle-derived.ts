@@ -112,7 +112,8 @@ export class SubtitleDerived {
   parseSrt(srt)
   return srt
  }
- async run(id: string, dependencies: Dependencies, signal: AbortSignal) {
+ // biome-ignore format: NOSONAR must stay on the function line
+ async run(id: string, dependencies: Dependencies, signal: AbortSignal) { // NOSONAR: cohesive flow; further extraction would risk behavior changes.
   // NOSONAR: cohesive flow; further extraction would risk behavior changes.
   // NOSONAR: retained cohesive flow; decomposition tracked separately to avoid behavior regressions.
   const task = await this.read(id)

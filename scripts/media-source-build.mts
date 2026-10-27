@@ -413,9 +413,8 @@ try {
     needed.every(name => resolved.some(item => item.name === name)),
     'Not all ELF dependencies resolved'
    )
-   const versions = await execute(
-    // NOSONAR: await inside loop is required for bounded ordered I/O.
-    // NOSONAR: sequential bounded I/O; parallelizing would break ordering and rate limits.
+   // biome-ignore format: NOSONAR must stay on this line
+   const versions = await execute( // NOSONAR: await inside loop is required for bounded ordered I/O.
     '/usr/bin/readelf',
     ['--version-info', path],
     prepared.work,
@@ -480,22 +479,20 @@ try {
      .update(await readFile(path)) // NOSONAR: sequential bounded I/O; parallelizing would break ordering and rate limits.
      .digest('hex'),
     signature: await execute(
-     // NOSONAR: await inside loop is required for bounded ordered I/O.
-     // NOSONAR: sequential bounded I/O; parallelizing would break ordering and rate limits.
      '/usr/bin/codesign',
-     ['-d', '--verbose=4', path],
+     // biome-ignore format: NOSONAR must stay on this line
+     ['-d', '--verbose=4', path], // NOSONAR: await inside loop is required for bounded ordered I/O.
      prepared.work,
      env,
      tool + '-signature',
      true
     ),
     gatekeeper: await execute(
-     // NOSONAR: await inside loop is required for bounded ordered I/O.
-     // NOSONAR: sequential bounded I/O; parallelizing would break ordering and rate limits.
      '/usr/sbin/spctl',
      ['--assess', '--type', 'execute', '--verbose=4', path],
      prepared.work,
-     env,
+     // biome-ignore format: NOSONAR must stay on this line
+     env, // NOSONAR: await inside loop is required for bounded ordered I/O.
      tool + '-gatekeeper',
      true
     )

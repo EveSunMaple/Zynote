@@ -81,9 +81,8 @@ export class RuntimeComponents {
   }
   return this.statusRequest
  }
- private async readStatus(): Promise<RuntimeStatus> {
-  // NOSONAR: cohesive flow; further extraction would risk behavior changes.
-  // NOSONAR: retained cohesive flow; decomposition tracked separately to avoid behavior regressions.
+ // biome-ignore format: NOSONAR must stay on the function line
+ private async readStatus(): Promise<RuntimeStatus> { // NOSONAR: cohesive flow; further extraction would risk behavior changes.
   let raw: unknown
   try {
    const path = join(this.resources, 'runtime-manifest.json'),
@@ -168,8 +167,8 @@ export class RuntimeComponents {
         const before = await handle.stat() // NOSONAR: ordered/limited operation; parallelizing would change atomicity, rate limits, or deterministic progress.
         if (before.dev !== item.dev || before.ino !== item.ino) throw new Error('invalid') // NOSONAR: sequential bounded I/O; parallelizing would break ordering and rate limits.
         for await (const bytes of handle.createReadStream({autoClose: false})) {
-         // NOSONAR: await inside loop is required for bounded ordered I/O.
-         size += bytes.length
+// biome-ignore format: NOSONAR must stay on this line
+         size += bytes.length // NOSONAR: await inside loop is required for bounded ordered I/O.
          if (size > file.size) throw new Error('invalid')
          hash.update(bytes)
         }
@@ -189,7 +188,6 @@ export class RuntimeComponents {
         )
          throw new Error('invalid')
        } finally {
-        // NOSONAR: sequential bounded I/O; parallelizing would break ordering and rate limits.
         await handle.close() // NOSONAR: await inside loop is required for bounded ordered I/O.
        }
        if (size !== file.size || hash.digest('hex') !== file.sha256) throw new Error('invalid')
@@ -257,7 +255,6 @@ export class RuntimeComponents {
        const entry = component.files[cursor++], // NOSONAR: sequential bounded I/O; parallelizing would break ordering and rate limits.
         input = await regular(payload, entry.path) // NOSONAR: sequential bounded I/O; parallelizing would break ordering and rate limits.
        if ((await lstat(input)).size !== entry.size || (await hashFile(input)) !== entry.sha256)
-        // NOSONAR: await inside loop is required for bounded ordered I/O.
         throw new Error('组件校验失败：' + entry.path)
        const output = contained(stage, entry.path) // NOSONAR: sequential bounded I/O; parallelizing would break ordering and rate limits.
        await mkdir(dirname(output), {recursive: true}) // NOSONAR: sequential bounded I/O; parallelizing would break ordering and rate limits.

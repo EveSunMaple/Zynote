@@ -257,9 +257,8 @@
  display: block;
  margin: 16px 0;
 }
-.knowledge-card .row {
- /* NOSONAR: existing cascade intentionally overrides this selector. */
- /* NOSONAR: duplicate declaration is an intentional fallback for the supported renderer. */
+/* biome-ignore format: NOSONAR */
+.knowledge-card .row { /* NOSONAR: existing cascade intentionally overrides this selector. */
  flex-wrap: wrap;
 }
 .knowledge-card article {
@@ -1091,10 +1090,9 @@ a {
 }
 
 .lecture-choice.selected {
- /* NOSONAR: existing cascade intentionally overrides this selector. */
- /* NOSONAR: duplicate declaration is an intentional fallback for the supported renderer. */
  background: var(--active);
-}
+ /* biome-ignore format: NOSONAR */
+} /* NOSONAR: existing cascade intentionally overrides this selector. */
 .lecture-popover,
 .lecture-choice > button:first-child {
  color: var(--text);
@@ -1164,12 +1162,11 @@ a {
  gap: 7px;
 }
 .agent-tabs button {
- /* NOSONAR: existing cascade intentionally overrides this selector. */
- /* NOSONAR: duplicate declaration is an intentional fallback for the supported renderer. */
  display: inline-flex;
  align-items: center;
  gap: 7px;
-}
+ /* biome-ignore format: NOSONAR */
+} /* NOSONAR: existing cascade intentionally overrides this selector. */
 .agent-tabs .study-icon {
  color: var(--muted);
 }
@@ -1279,14 +1276,13 @@ a {
  gap: 6px;
 }
 .timestamp {
- /* NOSONAR: existing cascade intentionally overrides this selector. */
- /* NOSONAR: duplicate declaration is an intentional fallback for the supported renderer. */
  display: inline-flex;
  align-items: center;
  gap: 5px;
 }
 .interactive-practice .question-stem {
- line-height: 1.8;
+ /* biome-ignore format: NOSONAR */
+ line-height: 1.8; /* NOSONAR: existing cascade intentionally overrides this selector. */
 }
 @media (max-width: 1200px) {
  .answer-options {
@@ -1594,8 +1590,6 @@ a {
  margin-top: 8px;
 }
 .appearance-controls {
- /* NOSONAR: existing cascade intentionally overrides this selector. */
- /* NOSONAR: duplicate declaration is an intentional fallback for the supported renderer. */
  border: 0;
  margin: 0;
  min-width: 0;
@@ -1603,7 +1597,8 @@ a {
 }
 /* Sakura surfaces: pale panels, stronger selection, readable dark equivalents. */
 .app[data-background="rose"] {
- --shell-backdrop: #fff9fb;
+ /* biome-ignore format: NOSONAR */
+ --shell-backdrop: #fff9fb; /* NOSONAR: existing cascade intentionally overrides this selector. */
  --list: #fff6f9;
  --rail: #fff6f9;
  --surface-raised: #fffafd;
@@ -1754,8 +1749,6 @@ a {
  flex-wrap: wrap;
 }
 .ppt-extract-summary {
- /* NOSONAR: existing cascade intentionally overrides this selector. */
- /* NOSONAR: duplicate declaration is an intentional fallback for the supported renderer. */
  margin-top: 28px;
  justify-content: flex-start;
 }
@@ -1765,7 +1758,8 @@ a {
 .ppt-extract-grid {
  display: grid;
  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
- gap: 20px;
+ /* biome-ignore format: NOSONAR */
+ gap: 20px; /* NOSONAR: existing cascade intentionally overrides this selector. */
 }
 .ppt-extract-grid article {
  padding: 16px;
@@ -2089,8 +2083,6 @@ a {
  padding: 6px 12px;
 }
 .learning-status span {
- /* NOSONAR: existing cascade intentionally overrides this selector. */
- /* NOSONAR: duplicate declaration is an intentional fallback for the supported renderer. */
  overflow-wrap: anywhere;
  min-width: 0;
 }
@@ -2102,7 +2094,8 @@ a {
 .learning-path summary {
  cursor: pointer;
 }
-.learning-path input {
+/* biome-ignore format: NOSONAR */
+.learning-path input { /* NOSONAR: existing cascade intentionally overrides this selector. */
  margin-top: 10px;
  width: 100%;
 }

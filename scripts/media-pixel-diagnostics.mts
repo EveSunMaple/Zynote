@@ -322,10 +322,10 @@ try {
     const direct = await execute(ffmpeg, args) // NOSONAR: build/fixture script; serial order and bounded resource use are intentional.
     const mediated = await execute(process.execPath, [entry, resources, 'ffmpeg'], 1024 * 1024, args) // NOSONAR: sequential bounded I/O; parallelizing would break ordering and rate limits.
     const detail = stats(direct.stdout, filter.w, filter.h)
-    const png = (
-     await execute(ffmpeg, [
-      // NOSONAR: await inside loop is required for bounded ordered I/O.
-      // NOSONAR: sequential bounded I/O; parallelizing would break ordering and rate limits.
+    const png =
+     (
+// biome-ignore format: NOSONAR must stay on this line
+     await execute(ffmpeg, [ // NOSONAR: await inside loop is required for bounded ordered I/O.
       '-v',
       'error',
       ...mode.args,

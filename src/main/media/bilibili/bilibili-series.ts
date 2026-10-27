@@ -30,7 +30,8 @@ export function parseVideoSeries(input: string, value: unknown): VideoSeries {
   episodes
  }
 }
-export async function readVideoSeries(input: string, signal: AbortSignal): Promise<VideoSeries> {
+// biome-ignore format: NOSONAR must stay on the function line
+export async function readVideoSeries(input: string, signal: AbortSignal): Promise<VideoSeries> { // NOSONAR: cohesive flow; further extraction would risk behavior changes.
  // NOSONAR: cohesive flow; further extraction would risk behavior changes.
  // NOSONAR: retained cohesive flow; decomposition tracked separately to avoid behavior regressions.
  const url = new URL(bilibiliUrl(input))

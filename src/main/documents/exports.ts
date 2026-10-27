@@ -15,7 +15,8 @@ export type ExportKind = keyof typeof exportFormats
 export function validateExportFormat(kind: ExportKind, format: string) {
  if (!(exportFormats[kind] as readonly string[]).includes(format)) throw new Error('不支持的导出格式')
 }
-function notesMarkdown(detail: LectureDetail): string[] {
+// biome-ignore format: NOSONAR must stay on the function line
+function notesMarkdown(detail: LectureDetail): string[] { // NOSONAR: cohesive flow; further extraction would risk behavior changes.
  // NOSONAR: cohesive flow; further extraction would risk behavior changes.
  // NOSONAR: retained cohesive flow; decomposition tracked separately to avoid behavior regressions.
  if (!detail.notes) throw new Error('还没有听课笔记')

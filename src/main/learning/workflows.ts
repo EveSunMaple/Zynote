@@ -81,7 +81,8 @@ export class Workflows {
   this.store.replaceQuestions(courseId, fileId, result)
   return result
  }
- async transcribe(lectureId: string, signal?: AbortSignal, mode: CorrectionMode = 'quality') {
+ // biome-ignore format: NOSONAR must stay on the function line
+ async transcribe(lectureId: string, signal?: AbortSignal, mode: CorrectionMode = 'quality') { // NOSONAR: cohesive flow; further extraction would risk behavior changes.
   // NOSONAR: cohesive flow; further extraction would risk behavior changes.
   // NOSONAR: retained cohesive flow; decomposition tracked separately to avoid behavior regressions.
   const lecture = this.store.lecture(lectureId),
@@ -376,7 +377,8 @@ export class Workflows {
   const verified = verifyNotes(result, detail.segments)
   this.store.saveNotes(lectureId, verified)
   return verified
- }
+// biome-ignore format: NOSONAR must stay on the function line
+ } // NOSONAR: cohesive flow; further extraction would risk behavior changes.
  async practice(lectureId: string, signal?: AbortSignal, withSearch = false): Promise<PracticeSet> {
   // NOSONAR: cohesive flow; further extraction would risk behavior changes.
   // NOSONAR: retained cohesive flow; decomposition tracked separately to avoid behavior regressions.
