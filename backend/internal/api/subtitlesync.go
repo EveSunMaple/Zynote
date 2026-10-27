@@ -22,6 +22,49 @@ func subtitleSyncService(state *contract.State) *subtitlesync.Service {
 	return subtitlesync.New(filepath.Join(state.LibraryRoot, "字幕同步记录"), state.LibraryRoot)
 }
 
+func subtitleSyncPublish(knowledgeStore *knowledge.Store, item subtitlesync.Item, srt, category string) (bool, string, error) {
+	if knowledgeStore == nil {
+		return false, "", contract.Unavailable("知识库不可用")
+	}
+	sum := sha256.Sum256([]byte(srt))
+	sourceMethod := item.SourceMethod
+	input := knowledge.ImportInput{
+		Title: "P" + itoa(item.Page) + " · " + item.Title, Text: srt, Locator: item.URL,
+		SourceHash: hex.EncodeToString(sum[:]), Category: category, Origin: "bilibili-subtitle",
+	}
+	if sourceMethod != "" {
+		input.SourceMethod = &sourceMethod
+	}
+	if item.Generation != nil && *item.Generation != "" {
+		raw := json.RawMessage(`"` + *item.Generation + `"`)
+		input.ExpectedGeneration = &raw
+	}
+	result, err := knowledgeStore.Import(input)
+	if err != nil {
+		return false, "", err
+	}
+	unchanged, _ := result["unchanged"].(bool)
+	generation := ""
+	if entry, ok := result["entry"].(map[string]any); ok {
+		generation = textValue(entry["generation_id"])
+	}
+	return unchanged, generation, nil
+}
+
+func subtitleSyncGeneration(knowledgeStore *knowledge.Store, url string) (string, error) {
+	if knowledgeStore == nil {
+		return "", nil
+	}
+	value, err := knowledgeStore.Generation(url)
+	if err != nil || value == nil {
+		return "", nil
+	}
+	if text, ok := value.(string); ok {
+		return text, nil
+	}
+	return "", nil
+}
+
 func (inv *Invoker) subtitleSyncDependencies(store contract.StateStore, state *contract.State, courseName string) subtitlesync.Dependencies {
 	knowledgeStore, _ := inv.knowledgeStoreFor(state)
 	return subtitlesync.Dependencies{
@@ -36,46 +79,11 @@ func (inv *Invoker) subtitleSyncDependencies(store contract.StateStore, state *c
 			}
 			return subtitle.SRT, path, nil
 		},
-		Publish: func(ctx context.Context, item subtitlesync.Item, srt, category string) (bool, string, error) {
-			if knowledgeStore == nil {
-				return false, "", contract.Unavailable("知识库不可用")
-			}
-			sum := sha256.Sum256([]byte(srt))
-			sourceMethod := item.SourceMethod
-			input := knowledge.ImportInput{
-				Title: "P" + itoa(item.Page) + " · " + item.Title, Text: srt, Locator: item.URL,
-				SourceHash: hex.EncodeToString(sum[:]), Category: category, Origin: "bilibili-subtitle",
-			}
-			if sourceMethod != "" {
-				input.SourceMethod = &sourceMethod
-			}
-			if item.Generation != nil && *item.Generation != "" {
-				raw := json.RawMessage(`"` + *item.Generation + `"`)
-				input.ExpectedGeneration = &raw
-			}
-			result, err := knowledgeStore.Import(input)
-			if err != nil {
-				return false, "", err
-			}
-			unchanged, _ := result["unchanged"].(bool)
-			generation := ""
-			if entry, ok := result["entry"].(map[string]any); ok {
-				generation = textValue(entry["generation_id"])
-			}
-			return unchanged, generation, nil
+		Publish: func(_ context.Context, item subtitlesync.Item, srt, category string) (bool, string, error) {
+			return subtitleSyncPublish(knowledgeStore, item, srt, category)
 		},
-		Generation: func(ctx context.Context, url string) (string, error) {
-			if knowledgeStore == nil {
-				return "", nil
-			}
-			value, err := knowledgeStore.Generation(url)
-			if err != nil || value == nil {
-				return "", nil
-			}
-			if text, ok := value.(string); ok {
-				return text, nil
-			}
-			return "", nil
+		Generation: func(_ context.Context, url string) (string, error) {
+			return subtitleSyncGeneration(knowledgeStore, url)
 		},
 		Progress: inv.videoProgress,
 	}
@@ -127,15 +135,66 @@ func (inv *Invoker) handleSubtitleSyncStart(store contract.StateStore, state *co
 	})
 }
 
+type subtitleSyncSelection struct {
+	URL   string `json:"url"`
+	Title string `json:"title"`
+	Pages []int  `json:"pages"`
+}
+
+func appendMixedSelection(ctx context.Context, selection subtitleSyncSelection, seen map[string]bool, items []subtitlesync.CreateItem) ([]subtitlesync.CreateItem, error) {
+	series, err := mediaBilibili.FetchVideoSeries(ctx, nil, selection.URL)
+	if err != nil {
+		return nil, err
+	}
+	episodes, err := selectedEpisodes(series, selection.Pages)
+	if err != nil {
+		return nil, err
+	}
+	prefix := strings.TrimSpace(selection.Title)
+	if prefix == "" {
+		prefix = series.Title
+	}
+	for _, episode := range episodes {
+		title := []rune(prefix + " · " + episode.Title)
+		if len(title) > 200 {
+			title = title[:200]
+		}
+		locator, err := subtitlesync.Locator(episode.URL)
+		if err != nil {
+			return nil, err
+		}
+		if seen[locator] {
+			return nil, contract.InputInvalid("分集重复或所选总数超过 1000")
+		}
+		seen[locator] = true
+		items = append(items, subtitlesync.CreateItem{
+			Page: episode.Page, Title: string(title), URL: episode.URL,
+		})
+	}
+	if len(items) > 1000 {
+		return nil, contract.InputInvalid("分集重复或所选总数超过 1000")
+	}
+	return items, nil
+}
+
+func mixedSyncItems(ctx context.Context, selections []subtitleSyncSelection) ([]subtitlesync.CreateItem, error) {
+	items := []subtitlesync.CreateItem{}
+	seen := map[string]bool{}
+	for _, selection := range selections {
+		var err error
+		items, err = appendMixedSelection(ctx, selection, seen, items)
+		if err != nil {
+			return nil, err
+		}
+	}
+	return items, nil
+}
+
 func (inv *Invoker) handleSubtitleSyncMixed(store contract.StateStore, state *contract.State, params json.RawMessage) (any, error) {
 	var input struct {
-		Selections []struct {
-			URL   string `json:"url"`
-			Title string `json:"title"`
-			Pages []int  `json:"pages"`
-		} `json:"selections"`
-		CourseID string `json:"courseId"`
-		Category string `json:"category"`
+		Selections []subtitleSyncSelection `json:"selections"`
+		CourseID   string                  `json:"courseId"`
+		Category   string                  `json:"category"`
 	}
 	if err := json.Unmarshal(params, &input); err != nil || len(input.Selections) < 1 || len(input.Selections) > 100 {
 		return nil, contract.InputInvalid("所选分集无效")
@@ -145,41 +204,9 @@ func (inv *Invoker) handleSubtitleSyncMixed(store contract.StateStore, state *co
 		return nil, err
 	}
 	return inv.runJob("批量字幕同步知识库", func(ctx context.Context) (any, error) {
-		items := []subtitlesync.CreateItem{}
-		seen := map[string]bool{}
-		for _, selection := range input.Selections {
-			series, err := mediaBilibili.FetchVideoSeries(ctx, nil, selection.URL)
-			if err != nil {
-				return nil, err
-			}
-			episodes, err := selectedEpisodes(series, selection.Pages)
-			if err != nil {
-				return nil, err
-			}
-			prefix := strings.TrimSpace(selection.Title)
-			if prefix == "" {
-				prefix = series.Title
-			}
-			for _, episode := range episodes {
-				title := []rune(prefix + " · " + episode.Title)
-				if len(title) > 200 {
-					title = title[:200]
-				}
-				locator, err := subtitlesync.Locator(episode.URL)
-				if err != nil {
-					return nil, err
-				}
-				if seen[locator] {
-					return nil, contract.InputInvalid("分集重复或所选总数超过 1000")
-				}
-				seen[locator] = true
-				items = append(items, subtitlesync.CreateItem{
-					Page: episode.Page, Title: string(title), URL: episode.URL,
-				})
-			}
-			if len(items) > 1000 {
-				return nil, contract.InputInvalid("分集重复或所选总数超过 1000")
-			}
+		items, err := mixedSyncItems(ctx, input.Selections)
+		if err != nil {
+			return nil, err
 		}
 		task, err := subtitleSyncService(state).Create(items, strings.TrimSpace(input.Category), courseName)
 		if err != nil {
@@ -203,6 +230,60 @@ func (inv *Invoker) handleSubtitleSyncResume(store contract.StateStore, state *c
 		}
 		return subtitleSyncService(state).Run(ctx, input.ID, inv.subtitleSyncDependencies(store, state, task.CourseName))
 	})
+}
+
+func pickSubtitlePath(store contract.StateStore, state *contract.State, directory string) (string, error) {
+	reverse := store.Reverse()
+	if reverse == nil {
+		return "", contract.Unavailable("文件选择器不可用")
+	}
+	raw, err := reverse.Call("shell.pickFile", map[string]any{
+		"title": "选择已有字幕", "extensions": []string{"srt"}, "defaultPath": directory,
+	}, 600000)
+	if err != nil {
+		return "", contract.Unavailable(err.Error())
+	}
+	var picked struct {
+		Path *string `json:"path"`
+	}
+	if json.Unmarshal(raw, &picked) != nil {
+		return "", contract.Unavailable("文件选择器响应无效")
+	}
+	if picked.Path == nil || *picked.Path == "" {
+		return "", nil
+	}
+	return *picked.Path, nil
+}
+
+func readSubtitleFile(path string) ([]byte, error) {
+	info, err := os.Lstat(path)
+	if err != nil || !info.Mode().IsRegular() || info.Size() > 4000000 {
+		return nil, contract.InputInvalid("字幕文件过大")
+	}
+	body, err := os.ReadFile(path)
+	if err != nil {
+		return nil, contract.InputInvalid("字幕文件不可读")
+	}
+	return body, nil
+}
+
+func ensureManagedSubtitle(state *contract.State, directory, path string, body []byte) (string, error) {
+	if _, err := library.ManagedFile(state.LibraryRoot, path); err == nil {
+		return path, nil
+	}
+	path, err := library.ReserveFile(directory, filepath.Base(path))
+	if err != nil {
+		return "", err
+	}
+	if err := os.WriteFile(path, body, 0o644); err != nil {
+		_ = os.Remove(path)
+		return "", contract.Unavailable("字幕保存校验失败")
+	}
+	if check, err := os.ReadFile(path); err != nil || string(check) != string(body) {
+		_ = os.Remove(path)
+		return "", contract.Unavailable("字幕保存校验失败")
+	}
+	return path, nil
 }
 
 func (inv *Invoker) handleSubtitleSyncAttach(store contract.StateStore, state *contract.State, params json.RawMessage) (any, error) {
@@ -237,47 +318,20 @@ func (inv *Invoker) handleSubtitleSyncAttach(store contract.StateStore, state *c
 		if err != nil {
 			return nil, err
 		}
-		reverse := store.Reverse()
-		if reverse == nil {
-			return nil, contract.Unavailable("文件选择器不可用")
-		}
-		raw, err := reverse.Call("shell.pickFile", map[string]any{
-			"title": "选择已有字幕", "extensions": []string{"srt"}, "defaultPath": directory,
-		}, 600000)
+		path, err := pickSubtitlePath(store, state, directory)
 		if err != nil {
-			return nil, contract.Unavailable(err.Error())
+			return nil, err
 		}
-		var picked struct {
-			Path *string `json:"path"`
-		}
-		if json.Unmarshal(raw, &picked) != nil {
-			return nil, contract.Unavailable("文件选择器响应无效")
-		}
-		if picked.Path == nil || *picked.Path == "" {
+		if path == "" {
 			return nil, nil
 		}
-		info, err := os.Lstat(*picked.Path)
-		if err != nil || !info.Mode().IsRegular() || info.Size() > 4000000 {
-			return nil, contract.InputInvalid("字幕文件过大")
-		}
-		body, err := os.ReadFile(*picked.Path)
+		body, err := readSubtitleFile(path)
 		if err != nil {
-			return nil, contract.InputInvalid("字幕文件不可读")
+			return nil, err
 		}
-		path := *picked.Path
-		if _, err := library.ManagedFile(state.LibraryRoot, path); err != nil {
-			path, err = library.ReserveFile(directory, filepath.Base(path))
-			if err != nil {
-				return nil, err
-			}
-			if err := os.WriteFile(path, body, 0o644); err != nil {
-				_ = os.Remove(path)
-				return nil, contract.Unavailable("字幕保存校验失败")
-			}
-			if check, err := os.ReadFile(path); err != nil || string(check) != string(body) {
-				_ = os.Remove(path)
-				return nil, contract.Unavailable("字幕保存校验失败")
-			}
+		path, err = ensureManagedSubtitle(state, directory, path, body)
+		if err != nil {
+			return nil, err
 		}
 		if _, err := documents.ParseSrt(string(body)); err != nil {
 			return nil, contract.InputInvalid(err.Error())
