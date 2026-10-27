@@ -239,39 +239,34 @@ export class DiscussionStore {
  }
 }
 
-export function renderDiscussion(pack: DiscussionPack): string {
- const all = new Map(pack.items.map(item => [item.id, item])),
-  included = new Set(pack.items.filter(item => item.selected).map(item => item.id))
- for (const id of [...included]) {
-  let current = all.get(id)
-  const walked = new Set<string>()
-  while (current && !walked.has(current.id)) {
-   walked.add(current.id)
-   for (const key of ['root_id', 'parent_id'] as const) {
-    const target = all.get(current[key] || '')
-    if (target && (target.id === current.root_id || target.root_id === current.root_id)) included.add(target.id)
-   }
-   const parent = all.get(current.parent_id || '')
-   current = parent && (parent.id === current.root_id || parent.root_id === current.root_id) ? parent : undefined
+function includeDiscussionParents(
+ all: Map<string, DiscussionPack['items'][number]>,
+ included: Set<string>,
+ id: string
+) {
+ let current = all.get(id)
+ const walked = new Set<string>()
+ while (current && !walked.has(current.id)) {
+  walked.add(current.id)
+  for (const key of ['root_id', 'parent_id'] as const) {
+   const target = all.get(current[key] || '')
+   if (target && (target.id === current.root_id || target.root_id === current.root_id)) included.add(target.id)
   }
+  const parent = all.get(current.parent_id || '')
+  current = parent && (parent.id === current.root_id || parent.root_id === current.root_id) ? parent : undefined
  }
- if (!included.size) return ''
- const quote = (value: string) =>
-  value
-   .replaceAll('&', '&amp;')
-   .replaceAll('<', '&lt;')
-   .replaceAll('>', '&gt;')
-   .replace(/([\\`*_{}[\]()!#])/g, String.raw`\$1`)
-   .split(/\r?\n/)
-   .map(line => '> ' + line)
-   .join('\n')
- const lines = [
-  '## 简介与讨论证据',
-  '',
-  discussionPolicy,
-  '',
-  `采集时间：${pack.fetched_at}；评论/弹幕为有界采集，完整性见采集回执。`
- ]
+}
+function quoteDiscussionBlock(value: string) {
+ return value
+  .replaceAll('&', '&amp;')
+  .replaceAll('<', '&lt;')
+  .replaceAll('>', '&gt;')
+  .replace(/([\\`*_{}[\]()!#])/g, String.raw`\$1`)
+  .split(/\r?\n/)
+  .map(line => '> ' + line)
+  .join('\n')
+}
+function discussionCoverageLines(pack: DiscussionPack, lines: string[]) {
  const states: Record<string, string> = {
   complete: '本次范围已取齐',
   partial: '部分采集',
@@ -294,14 +289,30 @@ export function renderDiscussion(pack: DiscussionPack): string {
    }`
   )
  }
+}
+function discussionItemLines(item: DiscussionPack['items'][number], all: Map<string, DiscussionPack['items'][number]>) {
  const kinds = {description: '作者简介', comment: '主评论', reply: '子评论', danmaku: '弹幕'}
- for (const item of pack.items.filter(item => included.has(item.id))) {
-  const timeLabel = item.time_sec != null ? `；视频时间 ${item.time_sec.toFixed(2)}s` : ''
-  lines.push(
-   `\n### ${item.selected ? '重要' : '上下文'} · ${kinds[item.kind]} · ${item.labels.map(label => discussionLabels[label]).join('、')} · 未核实\n证据 ${item.id}；父项 ${item.parent_id || '无'}；赞 ${item.likes || 0}${timeLabel}\n来源：${item.url}\n${quote(item.text)}`
-  )
-  if (item.parent_id && !all.has(item.parent_id)) lines.push('直接回复对象未采集；勿脱离上下文解读。')
-  if (item.note) lines.push('人工备注（不等于事实核验）：\n' + quote(item.note))
- }
+ const timeLabel = item.time_sec != null ? `；视频时间 ${item.time_sec.toFixed(2)}s` : ''
+ const lines = [
+  `\n### ${item.selected ? '重要' : '上下文'} · ${kinds[item.kind]} · ${item.labels.map(label => discussionLabels[label]).join('、')} · 未核实\n证据 ${item.id}；父项 ${item.parent_id || '无'}；赞 ${item.likes || 0}${timeLabel}\n来源：${item.url}\n${quoteDiscussionBlock(item.text)}`
+ ]
+ if (item.parent_id && !all.has(item.parent_id)) lines.push('直接回复对象未采集；勿脱离上下文解读。')
+ if (item.note) lines.push('人工备注（不等于事实核验）：\n' + quoteDiscussionBlock(item.note))
+ return lines
+}
+export function renderDiscussion(pack: DiscussionPack): string {
+ const all = new Map(pack.items.map(item => [item.id, item])),
+  included = new Set(pack.items.filter(item => item.selected).map(item => item.id))
+ for (const id of [...included]) includeDiscussionParents(all, included, id)
+ if (!included.size) return ''
+ const lines = [
+  '## 简介与讨论证据',
+  '',
+  discussionPolicy,
+  '',
+  `采集时间：${pack.fetched_at}；评论/弹幕为有界采集，完整性见采集回执。`
+ ]
+ discussionCoverageLines(pack, lines)
+ for (const item of pack.items.filter(item => included.has(item.id))) lines.push(...discussionItemLines(item, all))
  return lines.join('\n')
 }

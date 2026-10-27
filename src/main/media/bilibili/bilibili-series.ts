@@ -3,29 +3,33 @@ import {bilibiliUrl} from '@main/media/bilibili/video-policy'
 import {cleanUserAgent} from '@shared/user-agent'
 import type {VideoEpisode, VideoSeries} from '@shared/video-ppt'
 
+function videoEpisode(
+ page: {page?: unknown; part?: unknown; duration?: unknown},
+ index: number,
+ url: URL
+): VideoEpisode {
+ if (page.page !== index + 1 || typeof page.part !== 'string' || !page.part.trim())
+  throw new Error('视频分集目录不完整，请重新读取')
+ const part = new URL(url)
+ part.searchParams.set('p', String(index + 1))
+ return {
+  page: index + 1,
+  title: page.part.trim().slice(0, 200),
+  duration: typeof page.duration === 'number' && Number.isFinite(page.duration) ? Math.max(0, page.duration) : 0,
+  url: part.href
+ }
+}
 export function parseVideoSeries(input: string, value: unknown): VideoSeries {
  const url = new URL(bilibiliUrl(input)),
   v = value as {title?: unknown; pages?: unknown}
  if (!v || !Array.isArray(v.pages) || !v.pages.length || v.pages.length > 1000)
   throw new Error('未能读取视频分集目录，请稍后重试')
- const episodes: VideoEpisode[] = v.pages.map((p: {page?: unknown; part?: unknown; duration?: unknown}, i) => {
-  if (p.page !== i + 1 || typeof p.part !== 'string' || !p.part.trim())
-   throw new Error('视频分集目录不完整，请重新读取')
-  const part = new URL(url)
-  part.searchParams.set('p', String(i + 1))
-  return {
-   page: i + 1,
-   title: p.part.trim().slice(0, 200),
-   duration: typeof p.duration === 'number' && Number.isFinite(p.duration) ? Math.max(0, p.duration) : 0,
-   url: part.href
-  }
- })
+ const episodes = v.pages.map((p, i) => videoEpisode(p as {page?: unknown; part?: unknown; duration?: unknown}, i, url))
  return {
   title: typeof v.title === 'string' ? v.title.slice(0, 200) : url.pathname.split('/').findLast(Boolean)!,
   episodes
  }
 }
-
 export async function readVideoSeries(input: string, signal: AbortSignal): Promise<VideoSeries> {
  const url = new URL(bilibiliUrl(input))
  url.hostname = 'www.bilibili.com'

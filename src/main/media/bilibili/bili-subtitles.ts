@@ -61,15 +61,49 @@ function checkedCues(value: unknown, duration: number): Cue[] {
  return cues
 }
 
-export async function readBiliSubtitles(input: string, fetcher: BiliFetch, signal: AbortSignal): Promise<BiliSubtitle> {
- const url = new URL(bilibiliUrl(input)),
-  videoId = url.pathname.split('/').findLast(Boolean)!
- const pagesUrl = new URL('https://api.bilibili.com/x/player/pagelist')
- pagesUrl.searchParams.set(
+function biliVideoID(url: URL) {
+ return url.pathname.split('/').findLast(Boolean)!
+}
+function biliPageListURL(videoId: string) {
+ const value = new URL('https://api.bilibili.com/x/player/pagelist')
+ value.searchParams.set(
   videoId.startsWith('BV') ? 'bvid' : 'aid',
   videoId.startsWith('BV') ? videoId : videoId.slice(2)
  )
- const pages = (await json(pagesUrl.href, fetcher, signal)) as {code?: number; data?: Page[]}
+ return value
+}
+function preferredSubtitleTracks(tracks: Track[]) {
+ const chinese = (track: Track) => /^(zh|ai-zh)/i.test(track.lan || '')
+ const automatic = (track: Track) => /^(ai-|auto)/i.test(track.lan || '') || !!track.ai_type
+ return [...tracks].sort(
+  (a, b) => Number(!chinese(a)) - Number(!chinese(b)) || Number(automatic(a)) - Number(automatic(b))
+ )
+}
+function subtitleTrackResult(track: Track, page: Page, pageNumber: number, body: unknown) {
+ const cues = checkedCues(body, page.duration)
+ const segments = cues
+  .map((cue, i) => ({
+   start: Math.round(cue.from * 1000),
+   end: Math.round(Math.min(cue.to, i + 1 < cues.length ? cues[i + 1].from : cue.to) * 1000),
+   text: cue.content
+  }))
+  .filter(c => c.end > c.start)
+ const srt = toSrt(segments)
+ parseSrt(srt)
+ return {
+  title: page.part,
+  page: pageNumber,
+  source: track.lan_doc || track.lan,
+  warning:
+   /^(ai-|auto)/i.test(track.lan || '') || track.ai_type ? '自动字幕可能有错，请核对后再作为课堂原文使用。' : '',
+  srt,
+  count: segments.length
+ }
+}
+export async function readBiliSubtitles(input: string, fetcher: BiliFetch, signal: AbortSignal): Promise<BiliSubtitle> {
+ const url = new URL(bilibiliUrl(input)),
+  videoId = biliVideoID(url)
+ const pages = (await json(biliPageListURL(videoId).href, fetcher, signal)) as {code?: number; data?: Page[]}
  if (pages.code !== 0 || !Array.isArray(pages.data)) throw new Error('无法读取 B 站视频分集')
  const pageNumber = Number(url.searchParams.get('p') || 1),
   page = pages.data.find(p => p.page === pageNumber)
@@ -84,34 +118,12 @@ export async function readBiliSubtitles(input: string, fetcher: BiliFetch, signa
  if (detail.code !== 0 || !detail.data) throw new Error('无法读取此分集的字幕目录')
  const tracks = detail.data.subtitle?.subtitles || []
  if (!tracks.length) throw new Error('此分集没有站内字幕；可下载视频后在课程字幕功能中转写')
- const chinese = (track: Track) => /^(zh|ai-zh)/i.test(track.lan || '')
- const automatic = (track: Track) => /^(ai-|auto)/i.test(track.lan || '') || !!track.ai_type
- const preferred = [...tracks].sort(
-  (a, b) => Number(!chinese(a)) - Number(!chinese(b)) || Number(automatic(a)) - Number(automatic(b))
- )
  let lastError: Error | undefined
- for (const track of preferred) {
+ for (const track of preferredSubtitleTracks(tracks)) {
   try {
    // biome-ignore format: NOSONAR must stay on the await line
    const body = await json(subtitleAddress(track.subtitle_url), fetcher, signal) // NOSONAR: ordered/limited operation; parallelizing would change atomicity, rate limits, or deterministic progress.
-   const cues = checkedCues(body, page.duration)
-   const segments = cues
-    .map((cue, i) => ({
-     start: Math.round(cue.from * 1000),
-     end: Math.round(Math.min(cue.to, i + 1 < cues.length ? cues[i + 1].from : cue.to) * 1000),
-     text: cue.content
-    }))
-    .filter(c => c.end > c.start)
-   const srt = toSrt(segments)
-   parseSrt(srt)
-   return {
-    title: page.part,
-    page: pageNumber,
-    source: track.lan_doc || track.lan,
-    warning: automatic(track) ? '自动字幕可能有错，请核对后再作为课堂原文使用。' : '',
-    srt,
-    count: segments.length
-   }
+   return subtitleTrackResult(track, page, pageNumber, body)
   } catch (error) {
    signal.throwIfAborted()
    lastError = error instanceof Error ? error : new Error('字幕读取失败')
