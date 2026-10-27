@@ -95,6 +95,129 @@ func requireAvailable(row Connection) error {
 	return nil
 }
 
+func connectionStatus(row Connection) map[string]any {
+	available, reason := availability(row.Platform, row.Fields)
+	encoded, _ := json.Marshal(row)
+	value := map[string]any{}
+	_ = json.Unmarshal(encoded, &value)
+	value["live"] = map[string]any{"available": available, "reason": reason}
+	return value
+}
+
+func (service *Service) statusValue() (any, error) {
+	listing, err := service.Store.Listing()
+	if err != nil {
+		return nil, err
+	}
+	connections := listing["connections"].([]Connection)
+	values := []map[string]any{}
+	for _, row := range connections {
+		values = append(values, connectionStatus(row))
+	}
+	managedAvailable, managedReason := availability("qq_napcat", map[string]string{"mode": "managed"})
+	localAvailable, localReason := availability("weixin_local", map[string]string{})
+	return map[string]any{
+		"revision": listing["revision"], "connections": values,
+		"platforms": map[string]any{
+			"qq_napcat":    map[string]any{"label": "个人 QQ · 内置后台", "available": managedAvailable, "reason": managedReason},
+			"weixin_local": map[string]any{"label": "个人微信 · 本机只读", "available": localAvailable, "reason": localReason},
+			"weixin_web":   map[string]any{"label": "微信 Web · 实验", "available": true, "reason": ""},
+			"weixin_ilink": map[string]any{"label": "微信 Bot · iLink", "available": true, "reason": ""},
+		},
+		"qq_component": map[string]any{"available": false, "state": "unavailable"},
+	}, nil
+}
+
+func (service *Service) changeValue(input map[string]any) (any, error) {
+	platform := text(input["platform"])
+	fields := stringMap(input["fields"])
+	if action, _ := input["action"].(string); action == "create" {
+		if available, reason := availability(platform, fields); !available {
+			return nil, fmt.Errorf("%s", reason)
+		}
+	}
+	return service.Store.Change(input)
+}
+
+func (service *Service) librariesValue() (any, error) {
+	libraries := []any{}
+	if service.Knowledge != nil {
+		libraries = append(libraries, map[string]any{"library_id": service.Knowledge.ID, "label": "当前知识库", "available": true})
+	}
+	return map[string]any{"libraries": libraries}, nil
+}
+
+func unsupportedPersonalAction(context.Context, *Service, map[string]any) (any, error) {
+	return nil, fmt.Errorf("本机微信读取暂仅支持 Windows x64")
+}
+
+func loginDispatch(ctx context.Context, service *Service, action string, input map[string]any) (any, error) {
+	return service.loginAction(ctx, action, input)
+}
+
+var imActions = map[string]func(context.Context, *Service, map[string]any) (any, error){
+	"status": func(_ context.Context, service *Service, _ map[string]any) (any, error) {
+		return service.statusValue()
+	},
+	"change": func(_ context.Context, service *Service, input map[string]any) (any, error) {
+		return service.changeValue(input)
+	},
+	"model": func(_ context.Context, service *Service, _ map[string]any) (any, error) {
+		return map[string]any{"profile_id": service.serviceModelProfile(), "model": "Zynote当前连接"}, nil
+	},
+	"libraries": func(_ context.Context, service *Service, _ map[string]any) (any, error) {
+		return service.librariesValue()
+	},
+	"saved-directory": func(_ context.Context, service *Service, input map[string]any) (any, error) {
+		return service.Store.SavedDirectory(input)
+	},
+	"read": func(_ context.Context, service *Service, input map[string]any) (any, error) {
+		return service.Store.ReadMessages(input)
+	},
+	"send-status": func(_ context.Context, service *Service, input map[string]any) (any, error) {
+		return service.Store.SendStatus(input)
+	},
+	"cleanup": func(_ context.Context, service *Service, input map[string]any) (any, error) {
+		return service.Cleanup(input)
+	},
+	"start": func(ctx context.Context, service *Service, input map[string]any) (any, error) {
+		return service.Start(ctx, input)
+	},
+	"inspect": func(ctx context.Context, service *Service, input map[string]any) (any, error) {
+		return loginDispatch(ctx, service, "inspect", input)
+	},
+	"cancel": func(ctx context.Context, service *Service, input map[string]any) (any, error) {
+		return loginDispatch(ctx, service, "cancel", input)
+	},
+	"confirm": func(ctx context.Context, service *Service, input map[string]any) (any, error) {
+		return loginDispatch(ctx, service, "confirm", input)
+	},
+	"qr": func(ctx context.Context, service *Service, input map[string]any) (any, error) {
+		return loginDispatch(ctx, service, "qr", input)
+	},
+	"directory": func(ctx context.Context, service *Service, input map[string]any) (any, error) {
+		return service.scopeAction(ctx, "directory", input)
+	},
+	"sync": func(ctx context.Context, service *Service, input map[string]any) (any, error) {
+		return service.scopeAction(ctx, "sync", input)
+	},
+	"send": func(ctx context.Context, service *Service, input map[string]any) (any, error) {
+		return service.scopeAction(ctx, "send", input)
+	},
+	"personal-processes": unsupportedPersonalAction,
+	"personal-probe":     unsupportedPersonalAction,
+	"personal-confirm":   unsupportedPersonalAction,
+	"rules": func(_ context.Context, service *Service, input map[string]any) (any, error) {
+		return service.automation.Rules(input)
+	},
+	"runs": func(_ context.Context, service *Service, input map[string]any) (any, error) {
+		return service.automation.Runs(input)
+	},
+	"reply-jobs": func(_ context.Context, service *Service, input map[string]any) (any, error) {
+		return service.automation.Jobs(input)
+	},
+}
+
 func (service *Service) Execute(ctx context.Context, action string, input map[string]any, profile string) (any, error) {
 	service.mu.Lock()
 	if profile != "" && profile != service.profile {
@@ -105,76 +228,11 @@ func (service *Service) Execute(ctx context.Context, action string, input map[st
 	if input == nil {
 		input = map[string]any{}
 	}
-	switch action {
-	case "status":
-		listing, err := service.Store.Listing()
-		if err != nil {
-			return nil, err
-		}
-		connections := listing["connections"].([]Connection)
-		values := []map[string]any{}
-		for _, row := range connections {
-			available, reason := availability(row.Platform, row.Fields)
-			encoded, _ := json.Marshal(row)
-			value := map[string]any{}
-			_ = json.Unmarshal(encoded, &value)
-			value["live"] = map[string]any{"available": available, "reason": reason}
-			values = append(values, value)
-		}
-		managedAvailable, managedReason := availability("qq_napcat", map[string]string{"mode": "managed"})
-		localAvailable, localReason := availability("weixin_local", map[string]string{})
-		return map[string]any{
-			"revision": listing["revision"], "connections": values,
-			"platforms": map[string]any{
-				"qq_napcat":    map[string]any{"label": "个人 QQ · 内置后台", "available": managedAvailable, "reason": managedReason},
-				"weixin_local": map[string]any{"label": "个人微信 · 本机只读", "available": localAvailable, "reason": localReason},
-				"weixin_web":   map[string]any{"label": "微信 Web · 实验", "available": true, "reason": ""},
-				"weixin_ilink": map[string]any{"label": "微信 Bot · iLink", "available": true, "reason": ""},
-			},
-			"qq_component": map[string]any{"available": false, "state": "unavailable"},
-		}, nil
-	case "change":
-		platform := text(input["platform"])
-		fields := stringMap(input["fields"])
-		if action, _ := input["action"].(string); action == "create" {
-			if available, reason := availability(platform, fields); !available {
-				return nil, fmt.Errorf("%s", reason)
-			}
-		}
-		return service.Store.Change(input)
-	case "model":
-		return map[string]any{"profile_id": service.serviceModelProfile(), "model": "Zynote当前连接"}, nil
-	case "libraries":
-		libraries := []any{}
-		if service.Knowledge != nil {
-			libraries = append(libraries, map[string]any{"library_id": service.Knowledge.ID, "label": "当前知识库", "available": true})
-		}
-		return map[string]any{"libraries": libraries}, nil
-	case "saved-directory":
-		return service.Store.SavedDirectory(input)
-	case "read":
-		return service.Store.ReadMessages(input)
-	case "send-status":
-		return service.Store.SendStatus(input)
-	case "cleanup":
-		return service.Cleanup(input)
-	case "start":
-		return service.Start(ctx, input)
-	case "inspect", "cancel", "confirm", "qr":
-		return service.loginAction(ctx, action, input)
-	case "directory", "sync", "send":
-		return service.scopeAction(ctx, action, input)
-	case "personal-processes", "personal-probe", "personal-confirm":
-		return nil, fmt.Errorf("本机微信读取暂仅支持 Windows x64")
-	case "rules":
-		return service.automation.Rules(input)
-	case "runs":
-		return service.automation.Runs(input)
-	case "reply-jobs":
-		return service.automation.Jobs(input)
+	if handler, ok := imActions[action]; ok {
+		return handler(ctx, service, input)
 	}
 	if strings.HasPrefix(action, "personal-") {
-		return nil, fmt.Errorf("本机微信读取暂仅支持 Windows x64")
+		return unsupportedPersonalAction(ctx, service, input)
 	}
 	return nil, fmt.Errorf("此通讯操作尚未完成原生适配：%s", action)
 }
@@ -234,54 +292,57 @@ func (service *Service) current(login *Login) error {
 	return nil
 }
 
-func (service *Service) Start(ctx context.Context, input map[string]any) (any, error) {
+func startParams(input map[string]any) (string, string, string, error) {
 	op := text(input["operation_id"])
 	connectionID := text(input["connection_id"])
 	expected := text(input["expected_revision"])
 	if !idPattern.MatchString(op) || !idPattern.MatchString(connectionID) || !idPattern.MatchString(expected) {
-		return nil, fmt.Errorf("登录参数无效")
+		return "", "", "", fmt.Errorf("登录参数无效")
 	}
-	row, err := service.Store.Capture(connectionID, expected)
-	if err != nil {
-		return nil, err
+	return op, connectionID, expected, nil
+}
+
+func normalizedLoginState(value string) string {
+	if value == "online" {
+		return "online"
 	}
-	if err := requireAvailable(row); err != nil {
-		return nil, err
-	}
+	return "unknown"
+}
+
+func (service *Service) existingStart(op, rowID string) (map[string]any, bool, error) {
 	var projection string
-	if err := service.Store.db.QueryRow("SELECT projection FROM login_operations WHERE operation_id=?", op).Scan(&projection); err == nil {
-		saved := map[string]any{}
-		_ = json.Unmarshal([]byte(projection), &saved)
-		if text(saved["connection_id"]) != row.ID {
-			return nil, fmt.Errorf("登录编号已用于其他连接")
-		}
-		state := text(saved["state"])
-		if state == "online" {
-			state = "online"
-		} else {
-			state = "unknown"
-		}
-		saved["state"] = state
-		saved["has_qr"] = false
-		saved["detail"] = map[string]any{"message": "已有操作不自动重复启动；中断后请明确新建登录操作。"}
-		return saved, nil
+	if err := service.Store.db.QueryRow("SELECT projection FROM login_operations WHERE operation_id=?", op).Scan(&projection); err != nil {
+		return nil, false, nil
 	}
-	if row.Platform != "qq_napcat" && row.Platform != "weixin_ilink" && row.Platform != "weixin_web" {
-		return nil, fmt.Errorf("此平台的原生登录适配仍在迁移，未启动旧后台")
+	saved := map[string]any{}
+	_ = json.Unmarshal([]byte(projection), &saved)
+	if text(saved["connection_id"]) != rowID {
+		return nil, false, fmt.Errorf("登录编号已用于其他连接")
 	}
+	saved["state"] = normalizedLoginState(text(saved["state"]))
+	saved["has_qr"] = false
+	saved["detail"] = map[string]any{"message": "已有操作不自动重复启动；中断后请明确新建登录操作。"}
+	return saved, true, nil
+}
+
+func (service *Service) supersedeLogins(rowID string) {
 	service.mu.Lock()
+	defer service.mu.Unlock()
 	for _, login := range service.logins {
-		if text(login.Projection["connection_id"]) == row.ID {
-			state := text(login.Projection["state"])
-			if state != "online" && state != "cancelled" && state != "failed" && state != "expired" {
-				login.Cancel()
-				login.Projection["state"] = "superseded"
-				login.Projection["has_qr"] = false
-				service.persist(login)
-			}
+		if text(login.Projection["connection_id"]) != rowID {
+			continue
+		}
+		state := text(login.Projection["state"])
+		if state != "online" && state != "cancelled" && state != "failed" && state != "expired" {
+			login.Cancel()
+			login.Projection["state"] = "superseded"
+			login.Projection["has_qr"] = false
+			service.persist(login)
 		}
 	}
-	service.mu.Unlock()
+}
+
+func (service *Service) newLogin(op string, row Connection, ctx context.Context) (*Login, context.Context, context.CancelFunc) {
 	loginCtx, cancel := context.WithCancel(ctx)
 	login := &Login{
 		Projection: map[string]any{
@@ -294,42 +355,52 @@ func (service *Service) Start(ctx context.Context, input map[string]any) (any, e
 	service.logins[op] = login
 	service.mu.Unlock()
 	service.persist(login)
-	if row.Platform == "weixin_web" {
-		adapter, err := NewWeixinWebSession(nil)
-		if err != nil {
-			cancel()
-			return nil, err
-		}
-		login.Web = adapter
-		state, err := adapter.Start(loginCtx)
-		if err != nil {
-			cancel()
-			login.Projection["state"] = "failed"
-			login.Projection["detail"] = map[string]any{"message": msgLoginIncomplete}
-			service.persist(login)
-			return nil, err
-		}
-		login.QR = text(state["qr"])
-		login.Projection["state"] = text(state["state"])
-		login.Projection["has_qr"] = login.QR != ""
-		return service.persist(login), nil
+	return login, loginCtx, cancel
+}
+
+func applyLoginState(login *Login, state map[string]any) {
+	login.QR = text(state["qr"])
+	login.Projection["state"] = text(state["state"])
+	login.Projection["has_qr"] = login.QR != ""
+}
+
+func (service *Service) failLogin(login *Login) {
+	login.Projection["state"] = "failed"
+	login.Projection["detail"] = map[string]any{"message": msgLoginIncomplete}
+	service.persist(login)
+}
+
+func (service *Service) startWeixinWeb(loginCtx context.Context, login *Login, cancel context.CancelFunc) (any, error) {
+	adapter, err := NewWeixinWebSession(nil)
+	if err != nil {
+		cancel()
+		return nil, err
 	}
-	if row.Platform == "weixin_ilink" {
-		adapter := &ILinkSession{Contexts: map[string]string{}}
-		login.ILink = adapter
-		state, err := adapter.Start(loginCtx)
-		if err != nil {
-			cancel()
-			login.Projection["state"] = "failed"
-			login.Projection["detail"] = map[string]any{"message": msgLoginIncomplete}
-			service.persist(login)
-			return nil, err
-		}
-		login.QR = text(state["qr"])
-		login.Projection["state"] = text(state["state"])
-		login.Projection["has_qr"] = login.QR != ""
-		return service.persist(login), nil
+	login.Web = adapter
+	state, err := adapter.Start(loginCtx)
+	if err != nil {
+		cancel()
+		service.failLogin(login)
+		return nil, err
 	}
+	applyLoginState(login, state)
+	return service.persist(login), nil
+}
+
+func (service *Service) startILink(loginCtx context.Context, login *Login, cancel context.CancelFunc) (any, error) {
+	adapter := &ILinkSession{Contexts: map[string]string{}}
+	login.ILink = adapter
+	state, err := adapter.Start(loginCtx)
+	if err != nil {
+		cancel()
+		service.failLogin(login)
+		return nil, err
+	}
+	applyLoginState(login, state)
+	return service.persist(login), nil
+}
+
+func (service *Service) startQq(ctx context.Context, loginCtx context.Context, login *Login, cancel context.CancelFunc, row Connection) (any, error) {
 	privateRow, err := service.Store.PrivateState(row.ID, row.Revision)
 	if err != nil {
 		cancel()
@@ -356,20 +427,124 @@ func (service *Service) Start(ctx context.Context, input map[string]any) (any, e
 	state, err := adapter.Start(loginCtx)
 	if err != nil {
 		if err != context.Canceled {
-			login.Projection["state"] = "failed"
-			login.Projection["detail"] = map[string]any{"message": msgLoginIncomplete}
-			service.persist(login)
+			service.failLogin(login)
 		}
 		return nil, err
 	}
-	login.QR = text(state["qr"])
-	login.Projection["state"] = text(state["state"])
-	login.Projection["has_qr"] = login.QR != ""
+	applyLoginState(login, state)
 	service.persist(login)
 	if text(state["state"]) == "verifying" {
-		return service.inspectLogin(loginCtx, login)
+		return service.inspectLogin(ctx, login)
 	}
 	return login.Projection, nil
+}
+
+func (service *Service) Start(ctx context.Context, input map[string]any) (any, error) {
+	op, connectionID, expected, err := startParams(input)
+	if err != nil {
+		return nil, err
+	}
+	row, err := service.Store.Capture(connectionID, expected)
+	if err != nil {
+		return nil, err
+	}
+	if err := requireAvailable(row); err != nil {
+		return nil, err
+	}
+	if saved, ok, err := service.existingStart(op, row.ID); err != nil || ok {
+		return saved, err
+	}
+	if row.Platform != "qq_napcat" && row.Platform != "weixin_ilink" && row.Platform != "weixin_web" {
+		return nil, fmt.Errorf("此平台的原生登录适配仍在迁移，未启动旧后台")
+	}
+	service.supersedeLogins(row.ID)
+	login, loginCtx, cancel := service.newLogin(op, row, ctx)
+	switch row.Platform {
+	case "weixin_web":
+		return service.startWeixinWeb(loginCtx, login, cancel)
+	case "weixin_ilink":
+		return service.startILink(loginCtx, login, cancel)
+	default:
+		return service.startQq(ctx, loginCtx, login, cancel, row)
+	}
+}
+
+func replaySavedLogin(action string, saved map[string]any) (any, error) {
+	if action == "qr" {
+		return nil, fmt.Errorf("中断后的二维码不恢复，请重新开始登录")
+	}
+	saved["state"] = normalizedLoginState(text(saved["state"]))
+	saved["has_qr"] = false
+	return saved, nil
+}
+
+func (service *Service) cancelLogin(login *Login) (any, error) {
+	if text(login.Projection["state"]) != "online" {
+		login.Cancel()
+		login.QR = ""
+		login.Projection["state"] = "cancelled"
+		login.Projection["has_qr"] = false
+		service.persist(login)
+	}
+	return login.Projection, nil
+}
+
+func qrLogin(login *Login) (any, error) {
+	if login.QR == "" {
+		return nil, fmt.Errorf("当前登录尚未取得二维码")
+	}
+	png, err := qrcode.Encode(login.QR, qrcode.Medium, -5)
+	if err != nil {
+		return nil, fmt.Errorf("二维码生成失败")
+	}
+	return "data:image/png;base64," + base64.StdEncoding.EncodeToString(png), nil
+}
+
+func (service *Service) inspectAction(ctx context.Context, input map[string]any, login *Login) (any, error) {
+	if code, ok := input["verify_code"]; ok && code != nil {
+		if login.ILink == nil {
+			return nil, fmt.Errorf("此连接不使用手机配对码")
+		}
+		if err := login.ILink.SubmitCode(text(code)); err != nil {
+			return nil, err
+		}
+	}
+	if text(login.Projection["state"]) == "online" {
+		return service.persist(login), nil
+	}
+	return service.inspectLogin(ctx, login)
+}
+
+func (service *Service) confirmAction(ctx context.Context, input map[string]any, login *Login) (any, error) {
+	if text(login.Projection["state"]) == "online" {
+		return map[string]any{"login": service.persist(login)}, nil
+	}
+	displayed := text(input["displayed_account"])
+	if text(login.Projection["state"]) != "awaiting_bind" || displayed != text(login.Projection["account"]) {
+		return nil, fmt.Errorf("请先核对本次显示的账号")
+	}
+	result, err := service.verifyLogin(ctx, login)
+	if err != nil {
+		return nil, err
+	}
+	account := text(result["account"])
+	if account != text(login.Projection["account"]) {
+		return nil, fmt.Errorf("确认期间登录账号改变，未绑定")
+	}
+	bound, err := service.Store.Bind(text(login.Projection["connection_id"]), login.Revision, account, result["session"], result["capabilities"], func() error {
+		if text(login.Projection["state"]) != "awaiting_bind" || displayed != text(login.Projection["account"]) {
+			return fmt.Errorf("确认期间登录状态或账号已改变，未绑定")
+		}
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	login.QR = ""
+	login.Projection["state"] = "online"
+	login.Projection["has_qr"] = false
+	login.Projection["boundRevision"] = bound.Revision
+	return map[string]any{"login": service.persist(login)}, nil
 }
 
 func (service *Service) loginAction(ctx context.Context, action string, input map[string]any) (any, error) {
@@ -378,18 +553,7 @@ func (service *Service) loginAction(ctx context.Context, action string, input ma
 		return nil, err
 	}
 	if login == nil {
-		if action == "qr" {
-			return nil, fmt.Errorf("中断后的二维码不恢复，请重新开始登录")
-		}
-		state := text(saved["state"])
-		if state == "online" {
-			state = "online"
-		} else {
-			state = "unknown"
-		}
-		saved["state"] = state
-		saved["has_qr"] = false
-		return saved, nil
+		return replaySavedLogin(action, saved)
 	}
 	if action != "cancel" {
 		row, err := service.Store.Capture(connectionID, "")
@@ -400,127 +564,65 @@ func (service *Service) loginAction(ctx context.Context, action string, input ma
 			return nil, err
 		}
 	}
-	if action == "cancel" {
-		if text(login.Projection["state"]) != "online" {
-			login.Cancel()
-			login.QR = ""
-			login.Projection["state"] = "cancelled"
-			login.Projection["has_qr"] = false
-			service.persist(login)
-		}
-		return login.Projection, nil
-	}
-	if action == "qr" {
-		if login.QR == "" {
-			return nil, fmt.Errorf("当前登录尚未取得二维码")
-		}
-		png, err := qrcode.Encode(login.QR, qrcode.Medium, -5)
-		if err != nil {
-			return nil, fmt.Errorf("二维码生成失败")
-		}
-		return "data:image/png;base64," + base64.StdEncoding.EncodeToString(png), nil
-	}
-	if action == "inspect" {
-		if code, ok := input["verify_code"]; ok && code != nil {
-			if login.ILink == nil {
-				return nil, fmt.Errorf("此连接不使用手机配对码")
-			}
-			if err := login.ILink.SubmitCode(text(code)); err != nil {
-				return nil, err
-			}
-		}
-		if text(login.Projection["state"]) == "online" {
-			return service.persist(login), nil
-		}
-		return service.inspectLogin(ctx, login)
-	}
-	if action == "confirm" {
-		if text(login.Projection["state"]) == "online" {
-			return map[string]any{"login": service.persist(login)}, nil
-		}
-		displayed := text(input["displayed_account"])
-		if text(login.Projection["state"]) != "awaiting_bind" || displayed != text(login.Projection["account"]) {
-			return nil, fmt.Errorf("请先核对本次显示的账号")
-		}
-		result, err := service.verifyLogin(ctx, login)
-		if err != nil {
-			return nil, err
-		}
-		account := text(result["account"])
-		if account != text(login.Projection["account"]) {
-			return nil, fmt.Errorf("确认期间登录账号改变，未绑定")
-		}
-		bound, err := service.Store.Bind(text(login.Projection["connection_id"]), login.Revision, account, result["session"], result["capabilities"], func() error {
-			if text(login.Projection["state"]) != "awaiting_bind" || displayed != text(login.Projection["account"]) {
-				return fmt.Errorf("确认期间登录状态或账号已改变，未绑定")
-			}
-			return nil
-		})
-		if err != nil {
-			return nil, err
-		}
-		login.QR = ""
-		login.Projection["state"] = "online"
-		login.Projection["has_qr"] = false
-		login.Projection["boundRevision"] = bound.Revision
-		return map[string]any{"login": service.persist(login)}, nil
+	switch action {
+	case "cancel":
+		return service.cancelLogin(login)
+	case "qr":
+		return qrLogin(login)
+	case "inspect":
+		return service.inspectAction(ctx, input, login)
+	case "confirm":
+		return service.confirmAction(ctx, input, login)
 	}
 	return nil, fmt.Errorf("登录操作无效")
+}
+
+func pollLogin(ctx context.Context, login *Login) (map[string]any, error) {
+	switch {
+	case login.Qq != nil:
+		return login.Qq.Poll(ctx)
+	case login.ILink != nil:
+		return login.ILink.Poll(ctx)
+	case login.Web != nil:
+		return login.Web.Poll(ctx)
+	default:
+		return nil, fmt.Errorf("本次登录状态已中断")
+	}
+}
+
+func (service *Service) failPoll(login *Login, err error) (any, error) {
+	login.Projection["state"] = "failed"
+	login.Projection["has_qr"] = false
+	login.Projection["detail"] = map[string]any{"message": msgLoginIncomplete}
+	service.persist(login)
+	return nil, err
+}
+
+func (service *Service) failVerify(login *Login, err error) (any, error) {
+	login.Projection["state"] = "failed"
+	login.Projection["detail"] = map[string]any{"message": err.Error()}
+	service.persist(login)
+	return nil, err
 }
 
 func (service *Service) inspectLogin(ctx context.Context, login *Login) (any, error) {
 	if err := service.current(login); err != nil {
 		return nil, err
 	}
-	if login.Qq != nil {
-		state, err := login.Qq.Poll(ctx)
-		if err != nil {
-			login.Projection["state"] = "failed"
-			login.Projection["has_qr"] = false
-			login.Projection["detail"] = map[string]any{"message": msgLoginIncomplete}
-			service.persist(login)
-			return nil, err
-		}
-		login.QR = text(state["qr"])
-		login.Projection["state"] = text(state["state"])
-		login.Projection["has_qr"] = login.QR != ""
-	} else if login.ILink != nil {
-		state, err := login.ILink.Poll(ctx)
-		if err != nil {
-			login.Projection["state"] = "failed"
-			login.Projection["has_qr"] = false
-			login.Projection["detail"] = map[string]any{"message": msgLoginIncomplete}
-			service.persist(login)
-			return nil, err
-		}
-		login.QR = text(state["qr"])
-		login.Projection["state"] = text(state["state"])
-		login.Projection["has_qr"] = login.QR != ""
+	state, err := pollLogin(ctx, login)
+	if err != nil {
+		return service.failPoll(login, err)
+	}
+	applyLoginState(login, state)
+	if login.ILink != nil {
 		if detail, ok := state["detail"]; ok {
 			login.Projection["detail"] = detail
 		}
-	} else if login.Web != nil {
-		state, err := login.Web.Poll(ctx)
-		if err != nil {
-			login.Projection["state"] = "failed"
-			login.Projection["has_qr"] = false
-			login.Projection["detail"] = map[string]any{"message": msgLoginIncomplete}
-			service.persist(login)
-			return nil, err
-		}
-		login.QR = text(state["qr"])
-		login.Projection["state"] = text(state["state"])
-		login.Projection["has_qr"] = login.QR != ""
-	} else {
-		return nil, fmt.Errorf("本次登录状态已中断")
 	}
 	if text(login.Projection["state"]) == "verifying" {
 		result, err := service.verifyLogin(ctx, login)
 		if err != nil {
-			login.Projection["state"] = "failed"
-			login.Projection["detail"] = map[string]any{"message": err.Error()}
-			service.persist(login)
-			return nil, err
+			return service.failVerify(login, err)
 		}
 		login.Projection["state"] = "awaiting_bind"
 		login.Projection["account"] = text(result["account"])
@@ -544,6 +646,48 @@ func (service *Service) verifyLogin(ctx context.Context, login *Login) (map[stri
 		return login.Web.Verify(ctx, text(login.Projection["account"]))
 	}
 	return nil, fmt.Errorf("本次登录状态已中断")
+}
+
+func (service *Service) syncILink(ctx context.Context, scope Scope, private PrivateConnection) (any, error) {
+	session, err := NewILinkSession(private.Session)
+	if err != nil {
+		return nil, err
+	}
+	updates, err := session.Receive(ctx, scope.Peer, scope.Account)
+	if err != nil {
+		return nil, err
+	}
+	return service.Store.SaveSessionAndMessages(scope, session.Session(), updates.Messages, private.Snapshot, nil)
+}
+
+func (service *Service) syncWeixinWeb(ctx context.Context, scope Scope, private PrivateConnection) (any, error) {
+	session, err := NewWeixinWebSession(private.Session)
+	if err != nil {
+		return nil, err
+	}
+	if _, err := session.Verify(ctx, scope.Account); err != nil {
+		return nil, err
+	}
+	updates, err := session.Receive(ctx, scope.Peer, scope.Account)
+	if err != nil {
+		return nil, err
+	}
+	return service.Store.SaveSessionAndMessages(scope, updates.Session, updates.Messages, private.Snapshot, nil)
+}
+
+func (service *Service) syncQq(ctx context.Context, scope Scope, private PrivateConnection) (any, error) {
+	session, err := NewQqSession(private.Session)
+	if err != nil {
+		return nil, err
+	}
+	if _, err := session.Verify(ctx, scope.Account); err != nil {
+		return nil, err
+	}
+	messages, err := session.Receive(ctx, scope.Peer, scope.Account)
+	if err != nil {
+		return nil, err
+	}
+	return service.Store.SaveMessages(scope, messages)
 }
 
 func (service *Service) Sync(ctx context.Context, scope Scope) (any, error) {
@@ -570,44 +714,143 @@ func (service *Service) Sync(ctx context.Context, scope Scope) (any, error) {
 	if err := service.Store.RequireRead(scope); err != nil {
 		return nil, err
 	}
-	if row.Platform == "weixin_ilink" {
-		session, err := NewILinkSession(private.Session)
-		if err != nil {
-			return nil, err
-		}
-		updates, err := session.Receive(ctx, scope.Peer, scope.Account)
-		if err != nil {
-			return nil, err
-		}
-		return service.Store.SaveSessionAndMessages(scope, session.Session(), updates.Messages, private.Snapshot, nil)
+	switch row.Platform {
+	case "weixin_ilink":
+		return service.syncILink(ctx, scope, private)
+	case "weixin_web":
+		return service.syncWeixinWeb(ctx, scope, private)
+	case "qq_napcat":
+		return service.syncQq(ctx, scope, private)
 	}
-	if row.Platform == "weixin_web" {
-		session, err := NewWeixinWebSession(private.Session)
-		if err != nil {
-			return nil, err
-		}
-		if _, err := session.Verify(ctx, scope.Account); err != nil {
-			return nil, err
-		}
-		updates, err := session.Receive(ctx, scope.Peer, scope.Account)
-		if err != nil {
-			return nil, err
-		}
-		return service.Store.SaveSessionAndMessages(scope, updates.Session, updates.Messages, private.Snapshot, nil)
+	return nil, fmt.Errorf("此平台的原生通讯会话仍在迁移")
+}
+
+func (service *Service) unknownSend(op string) map[string]any {
+	_, _ = service.Store.FinishSend(op, "unknown", "")
+	return map[string]any{"operation_id": op, "state": "unknown"}
+}
+
+func sendILinkMessage(ctx context.Context, scope Scope, private PrivateConnection, message, op string) (string, bool) {
+	session, err := NewILinkSession(private.Session)
+	if err != nil {
+		return "", false
 	}
-	if row.Platform == "qq_napcat" {
-		session, err := NewQqSession(private.Session)
-		if err != nil {
-			return nil, err
+	if _, err := session.Verify(ctx, scope.Account); err != nil {
+		return "", false
+	}
+	mid, err := session.Send(ctx, scope.Peer, message, op)
+	if err != nil {
+		return "", false
+	}
+	return mid, true
+}
+
+func sendWeixinWebMessage(ctx context.Context, scope Scope, private PrivateConnection, message, op string) (string, bool) {
+	session, err := NewWeixinWebSession(private.Session)
+	if err != nil {
+		return "", false
+	}
+	if _, err := session.Verify(ctx, scope.Account); err != nil {
+		return "", false
+	}
+	mid, err := session.Send(ctx, scope.Peer, message, op)
+	if err != nil {
+		return "", false
+	}
+	return mid, true
+}
+
+func sendQqMessage(ctx context.Context, scope Scope, private PrivateConnection, message string) (string, bool) {
+	session, err := NewQqSession(private.Session)
+	if err != nil {
+		return "", false
+	}
+	if _, err := session.Verify(ctx, scope.Account); err != nil {
+		return "", false
+	}
+	mid, err := session.Send(ctx, scope.Peer, message)
+	if err != nil {
+		return "", false
+	}
+	return mid, true
+}
+
+func (service *Service) deliverMessage(ctx context.Context, scope Scope, private PrivateConnection, platform, message, op string) (string, bool) {
+	switch platform {
+	case "weixin_ilink":
+		return sendILinkMessage(ctx, scope, private, message, op)
+	case "weixin_web":
+		return sendWeixinWebMessage(ctx, scope, private, message, op)
+	case "qq_napcat":
+		return sendQqMessage(ctx, scope, private, message)
+	}
+	return "", false
+}
+
+func (service *Service) sendScope(ctx context.Context, scope Scope, private PrivateConnection, platform string, input map[string]any) (any, error) {
+	fresh, receipt, err := service.Store.ClaimSend(input)
+	if err != nil {
+		return nil, err
+	}
+	if !fresh {
+		if text(receipt["state"]) == "sending" {
+			receipt["state"] = "unknown"
 		}
-		if _, err := session.Verify(ctx, scope.Account); err != nil {
-			return nil, err
-		}
-		messages, err := session.Receive(ctx, scope.Peer, scope.Account)
-		if err != nil {
-			return nil, err
-		}
-		return service.Store.SaveMessages(scope, messages)
+		return receipt, nil
+	}
+	op := text(input["operation_id"])
+	mid, ok := service.deliverMessage(ctx, scope, private, platform, text(input["text"]), op)
+	if !ok {
+		return service.unknownSend(op), nil
+	}
+	receipt, err = service.Store.FinishSend(op, "sent", mid)
+	if err != nil {
+		return nil, err
+	}
+	return receipt, nil
+}
+
+func directoryILink(ctx context.Context, private PrivateConnection) (any, error) {
+	session, err := NewILinkSession(private.Session)
+	if err != nil {
+		return nil, err
+	}
+	return session.Directory(ctx)
+}
+
+func directoryWeixinWeb(ctx context.Context, scope Scope, private PrivateConnection) (any, error) {
+	session, err := NewWeixinWebSession(private.Session)
+	if err != nil {
+		return nil, err
+	}
+	if _, err := session.Verify(ctx, scope.Account); err != nil {
+		return nil, err
+	}
+	return session.Directory(ctx)
+}
+
+func directoryQq(ctx context.Context, scope Scope, private PrivateConnection) (any, error) {
+	session, err := NewQqSession(private.Session)
+	if err != nil {
+		return nil, err
+	}
+	if _, err := session.Verify(ctx, scope.Account); err != nil {
+		return nil, err
+	}
+	return session.Directory(ctx)
+}
+
+func (service *Service) directoryScope(ctx context.Context, scope Scope, private PrivateConnection, platform string) (any, error) {
+	if err := service.Store.RequireRead(scope); err != nil {
+		return nil, err
+	}
+	switch platform {
+	case "weixin_ilink":
+		return directoryILink(ctx, private)
+	case "weixin_web":
+		return directoryWeixinWeb(ctx, scope, private)
+	case "qq_napcat":
+		return directoryQq(ctx, scope, private)
 	}
 	return nil, fmt.Errorf("此平台的原生通讯会话仍在迁移")
 }
@@ -633,110 +876,13 @@ func (service *Service) scopeAction(ctx context.Context, action string, input ma
 	if err != nil {
 		return nil, err
 	}
-	if action == "send" {
-		fresh, receipt, err := service.Store.ClaimSend(input)
-		if err != nil {
-			return nil, err
-		}
-		if !fresh {
-			if text(receipt["state"]) == "sending" {
-				receipt["state"] = "unknown"
-			}
-			return receipt, nil
-		}
-		op := text(input["operation_id"])
-		message := text(input["text"])
-		var mid string
-		if row.Platform == "weixin_ilink" {
-			session, err := NewILinkSession(private.Session)
-			if err == nil {
-				err = func() error {
-					if _, verifyErr := session.Verify(ctx, scope.Account); verifyErr != nil {
-						return verifyErr
-					}
-					mid, err = session.Send(ctx, scope.Peer, message, op)
-					return err
-				}()
-			}
-			if err != nil {
-				_, _ = service.Store.FinishSend(op, "unknown", "")
-				return map[string]any{"operation_id": op, "state": "unknown"}, nil
-			}
-		} else if row.Platform == "weixin_web" {
-			session, err := NewWeixinWebSession(private.Session)
-			if err != nil {
-				_, _ = service.Store.FinishSend(op, "unknown", "")
-				return map[string]any{"operation_id": op, "state": "unknown"}, nil
-			}
-			if _, err := session.Verify(ctx, scope.Account); err != nil {
-				_, _ = service.Store.FinishSend(op, "unknown", "")
-				return map[string]any{"operation_id": op, "state": "unknown"}, nil
-			}
-			mid, err = session.Send(ctx, scope.Peer, message, op)
-			if err != nil {
-				_, _ = service.Store.FinishSend(op, "unknown", "")
-				return map[string]any{"operation_id": op, "state": "unknown"}, nil
-			}
-		} else if row.Platform == "qq_napcat" {
-			session, err := NewQqSession(private.Session)
-			if err != nil {
-				_, _ = service.Store.FinishSend(op, "unknown", "")
-				return map[string]any{"operation_id": op, "state": "unknown"}, nil
-			}
-			if _, err := session.Verify(ctx, scope.Account); err != nil {
-				_, _ = service.Store.FinishSend(op, "unknown", "")
-				return map[string]any{"operation_id": op, "state": "unknown"}, nil
-			}
-			mid, err = session.Send(ctx, scope.Peer, message)
-			if err != nil {
-				_, _ = service.Store.FinishSend(op, "unknown", "")
-				return map[string]any{"operation_id": op, "state": "unknown"}, nil
-			}
-		} else {
-			_, _ = service.Store.FinishSend(op, "unknown", "")
-			return map[string]any{"operation_id": op, "state": "unknown"}, nil
-		}
-		receipt, err = service.Store.FinishSend(op, "sent", mid)
-		if err != nil {
-			return nil, err
-		}
-		return receipt, nil
-	}
-	if action == "sync" {
+	switch action {
+	case "send":
+		return service.sendScope(ctx, scope, private, row.Platform, input)
+	case "sync":
 		return service.Sync(ctx, scope)
-	}
-	if action == "directory" {
-		if err := service.Store.RequireRead(scope); err != nil {
-			return nil, err
-		}
-		if row.Platform == "weixin_ilink" {
-			session, err := NewILinkSession(private.Session)
-			if err != nil {
-				return nil, err
-			}
-			return session.Directory(ctx)
-		}
-		if row.Platform == "weixin_web" {
-			session, err := NewWeixinWebSession(private.Session)
-			if err != nil {
-				return nil, err
-			}
-			if _, err := session.Verify(ctx, scope.Account); err != nil {
-				return nil, err
-			}
-			return session.Directory(ctx)
-		}
-		if row.Platform == "qq_napcat" {
-			session, err := NewQqSession(private.Session)
-			if err != nil {
-				return nil, err
-			}
-			if _, err := session.Verify(ctx, scope.Account); err != nil {
-				return nil, err
-			}
-			return session.Directory(ctx)
-		}
-		return nil, fmt.Errorf("此平台的原生通讯会话仍在迁移")
+	case "directory":
+		return service.directoryScope(ctx, scope, private, row.Platform)
 	}
 	return nil, fmt.Errorf("此通讯操作尚未完成原生适配：%s", action)
 }
