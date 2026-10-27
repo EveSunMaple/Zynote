@@ -31,6 +31,91 @@ const receipt = z
 const hash = (value: unknown) => createHash('sha256').update(JSON.stringify(value)).digest('hex')
 const compareCodeUnit = (a: string, b: string) => Number(a > b) - Number(a < b)
 /** Read-only hash-prefix lookup. This never sends a complete video ID, account cookies or submissions. */
+function sponsorCategories(options: NativeMediaOptions) {
+ const categories = [...new Set(options.sponsorblock.split(','))].sort(compareCodeUnit)
+ if (!categories.length || categories.some(value => !mediaSponsors.includes(value))) throw new Error('片段移除分类无效')
+ return categories
+}
+async function readSponsorReceipt(path: string, sourceId: string, duration: number, categories: string[]) {
+ try {
+  const info = await lstat(path)
+  if (!info.isFile() || info.isSymbolicLink() || info.size > 1_000_000) throw new Error('片段移除恢复记录无效')
+  const saved = receipt.parse(JSON.parse(await readFile(path, 'utf8')))
+  if (
+   saved.sourceId !== sourceId ||
+   saved.duration !== duration ||
+   JSON.stringify(saved.categories) !== JSON.stringify(categories) ||
+   saved.sha256 !== hash([saved.sourceId, saved.duration, saved.categories, saved.segments])
+  )
+   throw new Error('片段移除恢复记录已改变，原文件保留')
+  return saved.segments
+ } catch (error) {
+  if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error
+  return undefined
+ }
+}
+async function fetchSponsorRows(
+ sourceId: string,
+ categories: string[],
+ fetcher: (url: string, init?: RequestInit) => Promise<Response>,
+ signal: AbortSignal
+) {
+ const url = new URL(
+  'https://sponsor.ajay.app/api/skipSegments/' + createHash('sha256').update(sourceId).digest('hex').slice(0, 4)
+ )
+ url.searchParams.set('categories', JSON.stringify(categories))
+ url.searchParams.set('actionTypes', '["skip"]')
+ url.searchParams.set('service', 'YouTube')
+ signal.throwIfAborted()
+ const response = await fetcher(url.href, {
+  signal: AbortSignal.any([signal, AbortSignal.timeout(20000)]),
+  redirect: 'error',
+  credentials: 'omit',
+  headers: {Accept: 'application/json'}
+ })
+ if (response.status === 404) {
+  await response.body?.cancel()
+  return []
+ }
+ const result = z
+  .array(z.object({videoID: z.string(), segments: z.array(segment).max(1000)}))
+  .max(1000)
+  .parse(JSON.parse((await boundedMediaResponse(response, 1_000_000)).toString('utf8')))
+ const matches = result.filter(row => row.videoID === sourceId)
+ if (matches.length > 1) throw new Error('片段来源身份重复，未修改视频')
+ return segments.parse(
+  (matches[0]?.segments || []).filter(row => categories.includes(row.category) && row.actionType === 'skip')
+ )
+}
+function validSponsorRow(row: z.infer<typeof segment>, duration: number) {
+ return !(
+  (row.videoDuration > 0 && Math.abs(row.videoDuration - duration) > 1) ||
+  row.segment[1] > duration ||
+  row.segment[1] <= row.segment[0]
+ )
+}
+async function writeSponsorReceipt(
+ path: string,
+ sourceId: string,
+ duration: number,
+ categories: string[],
+ rows: z.infer<typeof segments>,
+ signal: AbortSignal
+) {
+ const value = receipt.parse({
+  version: 1,
+  sourceId,
+  duration,
+  categories,
+  segments: rows,
+  sha256: hash([sourceId, duration, categories, rows]),
+  attribution: 'SponsorBlock community / CC BY-NC-SA 4.0',
+  source: 'https://sponsor.ajay.app',
+  license: 'https://creativecommons.org/licenses/by-nc-sa/4.0/'
+ })
+ signal.throwIfAborted()
+ await writeFile(path, JSON.stringify(value, null, 2), {flag: 'wx'})
+}
 export async function sponsorBlockPlan(
  source: NativeMediaSource,
  options: NativeMediaOptions,
@@ -40,85 +125,20 @@ export async function sponsorBlockPlan(
 ) {
  if (source.platform !== 'youtube' || !source.sourceId || !/^[A-Za-z0-9_-]{11}$/.test(source.sourceId))
   throw new Error('片段移除目前仅支持 YouTube；其它平台请使用时间片段')
- const categories = [...new Set(options.sponsorblock.split(','))].sort(compareCodeUnit)
- if (!categories.length || categories.some(value => !mediaSponsors.includes(value))) throw new Error('片段移除分类无效')
+ const categories = sponsorCategories(options)
  const duration = source.catalog.duration
  if (!duration || !Number.isFinite(duration)) throw new Error('缺少完整视频时长，不能核验片段位置')
  const relative = 'sponsorblock-plan.json',
   path = join(directory, relative)
- let rows: z.infer<typeof segments> | undefined
- try {
-  const info = await lstat(path)
-  if (!info.isFile() || info.isSymbolicLink() || info.size > 1_000_000) throw new Error('片段移除恢复记录无效')
-  const saved = receipt.parse(JSON.parse(await readFile(path, 'utf8')))
-  if (
-   saved.sourceId !== source.sourceId ||
-   saved.duration !== duration ||
-   JSON.stringify(saved.categories) !== JSON.stringify(categories) ||
-   saved.sha256 !== hash([saved.sourceId, saved.duration, saved.categories, saved.segments])
-  )
-   throw new Error('片段移除恢复记录已改变，原文件保留')
-  rows = saved.segments
- } catch (error) {
-  if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error
- }
+ let rows = await readSponsorReceipt(path, source.sourceId, duration, categories)
  if (!rows) {
-  const url = new URL(
-   'https://sponsor.ajay.app/api/skipSegments/' + createHash('sha256').update(source.sourceId).digest('hex').slice(0, 4)
-  )
-  url.searchParams.set('categories', JSON.stringify(categories))
-  url.searchParams.set('actionTypes', '["skip"]')
-  url.searchParams.set('service', 'YouTube')
-  signal.throwIfAborted()
-  const response = await fetcher(url.href, {
-   signal: AbortSignal.any([signal, AbortSignal.timeout(20000)]),
-   redirect: 'error',
-   credentials: 'omit',
-   headers: {Accept: 'application/json'}
-  })
-  if (response.status === 404) {
-   await response.body?.cancel()
-   rows = []
-  } else {
-   const result = z
-     .array(z.object({videoID: z.string(), segments: z.array(segment).max(1000)}))
-     .max(1000)
-     .parse(JSON.parse((await boundedMediaResponse(response, 1_000_000)).toString('utf8'))),
-    matches = result.filter(row => row.videoID === source.sourceId)
-   if (matches.length > 1) throw new Error('片段来源身份重复，未修改视频')
-   rows = segments.parse(
-    (matches[0]?.segments || []).filter(row => categories.includes(row.category) && row.actionType === 'skip')
-   )
-  }
+  rows = await fetchSponsorRows(source.sourceId, categories, fetcher, signal)
   // A stale crowd-sourced range must not cut the corresponding timestamp from a different edit.
-  for (const row of rows)
-   if (
-    (row.videoDuration > 0 && Math.abs(row.videoDuration - duration) > 1) ||
-    row.segment[1] > duration ||
-    row.segment[1] <= row.segment[0]
-   )
-    throw new Error('片段标注与当前视频时长不符，未执行裁剪')
-  const value = receipt.parse({
-   version: 1,
-   sourceId: source.sourceId,
-   duration,
-   categories,
-   segments: rows,
-   sha256: hash([source.sourceId, duration, categories, rows]),
-   attribution: 'SponsorBlock community / CC BY-NC-SA 4.0',
-   source: 'https://sponsor.ajay.app',
-   license: 'https://creativecommons.org/licenses/by-nc-sa/4.0/'
-  })
-  signal.throwIfAborted()
-  await writeFile(path, JSON.stringify(value, null, 2), {flag: 'wx'})
+  if (rows.some(row => !validSponsorRow(row, duration))) throw new Error('片段标注与当前视频时长不符，未执行裁剪')
+  await writeSponsorReceipt(path, source.sourceId, duration, categories, rows, signal)
+ } else if (rows.some(row => !validSponsorRow(row, duration))) {
+  throw new Error('片段标注与当前视频时长不符，未执行裁剪')
  }
- for (const row of rows)
-  if (
-   (row.videoDuration > 0 && Math.abs(row.videoDuration - duration) > 1) ||
-   row.segment[1] > duration ||
-   row.segment[1] <= row.segment[0]
-  )
-   throw new Error('片段标注与当前视频时长不符，未执行裁剪')
  const plan = removalTimeline(
   duration,
   rows.map(row => ({start: row.segment[0], end: row.segment[1]})),
