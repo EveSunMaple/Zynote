@@ -161,9 +161,6 @@ func (service *Service) checkVisualSource(task *Task) error {
 }
 
 func (service *Service) verifyVisualOutput(task *Task) error {
-	if task.Output == "" {
-		return nil
-	}
 	output, _ := service.outputPath(*task)
 	current, err := service.optionalDigest(output)
 	if err != nil || current != task.OutputHash {

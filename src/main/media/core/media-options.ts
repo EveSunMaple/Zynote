@@ -120,40 +120,29 @@ export function mediaTuning(value: string) {
  }
  return result
 }
-export function mediaOptions(input: unknown = {}): NativeMediaOptions {
- const v = mediaSchema.parse(input)
- if (v.cookie_profile && !v.use_cookies) throw new Error('选择登录档案时需启用使用登录档案')
- if ((v.clip_start === null) !== (v.clip_end === null) || (v.clip_end !== null && v.clip_end <= v.clip_start!))
-  throw new Error('片段结束时间必须大于开始时间')
- if (v.sponsorblock && !v.sponsorblock.split(',').every(value => mediaSponsors.includes(value)))
-  throw new Error('SponsorBlock 分类无效')
- if (v.sponsorblock && (v.subtitle_only || v.split_chapters))
-  throw new Error('片段移除与仅字幕或章节拆分请分别建立任务')
- if (v.proxy) {
-  let url: URL
-  try {
-   url = new URL(v.proxy)
-  } catch {
-   throw new Error('代理地址无效')
-  }
-  if (
-   !['http:', 'https:', 'socks5:', 'socks5h:'].includes(url.protocol) ||
-   !url.hostname ||
-   url.username ||
-   url.password ||
-   url.search ||
-   url.hash ||
-   (url.pathname && url.pathname !== '/')
-  )
-   throw new Error('代理需为不含密码的 HTTP/SOCKS 地址')
+function validateMediaProxy(proxy: string) {
+ let url: URL
+ try {
+  url = new URL(proxy)
+ } catch {
+  throw new Error('代理地址无效')
  }
  if (
-  !v.filename_template ||
-  /[/\\<>:"|?*]/.test(v.filename_template) ||
-  v.filename_template.includes('..') ||
-  !v.filename_template.endsWith('.%(ext)s')
+  !['http:', 'https:', 'socks5:', 'socks5h:'].includes(url.protocol) ||
+  !url.hostname ||
+  url.username ||
+  url.password ||
+  url.search ||
+  url.hash ||
+  (url.pathname && url.pathname !== '/')
  )
+  throw new Error('代理需为不含密码的 HTTP/SOCKS 地址')
+}
+function validateMediaFilename(template: string) {
+ if (!template || /[/\\<>:"|?*]/.test(template) || template.includes('..') || !template.endsWith('.%(ext)s'))
   throw new Error('文件名模板须为单层文件名，以 .%(ext)s 结尾')
+}
+function normalizeMediaSubtitles(v: NativeMediaOptions) {
  if (v.translated_subtitles) v.auto_subtitles = true
  if (v.auto_subtitles) v.subtitles = true
  if (v.subtitle_only) {
@@ -164,6 +153,19 @@ export function mediaOptions(input: unknown = {}): NativeMediaOptions {
   if (v.audio_only || !v.subtitles) throw new Error('嵌入字幕需选择视频及下载字幕')
   v.container = 'mkv'
  }
+}
+export function mediaOptions(input: unknown = {}): NativeMediaOptions {
+ const v = mediaSchema.parse(input)
+ if (v.cookie_profile && !v.use_cookies) throw new Error('选择登录档案时需启用使用登录档案')
+ if ((v.clip_start === null) !== (v.clip_end === null) || (v.clip_end !== null && v.clip_end <= v.clip_start!))
+  throw new Error('片段结束时间必须大于开始时间')
+ if (v.sponsorblock && !v.sponsorblock.split(',').every(value => mediaSponsors.includes(value)))
+  throw new Error('SponsorBlock 分类无效')
+ if (v.sponsorblock && (v.subtitle_only || v.split_chapters))
+  throw new Error('片段移除与仅字幕或章节拆分请分别建立任务')
+ if (v.proxy) validateMediaProxy(v.proxy)
+ validateMediaFilename(v.filename_template)
+ normalizeMediaSubtitles(v)
  if (v.split_chapters && v.clip_end !== null) throw new Error('章节拆分和时间片段请分别建立任务')
  if (v.crop_artwork && !v.embed_thumbnail) throw new Error('裁剪封面需启用嵌入封面')
  if (v.subtitle_only && v.embed_thumbnail) throw new Error('仅字幕没有可嵌入封面的媒体，可单独下载封面')
