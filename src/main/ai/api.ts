@@ -48,8 +48,11 @@ async function requestError(response: Response, nativeFile: boolean, hasFile: bo
    else if (/model|模型/i.test(detail)) hint = '服务端拒绝了当前模型，请核对模型名与接口是否匹配'
   } catch {}
  }
+ let fileHint = ''
+ if (nativeFile) fileHint = '；PPT 原文件上传需要服务商支持 Responses 文件输入'
+ else if (hasFile) fileHint = '；此任务需要服务商与模型支持 PDF 文件输入'
  const error = new Error(
-  `API 请求失败（HTTP ${response.status}），${hint || '请检查地址、接口格式、模型、密钥或配额'}${nativeFile ? '；PPT 原文件上传需要服务商支持 Responses 文件输入' : hasFile ? '；此任务需要服务商与模型支持 PDF 文件输入' : ''}`
+  `API 请求失败（HTTP ${response.status}），${hint || '请检查地址、接口格式、模型、密钥或配额'}${fileHint}`
  )
  const retryAfter = response.headers.get('retry-after')
  if (retryAfter) {
@@ -173,17 +176,20 @@ export class Api {
        content:
         typeof m.content === 'string'
          ? m.content
-         : m.content.map(part =>
-            part.type === 'text'
-             ? {type: 'input_text', text: part.text}
-             : part.type === 'image_url'
-               ? {type: 'input_image', image_url: part.image_url.url}
-               : {type: 'input_file', filename: part.file.filename, file_data: part.file.file_data}
-           )
+         : m.content.map(part => {
+            if (part.type === 'text') return {type: 'input_text', text: part.text}
+            if (part.type === 'image_url') return {type: 'input_image', image_url: part.image_url.url}
+            return {type: 'input_file', filename: part.file.filename, file_data: part.file.file_data}
+           })
       })),
       store: false
      }
    : {messages: routedMessages}
+  let reasoning: Record<string, unknown> = {}
+  if (parameters.reasoningEffort) {
+   if (responses) reasoning = {reasoning: {effort: parameters.reasoningEffort}}
+   else reasoning = {reasoning_effort: parameters.reasoningEffort}
+  }
   const response = await this.request(endpoint, {
    method: 'POST',
    headers: {'Content-Type': 'application/json', ...(p.key ? {Authorization: `Bearer ${p.key}`} : {})},
@@ -196,11 +202,7 @@ export class Api {
     ...(parameters.maxTokens !== undefined
      ? {[responses ? 'max_output_tokens' : 'max_tokens']: parameters.maxTokens}
      : {}),
-    ...(parameters.reasoningEffort
-     ? responses
-      ? {reasoning: {effort: parameters.reasoningEffort}}
-      : {reasoning_effort: parameters.reasoningEffort}
-     : {})
+    ...reasoning
    }),
    signal: controller
   })
@@ -222,28 +224,27 @@ export class Api {
   const choice = data.choices?.[0],
    finish = choice?.finish_reason
   // 兼容未返回 finish_reason 的完整 JSON 响应。
-  if (!responses && finish && finish !== 'stop')
-   throw new Error(
-    finish === 'length'
-     ? 'API 输出达到长度限制，未保存不完整结果'
-     : finish === 'content_filter'
-       ? 'API 输出被内容安全过滤，未保存不完整结果'
-       : 'API 未正常结束，未保存结果'
-   )
-  const body = choice?.message?.content,
-   value = responses
-    ? data.output
-       ?.filter(item => item.type === 'message')
-       .flatMap(item => item.content || [])
-       .filter(part => part.type === 'output_text')
-       .map(part => part.text || '')
-       .join('')
-    : Array.isArray(body)
-      ? body
-         .filter(part => part.type === 'text')
-         .map(part => part.text || '')
-         .join('')
-      : body
+  if (!responses && finish && finish !== 'stop') {
+   let finishMessage = 'API 未正常结束，未保存结果'
+   if (finish === 'length') finishMessage = 'API 输出达到长度限制，未保存不完整结果'
+   else if (finish === 'content_filter') finishMessage = 'API 输出被内容安全过滤，未保存不完整结果'
+   throw new Error(finishMessage)
+  }
+  const body = choice?.message?.content
+  let value: string | undefined
+  if (responses)
+   value = data.output
+    ?.filter(item => item.type === 'message')
+    .flatMap(item => item.content || [])
+    .filter(part => part.type === 'output_text')
+    .map(part => part.text || '')
+    .join('')
+  else if (Array.isArray(body))
+   value = body
+    .filter(part => part.type === 'text')
+    .map(part => part.text || '')
+    .join('')
+  else value = body
   if (!value?.trim()) throw new Error('API 未返回有效文本')
   return value
  }

@@ -18,15 +18,16 @@ const requested = z
  .enum(['win', 'mac', 'linux'])
  .optional()
  .parse(process.argv.find(argument => argument.startsWith('--platform='))?.slice('--platform='.length))
-const platform =
- requested === 'win'
-  ? Platform.WINDOWS
-  : requested === 'mac'
-    ? Platform.MAC
-    : requested === 'linux'
-      ? Platform.LINUX
-      : Platform.current()
-const active = requested || (process.platform === 'win32' ? 'win' : process.platform === 'darwin' ? 'mac' : 'linux')
+let platform = Platform.current()
+if (requested === 'win') platform = Platform.WINDOWS
+else if (requested === 'mac') platform = Platform.MAC
+else if (requested === 'linux') platform = Platform.LINUX
+let active = requested
+if (!active) {
+ if (process.platform === 'win32') active = 'win'
+ else if (process.platform === 'darwin') active = 'mac'
+ else active = 'linux'
+}
 const pkg = JSON.parse(await readFile(join(root, 'package.json'), 'utf8')) as {
  version: string
  devDependencies: {electron: string}
@@ -118,14 +119,11 @@ if (profile === 'components') {
   }
   return true
  })
- const targets =
-  profile === 'portable'
-   ? ['dir']
-   : platform === Platform.WINDOWS
-     ? ['nsis']
-     : platform === Platform.MAC
-       ? ['dmg', 'zip']
-       : ['AppImage', 'deb']
+ let targets: string[]
+ if (profile === 'portable') targets = ['dir']
+ else if (platform === Platform.WINDOWS) targets = ['nsis']
+ else if (platform === Platform.MAC) targets = ['dmg', 'zip']
+ else targets = ['AppImage', 'deb']
  const configPath = join(root, 'tmp', 'release-' + profile + '.json')
  await rm(join(output, 'release-info.json'), {force: true})
  await mkdir(dirname(configPath), {recursive: true})

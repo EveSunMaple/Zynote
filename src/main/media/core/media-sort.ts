@@ -13,16 +13,13 @@ export function mediaSort(input: string) {
 }
 export function sortMediaStreams(rows: NativeMediaStream[], input: string, freeFormats = false) {
  const fields = mediaSort(input)
- const codecScore = (codec: string) =>
-  /^(?:av01|av1)/.test(codec)
-   ? 4
-   : codec.startsWith('vp')
-     ? 3
-     : /^(?:hev|hvc)/.test(codec)
-       ? 2
-       : /^(?:avc|h264)/.test(codec)
-         ? 1
-         : 0
+ const codecScore = (codec: string) => {
+  if (/^(?:av01|av1)/.test(codec)) return 4
+  if (codec.startsWith('vp')) return 3
+  if (/^(?:hev|hvc)/.test(codec)) return 2
+  if (/^(?:avc|h264)/.test(codec)) return 1
+  return 0
+ }
  return [...rows].sort((a, b) => {
   for (const field of fields) {
    let av: number, bv: number
@@ -33,14 +30,10 @@ export function sortMediaStreams(rows: NativeMediaStream[], input: string, freeF
     av = a.bandwidth
     bv = b.bandwidth
    } else {
-    const preferred =
-     field.preferred === 'h264'
-      ? 'avc'
-      : field.preferred === 'h265'
-        ? 'hev'
-        : field.preferred === 'av1'
-          ? 'av01'
-          : field.preferred
+    let preferred = field.preferred
+    if (field.preferred === 'h264') preferred = 'avc'
+    else if (field.preferred === 'h265') preferred = 'hev'
+    else if (field.preferred === 'av1') preferred = 'av01'
     av = preferred ? Number(a.codec.startsWith(preferred)) : codecScore(a.codec)
     bv = preferred ? Number(b.codec.startsWith(preferred)) : codecScore(b.codec)
    }

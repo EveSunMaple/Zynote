@@ -19,12 +19,18 @@ const object = (value: unknown): Raw =>
 const array = (value: unknown): unknown[] => (Array.isArray(value) ? value : [])
 const number = (value: unknown, fallback = 0) =>
  Number.isSafeInteger(Number(value)) && Number(value) >= 0 ? Number(value) : fallback
-const identity = (value: unknown) =>
- typeof value === 'string' && /^\d+$/.test(value)
-  ? value
-  : typeof value === 'number' && Number.isSafeInteger(value) && value >= 0
-    ? String(value)
-    : ''
+const identity = (value: unknown) => {
+ if (typeof value === 'string' && /^\d+$/.test(value)) return value
+ if (typeof value === 'number' && Number.isSafeInteger(value) && value >= 0) return String(value)
+ return ''
+}
+function coverageStatus(complete: boolean, count: number, errors: number, closed = false) {
+ if (closed) return 'closed'
+ if (complete) return 'complete'
+ if (count) return 'partial'
+ if (errors) return 'failed'
+ return 'empty'
+}
 type Comment = {
  rpid: string
  root_id: string
@@ -108,7 +114,10 @@ function* fields(bytes: Uint8Array): Generator<[number, bigint | Uint8Array]> {
    yield [field, read()]
    continue
   }
-  const size = wire === 2 ? Number(read()) : wire === 1 ? 8 : wire === 5 ? 4 : Number.NaN
+  let size = Number.NaN
+  if (wire === 2) size = Number(read())
+  else if (wire === 1) size = 8
+  else if (wire === 5) size = 4
   if (!Number.isSafeInteger(size) || size < 0) throw new Error('unsupported_protobuf_wire')
   if (size > bytes.length - position) throw new Error('truncated_protobuf')
   yield [field, bytes.subarray(position, position + size)]
@@ -326,13 +335,7 @@ export class BiliDiscussion {
   coverage.reply_count = rows.reduce((sum, row) => sum + row.replies.length, 0)
   coverage.partial_threads = rows.filter(row => !row.replies_complete).length
   coverage.complete = !!coverage.root_end && !coverage.errors.length && !coverage.partial_threads
-  coverage.status = coverage.complete
-   ? 'complete'
-   : rows.length
-     ? 'partial'
-     : coverage.errors.length
-       ? 'failed'
-       : 'empty'
+  coverage.status = coverageStatus(coverage.complete, rows.length, coverage.errors.length)
   return {rows, coverage}
  }
  private async raw(path: string, params: Record<string, string>, signal: AbortSignal) {
@@ -421,15 +424,7 @@ export class BiliDiscussion {
   coverage.retained_count = Math.min(unique.length, 800)
   coverage.retention_limited = unique.length > 800
   coverage.complete = ok.length === total && !coverage.errors.length && !coverage.retention_limited
-  coverage.status = coverage.closed
-   ? 'closed'
-   : coverage.complete
-     ? 'complete'
-     : unique.length
-       ? 'partial'
-       : coverage.errors.length
-         ? 'failed'
-         : 'empty'
+  coverage.status = coverageStatus(coverage.complete, unique.length, coverage.errors.length, coverage.closed === true)
   return {rows: unique.slice(0, 800), coverage}
  }
  async collect(input: string, pages: number) {

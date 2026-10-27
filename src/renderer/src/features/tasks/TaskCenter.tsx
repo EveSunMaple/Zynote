@@ -46,12 +46,22 @@ const statusColor = (status: string): 'default' | 'accent' | 'success' | 'warnin
  if (status === '待处理' || status === '待继续' || status === '已取消' || status === '排队中') return 'default'
  return 'default'
 }
-const filterRows = (rows: Row[], filter: string) =>
- filter === '全部'
-  ? rows
-  : filter === '视频与字幕'
-    ? rows.filter(row => ['视频', '字幕', '笔记'].includes(row.domain))
-    : rows.filter(row => row.domain === filter)
+const filterRows = (rows: Row[], filter: string) => {
+ if (filter === '全部') return rows
+ if (filter === '视频与字幕') return rows.filter(row => ['视频', '字幕', '笔记'].includes(row.domain))
+ return rows.filter(row => row.domain === filter)
+}
+const researchStatus = (status: string) => {
+ if (status === 'completed') return '已完成'
+ if (status === 'failed') return '失败'
+ return '进行中'
+}
+const visualStatus = (done: boolean, failed: boolean, running: boolean) => {
+ if (done) return '已完成'
+ if (failed) return '失败'
+ if (running) return '进行中'
+ return '待处理'
+}
 function groupStatus(rows: Row[]) {
  return {
   active: rows.filter(
@@ -129,6 +139,40 @@ export function TaskCenter({
     )
    })
   }
+  const downloadAction = (job: MediaJob) => {
+   if (['queued', 'running'].includes(job.state))
+    return (
+     <Button
+      variant="danger-soft"
+      size="sm"
+      isDisabled={busy}
+      onClick={() => void run(() => invoke('media:cancel', {id: job.id}).then(() => {}))}
+     >
+      取消下载
+     </Button>
+    )
+   if (job.state === 'completed')
+    return (
+     <Button
+      variant="tertiary"
+      size="sm"
+      isDisabled={busy}
+      onClick={() => void run(() => invoke('media:open', {id: job.id}).then(() => {}))}
+     >
+      打开文件
+     </Button>
+    )
+   return (
+    <Button
+     variant="tertiary"
+     size="sm"
+     isDisabled={busy}
+     onClick={() => void run(() => invoke('media:retry', {id: job.id}).then(() => {}))}
+    >
+     继续下载
+    </Button>
+   )
+  }
   for (const job of media) {
    const status = states[job.state] || job.state
    next.push({
@@ -137,38 +181,7 @@ export function TaskCenter({
     title: job.title,
     detail: job.error_message || job.warning || status,
     status,
-    actions: (
-     <>
-      {['queued', 'running'].includes(job.state) ? (
-       <Button
-        variant="danger-soft"
-        size="sm"
-        isDisabled={busy}
-        onClick={() => void run(() => invoke('media:cancel', {id: job.id}).then(() => {}))}
-       >
-        取消下载
-       </Button>
-      ) : job.state === 'completed' ? (
-       <Button
-        variant="tertiary"
-        size="sm"
-        isDisabled={busy}
-        onClick={() => void run(() => invoke('media:open', {id: job.id}).then(() => {}))}
-       >
-        打开文件
-       </Button>
-      ) : (
-       <Button
-        variant="tertiary"
-        size="sm"
-        isDisabled={busy}
-        onClick={() => void run(() => invoke('media:retry', {id: job.id}).then(() => {}))}
-       >
-        继续下载
-       </Button>
-      )}
-     </>
-    )
+    actions: downloadAction(job)
    })
   }
   for (const task of visual) {
@@ -181,7 +194,7 @@ export function TaskCenter({
     domain: '识别',
     title: task.source.split(/[\\/]/).pop() || task.source,
     detail: task.preparation?.error || task.frames.find(frame => frame.error)?.error || '画面识别',
-    status: done ? '已完成' : failed ? '失败' : running ? '进行中' : '待处理',
+    status: visualStatus(!!done, !!failed, !!running),
     actions: (
      <>
       {task.output && (
@@ -221,7 +234,7 @@ export function TaskCenter({
     domain: '研究',
     title: task.question,
     detail: task.error_code || '研究 Agent',
-    status: task.status === 'completed' ? '已完成' : task.status === 'failed' ? '失败' : '进行中',
+    status: researchStatus(task.status),
     actions: (
      <Button variant="tertiary" size="sm" isDisabled={busy} onClick={() => open('tools')}>
       去研究
@@ -235,7 +248,7 @@ export function TaskCenter({
     domain: '研究',
     title: flow.question,
     detail: flow.notice || (flow.outcome_unknown ? '上次结果未确认' : '两步工作流'),
-    status: flow.status === 'completed' ? '已完成' : flow.status === 'failed' ? '失败' : '进行中',
+    status: researchStatus(flow.status),
     actions: (
      <Button variant="tertiary" size="sm" isDisabled={busy} onClick={() => open('tools')}>
       去研究

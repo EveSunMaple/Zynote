@@ -86,15 +86,16 @@ async function startApplication() {
  diagnostic(root, 'application', 'startup', {code: app.getVersion()})
  const layout = migrateDataLayout(root)
  const legacyLibraryRoot = join(root, '资料')
+ const portableLibraryRoot = process.env.LISTENING_ASSISTANT_PORTABLE_TEST
+  ? join(root, 'Library')
+  : join(app.getPath('documents'), '听课助手资料')
  const portable =
   process.env.LISTENING_ASSISTANT_DATA && !process.env.LISTENING_ASSISTANT_PORTABLE_TEST
    ? null
    : await openPortableLibrary(
       process.env.LISTENING_ASSISTANT_PORTABLE_TEST || (app.isPackaged ? dirname(process.execPath) : app.getAppPath()),
       root,
-      process.env.LISTENING_ASSISTANT_PORTABLE_TEST
-       ? join(root, 'Library')
-       : join(app.getPath('documents'), '听课助手资料')
+      portableLibraryRoot
      )
  store = portable?.store || new Store(root)
  const db = store,
@@ -405,7 +406,9 @@ async function startApplication() {
   try {
    return await fn(controller.signal)
   } catch (error) {
-   const message = controller.signal.aborted ? '任务已取消' : error instanceof Error ? error.message : '任务失败'
+   let message = '任务失败'
+   if (controller.signal.aborted) message = '任务已取消'
+   else if (error instanceof Error) message = error.message
    failure = message
    emit({kind: 'progress', data: {lectureId, stage: '任务停止', message, error: true}})
    throw new Error(message)
@@ -417,15 +420,14 @@ async function startApplication() {
  }
  const jobState = () => activeJob
  const pick = async (kind: string, course?: string) => {
-  const extensions =
-   kind === 'srt'
-    ? ['srt']
-    : kind === 'transcript'
-      ? ['docx', 'txt', 'md', 'srt']
-      : kind === 'courseware'
-        ? ['ppt', 'pptx', 'pdf', 'docx', 'txt', 'md']
-        : ['pdf', 'docx', 'txt', 'md']
-  const category = kind === 'transcript' ? 'Transcripts' : kind === 'courseware' ? 'PPT' : 'Notes'
+  const extensionSets: Record<string, string[]> = {
+   srt: ['srt'],
+   transcript: ['docx', 'txt', 'md', 'srt'],
+   courseware: ['ppt', 'pptx', 'pdf', 'docx', 'txt', 'md']
+  }
+  const categories: Record<string, 'Transcripts' | 'PPT' | 'Notes'> = {transcript: 'Transcripts', courseware: 'PPT'}
+  const extensions = extensionSets[kind] ?? ['pdf', 'docx', 'txt', 'md'],
+   category = categories[kind] ?? 'Notes'
   const result = await dialog.showOpenDialog(window, {
    defaultPath: await libraryDirectory(libraryRoot, category, course ? db.course(course).name : undefined),
    properties: kind === 'srt' || kind === 'transcript' ? ['openFile'] : ['openFile', 'multiSelections'],
@@ -609,10 +611,10 @@ async function startApplication() {
   try {
    return await routedDispatch(validated, object)
   } catch (error) {
-   diagnostic(root, 'ipc', 'request-failed', {
-    action: validated,
-    code: error instanceof z.ZodError ? 'INPUT_INVALID' : jobs.size ? 'TASK_FAILED' : 'REQUEST_FAILED'
-   })
+   let code = 'REQUEST_FAILED'
+   if (error instanceof z.ZodError) code = 'INPUT_INVALID'
+   else if (jobs.size) code = 'TASK_FAILED'
+   diagnostic(root, 'ipc', 'request-failed', {action: validated, code})
    throw error
   }
  })

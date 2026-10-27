@@ -77,13 +77,10 @@ export class NativeMediaMux {
  }
  async prepareCover(directory: string, bytes: Buffer, crop: boolean, signal: AbortSignal) {
   if (bytes.length > 8_000_000) throw new Error('封面文件过大')
-  const extension = bytes.subarray(0, 3).equals(Buffer.from([255, 216, 255]))
-   ? 'jpg'
-   : bytes.subarray(0, 8).equals(Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]))
-     ? 'png'
-     : bytes.subarray(0, 4).toString() === 'RIFF' && bytes.subarray(8, 12).toString() === 'WEBP'
-       ? 'webp'
-       : undefined
+  let extension: string | undefined
+  if (bytes.subarray(0, 3).equals(Buffer.from([255, 216, 255]))) extension = 'jpg'
+  else if (bytes.subarray(0, 8).equals(Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]))) extension = 'png'
+  else if (bytes.subarray(0, 4).toString() === 'RIFF' && bytes.subarray(8, 12).toString() === 'WEBP') extension = 'webp'
   if (!extension) throw new Error('封面不是可识别的图片')
   const base = resolve(directory)
   if ((await lstat(base)).isSymbolicLink() || resolve(await realpath(base)).toLowerCase() !== base.toLowerCase())
@@ -336,7 +333,7 @@ export class NativeMediaMux {
   if ((audio && !audioIndices.length) || (!audio && videoIndex < 0)) throw new Error('没有可用音轨或画面')
   let filterFile: string | undefined
   if (kept) {
-   const audioTracks = audio ? audioIndices.slice(0, 1) : o.merge_audio ? audioIndices : audioIndices.slice(0, 1),
+   const audioTracks = !audio || !o.merge_audio ? audioIndices.slice(0, 1) : audioIndices,
     filters: string[] = [],
     labels: string[] = []
    kept.forEach((range, i) => {
@@ -379,7 +376,10 @@ export class NativeMediaMux {
   if (subtitleInputs.length) args.push('-c:s', 'srt')
   const cut = o.clip_end !== null || !!kept
   if (!audio) {
-   args.push('-c:v', o.container === 'webm' ? 'libvpx-vp9' : cut ? 'libx264' : 'copy')
+   let videoCodec = 'copy'
+   if (o.container === 'webm') videoCodec = 'libvpx-vp9'
+   else if (cut) videoCodec = 'libx264'
+   args.push('-c:v', videoCodec)
    if (cut && o.container !== 'webm') args.push('-preset', 'fast', '-crf', '18')
   }
   if (cover) {
@@ -395,24 +395,22 @@ export class NativeMediaMux {
      'attached_pic'
     )
   }
-  const audioCodec = audio
-   ? (
-      {
-       best: kept ? 'aac' : 'copy',
-       m4a: 'aac',
-       mp3: 'libmp3lame',
-       opus: 'libopus',
-       flac: 'flac',
-       wav: 'pcm_s16le',
-       aac: 'aac',
-       vorbis: 'libvorbis'
-      } as Record<string, string>
-     )[o.audio_format]
-   : o.container === 'webm'
-     ? 'libopus'
-     : o.container === 'mp4' || cut
-       ? 'aac'
-       : 'copy'
+  let audioCodec = 'copy'
+  if (audio)
+   audioCodec = (
+    {
+     best: kept ? 'aac' : 'copy',
+     m4a: 'aac',
+     mp3: 'libmp3lame',
+     opus: 'libopus',
+     flac: 'flac',
+     wav: 'pcm_s16le',
+     aac: 'aac',
+     vorbis: 'libvorbis'
+    } as Record<string, string>
+   )[o.audio_format]
+  else if (o.container === 'webm') audioCodec = 'libopus'
+  else if (o.container === 'mp4' || cut) audioCodec = 'aac'
   args.push('-c:a', audioCodec)
   if (o.audio_bitrate && audioCodec !== 'copy' && audioCodec !== 'flac' && audioCodec !== 'pcm_s16le')
    args.push('-b:a', `${o.audio_bitrate}k`)
@@ -440,12 +438,10 @@ export class NativeMediaMux {
    ),
    prepared = await artifact.prepare()
   if (!prepared.reused) await this.command('ffmpeg', args, input.signal)
-  const proof = await this.probe(output, input.signal),
-   expected = kept
-    ? kept.reduce((sum, range) => sum + range.end - range.start, 0)
-    : cut
-      ? o.clip_end! - o.clip_start!
-      : input.expectedDuration
+  const proof = await this.probe(output, input.signal)
+  let expected = input.expectedDuration
+  if (kept) expected = kept.reduce((sum, range) => sum + range.end - range.start, 0)
+  else if (cut) expected = o.clip_end! - o.clip_start!
   if ((!audio && !proof.video) || (audio && !proof.audio) || (audioIndices.length > 0 && !proof.audio))
    throw new Error('成果缺少所选音轨或画面，保留恢复文件')
   if (proof.subtitles !== subtitleInputs.length || (chapterIndex !== undefined && proof.chapters !== chapters!.length))

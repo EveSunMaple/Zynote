@@ -60,12 +60,15 @@ export function FilePicker({
   void invoke<LibraryFile[]>('library:list')
    .then(files => {
     if (!active) return
-    const extension = transcript
-      ? /\.(docx|txt|md|srt)$/i
-      : courseware
-        ? /\.(pptx?|pdf|docx|txt|md)$/i
-        : /\.(pdf|docx|txt|md)$/i,
-     category = transcript ? '语音原文' : courseware ? 'PPT' : ''
+    let extension: RegExp
+    let category = ''
+    if (transcript) {
+     extension = /\.(docx|txt|md|srt)$/i
+     category = '语音原文'
+    } else if (courseware) {
+     extension = /\.(pptx?|pdf|docx|txt|md)$/i
+     category = 'PPT'
+    } else extension = /\.(pdf|docx|txt|md)$/i
     setLibrary(
      files
       .filter(file => extension.test(file.name) && (!category || file.category === category))
@@ -87,6 +90,19 @@ export function FilePicker({
  }, [courseId, courseName, transcript, courseware])
  const selected = paths[0] && library.some(file => file.path === paths[0]) ? paths[0] : '',
   single = transcript || courseware
+ let libraryLabel = '选择资料库文件'
+ if (transcript) libraryLabel = '选择资料库原文'
+ else if (courseware) libraryLabel = '选择资料库课件'
+ let libraryPlaceholder = '资料库暂无匹配文件'
+ if (loading) libraryPlaceholder = '正在读取资料库…'
+ else if (library.length) libraryPlaceholder = '从软件资料库中选择'
+ let pickKind = 'document'
+ if (transcript) pickKind = 'transcript'
+ else if (courseware) pickKind = 'courseware'
+ const addPath = (path: string) => {
+  if (single) set([path])
+  else set(paths.includes(path) ? paths : [...paths, path])
+ }
  return (
   <div
    className="file-picker"
@@ -107,14 +123,14 @@ export function FilePicker({
       <SelectField
        className="file-picker-select"
        searchable
-       label={transcript ? '选择资料库原文' : courseware ? '选择资料库课件' : '选择资料库文件'}
-       placeholder={loading ? '正在读取资料库…' : library.length ? '从软件资料库中选择' : '资料库暂无匹配文件'}
+       label={libraryLabel}
+       placeholder={libraryPlaceholder}
        value={selected}
        isDisabled={loading || !library.length}
        onChange={next => {
         const file = library.find(item => item.path === next)
         if (!file) return
-        set(single ? [file.path] : paths.includes(file.path) ? paths : [...paths, file.path])
+        addPath(file.path)
        }}
        options={library.map(file => ({
         value: file.path,
@@ -156,7 +172,7 @@ export function FilePicker({
      type="button"
      onClick={() =>
       void invoke<string[]>('pick', {
-       kind: transcript ? 'transcript' : courseware ? 'courseware' : 'document',
+       kind: pickKind,
        courseId
       })
        .then(p => p.length && set(transcript ? p : [...paths, ...p]))

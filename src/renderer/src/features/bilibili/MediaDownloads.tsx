@@ -57,6 +57,21 @@ const states: Record<string, string> = {
  interrupted: '上次中断',
  error: '失败'
 }
+function qualityLabel(value: unknown) {
+ if (value === 0 || value === 'auto') return '自动'
+ if (value === 'best') return '最高质量'
+ return String(value)
+}
+function optionPlaceholder(key: string) {
+ if (key === 'format_ids') return '自动选择；可填下方编号'
+ if (key === 'sponsorblock') return '留空不移除；例如 sponsor,intro'
+ return undefined
+}
+function optionValue(key: string, raw: string, current: unknown) {
+ if (['clip_start', 'clip_end'].includes(key)) return raw === '' ? null : Number(raw)
+ if (typeof current === 'number') return Number(raw)
+ return raw
+}
 export function MediaDownloads({visible}: Readonly<{visible: boolean}>) {
  const [profiles, setProfiles] = useState<LoginProfile[]>([]),
   [profileName, setProfileName] = useState(''),
@@ -135,6 +150,52 @@ export function MediaDownloads({visible}: Readonly<{visible: boolean}>) {
   }
   if (count) notify.success(`已加入 ${count} 个所选下载任务`)
   if (failed.length) notify.error(failed.join('\n'), {title: `${failed.length} 个任务加入失败`})
+ }
+ const jobAction = (job: MediaJob) => {
+  if (active(job))
+   return (
+    <Button
+     variant="ghost"
+     size="sm"
+     isDisabled={busy}
+     onClick={() =>
+      void run(async () => {
+       await invoke('media:cancel', {id: job.id})
+      })
+     }
+    >
+     取消下载
+    </Button>
+   )
+  if (job.state === 'completed')
+   return (
+    <Button
+     variant="tertiary"
+     size="sm"
+     isDisabled={busy}
+     onClick={() =>
+      void run(async () => {
+       await invoke('media:open', {id: job.id})
+      })
+     }
+    >
+     查看下载文件
+    </Button>
+   )
+  return (
+   <Button
+    variant="tertiary"
+    size="sm"
+    isDisabled={busy}
+    onClick={() =>
+     void run(async () => {
+      await invoke('media:retry', {id: job.id})
+     })
+    }
+   >
+    继续下载
+   </Button>
+  )
  }
  return (
   <Card className="knowledge-card" aria-label="媒体下载">
@@ -365,7 +426,7 @@ export function MediaDownloads({visible}: Readonly<{visible: boolean}>) {
           onChange={next => set(key, key === 'height' ? Number(next) : next)}
           options={(enums[key] || []).map(value => ({
            value: String(value),
-           label: value === 0 ? '自动' : value === 'auto' ? '自动' : value === 'best' ? '最高质量' : String(value)
+           label: qualityLabel(value)
           }))}
          />
         )}
@@ -405,7 +466,7 @@ export function MediaDownloads({visible}: Readonly<{visible: boolean}>) {
              .filter(value => value !== 'aria2c')
              .map(value => ({
               value: String(value),
-              label: value === 'auto' ? '自动' : value === 'best' ? '最高质量' : String(value)
+              label: qualityLabel(value)
              }))}
            />
           ) : (
@@ -413,26 +474,9 @@ export function MediaDownloads({visible}: Readonly<{visible: boolean}>) {
             disabled={busy}
             type={typeof options[key] === 'number' || ['clip_start', 'clip_end'].includes(key) ? 'number' : 'text'}
             value={options[key] === null ? '' : String(options[key] ?? '')}
-            onChange={e =>
-             set(
-              key,
-              ['clip_start', 'clip_end'].includes(key)
-               ? e.target.value === ''
-                ? null
-                : Number(e.target.value)
-               : typeof options[key] === 'number'
-                 ? Number(e.target.value)
-                 : e.target.value
-             )
-            }
+            onChange={e => set(key, optionValue(key, e.target.value, options[key]))}
             title={key === 'sponsorblock' ? sponsorHelp : undefined}
-            placeholder={
-             key === 'format_ids'
-              ? '自动选择；可填下方编号'
-              : key === 'sponsorblock'
-                ? '留空不移除；例如 sponsor,intro'
-                : undefined
-            }
+            placeholder={optionPlaceholder(key)}
            />
           )}
          </div>
@@ -479,48 +523,7 @@ export function MediaDownloads({visible}: Readonly<{visible: boolean}>) {
        )}
        {job.warning && <p className="hint">{job.warning}</p>}
       </div>
-      <div className="row">
-       {active(job) ? (
-        <Button
-         variant="ghost"
-         size="sm"
-         isDisabled={busy}
-         onClick={() =>
-          void run(async () => {
-           await invoke('media:cancel', {id: job.id})
-          })
-         }
-        >
-         取消下载
-        </Button>
-       ) : job.state === 'completed' ? (
-        <Button
-         variant="tertiary"
-         size="sm"
-         isDisabled={busy}
-         onClick={() =>
-          void run(async () => {
-           await invoke('media:open', {id: job.id})
-          })
-         }
-        >
-         查看下载文件
-        </Button>
-       ) : (
-        <Button
-         variant="tertiary"
-         size="sm"
-         isDisabled={busy}
-         onClick={() =>
-          void run(async () => {
-           await invoke('media:retry', {id: job.id})
-          })
-         }
-        >
-         继续下载
-        </Button>
-       )}
-      </div>
+      <div className="row">{jobAction(job)}</div>
      </article>
     ))}
    </div>
