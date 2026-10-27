@@ -167,50 +167,73 @@ type discussionComment struct {
 	repliesComplete bool
 }
 
-func commentRecord(value any, owner int64, root string, pinned bool) *discussionComment {
-	raw := discussionObject(value)
-	member := discussionObject(raw["member"])
-	content := discussionObject(raw["content"])
-	rpid := discussionIdentity(raw["rpid_str"])
-	if rpid == "" {
-		rpid = discussionIdentity(raw["rpid"])
+func commentIdentity(raw map[string]any) string {
+	id := discussionIdentity(raw["rpid_str"])
+	if id == "" {
+		id = discussionIdentity(raw["rpid"])
 	}
-	if rpid == "" {
-		return nil
-	}
+	return id
+}
+
+func commentRoot(raw map[string]any, root string) (string, bool) {
 	rootID := discussionIdentity(raw["root"])
 	if rootID == "" {
 		rootID = root
 	}
 	if root != "" && rootID != "" && rootID != root {
+		return "", false
+	}
+	return rootID, true
+}
+
+func commentReplies(raw map[string]any, owner int64, root, rpid string) []*discussionComment {
+	if root != "" {
 		return nil
+	}
+	children := discussionArray(raw["replies"])
+	if len(children) > 40 {
+		children = children[:40]
 	}
 	replies := []*discussionComment{}
 	seen := map[string]bool{}
-	if root == "" {
-		children := discussionArray(raw["replies"])
-		if len(children) > 40 {
-			children = children[:40]
-		}
-		for _, child := range children {
-			entry := commentRecord(child, owner, rpid, false)
-			if entry != nil && !seen[entry.rpid] {
-				seen[entry.rpid] = true
-				replies = append(replies, entry)
-			}
+	for _, child := range children {
+		entry := commentRecord(child, owner, rpid, false)
+		if entry != nil && !seen[entry.rpid] {
+			seen[entry.rpid] = true
+			replies = append(replies, entry)
 		}
 	}
+	return replies
+}
+
+func commentReplyStats(raw map[string]any, replies []*discussionComment) (int64, bool) {
 	countValue, hasRcount := raw["rcount"]
 	_, hasCount := raw["count"]
 	if !hasRcount || countValue == nil {
 		countValue = raw["count"]
 	}
 	count := discussionNumber(countValue, int64(len(replies)))
+	return count, (hasRcount || hasCount) && count <= int64(len(replies))
+}
+
+func commentRecord(value any, owner int64, root string, pinned bool) *discussionComment {
+	raw := discussionObject(value)
+	member := discussionObject(raw["member"])
+	content := discussionObject(raw["content"])
+	rpid := commentIdentity(raw)
+	if rpid == "" {
+		return nil
+	}
+	rootID, ok := commentRoot(raw, root)
+	if !ok {
+		return nil
+	}
+	replies := commentReplies(raw, owner, root, rpid)
+	count, repliesComplete := commentReplyStats(raw, replies)
 	user := discussionString(member["uname"])
 	if user == "" {
 		user = "匿名"
 	}
-	message := discussionString(content["message"])
 	parent := discussionIdentity(raw["parent"])
 	if parent == "" {
 		parent = root
@@ -221,11 +244,10 @@ func commentRecord(value any, owner int64, root string, pinned bool) *discussion
 	}
 	return &discussionComment{
 		rpid: rpid, rootID: rootID, parentID: parent,
-		user: truncateRunes(user, 100), content: truncateRunes(message, 12000),
+		user: truncateRunes(user, 100), content: truncateRunes(discussionString(content["message"]), 12000),
 		likes: discussionNumber(raw["like"], 0), createdAt: discussionNumber(raw["ctime"], 0),
 		isUploader: owner != 0 && discussionIdentity(member["mid"]) == strconv.FormatInt(owner, 10),
-		replies:    replies, pinned: pinned, replyCount: replyCount,
-		repliesComplete: (hasRcount || hasCount) && count <= int64(len(replies)),
+		replies:    replies, pinned: pinned, replyCount: replyCount, repliesComplete: repliesComplete,
 	}
 }
 
@@ -260,19 +282,66 @@ func (discussion *Discussion) readJSON(ctx context.Context, path string, params 
 	return result, nil
 }
 
-func (discussion *Discussion) comments(aid, owner int64, pages int) ([]*discussionComment, map[string]any) {
+type commentCandidate struct {
+	raw    any
+	pinned bool
+}
+
+func rootCommentCandidates(data map[string]any) []commentCandidate {
+	candidates := []commentCandidate{}
+	for _, raw := range discussionArray(data["replies"]) {
+		candidates = append(candidates, commentCandidate{raw: raw})
+	}
+	for _, raw := range discussionArray(data["top_replies"]) {
+		candidates = append(candidates, commentCandidate{raw: raw, pinned: true})
+	}
+	for _, raw := range discussionObject(data["top"]) {
+		if discussionIdentity(discussionObject(raw)["rpid"]) != "" {
+			candidates = append(candidates, commentCandidate{raw: raw, pinned: true})
+		}
+	}
+	return candidates
+}
+
+func mergeRootComments(rows *[]*discussionComment, seen map[string]bool, candidates []commentCandidate, owner int64) {
+	for _, entry := range candidates {
+		row := commentRecord(entry.raw, owner, "", entry.pinned)
+		if row == nil {
+			continue
+		}
+		if seen[row.rpid] {
+			if entry.pinned {
+				for _, existing := range *rows {
+					if existing.rpid == row.rpid {
+						existing.pinned = true
+						break
+					}
+				}
+			}
+			continue
+		}
+		seen[row.rpid] = true
+		*rows = append(*rows, row)
+	}
+}
+
+func pageEnded(data map[string]any, page int) bool {
+	pagination := discussionObject(data["page"])
+	cursor := discussionObject(data["cursor"])
+	ended := discussionBool(cursor["is_end"])
+	if count, ok := pagination["count"]; ok {
+		size := discussionNumber(pagination["size"], 20)
+		if int64(page)*size >= discussionNumber(count, 0) {
+			ended = true
+		}
+	}
+	return ended
+}
+
+func (discussion *Discussion) fetchRootComments(ctx context.Context, aid, owner int64, pages int, coverage map[string]any, addError func(map[string]any)) []*discussionComment {
 	rows := []*discussionComment{}
 	seen := map[string]bool{}
-	coverage := map[string]any{
-		"status": "partial", "complete": false, "errors": []map[string]any{},
-		"root_pages": 0, "child_pages": 0, "root_end": false, "sort": "hot_and_recent",
-	}
-	addError := func(entry map[string]any) {
-		coverage["errors"] = append(coverage["errors"].([]map[string]any), entry)
-	}
 	required := []string{"http_404", "api_-400", "invalid_response"}
-	ctx, cancel := context.WithTimeout(context.Background(), 22*time.Second)
-	defer cancel()
 	for _, group := range []struct {
 		sort   int
 		budget int
@@ -299,50 +368,9 @@ func (discussion *Discussion) comments(aid, owner int64, pages int) ([]*discussi
 				coverage["fallback_first_page_only"] = true
 			}
 			coverage["root_pages"] = coverage["root_pages"].(int) + 1
-			type candidate struct {
-				raw    any
-				pinned bool
-			}
-			candidates := []candidate{}
-			for _, raw := range discussionArray(data["replies"]) {
-				candidates = append(candidates, candidate{raw: raw})
-			}
-			for _, raw := range discussionArray(data["top_replies"]) {
-				candidates = append(candidates, candidate{raw: raw, pinned: true})
-			}
-			for _, raw := range discussionObject(data["top"]) {
-				if discussionIdentity(discussionObject(raw)["rpid"]) != "" {
-					candidates = append(candidates, candidate{raw: raw, pinned: true})
-				}
-			}
-			for _, entry := range candidates {
-				row := commentRecord(entry.raw, owner, "", entry.pinned)
-				if row == nil {
-					continue
-				}
-				if seen[row.rpid] {
-					if entry.pinned {
-						for _, existing := range rows {
-							if existing.rpid == row.rpid {
-								existing.pinned = true
-								break
-							}
-						}
-					}
-					continue
-				}
-				seen[row.rpid] = true
-				rows = append(rows, row)
-			}
-			pagination := discussionObject(data["page"])
-			cursor := discussionObject(data["cursor"])
-			ended := discussionBool(cursor["is_end"])
-			if count, ok := pagination["count"]; ok {
-				size := discussionNumber(pagination["size"], 20)
-				if int64(page)*size >= discussionNumber(count, 0) {
-					ended = true
-				}
-			}
+			candidates := rootCommentCandidates(data)
+			mergeRootComments(&rows, seen, candidates, owner)
+			ended := pageEnded(data, page)
 			if group.sort == 2 {
 				coverage["root_end"] = ended
 			}
@@ -352,6 +380,10 @@ func (discussion *Discussion) comments(aid, owner int64, pages int) ([]*discussi
 			}
 		}
 	}
+	return rows
+}
+
+func threadTargets(rows []*discussionComment) []*discussionComment {
 	targets := []*discussionComment{}
 	for _, row := range rows {
 		if !row.repliesComplete && row.replyCount > int64(len(row.replies)) {
@@ -368,6 +400,10 @@ func (discussion *Discussion) comments(aid, owner int64, pages int) ([]*discussi
 	if len(targets) > 6 {
 		targets = targets[:6]
 	}
+	return targets
+}
+
+func (discussion *Discussion) fetchChildComments(ctx context.Context, aid, owner int64, targets []*discussionComment, coverage map[string]any, addError func(map[string]any)) {
 	for _, parent := range targets {
 		seenReplies := map[string]bool{}
 		for _, reply := range parent.replies {
@@ -402,9 +438,9 @@ func (discussion *Discussion) comments(aid, owner int64, pages int) ([]*discussi
 			}
 		}
 	}
-	if ctx.Err() != nil {
-		addError(map[string]any{"stage": "collection", "code": "deadline"})
-	}
+}
+
+func updateCommentCoverage(rows []*discussionComment, coverage map[string]any) {
 	rootCount, replyCount, partialThreads := len(rows), 0, 0
 	for _, row := range rows {
 		replyCount += len(row.replies)
@@ -429,6 +465,24 @@ func (discussion *Discussion) comments(aid, owner int64, pages int) ([]*discussi
 	default:
 		coverage["status"] = "empty"
 	}
+}
+
+func (discussion *Discussion) comments(aid, owner int64, pages int) ([]*discussionComment, map[string]any) {
+	coverage := map[string]any{
+		"status": "partial", "complete": false, "errors": []map[string]any{},
+		"root_pages": 0, "child_pages": 0, "root_end": false, "sort": "hot_and_recent",
+	}
+	addError := func(entry map[string]any) {
+		coverage["errors"] = append(coverage["errors"].([]map[string]any), entry)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 22*time.Second)
+	defer cancel()
+	rows := discussion.fetchRootComments(ctx, aid, owner, pages, coverage, addError)
+	discussion.fetchChildComments(ctx, aid, owner, threadTargets(rows), coverage, addError)
+	if ctx.Err() != nil {
+		addError(map[string]any{"stage": "collection", "code": "deadline"})
+	}
+	updateCommentCoverage(rows, coverage)
 	return rows, coverage
 }
 
@@ -449,116 +503,132 @@ type discussionDanmaku struct {
 	isUploader bool
 }
 
+func danmakuUploader(owner int64) func(string) bool {
+	if owner == 0 {
+		return func(string) bool { return false }
+	}
+	ownerHash := strconv.FormatUint(uint64(crc32.ChecksumIEEE([]byte(strconv.FormatInt(owner, 10)))), 16)
+	return func(mid string) bool {
+		return strings.TrimLeft(mid, "0") == ownerHash
+	}
+}
+
+func parseDanmakuXML(data []byte, uploader func(string) bool) ([]discussionDanmaku, error) {
+	rows := []discussionDanmaku{}
+	decoder := xml.NewDecoder(bytes.NewReader(data))
+	depth := 0
+	var params []string
+	var text strings.Builder
+	for {
+		token, err := decoder.Token()
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			return nil, fmt.Errorf("invalid_xml")
+		}
+		switch typed := token.(type) {
+		case xml.Directive:
+			return nil, fmt.Errorf("invalid_xml")
+		case xml.StartElement:
+			depth++
+			if depth == 1 && typed.Name.Local != "i" {
+				return nil, fmt.Errorf("invalid_xml")
+			}
+			if depth == 2 && typed.Name.Local == "d" {
+				raw := ""
+				for _, attribute := range typed.Attr {
+					if attribute.Name.Local == "p" {
+						raw = attribute.Value
+					}
+				}
+				params = strings.Split(raw, ",")
+				text.Reset()
+			}
+		case xml.CharData:
+			if params != nil {
+				text.Write(typed)
+			}
+		case xml.EndElement:
+			if depth == 2 && typed.Name.Local == "d" && params != nil {
+				if len(params) >= 8 {
+					seconds, valid := jsNumber(params[0])
+					if valid {
+						addDanmaku(&rows, params[7], text.String(), seconds, params[6],
+							int64(jsNumberOr(params[4], 0)), int(jsNumberOr(params[1], 1)), uploader)
+					}
+				}
+				params = nil
+			}
+			depth--
+		}
+	}
+	return rows, nil
+}
+
+func protoString(values map[int]protoField, key int) string {
+	if item, ok := values[key]; ok && item.bytes != nil {
+		return string(item.bytes)
+	}
+	return ""
+}
+
+func protoInteger(values map[int]protoField, key int, fallback int64) int64 {
+	if item, ok := values[key]; ok && item.bytes == nil && item.varint <= 9007199254740991 {
+		return int64(item.varint)
+	}
+	return fallback
+}
+
+func parseDanmakuProto(data []byte, uploader func(string) bool) ([]discussionDanmaku, bool, error) {
+	rows := []discussionDanmaku{}
+	closed := false
+	fields, err := protobufFields(data)
+	if err != nil {
+		return nil, false, err
+	}
+	for _, field := range fields {
+		if field.number == 2 && field.bytes == nil && field.varint == 1 {
+			closed = true
+		}
+		if field.number != 1 || field.bytes == nil {
+			continue
+		}
+		items, err := protobufFields(field.bytes)
+		if err != nil {
+			return nil, false, err
+		}
+		values := map[int]protoField{}
+		for _, item := range items {
+			values[item.number] = item
+		}
+		id := protoString(values, 12)
+		if id == "" {
+			if item, ok := values[1]; ok && item.bytes == nil {
+				id = strconv.FormatUint(item.varint, 10)
+			}
+		}
+		addDanmaku(&rows, id, protoString(values, 7), float64(protoInteger(values, 2, 0))/1000,
+			protoString(values, 6), protoInteger(values, 8, 0), int(protoInteger(values, 3, 1)), uploader)
+	}
+	return rows, closed, nil
+}
+
 func parseDanmaku(data []byte, owner int64) ([]discussionDanmaku, bool, error) {
 	if len(data) > 12*1024*1024 {
 		return nil, false, fmt.Errorf("danmaku_too_large")
 	}
-	rows := []discussionDanmaku{}
-	ownerHash := ""
-	if owner != 0 {
-		ownerHash = strconv.FormatUint(uint64(crc32.ChecksumIEEE([]byte(strconv.FormatInt(owner, 10)))), 16)
-	}
-	closed := false
-	uploader := func(mid string) bool {
-		return ownerHash != "" && strings.TrimLeft(mid, "0") == ownerHash
-	}
+	uploader := danmakuUploader(owner)
 	initial := strings.TrimPrefix(string(data[:minInt(200, len(data))]), "\ufeff")
 	initial = strings.TrimLeftFunc(initial, unicode.IsSpace)
 	if strings.HasPrefix(initial, "<") {
-		decoder := xml.NewDecoder(bytes.NewReader(data))
-		depth := 0
-		var params []string
-		var text strings.Builder
-		for {
-			token, err := decoder.Token()
-			if err == io.EOF {
-				break
-			}
-			if err != nil {
-				return nil, false, fmt.Errorf("invalid_xml")
-			}
-			switch typed := token.(type) {
-			case xml.Directive:
-				return nil, false, fmt.Errorf("invalid_xml")
-			case xml.StartElement:
-				depth++
-				if depth == 1 && typed.Name.Local != "i" {
-					return nil, false, fmt.Errorf("invalid_xml")
-				}
-				if depth == 2 && typed.Name.Local == "d" {
-					raw := ""
-					for _, attribute := range typed.Attr {
-						if attribute.Name.Local == "p" {
-							raw = attribute.Value
-						}
-					}
-					params = strings.Split(raw, ",")
-					text.Reset()
-				}
-			case xml.CharData:
-				if params != nil {
-					text.Write(typed)
-				}
-			case xml.EndElement:
-				if depth == 2 && typed.Name.Local == "d" && params != nil {
-					if len(params) >= 8 {
-						seconds, valid := jsNumber(params[0])
-						if valid {
-							addDanmaku(&rows, params[7], text.String(), seconds, params[6],
-								int64(jsNumberOr(params[4], 0)), int(jsNumberOr(params[1], 1)), uploader)
-						}
-					}
-					params = nil
-				}
-				depth--
-			}
-		}
-	} else {
-		if strings.HasPrefix(initial, "[") || strings.HasPrefix(initial, "{") {
-			return nil, false, fmt.Errorf("json_error_not_danmaku")
-		}
-		fields, err := protobufFields(data)
-		if err != nil {
-			return nil, false, err
-		}
-		for _, field := range fields {
-			if field.number == 2 && field.bytes == nil && field.varint == 1 {
-				closed = true
-			}
-			if field.number != 1 || field.bytes == nil {
-				continue
-			}
-			items, err := protobufFields(field.bytes)
-			if err != nil {
-				return nil, false, err
-			}
-			values := map[int]protoField{}
-			for _, item := range items {
-				values[item.number] = item
-			}
-			valueString := func(key int) string {
-				if item, ok := values[key]; ok && item.bytes != nil {
-					return string(item.bytes)
-				}
-				return ""
-			}
-			valueInteger := func(key int, fallback int64) int64 {
-				if item, ok := values[key]; ok && item.bytes == nil && item.varint <= 9007199254740991 {
-					return int64(item.varint)
-				}
-				return fallback
-			}
-			id := valueString(12)
-			if id == "" {
-				if item, ok := values[1]; ok && item.bytes == nil {
-					id = strconv.FormatUint(item.varint, 10)
-				}
-			}
-			addDanmaku(&rows, id, valueString(7), float64(valueInteger(2, 0))/1000,
-				valueString(6), valueInteger(8, 0), int(valueInteger(3, 1)), uploader)
-		}
+		rows, err := parseDanmakuXML(data, uploader)
+		return rows, false, err
 	}
-	return rows, closed, nil
+	if strings.HasPrefix(initial, "[") || strings.HasPrefix(initial, "{") {
+		return nil, false, fmt.Errorf("json_error_not_danmaku")
+	}
+	return parseDanmakuProto(data, uploader)
 }
 
 type protoField struct {
@@ -568,67 +638,83 @@ type protoField struct {
 	bytes  []byte
 }
 
-func protobufFields(data []byte) ([]protoField, error) {
-	position := 0
-	readVarint := func() (uint64, error) {
-		var value uint64
-		for shift := 0; shift < 70; shift += 7 {
-			if position >= len(data) {
-				return 0, fmt.Errorf("truncated_protobuf")
-			}
-			part := data[position]
-			position++
-			value |= uint64(part&127) << uint(shift)
-			if part&128 == 0 {
-				if shift == 63 && part > 1 {
-					return 0, fmt.Errorf("oversized_varint")
-				}
-				return value, nil
-			}
+type protoReader struct {
+	data []byte
+	pos  int
+}
+
+func (reader *protoReader) varint() (uint64, error) {
+	var value uint64
+	for shift := 0; shift < 70; shift += 7 {
+		if reader.pos >= len(reader.data) {
+			return 0, fmt.Errorf("truncated_protobuf")
 		}
-		return 0, fmt.Errorf("oversized_varint")
+		part := reader.data[reader.pos]
+		reader.pos++
+		value |= uint64(part&127) << uint(shift)
+		if part&128 == 0 {
+			if shift == 63 && part > 1 {
+				return 0, fmt.Errorf("oversized_varint")
+			}
+			return value, nil
+		}
 	}
+	return 0, fmt.Errorf("oversized_varint")
+}
+
+func (reader *protoReader) field(tag uint64) (protoField, error) {
+	number := int(tag >> 3)
+	wire := int(tag & 7)
+	if number == 0 || number > 536870911 {
+		return protoField{}, fmt.Errorf("invalid_protobuf")
+	}
+	switch wire {
+	case 0:
+		value, err := reader.varint()
+		if err != nil {
+			return protoField{}, err
+		}
+		return protoField{number: number, wire: wire, varint: value}, nil
+	case 1, 5:
+		size := 8
+		if wire == 5 {
+			size = 4
+		}
+		if size > len(reader.data)-reader.pos {
+			return protoField{}, fmt.Errorf("truncated_protobuf")
+		}
+		field := protoField{number: number, wire: wire, bytes: reader.data[reader.pos : reader.pos+size]}
+		reader.pos += size
+		return field, nil
+	case 2:
+		size, err := reader.varint()
+		if err != nil {
+			return protoField{}, err
+		}
+		if size > uint64(len(reader.data)-reader.pos) {
+			return protoField{}, fmt.Errorf("truncated_protobuf")
+		}
+		field := protoField{number: number, wire: wire, bytes: reader.data[reader.pos : reader.pos+int(size)]}
+		reader.pos += int(size)
+		return field, nil
+	default:
+		return protoField{}, fmt.Errorf("unsupported_protobuf_wire")
+	}
+}
+
+func protobufFields(data []byte) ([]protoField, error) {
+	reader := &protoReader{data: data}
 	fields := []protoField{}
-	for position < len(data) {
-		tag, err := readVarint()
+	for reader.pos < len(data) {
+		tag, err := reader.varint()
 		if err != nil {
 			return nil, err
 		}
-		number := int(tag >> 3)
-		wire := int(tag & 7)
-		if number == 0 || number > 536870911 {
-			return nil, fmt.Errorf("invalid_protobuf")
+		field, err := reader.field(tag)
+		if err != nil {
+			return nil, err
 		}
-		switch wire {
-		case 0:
-			value, err := readVarint()
-			if err != nil {
-				return nil, err
-			}
-			fields = append(fields, protoField{number: number, wire: wire, varint: value})
-		case 1, 5:
-			size := 8
-			if wire == 5 {
-				size = 4
-			}
-			if size > len(data)-position {
-				return nil, fmt.Errorf("truncated_protobuf")
-			}
-			fields = append(fields, protoField{number: number, wire: wire, bytes: data[position : position+size]})
-			position += size
-		case 2:
-			size, err := readVarint()
-			if err != nil {
-				return nil, err
-			}
-			if size > uint64(len(data)-position) {
-				return nil, fmt.Errorf("truncated_protobuf")
-			}
-			fields = append(fields, protoField{number: number, wire: wire, bytes: data[position : position+int(size)]})
-			position += int(size)
-		default:
-			return nil, fmt.Errorf("unsupported_protobuf_wire")
-		}
+		fields = append(fields, field)
 	}
 	return fields, nil
 }
@@ -669,24 +755,89 @@ func minInt(left, right int) int {
 	return right
 }
 
-func (discussion *Discussion) danmaku(cid int64, duration float64, owner int64) ([]discussionDanmaku, map[string]any) {
-	total := int(math.Max(1, math.Ceil(duration/360)))
-	limit := 12
+func danmakuSegments(total, limit int) []int {
 	segments := []int{}
-	if total > limit {
-		seen := map[int]bool{}
-		for index := 0; index < limit; index++ {
-			value := 1 + int(math.Round(float64(index)*float64(total-1)/float64(limit-1)))
-			if !seen[value] {
-				seen[value] = true
-				segments = append(segments, value)
-			}
-		}
-	} else {
+	if total <= limit {
 		for index := 1; index <= total; index++ {
 			segments = append(segments, index)
 		}
+		return segments
 	}
+	seen := map[int]bool{}
+	for index := 0; index < limit; index++ {
+		value := 1 + int(math.Round(float64(index)*float64(total-1)/float64(limit-1)))
+		if !seen[value] {
+			seen[value] = true
+			segments = append(segments, value)
+		}
+	}
+	return segments
+}
+
+func uniqueDanmaku(rows []discussionDanmaku) []discussionDanmaku {
+	unique := []discussionDanmaku{}
+	seen := map[string]bool{}
+	for _, row := range rows {
+		key := row.id
+		if key == "" {
+			encoded, _ := json.Marshal([]any{row.timeSec, row.text})
+			key = string(encoded)
+		}
+		if seen[key] {
+			continue
+		}
+		seen[key] = true
+		unique = append(unique, row)
+	}
+	return unique
+}
+
+func sortDanmaku(rows []discussionDanmaku) {
+	sort.SliceStable(rows, func(left, right int) bool {
+		_, leftScore := ClassifyDiscussion(rows[left].text)
+		_, rightScore := ClassifyDiscussion(rows[right].text)
+		if leftScore != rightScore {
+			return leftScore > rightScore
+		}
+		if rows[left].isUploader != rows[right].isUploader {
+			return rows[left].isUploader
+		}
+		return rows[left].timeSec < rows[right].timeSec
+	})
+}
+
+func updateDanmakuCoverage(coverage map[string]any, okSegments []int, total int, unique []discussionDanmaku) int {
+	sort.Ints(okSegments)
+	coverage["segments_ok"] = okSegments
+	coverage["raw_count"] = len(unique)
+	retained := len(unique)
+	if retained > 800 {
+		retained = 800
+	}
+	coverage["retained_count"] = retained
+	coverage["retention_limited"] = len(unique) > 800
+	closed, _ := coverage["closed"].(bool)
+	errorsList := coverage["errors"].([]map[string]any)
+	complete := len(okSegments) == total && len(errorsList) == 0 && len(unique) <= 800
+	coverage["complete"] = complete
+	switch {
+	case closed:
+		coverage["status"] = "closed"
+	case complete:
+		coverage["status"] = "complete"
+	case len(unique) > 0:
+		coverage["status"] = "partial"
+	case len(errorsList) > 0:
+		coverage["status"] = "failed"
+	default:
+		coverage["status"] = "empty"
+	}
+	return retained
+}
+
+func (discussion *Discussion) danmaku(cid int64, duration float64, owner int64) ([]discussionDanmaku, map[string]any) {
+	total := int(math.Max(1, math.Ceil(duration/360)))
+	segments := danmakuSegments(total, 12)
 	okSegments := []int{}
 	rows := []discussionDanmaku{}
 	coverage := map[string]any{
@@ -741,70 +892,30 @@ func (discussion *Discussion) danmaku(cid int64, duration float64, owner int64) 
 			addError(map[string]any{"code": "xml_unavailable"})
 		}
 	}
-	unique := []discussionDanmaku{}
-	seen := map[string]bool{}
-	for _, row := range rows {
-		key := row.id
-		if key == "" {
-			encoded, _ := json.Marshal([]any{row.timeSec, row.text})
-			key = string(encoded)
-		}
-		if seen[key] {
-			continue
-		}
-		seen[key] = true
-		unique = append(unique, row)
-	}
-	sort.SliceStable(unique, func(left, right int) bool {
-		_, leftScore := ClassifyDiscussion(unique[left].text)
-		_, rightScore := ClassifyDiscussion(unique[right].text)
-		if leftScore != rightScore {
-			return leftScore > rightScore
-		}
-		if unique[left].isUploader != unique[right].isUploader {
-			return unique[left].isUploader
-		}
-		return unique[left].timeSec < unique[right].timeSec
-	})
-	sort.Ints(okSegments)
-	coverage["raw_count"] = len(unique)
-	retained := len(unique)
-	if retained > 800 {
-		retained = 800
-	}
-	coverage["retained_count"] = retained
-	coverage["retention_limited"] = len(unique) > 800
-	closed, _ := coverage["closed"].(bool)
-	errorsList := coverage["errors"].([]map[string]any)
-	complete := len(okSegments) == total && len(errorsList) == 0 && len(unique) <= 800
-	coverage["complete"] = complete
-	switch {
-	case closed:
-		coverage["status"] = "closed"
-	case complete:
-		coverage["status"] = "complete"
-	case len(unique) > 0:
-		coverage["status"] = "partial"
-	case len(errorsList) > 0:
-		coverage["status"] = "failed"
-	default:
-		coverage["status"] = "empty"
-	}
+	unique := uniqueDanmaku(rows)
+	sortDanmaku(unique)
+	retained := updateDanmakuCoverage(coverage, okSegments, total, unique)
 	return unique[:retained], coverage
 }
 
-func (discussion *Discussion) Collect(input string, pages int) (*DiscussionPack, error) {
+type videoPage struct {
+	page     int
+	cid      int64
+	duration float64
+}
+
+func discussionTarget(input string) (string, int, map[string]string, error) {
 	normalized, err := VideoURL(input)
 	if err != nil {
-		return nil, err
+		return "", 0, nil, err
 	}
 	parsed, err := url.Parse(normalized)
 	if err != nil {
-		return nil, err
+		return "", 0, nil, err
 	}
 	parts := strings.Split(strings.Trim(parsed.Path, "/"), "/")
 	if len(parts) < 2 {
-		return nil, fmt.Errorf("视频来源与所选网址不一致")
+		return "", 0, nil, fmt.Errorf("视频来源与所选网址不一致")
 	}
 	id := parts[1]
 	page := 1
@@ -817,6 +928,124 @@ func (discussion *Discussion) Collect(input string, pages int) (*DiscussionPack,
 	if strings.HasPrefix(id, "av") {
 		params = map[string]string{"aid": strings.TrimPrefix(id, "av")}
 	}
+	return id, page, params, nil
+}
+
+func parseVideoPages(view map[string]any) ([]videoPage, error) {
+	pagesData, ok := view["pages"].([]any)
+	if !ok {
+		return nil, fmt.Errorf("视频信息格式异常，请稍后重试")
+	}
+	pages := []videoPage{}
+	for _, item := range pagesData {
+		raw := discussionObject(item)
+		entry := videoPage{
+			page: int(discussionNumber(raw["page"], 0)), cid: discussionNumber(raw["cid"], 0),
+			duration: jsNumberOrAny(raw["duration"]),
+		}
+		if entry.page <= 0 || entry.cid <= 0 || entry.duration < 0 {
+			return nil, fmt.Errorf("视频信息格式异常，请稍后重试")
+		}
+		pages = append(pages, entry)
+	}
+	return pages, nil
+}
+
+func selectVideoPage(pages []videoPage, page int) (videoPage, error) {
+	for _, entry := range pages {
+		if entry.page == page {
+			return entry, nil
+		}
+	}
+	return videoPage{}, fmt.Errorf("所选分集不存在")
+}
+
+func addDiscussionItem(items *[]DiscussionItem, bvid string, cid int64, page int, kind, text, identity string, meta discussionItemMeta) {
+	text = truncateRunes(strings.TrimSpace(text), 12000)
+	if text == "" {
+		return
+	}
+	labels, score := ClassifyDiscussion(text)
+	digest, _ := DiscussionDigest(text)
+	itemID := identity
+	if itemID == "" {
+		keyDigest, _ := DiscussionDigest([]any{bvid, cid, text})
+		itemID = keyDigest[:20]
+	}
+	finalScore := score
+	if meta.isUploader {
+		finalScore += 2
+	}
+	if meta.pinned {
+		finalScore += 1
+	}
+	likes := int64(0)
+	if meta.likes != nil {
+		likes = *meta.likes
+	}
+	if likes < 1 {
+		likes = 1
+	}
+	finalScore += math.Min(1, math.Log10(float64(likes)))
+	*items = append(*items, DiscussionItem{
+		ID: kind + ":" + itemID, Kind: kind, Text: text, TextSHA256: digest, Labels: labels,
+		Score: roundScore(finalScore), Selected: false, Verification: "unverified", Reviewed: false,
+		Note: "", URL: meta.url, Author: meta.author, Likes: meta.likes, Rpid: meta.rpid,
+		RootID: meta.rootID, ParentID: meta.parentID, IsUploader: boolPointer(meta.isUploader),
+		Pinned: meta.pinnedValue(), CreatedAt: meta.createdAt, ReplyCount: meta.replyCount,
+		RepliesComplete: meta.repliesComplete, TimeSec: meta.timeSec, Cid: meta.cid, Page: meta.page,
+	})
+}
+
+func appendCommentItems(items *[]DiscussionItem, comments []*discussionComment, base string, cid int64, page int) {
+	seen := map[string]bool{}
+	for _, comment := range comments {
+		if seen[comment.rpid] {
+			continue
+		}
+		seen[comment.rpid] = true
+		addDiscussionItem(items, "", cid, page, "comment", comment.content, comment.rpid, discussionItemMeta{
+			author: &comment.user, likes: &comment.likes, rpid: &comment.rpid,
+			isUploader: comment.isUploader, createdAt: &comment.createdAt,
+			url: base + "#reply" + comment.rpid, rootID: stringPointer(""), parentID: stringPointer(""),
+			pinnedSet: true, pinned: comment.pinned, replyCount: &comment.replyCount, repliesComplete: &comment.repliesComplete,
+		})
+		for _, reply := range comment.replies {
+			if seen[reply.rpid] {
+				continue
+			}
+			seen[reply.rpid] = true
+			parentID := "comment:" + comment.rpid
+			if reply.parentID != "" && reply.parentID != comment.rpid {
+				parentID = "reply:" + reply.parentID
+			}
+			addDiscussionItem(items, "", cid, page, "reply", reply.content, reply.rpid, discussionItemMeta{
+				author: &reply.user, likes: &reply.likes, rpid: &reply.rpid,
+				isUploader: reply.isUploader, createdAt: &reply.createdAt,
+				url: base + "#reply" + reply.rpid, rootID: stringPointer("comment:" + comment.rpid),
+				parentID: stringPointer(parentID),
+			})
+		}
+	}
+}
+
+func appendDanmakuItems(items *[]DiscussionItem, rows []discussionDanmaku, base string, cid int64, page int) {
+	for _, row := range rows {
+		timeSec := row.timeSec
+		createdAt := row.createdAt
+		pageNumber := page
+		addDiscussionItem(items, "", cid, page, "danmaku", row.text, row.id, discussionItemMeta{
+			isUploader: row.isUploader, createdAt: &createdAt, timeSec: &timeSec, cid: &cid, page: &pageNumber,
+			url: fmt.Sprintf("%s?p=%d&t=%d", base, page, int(math.Floor(row.timeSec))),
+		})
+	}
+}
+
+func (discussion *Discussion) Collect(input string, pages int) (*DiscussionPack, error) {
+	id, page, params, err := discussionTarget(input)
+	if err != nil {
+		return nil, err
+	}
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 	defer cancel()
 	view, err := discussion.readJSON(ctx, "/x/web-interface/view", params, 20*time.Second, false)
@@ -828,29 +1057,11 @@ func (discussion *Discussion) Collect(input string, pages int) (*DiscussionPack,
 		return nil, fmt.Errorf("视频信息格式异常，请稍后重试")
 	}
 	aid := discussionNumber(view["aid"], 0)
-	ownerInfo := discussionObject(view["owner"])
-	owner := discussionNumber(ownerInfo["mid"], 0)
+	owner := discussionNumber(discussionObject(view["owner"])["mid"], 0)
 	description := discussionString(view["desc"])
-	pagesData, ok := view["pages"].([]any)
-	if !ok {
-		return nil, fmt.Errorf("视频信息格式异常，请稍后重试")
-	}
-	type videoPage struct {
-		page     int
-		cid      int64
-		duration float64
-	}
-	videoPages := []videoPage{}
-	for _, item := range pagesData {
-		raw := discussionObject(item)
-		entry := videoPage{
-			page: int(discussionNumber(raw["page"], 0)), cid: discussionNumber(raw["cid"], 0),
-			duration: jsNumberOrAny(raw["duration"]),
-		}
-		if entry.page <= 0 || entry.cid <= 0 || entry.duration < 0 {
-			return nil, fmt.Errorf("视频信息格式异常，请稍后重试")
-		}
-		videoPages = append(videoPages, entry)
+	videoPages, err := parseVideoPages(view)
+	if err != nil {
+		return nil, err
 	}
 	if aid <= 0 {
 		return nil, fmt.Errorf("视频信息格式异常，请稍后重试")
@@ -858,17 +1069,9 @@ func (discussion *Discussion) Collect(input string, pages int) (*DiscussionPack,
 	if strings.HasPrefix(id, "BV") && bvid != id {
 		return nil, fmt.Errorf("视频来源与所选网址不一致")
 	}
-	selected := videoPage{}
-	found := false
-	for _, entry := range videoPages {
-		if entry.page == page {
-			selected = entry
-			found = true
-			break
-		}
-	}
-	if !found {
-		return nil, fmt.Errorf("所选分集不存在")
+	selected, err := selectVideoPage(videoPages, page)
+	if err != nil {
+		return nil, err
 	}
 	var comments []*discussionComment
 	var commentCoverage map[string]any
@@ -887,83 +1090,11 @@ func (discussion *Discussion) Collect(input string, pages int) (*DiscussionPack,
 	wait.Wait()
 	items := []DiscussionItem{}
 	base := "https://www.bilibili.com/video/" + bvid
-	addItem := func(kind, text, identity string, meta discussionItemMeta) {
-		text = truncateRunes(strings.TrimSpace(text), 12000)
-		if text == "" {
-			return
-		}
-		labels, score := ClassifyDiscussion(text)
-		digest, _ := DiscussionDigest(text)
-		itemID := identity
-		if itemID == "" {
-			keyDigest, _ := DiscussionDigest([]any{bvid, selected.cid, text})
-			itemID = keyDigest[:20]
-		}
-		finalScore := score
-		if meta.isUploader {
-			finalScore += 2
-		}
-		if meta.pinned {
-			finalScore += 1
-		}
-		likes := int64(0)
-		if meta.likes != nil {
-			likes = *meta.likes
-		}
-		if likes < 1 {
-			likes = 1
-		}
-		finalScore += math.Min(1, math.Log10(float64(likes)))
-		items = append(items, DiscussionItem{
-			ID: kind + ":" + itemID, Kind: kind, Text: text, TextSHA256: digest, Labels: labels,
-			Score: roundScore(finalScore), Selected: false, Verification: "unverified", Reviewed: false,
-			Note: "", URL: meta.url, Author: meta.author, Likes: meta.likes, Rpid: meta.rpid,
-			RootID: meta.rootID, ParentID: meta.parentID, IsUploader: boolPointer(meta.isUploader),
-			Pinned: meta.pinnedValue(), CreatedAt: meta.createdAt, ReplyCount: meta.replyCount,
-			RepliesComplete: meta.repliesComplete, TimeSec: meta.timeSec, Cid: meta.cid, Page: meta.page,
-		})
-	}
-	addItem("description", description, bvid, discussionItemMeta{isUploader: true, url: base})
-	seenComments := map[string]bool{}
-	for _, comment := range comments {
-		if seenComments[comment.rpid] {
-			continue
-		}
-		seenComments[comment.rpid] = true
-		commentMeta := discussionItemMeta{
-			author: &comment.user, likes: &comment.likes, rpid: &comment.rpid,
-			isUploader: comment.isUploader, createdAt: &comment.createdAt,
-			url: base + "#reply" + comment.rpid, rootID: stringPointer(""), parentID: stringPointer(""),
-			pinnedSet: true, pinned: comment.pinned, replyCount: &comment.replyCount, repliesComplete: &comment.repliesComplete,
-		}
-		addItem("comment", comment.content, comment.rpid, commentMeta)
-		for _, reply := range comment.replies {
-			if seenComments[reply.rpid] {
-				continue
-			}
-			seenComments[reply.rpid] = true
-			parentID := "comment:" + comment.rpid
-			if reply.parentID != "" && reply.parentID != comment.rpid {
-				parentID = "reply:" + reply.parentID
-			}
-			addItem("reply", reply.content, reply.rpid, discussionItemMeta{
-				author: &reply.user, likes: &reply.likes, rpid: &reply.rpid,
-				isUploader: reply.isUploader, createdAt: &reply.createdAt,
-				url: base + "#reply" + reply.rpid, rootID: stringPointer("comment:" + comment.rpid),
-				parentID: stringPointer(parentID),
-			})
-		}
-	}
-	for _, row := range danmakuRows {
-		timeSec := row.timeSec
-		createdAt := row.createdAt
-		cid := selected.cid
-		pageNumber := page
-		addItem("danmaku", row.text, row.id, discussionItemMeta{
-			isUploader: row.isUploader, createdAt: &createdAt, timeSec: &timeSec, cid: &cid, page: &pageNumber,
-			url: fmt.Sprintf("%s?p=%d&t=%d", base, page, int(math.Floor(row.timeSec))),
-		})
-	}
+	addDiscussionItem(&items, bvid, selected.cid, page, "description", description, bvid, discussionItemMeta{
+		isUploader: true, url: base,
+	})
+	appendCommentItems(&items, comments, base, selected.cid, page)
+	appendDanmakuItems(&items, danmakuRows, base, selected.cid, page)
 	truncated := len(items) > 1200
 	if truncated {
 		items = items[:1200]
