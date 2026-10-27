@@ -108,6 +108,158 @@ func (store *Store) Extensions() (map[string]any, error) {
 	}, nil
 }
 
+func changeInstructions(catalog *extensionCatalog, change map[string]any) error {
+	body := text(change["body"])
+	enabled := change["enabled"] == true
+	if !validSkillText(body, 4000) || (enabled && strings.TrimSpace(body) == "") {
+		return fmt.Errorf("启用的固定要求不能为空")
+	}
+	catalog.StandingInstructions = Instructions{Enabled: enabled, Body: strings.TrimSpace(body)}
+	return nil
+}
+
+func changePlugin(catalog *extensionCatalog, change map[string]any) error {
+	id := text(change["id"])
+	found := false
+	for _, plugin := range extensionPlugins {
+		if plugin.ID == id {
+			found = true
+			break
+		}
+	}
+	if !found {
+		return fmt.Errorf("未知工具组")
+	}
+	next := []string{}
+	for _, value := range catalog.DisabledPlugins {
+		if value != id {
+			next = append(next, value)
+		}
+	}
+	if change["enabled"] != true {
+		next = append(next, id)
+	}
+	catalog.DisabledPlugins = uniqueStrings(next)
+	return nil
+}
+
+func changeRemoveSkill(catalog *extensionCatalog, change map[string]any) error {
+	id := text(change["id"])
+	found := false
+	skills := []Skill{}
+	for _, skill := range catalog.Skills {
+		if skill.ID == id {
+			found = true
+			continue
+		}
+		skills = append(skills, skill)
+	}
+	if !found {
+		return fmt.Errorf("学习方法不存在")
+	}
+	catalog.Skills = skills
+	return nil
+}
+
+func skillResources(change map[string]any) ([]Resource, error) {
+	raw, exists := change["resources"]
+	if !exists {
+		return nil, nil
+	}
+	items, _ := raw.([]any)
+	if len(items) > 12 {
+		return nil, fmt.Errorf("方法资料重复或过长")
+	}
+	resources := []Resource{}
+	seen := map[string]bool{}
+	total := 0
+	for _, item := range items {
+		row, _ := item.(map[string]any)
+		path := text(row["path"])
+		content := text(row["content"])
+		if path == "" || strings.HasPrefix(path, "/") || strings.ContainsAny(path, "\\:") ||
+			len([]rune(path)) > 200 || strings.Contains(path, "../") || !validSkillText(content, 6000) ||
+			strings.TrimSpace(content) == "" {
+			return nil, fmt.Errorf("方法资料路径无效")
+		}
+		if seen[strings.ToLower(path)] {
+			return nil, fmt.Errorf("方法资料重复或过长")
+		}
+		seen[strings.ToLower(path)] = true
+		total += len([]rune(content))
+		resources = append(resources, Resource{Path: path, Content: content})
+	}
+	if total > 24000 {
+		return nil, fmt.Errorf("方法资料重复或过长")
+	}
+	return resources, nil
+}
+
+func skillByID(catalog extensionCatalog, id string) *Skill {
+	for _, skill := range catalog.Skills {
+		if skill.ID == id {
+			copied := skill
+			return &copied
+		}
+	}
+	return nil
+}
+
+func validateSkillInput(catalog extensionCatalog, id, name, description, body string) error {
+	if !skillNamePattern.MatchString(name) || len([]rune(name)) > 64 ||
+		!validSkillText(description, 500) || strings.TrimSpace(description) == "" ||
+		!validSkillText(body, 6000) || strings.TrimSpace(body) == "" {
+		return fmt.Errorf("学习方法内容无效")
+	}
+	for _, skill := range catalog.Skills {
+		if skill.Name == name && skill.ID != id {
+			return fmt.Errorf("学习方法名称已存在")
+		}
+	}
+	return nil
+}
+
+func changeSkill(catalog *extensionCatalog, change map[string]any) error {
+	id := text(change["id"])
+	name := text(change["name"])
+	description := text(change["description"])
+	body := text(change["body"])
+	previous := (*Skill)(nil)
+	if id != "" {
+		previous = skillByID(*catalog, id)
+		if previous == nil {
+			return fmt.Errorf("学习方法不存在")
+		}
+	}
+	if err := validateSkillInput(*catalog, id, name, description, body); err != nil {
+		return err
+	}
+	if id == "" {
+		id = randomID()
+		if len(catalog.Skills) >= 50 {
+			return fmt.Errorf("最多保存50个学习方法")
+		}
+	}
+	skills := []Skill{}
+	for _, skill := range catalog.Skills {
+		if skill.ID != id {
+			skills = append(skills, skill)
+		}
+	}
+	next := Skill{ID: id, Name: name, Description: description, Body: body, Enabled: change["enabled"] == true}
+	resources, err := skillResources(change)
+	if err != nil {
+		return err
+	}
+	if resources != nil {
+		next.Resources = resources
+	} else if previous != nil {
+		next.Resources = previous.Resources
+	}
+	catalog.Skills = append(skills, next)
+	return nil
+}
+
 func (store *Store) ChangeExtensions(input map[string]any) (any, error) {
 	op := text(input["op"])
 	if !opPattern.MatchString(op) {
@@ -125,128 +277,20 @@ func (store *Store) ChangeExtensions(input map[string]any) (any, error) {
 		if change == nil {
 			return nil, fmt.Errorf("学习方法变更无效")
 		}
-		kind := text(change["kind"])
-		switch kind {
+		switch text(change["kind"]) {
 		case "instructions":
-			body := text(change["body"])
-			enabled := change["enabled"] == true
-			if !validSkillText(body, 4000) || (enabled && strings.TrimSpace(body) == "") {
-				return nil, fmt.Errorf("启用的固定要求不能为空")
-			}
-			catalog.StandingInstructions = Instructions{Enabled: enabled, Body: strings.TrimSpace(body)}
+			err = changeInstructions(&catalog, change)
 		case "plugin":
-			id := text(change["id"])
-			found := false
-			for _, plugin := range extensionPlugins {
-				if plugin.ID == id {
-					found = true
-					break
-				}
-			}
-			if !found {
-				return nil, fmt.Errorf("未知工具组")
-			}
-			next := []string{}
-			for _, value := range catalog.DisabledPlugins {
-				if value != id {
-					next = append(next, value)
-				}
-			}
-			if change["enabled"] != true {
-				next = append(next, id)
-			}
-			catalog.DisabledPlugins = uniqueStrings(next)
+			err = changePlugin(&catalog, change)
 		case "remove":
-			id := text(change["id"])
-			found := false
-			skills := []Skill{}
-			for _, skill := range catalog.Skills {
-				if skill.ID == id {
-					found = true
-					continue
-				}
-				skills = append(skills, skill)
-			}
-			if !found {
-				return nil, fmt.Errorf("学习方法不存在")
-			}
-			catalog.Skills = skills
+			err = changeRemoveSkill(&catalog, change)
 		case "skill":
-			id := text(change["id"])
-			name := text(change["name"])
-			description := text(change["description"])
-			body := text(change["body"])
-			if id != "" {
-				found := false
-				for _, skill := range catalog.Skills {
-					if skill.ID == id {
-						found = true
-						break
-					}
-				}
-				if !found {
-					return nil, fmt.Errorf("学习方法不存在")
-				}
-			}
-			if !skillNamePattern.MatchString(name) || len([]rune(name)) > 64 ||
-				!validSkillText(description, 500) || strings.TrimSpace(description) == "" ||
-				!validSkillText(body, 6000) || strings.TrimSpace(body) == "" {
-				return nil, fmt.Errorf("学习方法内容无效")
-			}
-			for _, skill := range catalog.Skills {
-				if skill.Name == name && skill.ID != id {
-					return nil, fmt.Errorf("学习方法名称已存在")
-				}
-			}
-			if id == "" {
-				id = randomID()
-				if len(catalog.Skills) >= 50 {
-					return nil, fmt.Errorf("最多保存50个学习方法")
-				}
-			}
-			var previous *Skill
-			skills := []Skill{}
-			for _, skill := range catalog.Skills {
-				if skill.ID == id {
-					copied := skill
-					previous = &copied
-					continue
-				}
-				skills = append(skills, skill)
-			}
-			next := Skill{ID: id, Name: name, Description: description, Body: body, Enabled: change["enabled"] == true}
-			if raw, exists := change["resources"]; exists {
-				items, _ := raw.([]any)
-				if len(items) > 12 {
-					return nil, fmt.Errorf("方法资料重复或过长")
-				}
-				seen := map[string]bool{}
-				total := 0
-				for _, item := range items {
-					row, _ := item.(map[string]any)
-					path := text(row["path"])
-					content := text(row["content"])
-					if path == "" || strings.HasPrefix(path, "/") || strings.ContainsAny(path, "\\:") ||
-						len([]rune(path)) > 200 || strings.Contains(path, "../") || !validSkillText(content, 6000) ||
-						strings.TrimSpace(content) == "" {
-						return nil, fmt.Errorf("方法资料路径无效")
-					}
-					if seen[strings.ToLower(path)] {
-						return nil, fmt.Errorf("方法资料重复或过长")
-					}
-					seen[strings.ToLower(path)] = true
-					total += len([]rune(content))
-					next.Resources = append(next.Resources, Resource{Path: path, Content: content})
-				}
-				if total > 24000 {
-					return nil, fmt.Errorf("方法资料重复或过长")
-				}
-			} else if previous != nil {
-				next.Resources = previous.Resources
-			}
-			catalog.Skills = append(skills, next)
+			err = changeSkill(&catalog, change)
 		default:
 			return nil, fmt.Errorf("学习方法变更无效")
+		}
+		if err != nil {
+			return nil, err
 		}
 		catalog.Revision++
 		encoded, _ := json.Marshal(catalog)
@@ -271,16 +315,28 @@ func uniqueStrings(values []string) []string {
 	return result
 }
 
-func ParseSkillMarkdown(input string) (map[string]any, error) {
-	if len([]rune(input)) > 12000 || !validSkillText(input, 12000) {
-		return nil, fmt.Errorf("方法文件超过 12000 字，请精简后导入")
+func parseSkillHeaderValue(value string) (string, error) {
+	if strings.HasPrefix(value, `"`) {
+		var decoded string
+		if json.Unmarshal([]byte(value), &decoded) != nil {
+			return "", fmt.Errorf("方法头部引号无效")
+		}
+		return decoded, nil
 	}
-	match := skillFrontMatter.FindStringSubmatch(input)
-	if match == nil {
-		return nil, fmt.Errorf("方法文件需包含 name 和 description 的头部及正文")
+	if strings.HasPrefix(value, "'") && strings.HasSuffix(value, "'") && len(value) >= 2 {
+		return strings.ReplaceAll(value[1:len(value)-1], "''", "'"), nil
 	}
+	for _, prefix := range []string{"!", "&", "*", "[", "{", ">", "|"} {
+		if strings.HasPrefix(value, prefix) {
+			return "", fmt.Errorf("方法头部仅支持普通文本")
+		}
+	}
+	return value, nil
+}
+
+func parseSkillHeader(raw string) (map[string]string, error) {
 	fields := map[string]string{}
-	for _, line := range strings.Split(match[1], "\n") {
+	for _, line := range strings.Split(raw, "\n") {
 		line = strings.TrimSpace(line)
 		if line == "" {
 			continue
@@ -296,22 +352,26 @@ func ParseSkillMarkdown(input string) (map[string]any, error) {
 		if _, exists := fields[key]; exists {
 			return nil, fmt.Errorf("方法文件头部格式不支持")
 		}
-		value := strings.TrimSpace(line[index+1:])
-		if strings.HasPrefix(value, `"`) {
-			var decoded string
-			if json.Unmarshal([]byte(value), &decoded) != nil {
-				return nil, fmt.Errorf("方法头部引号无效")
-			}
-			value = decoded
-		} else if strings.HasPrefix(value, "'") && strings.HasSuffix(value, "'") && len(value) >= 2 {
-			value = strings.ReplaceAll(value[1:len(value)-1], "''", "'")
-		} else if strings.HasPrefix(value, "!") || strings.HasPrefix(value, "&") ||
-			strings.HasPrefix(value, "*") || strings.HasPrefix(value, "[") ||
-			strings.HasPrefix(value, "{") || strings.HasPrefix(value, ">") ||
-			strings.HasPrefix(value, "|") {
-			return nil, fmt.Errorf("方法头部仅支持普通文本")
+		value, err := parseSkillHeaderValue(strings.TrimSpace(line[index+1:]))
+		if err != nil {
+			return nil, err
 		}
 		fields[key] = value
+	}
+	return fields, nil
+}
+
+func ParseSkillMarkdown(input string) (map[string]any, error) {
+	if len([]rune(input)) > 12000 || !validSkillText(input, 12000) {
+		return nil, fmt.Errorf("方法文件超过 12000 字，请精简后导入")
+	}
+	match := skillFrontMatter.FindStringSubmatch(input)
+	if match == nil {
+		return nil, fmt.Errorf("方法文件需包含 name 和 description 的头部及正文")
+	}
+	fields, err := parseSkillHeader(match[1])
+	if err != nil {
+		return nil, err
 	}
 	name := fields["name"]
 	description := fields["description"]
@@ -336,6 +396,59 @@ type ExtensionSnapshot struct {
 	Channels     []string `json:"channels"`
 }
 
+func selectedExtensionSkills(catalog extensionCatalog, ids []string) ([]Skill, int, error) {
+	seen := map[string]bool{}
+	skills := []Skill{}
+	total := 0
+	for _, id := range ids {
+		if seen[id] {
+			return nil, 0, fmt.Errorf("所选学习方法重复")
+		}
+		seen[id] = true
+		found := false
+		for _, skill := range catalog.Skills {
+			if skill.ID != id || !skill.Enabled {
+				continue
+			}
+			found = true
+			skills = append(skills, skill)
+			total += len([]rune(skill.Body))
+			for _, resource := range skill.Resources {
+				total += len([]rune(resource.Content))
+			}
+			break
+		}
+		if !found {
+			return nil, 0, fmt.Errorf("所选学习方法已停用或删除")
+		}
+	}
+	return skills, total, nil
+}
+
+func channelPlugin(channel string) string {
+	for _, plugin := range extensionPlugins {
+		for _, item := range plugin.Channels {
+			if item == channel {
+				return plugin.ID
+			}
+		}
+	}
+	return ""
+}
+
+func verifyExtensionChannels(catalog extensionCatalog, channels []string) error {
+	for _, channel := range channels {
+		group := channelPlugin(channel)
+		if group == "" || contains(catalog.DisabledPlugins, group) {
+			return fmt.Errorf("本次所需工具组已停用")
+		}
+	}
+	if contains(channels, "organize") && contains(catalog.DisabledPlugins, "library") {
+		return fmt.Errorf("分类建议需启用资料库阅读")
+	}
+	return nil
+}
+
 func (store *Store) SnapshotExtensions(selection *SkillSelection, channels []string) (ExtensionSnapshot, error) {
 	catalog, err := store.extensionCatalog()
 	if err != nil {
@@ -348,61 +461,15 @@ func (store *Store) SnapshotExtensions(selection *SkillSelection, channels []str
 	if selection != nil {
 		ids = selection.IDs
 	}
-	seen := map[string]bool{}
-	skills := []Skill{}
-	total := 0
-	for _, id := range ids {
-		if seen[id] {
-			return ExtensionSnapshot{}, fmt.Errorf("所选学习方法重复")
-		}
-		seen[id] = true
-		found := false
-		for _, skill := range catalog.Skills {
-			if skill.ID == id && skill.Enabled {
-				found = true
-				skills = append(skills, skill)
-				total += len([]rune(skill.Body))
-				for _, resource := range skill.Resources {
-					total += len([]rune(resource.Content))
-				}
-				break
-			}
-		}
-		if !found {
-			return ExtensionSnapshot{}, fmt.Errorf("所选学习方法已停用或删除")
-		}
+	skills, total, err := selectedExtensionSkills(catalog, ids)
+	if err != nil {
+		return ExtensionSnapshot{}, err
 	}
 	if len(skills) > 5 || total > 36000 {
 		return ExtensionSnapshot{}, fmt.Errorf("本轮最多选择5个方法，含附属资料合计不超过36000字")
 	}
-	for _, channel := range channels {
-		group := ""
-		for _, plugin := range extensionPlugins {
-			for _, item := range plugin.Channels {
-				if item == channel {
-					group = plugin.ID
-					break
-				}
-			}
-			if group != "" {
-				break
-			}
-		}
-		if group == "" {
-			return ExtensionSnapshot{}, fmt.Errorf("本次所需工具组已停用")
-		}
-		for _, disabled := range catalog.DisabledPlugins {
-			if disabled == group {
-				return ExtensionSnapshot{}, fmt.Errorf("本次所需工具组已停用")
-			}
-		}
-	}
-	if contains(channels, "organize") {
-		for _, disabled := range catalog.DisabledPlugins {
-			if disabled == "library" {
-				return ExtensionSnapshot{}, fmt.Errorf("分类建议需启用资料库阅读")
-			}
-		}
+	if err := verifyExtensionChannels(catalog, channels); err != nil {
+		return ExtensionSnapshot{}, err
 	}
 	instructions := ""
 	if catalog.StandingInstructions.Enabled {
