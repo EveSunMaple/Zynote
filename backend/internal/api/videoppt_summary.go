@@ -16,6 +16,8 @@ import (
 	"github.com/EveSunMaple/Zynote/backend/internal/library"
 )
 
+const msgSummarySaveInvalid = "摘要保存校验失败"
+
 var videoNoteTitles = map[string]string{
 	"brief": "简要摘要", "detailed": "详细摘要", "keypoints": "课程要点", "mindmap": "思维导图",
 }
@@ -215,18 +217,18 @@ func (inv *Invoker) handleVideoSummary(store contract.StateStore, state *contrac
 		encoded, _ := json.MarshalIndent(result.Points, "", "  ")
 		if err := os.WriteFile(path, []byte(result.Markdown), 0o644); err != nil {
 			_ = os.Remove(path)
-			return nil, contract.Unavailable("摘要保存校验失败")
+			return nil, contract.Unavailable(msgSummarySaveInvalid)
 		}
 		if err := os.WriteFile(evidence, encoded, 0o644); err != nil {
 			_ = os.Remove(path)
 			_ = os.Remove(evidence)
-			return nil, contract.Unavailable("摘要保存校验失败")
+			return nil, contract.Unavailable(msgSummarySaveInvalid)
 		}
 		check, err := os.ReadFile(path)
 		if err != nil || string(check) != result.Markdown {
 			_ = os.Remove(path)
 			_ = os.Remove(evidence)
-			return nil, contract.Unavailable("摘要保存校验失败")
+			return nil, contract.Unavailable(msgSummarySaveInvalid)
 		}
 		return map[string]any{
 			"path": path, "count": len(result.Points), "markdown": result.Markdown, "points": result.Points,

@@ -15,6 +15,13 @@ import (
 	"github.com/EveSunMaple/Zynote/backend/internal/contract"
 )
 
+const (
+	apiReplyMain       = "/x/v2/reply/wbi/main"
+	apiWebInterfaceNav = "/x/web-interface/nav"
+	errBiliLoginRead   = "B 站登录状态不可读取"
+	errBiliLoginSave   = "B 站登录状态不可保存"
+)
+
 type Crypt = func(data []byte, decrypt bool) ([]byte, error)
 
 type storedCookie struct {
@@ -54,15 +61,15 @@ func (store *cookieStore) load() error {
 		if os.IsNotExist(err) {
 			return nil
 		}
-		return contract.Unavailable("B 站登录状态不可读取")
+		return contract.Unavailable(errBiliLoginRead)
 	}
 	plain, err := store.crypt(raw, true)
 	if err != nil {
-		return contract.Unavailable("B 站登录状态不可读取")
+		return contract.Unavailable(errBiliLoginRead)
 	}
 	var cookies []storedCookie
 	if err := json.Unmarshal(plain, &cookies); err != nil {
-		return contract.Unavailable("B 站登录状态不可读取")
+		return contract.Unavailable(errBiliLoginRead)
 	}
 	store.cookies = cookies
 	return nil
@@ -71,22 +78,22 @@ func (store *cookieStore) load() error {
 func (store *cookieStore) saveLocked() error {
 	encoded, err := json.Marshal(store.cookies)
 	if err != nil {
-		return contract.Unavailable("B 站登录状态不可保存")
+		return contract.Unavailable(errBiliLoginSave)
 	}
 	sealed, err := store.crypt(encoded, false)
 	if err != nil {
 		return contract.Unavailable("系统密钥库不可用，未保存 B 站登录状态")
 	}
 	if err := os.MkdirAll(filepath.Dir(store.path), 0o755); err != nil {
-		return contract.Unavailable("B 站登录状态不可保存")
+		return contract.Unavailable(errBiliLoginSave)
 	}
 	temporary := store.path + ".writing"
 	if err := os.WriteFile(temporary, sealed, 0o600); err != nil {
-		return contract.Unavailable("B 站登录状态不可保存")
+		return contract.Unavailable(errBiliLoginSave)
 	}
 	if err := os.Rename(temporary, store.path); err != nil {
 		_ = os.Remove(temporary)
-		return contract.Unavailable("B 站登录状态不可保存")
+		return contract.Unavailable(errBiliLoginSave)
 	}
 	return nil
 }
@@ -236,7 +243,7 @@ var discussionReadPaths = map[string]bool{
 	"/x/web-interface/view": true,
 	"/x/v2/reply":           true,
 	"/x/v2/reply/reply":     true,
-	"/x/v2/reply/wbi/main":  true,
+	apiReplyMain:            true,
 }
 
 func (resources *Resources) ReadDiscussion(requestPath string, params map[string]string, ctx context.Context, signed bool) (any, error) {
@@ -378,7 +385,7 @@ func (resources *Resources) readContext(ctx context.Context, requestPath string,
 	if err := json.NewDecoder(response.Body).Decode(&payload); err != nil {
 		return nil, contract.Unavailable("B 站服务返回格式异常，请稍后重试")
 	}
-	if requestPath == "/x/web-interface/nav" && payload.Code == -101 {
+	if requestPath == apiWebInterfaceNav && payload.Code == -101 {
 		result := map[string]any{"isLogin": false}
 		if len(payload.Data) > 0 {
 			_ = json.Unmarshal(payload.Data, &result)
@@ -405,14 +412,14 @@ var mediaReadPaths = map[string]bool{
 	"/x/player/v2":          true,
 	"/x/v2/reply":           true,
 	"/x/v2/reply/reply":     true,
-	"/x/v2/reply/wbi/main":  true,
+	apiReplyMain:            true,
 }
 
 func (resources *Resources) ReadMedia(requestPath string, params map[string]string) (any, error) {
 	if !mediaReadPaths[requestPath] {
 		return nil, contract.InputInvalid("媒体读取地址无效")
 	}
-	if requestPath == "/x/player/wbi/playurl" || requestPath == "/x/v2/reply/wbi/main" {
+	if requestPath == "/x/player/wbi/playurl" || requestPath == apiReplyMain {
 		signed, err := resources.sign(params)
 		if err != nil {
 			return nil, err
@@ -423,7 +430,7 @@ func (resources *Resources) ReadMedia(requestPath string, params map[string]stri
 }
 
 func (resources *Resources) Status() (map[string]any, error) {
-	data, err := resources.read("/x/web-interface/nav", nil, false)
+	data, err := resources.read(apiWebInterfaceNav, nil, false)
 	if err != nil {
 		return nil, err
 	}
@@ -453,7 +460,7 @@ func (resources *Resources) sign(params map[string]string) (map[string]string, e
 	key := resources.signingKey
 	resources.mu.Unlock()
 	if key == nil || key.expires <= time.Now().UnixMilli() {
-		data, err := resources.read("/x/web-interface/nav", nil, false)
+		data, err := resources.read(apiWebInterfaceNav, nil, false)
 		if err != nil {
 			return nil, err
 		}

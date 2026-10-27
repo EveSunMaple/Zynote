@@ -9,6 +9,11 @@ import (
 )
 
 const (
+	errTaskSaveFailed         = "画面任务保存失败"
+	errRecognitionPathInvalid = "识别成果路径无效，保留当前文件"
+)
+
+const (
 	StatusWaiting = "等待识别"
 	StatusDone    = "已完成"
 	StatusFailed  = "失败"
@@ -117,16 +122,16 @@ func (service *Service) save(task Task) error {
 	task.OutputRecovery = ""
 	encoded, err := json.MarshalIndent(task, "", "  ")
 	if err != nil {
-		return badRequest("画面任务保存失败")
+		return badRequest(errTaskSaveFailed)
 	}
 	path := filepath.Join(service.Root, task.ID+".json")
 	temporary := path + ".tmp"
 	if err := os.WriteFile(temporary, encoded, 0o644); err != nil {
-		return badRequest("画面任务保存失败")
+		return badRequest(errTaskSaveFailed)
 	}
 	if err := os.Rename(temporary, path); err != nil {
 		_ = os.Remove(temporary)
-		return badRequest("画面任务保存失败")
+		return badRequest(errTaskSaveFailed)
 	}
 	return nil
 }
@@ -138,15 +143,15 @@ func (service *Service) outputPath(task Task) (string, error) {
 	}
 	output, err := filepath.Abs(output)
 	if err != nil {
-		return "", badRequest("识别成果路径无效，保留当前文件")
+		return "", badRequest(errRecognitionPathInvalid)
 	}
 	root, err := filepath.Abs(service.Root)
 	if err != nil {
-		return "", badRequest("识别成果路径无效，保留当前文件")
+		return "", badRequest(errRecognitionPathInvalid)
 	}
 	relative, err := filepath.Rel(root, output)
 	if err != nil || relative == "." || relative == ".." || strings.HasPrefix(relative, ".."+string(filepath.Separator)) || filepath.IsAbs(relative) {
-		return "", badRequest("识别成果路径无效，保留当前文件")
+		return "", badRequest(errRecognitionPathInvalid)
 	}
 	return output, nil
 }

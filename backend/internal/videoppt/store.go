@@ -9,6 +9,11 @@ import (
 	"strings"
 )
 
+const (
+	errTaskPreviewMismatch = "任务预览不一致"
+	errTaskRecordCorrupt   = "任务记录损坏或不一致，已保留原文件，请查看任务文件。"
+)
+
 var taskIDPattern = regexp.MustCompile(`^[\da-f-]{36}$`)
 var frameFilePattern = regexp.MustCompile(`^frame-\d+\.png$`)
 
@@ -142,11 +147,11 @@ func readFrames(directory string) ([]storedFrame, bool, error) {
 	}
 	var frames []storedFrame
 	if json.Unmarshal(raw, &frames) != nil {
-		return nil, true, requestError("任务预览不一致")
+		return nil, true, requestError(errTaskPreviewMismatch)
 	}
 	for _, frame := range frames {
 		if frame.Page < 1 || frame.Time < 0 || !filePatternFrame(frame.File) {
-			return nil, true, requestError("任务预览不一致")
+			return nil, true, requestError(errTaskPreviewMismatch)
 		}
 	}
 	return frames, true, nil
@@ -166,14 +171,14 @@ func readReview(directory, id string, frames []storedFrame) (*Review, error) {
 	}
 	var review Review
 	if json.Unmarshal(raw, &review) != nil {
-		return nil, requestError("任务预览不一致")
+		return nil, requestError(errTaskPreviewMismatch)
 	}
 	if review.ID != id || len(review.Pages) != len(frames) {
-		return nil, requestError("任务预览不一致")
+		return nil, requestError(errTaskPreviewMismatch)
 	}
 	for index, page := range review.Pages {
 		if page.Page != frames[index].Page || page.Width <= 0 || page.Height <= 0 || !validCrop(page.Crop) {
-			return nil, requestError("任务预览不一致")
+			return nil, requestError(errTaskPreviewMismatch)
 		}
 	}
 	return &review, nil
@@ -224,11 +229,11 @@ func (service *Service) pendingOne(id string) (Pending, error) {
 		} `json:"saved"`
 	}
 	if json.Unmarshal(raw, &meta) != nil {
-		return Pending{}, requestError("任务记录损坏或不一致，已保留原文件，请查看任务文件。")
+		return Pending{}, requestError(errTaskRecordCorrupt)
 	}
 	if meta.Kind == "subtitle" {
 		if meta.ID != id || meta.Name == "" || meta.OutputName == "" || meta.Page < 1 {
-			return Pending{}, requestError("任务记录损坏或不一致，已保留原文件，请查看任务文件。")
+			return Pending{}, requestError(errTaskRecordCorrupt)
 		}
 		pending := Pending{ID: id, Name: meta.Name, Kind: "subtitle"}
 		if meta.Saved != nil && meta.Saved.Path != "" {
@@ -257,7 +262,7 @@ func (service *Service) brokenTask(id string, err error) Pending {
 			}
 		}
 	}
-	message := "任务记录损坏或不一致，已保留原文件，请查看任务文件。"
+	message := errTaskRecordCorrupt
 	if os.IsNotExist(err) {
 		message = "任务准备未完成，已保留下载文件，请查看任务文件。"
 	} else if os.IsPermission(err) {

@@ -12,6 +12,12 @@ import (
 	"github.com/EveSunMaple/Zynote/backend/internal/contract"
 )
 
+const (
+	errSecureStorageUnavailable  = "系统加密存储不可用，未保存设置"
+	errModelParametersOutOfRange = "模型参数超出允许范围"
+	errSettingsFileNotWritable   = "设置文件不可写"
+)
+
 type settingsSaveProfile struct {
 	ID          string                     `json:"id"`
 	Name        string                     `json:"name"`
@@ -61,17 +67,17 @@ func uniqueSettingsStrings(values []string) []string {
 
 func encryptValue(reverse contract.ReverseCaller, value string) (string, error) {
 	if reverse == nil {
-		return "", contract.Unavailable("系统加密存储不可用，未保存设置")
+		return "", contract.Unavailable(errSecureStorageUnavailable)
 	}
 	raw, err := reverse.Call("crypto.protect", map[string]string{"value": value}, unprotectTimeoutMS)
 	if err != nil {
-		return "", contract.Unavailable("系统加密存储不可用，未保存设置")
+		return "", contract.Unavailable(errSecureStorageUnavailable)
 	}
 	var decoded struct {
 		Value string `json:"value"`
 	}
 	if err := json.Unmarshal(raw, &decoded); err != nil || decoded.Value == "" {
-		return "", contract.Unavailable("系统加密存储不可用，未保存设置")
+		return "", contract.Unavailable(errSecureStorageUnavailable)
 	}
 	return decoded.Value, nil
 }
@@ -141,13 +147,13 @@ func SaveSettings(
 	for _, parameter := range chosen.Parameters {
 		if parameter.Temperature != nil &&
 			(math.IsNaN(*parameter.Temperature) || *parameter.Temperature < 0 || *parameter.Temperature > 2) {
-			return SettingsSaveResult{}, contract.InputInvalid("模型参数超出允许范围")
+			return SettingsSaveResult{}, contract.InputInvalid(errModelParametersOutOfRange)
 		}
 		if parameter.TopP != nil && (math.IsNaN(*parameter.TopP) || *parameter.TopP < 0 || *parameter.TopP > 1) {
-			return SettingsSaveResult{}, contract.InputInvalid("模型参数超出允许范围")
+			return SettingsSaveResult{}, contract.InputInvalid(errModelParametersOutOfRange)
 		}
 		if parameter.MaxTokens != nil && *parameter.MaxTokens < 1 {
-			return SettingsSaveResult{}, contract.InputInvalid("模型参数超出允许范围")
+			return SettingsSaveResult{}, contract.InputInvalid(errModelParametersOutOfRange)
 		}
 	}
 	stored, err := loadStored(dataRoot)
@@ -176,7 +182,7 @@ func SaveSettings(
 	}
 	if apiKey == "" && old.EncryptedKey != "" {
 		if _, err := decryptValue(reverse, old.EncryptedKey); err != nil {
-			return SettingsSaveResult{}, contract.Unavailable("系统加密存储不可用，未保存设置")
+			return SettingsSaveResult{}, contract.Unavailable(errSecureStorageUnavailable)
 		}
 	}
 	keepSearch := len(input.SearchKey) == 0
@@ -194,7 +200,7 @@ func SaveSettings(
 	oldSearchKey := rawString(stored["encryptedSearchKey"])
 	if keepSearch && oldSearchKey != "" {
 		if _, err := decryptValue(reverse, oldSearchKey); err != nil {
-			return SettingsSaveResult{}, contract.Unavailable("系统加密存储不可用，未保存设置")
+			return SettingsSaveResult{}, contract.Unavailable(errSecureStorageUnavailable)
 		}
 	}
 	encryptedKey := old.EncryptedKey
@@ -260,29 +266,29 @@ func SaveSettings(
 		{"prompts", prompts},
 	} {
 		if err := set(item.key, item.value); err != nil {
-			return SettingsSaveResult{}, contract.Unavailable("设置文件不可写")
+			return SettingsSaveResult{}, contract.Unavailable(errSettingsFileNotWritable)
 		}
 	}
 	if encryptedSearchKey == "" {
 		delete(next, "encryptedSearchKey")
 	} else if err := set("encryptedSearchKey", encryptedSearchKey); err != nil {
-		return SettingsSaveResult{}, contract.Unavailable("设置文件不可写")
+		return SettingsSaveResult{}, contract.Unavailable(errSettingsFileNotWritable)
 	}
 	encoded, err := json.MarshalIndent(next, "", "  ")
 	if err != nil {
-		return SettingsSaveResult{}, contract.Unavailable("设置文件不可写")
+		return SettingsSaveResult{}, contract.Unavailable(errSettingsFileNotWritable)
 	}
 	path := filepath.Join(dataRoot, "settings.json")
 	if err := os.MkdirAll(dataRoot, 0o755); err != nil {
-		return SettingsSaveResult{}, contract.Unavailable("设置文件不可写")
+		return SettingsSaveResult{}, contract.Unavailable(errSettingsFileNotWritable)
 	}
 	temporary := path + ".tmp"
 	if err := os.WriteFile(temporary, encoded, 0o644); err != nil {
-		return SettingsSaveResult{}, contract.Unavailable("设置文件不可写")
+		return SettingsSaveResult{}, contract.Unavailable(errSettingsFileNotWritable)
 	}
 	if err := os.Rename(temporary, path); err != nil {
 		_ = os.Remove(temporary)
-		return SettingsSaveResult{}, contract.Unavailable("设置文件不可写")
+		return SettingsSaveResult{}, contract.Unavailable(errSettingsFileNotWritable)
 	}
 	saved, err := ReadSettings(dataRoot, promptsRoot, reverse)
 	if err != nil {

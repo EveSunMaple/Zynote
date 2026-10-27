@@ -57,6 +57,17 @@ import {
 } from '@renderer/features/courses/CoursePanels'
 import {SettingsHub} from '@renderer/features/settings/SettingsHub'
 import {SettingsLink, SettingsNavigationProvider, type SettingsSection} from '@renderer/app/settings-navigation'
+
+const settingsBackLabels: Record<string, string> = {
+ zhiyun: '返回智云导入',
+ files: '返回文件管理',
+ knowledge: '返回知识库',
+ tools: '返回研究',
+ recognition: '返回识别工具',
+ study: '返回课表与教材',
+ tasks: '返回任务中心'
+}
+const practiceFormatLabels: Record<string, string> = {md: 'Markdown', docx: 'Word', pdf: 'PDF'}
 type RailTarget = LearningView | 'zhiyun' | 'files' | 'recognition' | 'knowledge' | 'tools' | 'study' | 'tasks' | null
 type ModalTarget =
  | 'course'
@@ -121,32 +132,17 @@ export default function App() {
   setSettingsReturn(null)
   setModal(target)
  }
- const settingsBackLabel =
-  settingsReturn === 'zhiyun'
-   ? '返回智云导入'
-   : settingsReturn === 'files'
-     ? '返回文件管理'
-     : settingsReturn === 'knowledge'
-       ? '返回知识库'
-       : settingsReturn === 'tools'
-         ? '返回研究'
-         : settingsReturn === 'recognition'
-           ? '返回识别工具'
-           : settingsReturn === 'study'
-             ? '返回课表与教材'
-             : settingsReturn === 'tasks'
-               ? '返回任务中心'
-               : settingsReturn && learningViews.some(item => item.id === settingsReturn)
-                 ? '返回视频学习'
-                 : '返回课程对话'
+ const settingsBackLabel = settingsReturn
+  ? (settingsBackLabels[settingsReturn] ??
+    (learningViews.some(item => item.id === settingsReturn) ? '返回视频学习' : '返回课程对话'))
+  : '返回课程对话'
  const [platform, setPlatform] = useState('')
  const modKey = platform === 'darwin' ? ('command' as const) : ('ctrl' as const)
- const railActive = (target: RailTarget) =>
-  target === null
-   ? modal === null
-   : target === 'videoPpt'
-     ? learningViews.some(item => item.id === modal)
-     : modal === target
+ const railActive = (target: RailTarget) => {
+  if (target === null) return modal === null
+  if (target === 'videoPpt') return learningViews.some(item => item.id === modal)
+  return modal === target
+ }
  useEffect(() => {
   void invoke<{platform: string}>('app:info').then(info => setPlatform(info.platform))
  }, [])
@@ -312,7 +308,9 @@ export default function App() {
   const media = window.matchMedia('(prefers-color-scheme: dark)')
   const apply = () => {
    const theme = settings?.theme ?? 'light'
-   document.documentElement.dataset.theme = theme === 'system' ? (media.matches ? 'dark' : 'light') : theme
+   const systemTheme = media.matches ? 'dark' : 'light',
+    resolvedTheme = theme === 'system' ? systemTheme : theme
+   document.documentElement.dataset.theme = resolvedTheme
   }
   apply()
   media.addEventListener('change', apply)
@@ -471,15 +469,10 @@ export default function App() {
  const activeAppearance = resolveAppearance(appearance, courseId)
  const hasTranscriptSource = !!lecture?.lecture.transcript_path
  const hasPptSource = !!lecture?.lecture.ppt_path
- const missingSource = !lecture
-  ? ''
-  : !hasTranscriptSource && !hasPptSource
-    ? '请先添加语音识别原文和 PPT/课件'
-    : !hasTranscriptSource
-      ? '请先添加语音识别原文'
-      : !hasPptSource
-        ? '请先关联 PPT/课件'
-        : ''
+ let missingSource = ''
+ if (lecture && !hasTranscriptSource && !hasPptSource) missingSource = '请先添加语音识别原文和 PPT/课件'
+ else if (lecture && !hasTranscriptSource) missingSource = '请先添加语音识别原文'
+ else if (lecture && !hasPptSource) missingSource = '请先关联 PPT/课件'
  const correctionButton = lecture && (
   <CorrectionControls
    key={lecture.lecture.id}
@@ -1131,7 +1124,7 @@ export default function App() {
                  ['md', 'docx', 'pdf'].map(f => (
                   <Button variant="ghost" size="sm" key={f} onClick={() => exportResult('practice', f)}>
                    <StudyIcon name="download" />
-                   {f === 'md' ? 'Markdown' : f === 'docx' ? 'Word' : 'PDF'}
+                   {practiceFormatLabels[f] ?? 'PDF'}
                   </Button>
                  ))}
                </div>

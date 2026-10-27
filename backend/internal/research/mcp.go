@@ -8,6 +8,8 @@ import (
 	"strings"
 )
 
+const mcpCallKind = "mcp-call"
+
 var mcpToolPattern = regexp.MustCompile(`^[A-Za-z0-9_.-]{1,128}$`)
 
 type McpTool struct {
@@ -654,7 +656,7 @@ func (mcp *Mcp) Call(ctx context.Context, input map[string]any) (McpResult, erro
 		"tool": toolName, "args": arguments,
 	}
 	signature := digestValue(identity)
-	if prior, err := mcp.Store.Read("mcp-call", op); err == nil {
+	if prior, err := mcp.Store.Read(mcpCallKind, op); err == nil {
 		if text(prior["signature"]) != signature {
 			return McpResult{}, fmt.Errorf("MCP 操作编号冲突")
 		}
@@ -668,7 +670,7 @@ func (mcp *Mcp) Call(ctx context.Context, input map[string]any) (McpResult, erro
 		}
 		return McpResult{}, fmt.Errorf("原MCP调用结果未知或失败，不自动重放")
 	}
-	if err := mcp.Store.Put("mcp-call", op, 0, map[string]any{
+	if err := mcp.Store.Put(mcpCallKind, op, 0, map[string]any{
 		"signature": signature, "state": "unknown", "request": identity, "result": nil,
 	}); err != nil {
 		return McpResult{}, err
@@ -735,7 +737,7 @@ func (mcp *Mcp) Call(ctx context.Context, input map[string]any) (McpResult, erro
 	if err := mcp.Verify(snapshot); err != nil {
 		return McpResult{}, err
 	}
-	if err := mcp.Store.Put("mcp-call", op, 1, map[string]any{
+	if err := mcp.Store.Put(mcpCallKind, op, 1, map[string]any{
 		"signature": signature, "state": "completed", "request": identity, "result": result,
 	}); err != nil {
 		return McpResult{}, err

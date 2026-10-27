@@ -12,6 +12,8 @@ import (
 	"github.com/EveSunMaple/Zynote/backend/internal/ids"
 )
 
+const errOutputStageWriteFailed = "画面成果暂存文件写入失败，保留当前文件"
+
 func digestText(value string) string {
 	sum := sha256.Sum256([]byte(value))
 	return hex.EncodeToString(sum[:])
@@ -73,16 +75,16 @@ func (service *Service) commitOutput(task *Task, text string) error {
 	}
 	file, err := os.OpenFile(temp, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o644)
 	if err != nil {
-		return badRequest("画面成果暂存文件写入失败，保留当前文件")
+		return badRequest(errOutputStageWriteFailed)
 	}
 	if _, err := file.WriteString(text); err != nil {
 		file.Close()
 		_ = os.Remove(temp)
-		return badRequest("画面成果暂存文件写入失败，保留当前文件")
+		return badRequest(errOutputStageWriteFailed)
 	}
 	if err := file.Close(); err != nil {
 		_ = os.Remove(temp)
-		return badRequest("画面成果暂存文件写入失败，保留当前文件")
+		return badRequest(errOutputStageWriteFailed)
 	}
 	defer os.Remove(temp)
 	if current, err := service.optionalDigest(temp); err != nil || current != hash {

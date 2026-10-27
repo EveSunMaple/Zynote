@@ -11,15 +11,17 @@ import (
 	"github.com/EveSunMaple/Zynote/backend/internal/videoppt"
 )
 
+const msgInvalidEpisode = "所选分集无效"
+
 func selectedEpisodes(series mediaBilibili.VideoSeries, pages []int) ([]mediaBilibili.VideoEpisode, error) {
 	if len(pages) < 1 || len(pages) > 1000 {
-		return nil, contract.InputInvalid("所选分集无效")
+		return nil, contract.InputInvalid(msgInvalidEpisode)
 	}
 	seen := map[int]bool{}
 	selected := []mediaBilibili.VideoEpisode{}
 	for _, page := range pages {
 		if seen[page] {
-			return nil, contract.InputInvalid("所选分集无效")
+			return nil, contract.InputInvalid(msgInvalidEpisode)
 		}
 		seen[page] = true
 		found := false
@@ -31,7 +33,7 @@ func selectedEpisodes(series mediaBilibili.VideoSeries, pages []int) ([]mediaBil
 			}
 		}
 		if !found {
-			return nil, contract.InputInvalid("所选分集无效")
+			return nil, contract.InputInvalid(msgInvalidEpisode)
 		}
 	}
 	return selected, nil
@@ -44,7 +46,7 @@ func (inv *Invoker) handleVideoBatchSubtitles(store contract.StateStore, state *
 		CourseID string `json:"courseId"`
 	}
 	if err := json.Unmarshal(params, &input); err != nil || input.URL == "" {
-		return nil, contract.InputInvalid("所选分集无效")
+		return nil, contract.InputInvalid(msgInvalidEpisode)
 	}
 	courseName, err := inv.subtitleCourseName(state, input.CourseID)
 	if err != nil {
@@ -118,7 +120,7 @@ func (inv *Invoker) handleVideoBatch(store contract.StateStore, state *contract.
 		Prompt   string `json:"prompt"`
 	}
 	if err := json.Unmarshal(params, &input); err != nil || input.URL == "" {
-		return nil, contract.InputInvalid("所选分集无效")
+		return nil, contract.InputInvalid(msgInvalidEpisode)
 	}
 	prompt := input.Prompt
 	if prompt == "" {

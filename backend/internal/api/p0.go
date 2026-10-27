@@ -11,6 +11,8 @@ import (
 	"github.com/EveSunMaple/Zynote/backend/internal/storage"
 )
 
+const assistantDBFile = "assistant.db"
+
 func handleAppInfo(_ contract.StateStore, state *contract.State, _ json.RawMessage) (any, error) {
 	return map[string]any{
 		"version":  state.AppVersion,
@@ -58,7 +60,7 @@ func handleIdentityGet(_ contract.StateStore, state *contract.State, _ json.RawM
 }
 
 func handleDBHealth(_ contract.StateStore, state *contract.State, _ json.RawMessage) (any, error) {
-	return storage.Health(filepath.Join(state.DataRoot, "assistant.db"))
+	return storage.Health(filepath.Join(state.DataRoot, assistantDBFile))
 }
 
 func handleDBBackup(store contract.StateStore, state *contract.State, params json.RawMessage) (any, error) {
@@ -70,11 +72,11 @@ func handleDBBackup(store contract.StateStore, state *contract.State, params jso
 			return nil, contract.InputInvalid("备份参数无效")
 		}
 	}
-	return storage.Backup(filepath.Join(state.DataRoot, "assistant.db"), input.Target)
+	return storage.Backup(filepath.Join(state.DataRoot, assistantDBFile), input.Target)
 }
 
 func openReadOnlyDB(state *contract.State) (*sql.DB, error) {
-	db, err := sql.Open("sqlite", "file:"+filepath.ToSlash(filepath.Join(state.DataRoot, "assistant.db"))+"?mode=ro")
+	db, err := sql.Open("sqlite", "file:"+filepath.ToSlash(filepath.Join(state.DataRoot, assistantDBFile))+"?mode=ro")
 	if err != nil {
 		return nil, contract.Unavailable("数据库无法打开")
 	}

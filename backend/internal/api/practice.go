@@ -10,6 +10,8 @@ import (
 	"github.com/EveSunMaple/Zynote/backend/internal/learning"
 )
 
+const msgPracticeInvalid = "练习数据无效"
+
 func practiceGroup(practice map[string]any, group string, index int) (map[string]any, error) {
 	items, _ := practice[group].([]any)
 	if index < 0 || index >= len(items) {
@@ -39,7 +41,7 @@ func (inv *Invoker) handlePracticeSubmit(_ contract.StateStore, state *contract.
 	}
 	if err := json.Unmarshal(params, &input); err != nil || !config.IsUUID(input.ID) ||
 		(input.Group != "past" && input.Group != "extended" && input.Group != "generated") {
-		return nil, contract.InputInvalid("练习数据无效")
+		return nil, contract.InputInvalid(msgPracticeInvalid)
 	}
 	input.Response = strings.TrimSpace(input.Response)
 	if len([]rune(input.Response)) < 1 || len([]rune(input.Response)) > 10000 {
@@ -104,7 +106,7 @@ func (inv *Invoker) handlePracticeReset(_ contract.StateStore, state *contract.S
 	}
 	if err := json.Unmarshal(params, &input); err != nil || !config.IsUUID(input.ID) ||
 		(input.Group != "past" && input.Group != "extended" && input.Group != "generated") {
-		return nil, contract.InputInvalid("练习数据无效")
+		return nil, contract.InputInvalid(msgPracticeInvalid)
 	}
 	detail, err := inv.lectureDetailOf(state, input.ID)
 	if err != nil {
@@ -138,7 +140,7 @@ func (inv *Invoker) handlePracticeAnswer(store contract.StateStore, state *contr
 	}
 	if err := json.Unmarshal(params, &input); err != nil || !config.IsUUID(input.ID) || input.Index < 0 ||
 		(input.Group != "past" && input.Group != "extended" && input.Group != "generated") {
-		return nil, contract.InputInvalid("练习数据无效")
+		return nil, contract.InputInvalid(msgPracticeInvalid)
 	}
 	return inv.runJob("lecture:"+input.ID, func(ctx context.Context) (any, error) {
 		detail, err := inv.lectureDetailOf(state, input.ID)

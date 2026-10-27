@@ -17,6 +17,8 @@ import (
 	"github.com/EveSunMaple/Zynote/backend/internal/visual"
 )
 
+const msgVisualTaskInvalid = "画面任务标识无效"
+
 var visualIDPattern = regexp.MustCompile(`^[a-f0-9]{32}$`)
 
 func (inv *Invoker) visualService(state *contract.State) *visual.Service {
@@ -106,7 +108,7 @@ func (inv *Invoker) handleVisualPrepareResume(state *contract.State, params json
 		ID string `json:"id"`
 	}
 	if err := json.Unmarshal(params, &input); err != nil || !visualIDPattern.MatchString(input.ID) {
-		return nil, contract.InputInvalid("画面任务标识无效")
+		return nil, contract.InputInvalid(msgVisualTaskInvalid)
 	}
 	return inv.runJob("继续提取画面", func(ctx context.Context) (any, error) {
 		connection, err := visualConnection(state)
@@ -126,7 +128,7 @@ func (inv *Invoker) handleVisualRecognize(store contract.StateStore, state *cont
 		ID string `json:"id"`
 	}
 	if err := json.Unmarshal(params, &input); err != nil || !visualIDPattern.MatchString(input.ID) {
-		return nil, contract.InputInvalid("画面任务标识无效")
+		return nil, contract.InputInvalid(msgVisualTaskInvalid)
 	}
 	return inv.runJob("识别画面", func(ctx context.Context) (any, error) {
 		connection, err := visualConnection(state)
@@ -174,7 +176,7 @@ func (inv *Invoker) handleVisualRecoverOutput(state *contract.State, params json
 		ID string `json:"id"`
 	}
 	if err := json.Unmarshal(params, &input); err != nil || !visualIDPattern.MatchString(input.ID) {
-		return nil, contract.InputInvalid("画面任务标识无效")
+		return nil, contract.InputInvalid(msgVisualTaskInvalid)
 	}
 	return inv.runJob("恢复画面成果", func(_ context.Context) (any, error) {
 		task, err := inv.visualService(state).RecoverOutput(input.ID)

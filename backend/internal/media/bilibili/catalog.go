@@ -10,6 +10,8 @@ import (
 	"github.com/EveSunMaple/Zynote/backend/internal/media"
 )
 
+const errVideoCatalogInvalid = "视频目录格式异常，请稍后重试"
+
 var videoPathPattern = regexp.MustCompile(`^/video/(BV[\w]+|av\d+)/?$`)
 var pageNumberPattern = regexp.MustCompile(`^[1-9]\d*$`)
 var mediaHostPattern = regexp.MustCompile(`(^|\.)bilivideo\.com$`)
@@ -175,11 +177,11 @@ func (reader *CatalogReader) Read(input string, playlist bool, options any) (any
 	}
 	view, _ := viewData.(map[string]any)
 	if view == nil {
-		return nil, contract.Unavailable("视频目录格式异常，请稍后重试")
+		return nil, contract.Unavailable(errVideoCatalogInvalid)
 	}
 	bvid := stringValue(view["bvid"])
 	if !biliBVPattern.MatchString(bvid) {
-		return nil, contract.Unavailable("视频目录格式异常，请稍后重试")
+		return nil, contract.Unavailable(errVideoCatalogInvalid)
 	}
 	if bvid != selectedBvid {
 		return nil, contract.Unavailable("视频目录与所选视频不一致")
@@ -188,7 +190,7 @@ func (reader *CatalogReader) Read(input string, playlist bool, options any) (any
 	description := stringValue(view["desc"])
 	pagesRaw, _ := view["pages"].([]any)
 	if len(pagesRaw) < 1 || len(pagesRaw) > 10000 {
-		return nil, contract.Unavailable("视频目录格式异常，请稍后重试")
+		return nil, contract.Unavailable(errVideoCatalogInvalid)
 	}
 	type pageRow struct {
 		cid      int64
@@ -202,7 +204,7 @@ func (reader *CatalogReader) Read(input string, playlist bool, options any) (any
 	for _, item := range pagesRaw {
 		row, _ := item.(map[string]any)
 		if row == nil {
-			return nil, contract.Unavailable("视频目录格式异常，请稍后重试")
+			return nil, contract.Unavailable(errVideoCatalogInvalid)
 		}
 		page := pageRow{
 			cid:      intValue(row["cid"]),
@@ -211,7 +213,7 @@ func (reader *CatalogReader) Read(input string, playlist bool, options any) (any
 			duration: numberValue(row["duration"]),
 		}
 		if page.cid <= 0 || page.page <= 0 {
-			return nil, contract.Unavailable("视频目录格式异常，请稍后重试")
+			return nil, contract.Unavailable(errVideoCatalogInvalid)
 		}
 		pages = append(pages, page)
 		pageNumbers[page.page] = true

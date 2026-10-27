@@ -9,6 +9,8 @@ import (
 	"github.com/EveSunMaple/Zynote/backend/internal/contract"
 )
 
+const msgMethodHeaderUnsupported = "方法文件头部格式不支持"
+
 var skillNamePattern = regexp.MustCompile(`^[a-z0-9]+(?:-[a-z0-9]+)*$`)
 var skillFrontMatter = regexp.MustCompile(`(?s)^\x{FEFF}?---\r?\n(.*?)\r?\n---\r?\n(.+)$`)
 
@@ -28,14 +30,14 @@ func parseSkillMarkdown(text string) (map[string]any, error) {
 		}
 		index := strings.Index(line, ":")
 		if index <= 0 {
-			return nil, contract.InputInvalid("方法文件头部格式不支持")
+			return nil, contract.InputInvalid(msgMethodHeaderUnsupported)
 		}
 		key := strings.TrimSpace(line[:index])
 		if key != "name" && key != "description" {
-			return nil, contract.InputInvalid("方法文件头部格式不支持")
+			return nil, contract.InputInvalid(msgMethodHeaderUnsupported)
 		}
 		if _, exists := fields[key]; exists {
-			return nil, contract.InputInvalid("方法文件头部格式不支持")
+			return nil, contract.InputInvalid(msgMethodHeaderUnsupported)
 		}
 		value := strings.TrimSpace(line[index+1:])
 		if strings.HasPrefix(value, `"`) {
@@ -60,7 +62,7 @@ func parseSkillMarkdown(text string) (map[string]any, error) {
 	if !skillNamePattern.MatchString(name) || len([]rune(name)) > 64 ||
 		len([]rune(description)) < 1 || len([]rune(description)) > 500 ||
 		len([]rune(body)) < 1 || len([]rune(body)) > 6000 {
-		return nil, contract.InputInvalid("方法文件头部格式不支持")
+		return nil, contract.InputInvalid(msgMethodHeaderUnsupported)
 	}
 	for _, char := range text {
 		if char >= 0 && char <= 8 || char == 11 || char == 12 || (char >= 14 && char <= 31) {

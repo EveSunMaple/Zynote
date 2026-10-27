@@ -15,6 +15,11 @@ import (
 	"github.com/EveSunMaple/Zynote/backend/internal/knowledge"
 )
 
+const (
+	msgSourceIdInvalid    = "资料标识无效"
+	msgCitationUnverified = "回答引用未通过原文核验，请重新提问"
+)
+
 func (inv *Invoker) knowledgeStoreFor(state *contract.State) (*knowledge.Store, error) {
 	root := filepath.Join(state.LibraryRoot, "知识库数据")
 	inv.mediaMu.Lock()
@@ -58,7 +63,7 @@ func (inv *Invoker) handleKnowledgeRead(_ contract.StateStore, state *contract.S
 		ID string `json:"id"`
 	}
 	if err := json.Unmarshal(params, &input); err != nil || input.ID == "" {
-		return nil, contract.InputInvalid("资料标识无效")
+		return nil, contract.InputInvalid(msgSourceIdInvalid)
 	}
 	service, err := inv.knowledgeStoreFor(state)
 	if err != nil {
@@ -111,7 +116,7 @@ func (inv *Invoker) handleKnowledgeDelete(_ contract.StateStore, state *contract
 		Generation string `json:"generation"`
 	}
 	if err := json.Unmarshal(params, &input); err != nil {
-		return nil, contract.InputInvalid("资料标识无效")
+		return nil, contract.InputInvalid(msgSourceIdInvalid)
 	}
 	service, err := inv.knowledgeStoreFor(state)
 	if err != nil {
@@ -191,7 +196,7 @@ func (inv *Invoker) handleKnowledgeClassificationRead(_ contract.StateStore, sta
 		ID string `json:"id"`
 	}
 	if err := json.Unmarshal(params, &input); err != nil || input.ID == "" {
-		return nil, contract.InputInvalid("资料标识无效")
+		return nil, contract.InputInvalid(msgSourceIdInvalid)
 	}
 	service, err := inv.knowledgeStoreFor(state)
 	if err != nil {
@@ -259,11 +264,11 @@ func validateKnowledgeAnswer(raw []byte, hits []map[string]any) (knowledgeAnswer
 		return knowledgeAnswer{}, contract.InputInvalid("回答格式无效，请重新提问")
 	}
 	if len(answer.Paragraphs) > 12 {
-		return knowledgeAnswer{}, contract.InputInvalid("回答引用未通过原文核验，请重新提问")
+		return knowledgeAnswer{}, contract.InputInvalid(msgCitationUnverified)
 	}
 	for _, paragraph := range answer.Paragraphs {
 		if strings.TrimSpace(paragraph.Text) == "" || len(paragraph.Citations) == 0 {
-			return knowledgeAnswer{}, contract.InputInvalid("回答引用未通过原文核验，请重新提问")
+			return knowledgeAnswer{}, contract.InputInvalid(msgCitationUnverified)
 		}
 		for _, citation := range paragraph.Citations {
 			var source map[string]any
@@ -276,7 +281,7 @@ func validateKnowledgeAnswer(raw []byte, hits []map[string]any) (knowledgeAnswer
 			quote := normalizeCitation(citation.Quote)
 			if source == nil || len([]rune(quote)) < 6 ||
 				!strings.Contains(normalizeCitation(textValue(source["content"])), quote) {
-				return knowledgeAnswer{}, contract.InputInvalid("回答引用未通过原文核验，请重新提问")
+				return knowledgeAnswer{}, contract.InputInvalid(msgCitationUnverified)
 			}
 		}
 	}
@@ -355,7 +360,7 @@ func (inv *Invoker) handleKnowledgeClassificationSuggest(store contract.StateSto
 		ID string `json:"id"`
 	}
 	if err := json.Unmarshal(params, &input); err != nil || input.ID == "" {
-		return nil, contract.InputInvalid("资料标识无效")
+		return nil, contract.InputInvalid(msgSourceIdInvalid)
 	}
 	service, err := inv.knowledgeStoreFor(state)
 	if err != nil {

@@ -16,6 +16,8 @@ import (
 	"github.com/EveSunMaple/Zynote/backend/internal/media/bilibili"
 )
 
+const msgSubtitleParamsInvalid = "字幕参数无效"
+
 var videoSubtitleFormat = regexp.MustCompile(`^(txt|md|vtt)$`)
 var subtitleTimePattern = regexp.MustCompile(`--\s*>`)
 
@@ -76,7 +78,7 @@ func (inv *Invoker) handleVideoSubtitleImport(store contract.StateStore, state *
 		CourseID string `json:"courseId"`
 	}
 	if err := json.Unmarshal(params, &input); err != nil {
-		return nil, contract.InputInvalid("字幕参数无效")
+		return nil, contract.InputInvalid(msgSubtitleParamsInvalid)
 	}
 	course, err := inv.subtitleCourseName(state, input.CourseID)
 	if err != nil {
@@ -135,7 +137,7 @@ func (inv *Invoker) handleVideoSubtitleSave(state *contract.State, params json.R
 	}
 	if err := json.Unmarshal(params, &input); err != nil || len(input.SRT) < 1 || len(input.SRT) > 4000000 ||
 		len([]rune(input.Title)) < 1 || len([]rune(input.Title)) > 200 {
-		return nil, contract.InputInvalid("字幕参数无效")
+		return nil, contract.InputInvalid(msgSubtitleParamsInvalid)
 	}
 	normalized, err := bilibili.VideoURL(input.URL)
 	if err != nil {
@@ -158,7 +160,7 @@ func (inv *Invoker) handleVideoSubtitleExport(state *contract.State, params json
 	if err := json.Unmarshal(params, &input); err != nil || !videoSubtitleFormat.MatchString(input.Format) ||
 		len(input.SRT) < 1 || len(input.SRT) > 4000000 ||
 		len([]rune(input.Title)) < 1 || len([]rune(input.Title)) > 200 {
-		return nil, contract.InputInvalid("字幕参数无效")
+		return nil, contract.InputInvalid(msgSubtitleParamsInvalid)
 	}
 	text, err := subtitleText(input.SRT, input.Format)
 	if err != nil {

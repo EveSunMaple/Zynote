@@ -16,6 +16,8 @@ import (
 	"github.com/EveSunMaple/Zynote/backend/internal/videoppt"
 )
 
+const errPageNumbersIncomplete = "模型返回的页面编号不完整，请重新分析；没有自动分批或重开对话"
+
 type ReviewPage struct {
 	Page        int             `json:"page"`
 	Width       int             `json:"width"`
@@ -168,18 +170,18 @@ func (service *Service) Analyze(
 	var rows []decisionRow
 	if json.Unmarshal([]byte(stripFence(raw)), &rows) != nil {
 		_ = os.RemoveAll(directory)
-		return Review{}, requestError("模型返回的页面编号不完整，请重新分析；没有自动分批或重开对话")
+		return Review{}, requestError(errPageNumbersIncomplete)
 	}
 	result := make([]decision, 0, len(rows))
 	for _, row := range rows {
 		if row.Page == nil || row.Keep == nil || row.Reason == nil || row.ContentScore == nil ||
 			*row.ContentScore < 0 || *row.ContentScore > 100 {
 			_ = os.RemoveAll(directory)
-			return Review{}, requestError("模型返回的页面编号不完整，请重新分析；没有自动分批或重开对话")
+			return Review{}, requestError(errPageNumbersIncomplete)
 		}
 		if *row.Page <= 0 || len([]rune(*row.Reason)) > 300 {
 			_ = os.RemoveAll(directory)
-			return Review{}, requestError("模型返回的页面编号不完整，请重新分析；没有自动分批或重开对话")
+			return Review{}, requestError(errPageNumbersIncomplete)
 		}
 		result = append(result, decision{
 			Page: *row.Page, Keep: *row.Keep, Reason: *row.Reason,
@@ -188,7 +190,7 @@ func (service *Service) Analyze(
 	}
 	if !validDecisions(result, unique) {
 		_ = os.RemoveAll(directory)
-		return Review{}, requestError("模型返回的页面编号不完整，请重新分析；没有自动分批或重开对话")
+		return Review{}, requestError(errPageNumbersIncomplete)
 	}
 	decisions = append(decisions, result...)
 	for _, page := range deck.Pages {

@@ -15,6 +15,11 @@ import (
 	"github.com/EveSunMaple/Zynote/backend/internal/ids"
 )
 
+const (
+	msgReselectTextbook = "请重新选择教材"
+	msgInvalidHighlight = "请选择有效的划线"
+)
+
 type Caller interface {
 	Call(method string, params any, timeoutMS int) (json.RawMessage, error)
 }
@@ -112,7 +117,7 @@ func (service *Service) Bytes(id string) (any, error) {
 	item, ok := service.books[id]
 	service.mu.Unlock()
 	if !ok {
-		return nil, contract.InputInvalid("请重新选择教材")
+		return nil, contract.InputInvalid(msgReselectTextbook)
 	}
 	url, err := service.files.URL(item.path)
 	if err != nil {
@@ -126,7 +131,7 @@ func (service *Service) OpenPath(id string) (string, error) {
 	item, ok := service.books[id]
 	service.mu.Unlock()
 	if !ok {
-		return "", contract.InputInvalid("请重新选择教材")
+		return "", contract.InputInvalid(msgReselectTextbook)
 	}
 	return item.path, nil
 }
@@ -140,7 +145,7 @@ func (service *Service) Manual(caller Caller, id string, raw json.RawMessage) (a
 	defer service.mu.Unlock()
 	item, ok := service.books[id]
 	if !ok {
-		return nil, contract.InputInvalid("请重新选择教材")
+		return nil, contract.InputInvalid(msgReselectTextbook)
 	}
 	if _, err := service.commitLocked(caller, id, item, item.hash, []Highlight{row}, false); err != nil {
 		return nil, err
@@ -153,7 +158,7 @@ func (service *Service) Clear(caller Caller, id string) (any, error) {
 	defer service.mu.Unlock()
 	item, ok := service.books[id]
 	if !ok {
-		return nil, contract.InputInvalid("请重新选择教材")
+		return nil, contract.InputInvalid(msgReselectTextbook)
 	}
 	result, err := service.commitLocked(caller, id, item, item.hash, nil, true)
 	if err != nil {
@@ -170,13 +175,13 @@ func (service *Service) Apply(caller Caller, draftID string, highlightIDs []stri
 		return nil, contract.InputInvalid("请重新分析教材")
 	}
 	if len(highlightIDs) == 0 {
-		return nil, contract.InputInvalid("请选择有效的划线")
+		return nil, contract.InputInvalid(msgInvalidHighlight)
 	}
 	seen := map[string]bool{}
 	chosen := []Highlight{}
 	for _, id := range highlightIDs {
 		if seen[id] {
-			return nil, contract.InputInvalid("请选择有效的划线")
+			return nil, contract.InputInvalid(msgInvalidHighlight)
 		}
 		seen[id] = true
 		found := false
@@ -188,12 +193,12 @@ func (service *Service) Apply(caller Caller, draftID string, highlightIDs []stri
 			}
 		}
 		if !found {
-			return nil, contract.InputInvalid("请选择有效的划线")
+			return nil, contract.InputInvalid(msgInvalidHighlight)
 		}
 	}
 	item, ok := service.books[current.bookID]
 	if !ok {
-		return nil, contract.InputInvalid("请重新选择教材")
+		return nil, contract.InputInvalid(msgReselectTextbook)
 	}
 	if _, err := service.commitLocked(caller, current.bookID, item, current.hash, chosen, false); err != nil {
 		return nil, err
@@ -314,7 +319,7 @@ func (service *Service) Snapshot(id string) (string, string, error) {
 	defer service.mu.Unlock()
 	item, ok := service.books[id]
 	if !ok {
-		return "", "", contract.InputInvalid("请重新选择教材")
+		return "", "", contract.InputInvalid(msgReselectTextbook)
 	}
 	return item.path, item.hash, nil
 }

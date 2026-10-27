@@ -19,6 +19,8 @@ import (
 	"github.com/EveSunMaple/Zynote/backend/internal/textbook"
 )
 
+const msgHandshakePending = "后台尚未完成握手"
+
 type handlerFunc func(store contract.StateStore, state *contract.State, params json.RawMessage) (any, error)
 
 type Invoker struct {
@@ -100,7 +102,7 @@ func requireState(fn handlerFunc) handlerFunc {
 	return func(store contract.StateStore, _ *contract.State, params json.RawMessage) (any, error) {
 		state := store.State()
 		if state == nil {
-			return nil, contract.Unavailable("后台尚未完成握手")
+			return nil, contract.Unavailable(msgHandshakePending)
 		}
 		return fn(store, state, params)
 	}
@@ -113,19 +115,19 @@ func (inv *Invoker) Invoke(store contract.StateStore, action string, params json
 	case "im:draft":
 		state := store.State()
 		if state == nil {
-			return nil, contract.Unavailable("后台尚未完成握手")
+			return nil, contract.Unavailable(msgHandshakePending)
 		}
 		return inv.handleImDraft(store, state, params)
 	case "pdf.text", "pdf.plainText", "pdf.inspect", "pdf.write":
 		state := store.State()
 		if state == nil {
-			return nil, contract.Unavailable("后台尚未完成握手")
+			return nil, contract.Unavailable(msgHandshakePending)
 		}
 		return inv.callNative(state, action, params)
 	case "document:parse", "transcript:read":
 		state := store.State()
 		if state == nil {
-			return nil, contract.Unavailable("后台尚未完成握手")
+			return nil, contract.Unavailable(msgHandshakePending)
 		}
 		if action == "document:parse" {
 			return inv.handleDocumentParse(state, params)
@@ -134,20 +136,20 @@ func (inv *Invoker) Invoke(store contract.StateStore, action string, params json
 	case "files:add":
 		state := store.State()
 		if state == nil {
-			return nil, contract.Unavailable("后台尚未完成握手")
+			return nil, contract.Unavailable(msgHandshakePending)
 		}
 		return inv.handleFilesAdd(state, params)
 	case "files:remove":
 		state := store.State()
 		if state == nil {
-			return nil, contract.Unavailable("后台尚未完成握手")
+			return nil, contract.Unavailable(msgHandshakePending)
 		}
 		return inv.handleFilesRemove(state, params)
 	case "bili-resources:status", "bili-resources:browse", "bili-resources:qr", "bili-resources:poll",
 		"bili-resources:logout", "bili-resources:folders", "bili-resources:videos", "media:catalog", "media:create", "media:discussion", "media:discussion-import":
 		state := store.State()
 		if state == nil {
-			return nil, contract.Unavailable("后台尚未完成握手")
+			return nil, contract.Unavailable(msgHandshakePending)
 		}
 		switch action {
 		case "bili-resources:status":
@@ -176,19 +178,19 @@ func (inv *Invoker) Invoke(store contract.StateStore, action string, params json
 	case "notes:generate":
 		state := store.State()
 		if state == nil {
-			return nil, contract.Unavailable("后台尚未完成握手")
+			return nil, contract.Unavailable(msgHandshakePending)
 		}
 		return inv.handleNotesGenerate(store, state, params)
 	case "notes:save":
 		state := store.State()
 		if state == nil {
-			return nil, contract.Unavailable("后台尚未完成握手")
+			return nil, contract.Unavailable(msgHandshakePending)
 		}
 		return inv.handleNotesSave(store, state, params)
 	case "practice:submit", "practice:reset", "practice:answer", "practice:prepare", "practice:generate":
 		state := store.State()
 		if state == nil {
-			return nil, contract.Unavailable("后台尚未完成握手")
+			return nil, contract.Unavailable(msgHandshakePending)
 		}
 		switch action {
 		case "practice:submit":
@@ -205,13 +207,13 @@ func (inv *Invoker) Invoke(store contract.StateStore, action string, params json
 	case "questions:split":
 		state := store.State()
 		if state == nil {
-			return nil, contract.Unavailable("后台尚未完成握手")
+			return nil, contract.Unavailable(msgHandshakePending)
 		}
 		return inv.handleQuestionsSplit(store, state, params)
 	case "subtitles:generate", "subtitles:save", "subtitles:import":
 		state := store.State()
 		if state == nil {
-			return nil, contract.Unavailable("后台尚未完成握手")
+			return nil, contract.Unavailable(msgHandshakePending)
 		}
 		switch action {
 		case "subtitles:generate":
@@ -224,7 +226,7 @@ func (inv *Invoker) Invoke(store contract.StateStore, action string, params json
 	case "study:get", "study:save", "study:parse":
 		state := store.State()
 		if state == nil {
-			return nil, contract.Unavailable("后台尚未完成握手")
+			return nil, contract.Unavailable(msgHandshakePending)
 		}
 		switch action {
 		case "study:get":
@@ -237,7 +239,7 @@ func (inv *Invoker) Invoke(store contract.StateStore, action string, params json
 	case "subtitle-derived:list", "subtitle-derived:resume", "subtitle-derived:start":
 		state := store.State()
 		if state == nil {
-			return nil, contract.Unavailable("后台尚未完成握手")
+			return nil, contract.Unavailable(msgHandshakePending)
 		}
 		switch action {
 		case "subtitle-derived:list":
@@ -250,7 +252,7 @@ func (inv *Invoker) Invoke(store contract.StateStore, action string, params json
 	case "subtitle-sync:list", "subtitle-sync:start", "subtitle-sync:mixed", "subtitle-sync:resume", "subtitle-sync:attach":
 		state := store.State()
 		if state == nil {
-			return nil, contract.Unavailable("后台尚未完成握手")
+			return nil, contract.Unavailable(msgHandshakePending)
 		}
 		switch action {
 		case "subtitle-sync:list":
@@ -269,7 +271,7 @@ func (inv *Invoker) Invoke(store contract.StateStore, action string, params json
 		"video-ppt:export", "video-ppt:auto", "video-ppt:summary", "video-ppt:notes-export", "video-ppt:batch", "video-ppt:batch-subtitles", "video-ppt:subtitle-transcribe", "ppt-extract:analyze", "ppt-extract:export":
 		state := store.State()
 		if state == nil {
-			return nil, contract.Unavailable("后台尚未完成握手")
+			return nil, contract.Unavailable(msgHandshakePending)
 		}
 		switch action {
 		case "video-ppt:pending":
@@ -316,7 +318,7 @@ func (inv *Invoker) Invoke(store contract.StateStore, action string, params json
 	case "visual:list", "visual:prepare", "visual:prepare-resume", "visual:recognize", "visual:recover-output":
 		state := store.State()
 		if state == nil {
-			return nil, contract.Unavailable("后台尚未完成握手")
+			return nil, contract.Unavailable(msgHandshakePending)
 		}
 		switch action {
 		case "visual:list":
@@ -333,31 +335,31 @@ func (inv *Invoker) Invoke(store contract.StateStore, action string, params json
 	case "tools:request":
 		state := store.State()
 		if state == nil {
-			return nil, contract.Unavailable("后台尚未完成握手")
+			return nil, contract.Unavailable(msgHandshakePending)
 		}
 		return inv.handleToolsRequest(store, state, params)
 	case "tools:skill-open":
 		state := store.State()
 		if state == nil {
-			return nil, contract.Unavailable("后台尚未完成握手")
+			return nil, contract.Unavailable(msgHandshakePending)
 		}
 		return inv.handleSkillOpen(store, state)
 	case "export":
 		state := store.State()
 		if state == nil {
-			return nil, contract.Unavailable("后台尚未完成握手")
+			return nil, contract.Unavailable(msgHandshakePending)
 		}
 		return inv.handleExport(store, state, params)
 	case "courses":
 		state := store.State()
 		if state == nil {
-			return nil, contract.Unavailable("后台尚未完成握手")
+			return nil, contract.Unavailable(msgHandshakePending)
 		}
 		return inv.handleCourses(state)
 	case "appearance:image", "identity:avatar":
 		state := store.State()
 		if state == nil {
-			return nil, contract.Unavailable("后台尚未完成握手")
+			return nil, contract.Unavailable(msgHandshakePending)
 		}
 		kind := "background"
 		if action == "identity:avatar" {
@@ -367,19 +369,19 @@ func (inv *Invoker) Invoke(store contract.StateStore, action string, params json
 	case "zhiyun:export":
 		state := store.State()
 		if state == nil {
-			return nil, contract.Unavailable("后台尚未完成握手")
+			return nil, contract.Unavailable(msgHandshakePending)
 		}
 		return inv.handleZhiyunExport(store, state, params)
 	case "zhiyun:login", "zhiyun:refresh", "zhiyun:back", "zhiyun:bounds":
 		state := store.State()
 		if state == nil {
-			return nil, contract.Unavailable("后台尚未完成握手")
+			return nil, contract.Unavailable(msgHandshakePending)
 		}
 		return inv.handleZhiyunControl(store, action, params)
 	case "library:open", "library:open-file", "library:reveal":
 		state := store.State()
 		if state == nil {
-			return nil, contract.Unavailable("后台尚未完成握手")
+			return nil, contract.Unavailable(msgHandshakePending)
 		}
 		switch action {
 		case "library:open":
@@ -392,19 +394,19 @@ func (inv *Invoker) Invoke(store contract.StateStore, action string, params json
 	case "media:open":
 		state := store.State()
 		if state == nil {
-			return nil, contract.Unavailable("后台尚未完成握手")
+			return nil, contract.Unavailable(msgHandshakePending)
 		}
 		return inv.handleMediaOpen(store, state, params)
 	case "library:delete":
 		state := store.State()
 		if state == nil {
-			return nil, contract.Unavailable("后台尚未完成握手")
+			return nil, contract.Unavailable(msgHandshakePending)
 		}
 		return inv.handleLibraryDelete(store, state, params)
 	case "zhiyun:search", "zhiyun:lessons":
 		state := store.State()
 		if state == nil {
-			return nil, contract.Unavailable("后台尚未完成握手")
+			return nil, contract.Unavailable(msgHandshakePending)
 		}
 		if action == "zhiyun:search" {
 			return inv.handleZhiyunSearch(store, state, params)
@@ -414,7 +416,7 @@ func (inv *Invoker) Invoke(store contract.StateStore, action string, params json
 		"textbook:analyze", "textbook:analyze-images", "textbook:ppt-source", "textbook:ppt-ocr":
 		state := store.State()
 		if state == nil {
-			return nil, contract.Unavailable("后台尚未完成握手")
+			return nil, contract.Unavailable(msgHandshakePending)
 		}
 		switch action {
 		case "textbook:pick":
@@ -441,7 +443,7 @@ func (inv *Invoker) Invoke(store contract.StateStore, action string, params json
 	case "settings:models", "settings:probe", "settings:test", "settings:save":
 		state := store.State()
 		if state == nil {
-			return nil, contract.Unavailable("后台尚未完成握手")
+			return nil, contract.Unavailable(msgHandshakePending)
 		}
 		switch action {
 		case "settings:models":
@@ -456,7 +458,7 @@ func (inv *Invoker) Invoke(store contract.StateStore, action string, params json
 	case "chat", "cancel", "job:current":
 		state := store.State()
 		if state == nil {
-			return nil, contract.Unavailable("后台尚未完成握手")
+			return nil, contract.Unavailable(msgHandshakePending)
 		}
 		switch action {
 		case "chat":
@@ -473,7 +475,7 @@ func (inv *Invoker) Invoke(store contract.StateStore, action string, params json
 		"knowledge:classification-save":
 		state := store.State()
 		if state == nil {
-			return nil, contract.Unavailable("后台尚未完成握手")
+			return nil, contract.Unavailable(msgHandshakePending)
 		}
 		switch action {
 		case "knowledge:ask":
@@ -515,7 +517,7 @@ func (inv *Invoker) Invoke(store contract.StateStore, action string, params json
 		"media:auth-import", "media:auth-list", "media:auth-remove":
 		state := store.State()
 		if state == nil {
-			return nil, contract.Unavailable("后台尚未完成握手")
+			return nil, contract.Unavailable(msgHandshakePending)
 		}
 		switch action {
 		case "media:options":
@@ -538,7 +540,7 @@ func (inv *Invoker) Invoke(store contract.StateStore, action string, params json
 	case "lecture:create", "lecture:transcript", "lecture:courseware", "questions:save":
 		state := store.State()
 		if state == nil {
-			return nil, contract.Unavailable("后台尚未完成握手")
+			return nil, contract.Unavailable(msgHandshakePending)
 		}
 		switch action {
 		case "lecture:create":

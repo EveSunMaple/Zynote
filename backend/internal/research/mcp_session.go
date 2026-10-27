@@ -12,6 +12,8 @@ import (
 	"time"
 )
 
+const mcpSessionHeader = "MCP-Session-Id"
+
 var mcpVersions = []string{"2025-11-25", "2025-06-18", "2025-03-26"}
 
 type McpSession struct {
@@ -37,7 +39,7 @@ func (session *McpSession) headers(version string) http.Header {
 	header.Set("Accept", "application/json, text/event-stream")
 	header.Set("Accept-Encoding", "identity")
 	if session.session != "" {
-		header.Set("MCP-Session-Id", session.session)
+		header.Set(mcpSessionHeader, session.session)
 	}
 	if version != "" {
 		header.Set("MCP-Protocol-Version", version)
@@ -81,7 +83,7 @@ func (session *McpSession) post(ctx context.Context, body []byte, version string
 		response.Body.Close()
 		return nil, fmt.Errorf("MCP 服务返回 HTTP %d", response.StatusCode)
 	}
-	if value := response.Header.Get("MCP-Session-Id"); value != "" {
+	if value := response.Header.Get(mcpSessionHeader); value != "" {
 		if !regexp.MustCompile(`^[\x21-\x7e]{1,512}$`).MatchString(value) {
 			response.Body.Close()
 			return nil, fmt.Errorf("MCP 会话编号无效")
@@ -106,7 +108,7 @@ func (session *McpSession) Request(ctx context.Context, method string, params an
 		return nil, err
 	}
 	defer response.Body.Close()
-	if header := response.Header.Get("MCP-Session-Id"); header != "" && method == "initialize" {
+	if header := response.Header.Get(mcpSessionHeader); header != "" && method == "initialize" {
 		session.session = header
 	}
 	contentType := strings.Split(response.Header.Get("Content-Type"), ";")[0]
@@ -255,7 +257,7 @@ func (session *McpSession) Close() error {
 	defer cancel()
 	request, err := http.NewRequestWithContext(ctx, http.MethodDelete, session.Endpoint, nil)
 	if err == nil {
-		request.Header.Set("MCP-Session-Id", session.session)
+		request.Header.Set(mcpSessionHeader, session.session)
 		request.Header.Set("MCP-Protocol-Version", session.version)
 		client := session.Client
 		if client == nil {

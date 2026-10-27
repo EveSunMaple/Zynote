@@ -9,6 +9,8 @@ import (
 	"github.com/EveSunMaple/Zynote/backend/internal/ids"
 )
 
+const errCleanDirectoryInvalid = "画面清理目录无效"
+
 type Service struct {
 	Root                string
 	FramesRoot          string
@@ -66,15 +68,15 @@ func (service *Service) List() ([]Task, error) {
 func (service *Service) Create(ctx context.Context, source string, limit int, policy, connection string) (Task, error) {
 	absolute, err := filepath.Abs(source)
 	if err != nil {
-		return Task{}, badRequest("所选源文件不可用")
+		return Task{}, badRequest(errSourceUnavailable)
 	}
 	info, err := os.Lstat(absolute)
 	if err != nil || !info.Mode().IsRegular() || info.Mode()&os.ModeSymlink != 0 {
-		return Task{}, badRequest("所选源文件不可用")
+		return Task{}, badRequest(errSourceUnavailable)
 	}
 	hash, err := fileDigest(absolute)
 	if err != nil {
-		return Task{}, badRequest("所选源文件不可用")
+		return Task{}, badRequest(errSourceUnavailable)
 	}
 	task := Task{
 		ID: strings.ReplaceAll(ids.New(), "-", ""), Source: absolute, SourceHash: hash,
@@ -309,19 +311,19 @@ func (service *Service) RecoverOutput(id string) (Task, error) {
 
 func (service *Service) cleanupFrames(id string) error {
 	if !idPattern.MatchString(id) {
-		return badRequest("画面清理目录无效")
+		return badRequest(errCleanDirectoryInvalid)
 	}
 	base, err := filepath.Abs(filepath.Join(service.FramesRoot, "native-visual"))
 	if err != nil {
-		return badRequest("画面清理目录无效")
+		return badRequest(errCleanDirectoryInvalid)
 	}
 	directory, err := filepath.Abs(filepath.Join(base, id))
 	if err != nil {
-		return badRequest("画面清理目录无效")
+		return badRequest(errCleanDirectoryInvalid)
 	}
 	relative, err := filepath.Rel(base, directory)
 	if err != nil || relative != id {
-		return badRequest("画面清理目录无效")
+		return badRequest(errCleanDirectoryInvalid)
 	}
 	if err := os.RemoveAll(directory); err != nil {
 		return badRequest("画面清理失败")

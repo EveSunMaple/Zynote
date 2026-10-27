@@ -11,6 +11,8 @@ import (
 	"github.com/EveSunMaple/Zynote/backend/internal/storage"
 )
 
+const msgTeacherAmbiguous = "教师表态含糊"
+
 var evidencePageMarker = regexp.MustCompile(`\[第\s*(\d+)\s*页\]`)
 
 func evidenceHash(value any) string {
@@ -65,7 +67,7 @@ func evidenceNoteItems(value any, present bool, category string) map[string]any 
 	for _, raw := range items {
 		item := evidenceMap(raw)
 		status := "uncertain"
-		if category != "教师表态含糊" {
+		if category != msgTeacherAmbiguous {
 			if verified, ok := item["verified"].(bool); ok && verified {
 				status = "verified"
 			}
@@ -86,7 +88,7 @@ func evidenceNoteItems(value any, present bool, category string) map[string]any 
 		data = append(data, entry)
 	}
 	status := evidenceStatusForNotes(items, present)
-	if category == "教师表态含糊" && len(data) > 0 {
+	if category == msgTeacherAmbiguous && len(data) > 0 {
 		status = "uncertain"
 	}
 	contentHash := ""
@@ -189,7 +191,7 @@ func buildEvidenceBundle(course map[string]any, detail map[string]any, generated
 	}
 	notesKeyPoints := evidenceNoteItems(notes["keyPoints"], notes["keyPoints"] != nil, "教师明确重点")
 	notesNotTested := evidenceNoteItems(notes["notTested"], notes["notTested"] != nil, "教师明确不考")
-	notesUncertain := evidenceNoteItems(notes["uncertain"], notes["uncertain"] != nil, "教师表态含糊")
+	notesUncertain := evidenceNoteItems(notes["uncertain"], notes["uncertain"] != nil, msgTeacherAmbiguous)
 	subtitleData := []any{}
 	for _, raw := range segments {
 		segment := evidenceMap(raw)
@@ -483,7 +485,7 @@ func evidenceMarkdown(bundle map[string]any) string {
 			continue
 		}
 		note := evidenceMap(notesData[key])
-		section(map[string]string{"keyPoints": "教师明确重点", "notTested": "教师明确不考", "uncertain": "教师表态含糊"}[key], note)
+		section(map[string]string{"keyPoints": "教师明确重点", "notTested": "教师明确不考", "uncertain": msgTeacherAmbiguous}[key], note)
 		for _, raw := range evidenceList(note["data"]) {
 			item := evidenceMap(raw)
 			line := "- [" + statusText[textValue(item["status"])] + "] " + textValue(item["timestamp"]) + " · " + textValue(item["topic"]) + "：“" + textValue(item["quote"]) + "”"

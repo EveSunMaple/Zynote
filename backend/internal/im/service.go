@@ -14,6 +14,8 @@ import (
 	"github.com/EveSunMaple/Zynote/backend/internal/research"
 )
 
+const msgLoginIncomplete = "登录未完成，请检查所选连接状态。"
+
 type Login struct {
 	Projection map[string]any
 	Revision   string
@@ -303,7 +305,7 @@ func (service *Service) Start(ctx context.Context, input map[string]any) (any, e
 		if err != nil {
 			cancel()
 			login.Projection["state"] = "failed"
-			login.Projection["detail"] = map[string]any{"message": "登录未完成，请检查所选连接状态。"}
+			login.Projection["detail"] = map[string]any{"message": msgLoginIncomplete}
 			service.persist(login)
 			return nil, err
 		}
@@ -319,7 +321,7 @@ func (service *Service) Start(ctx context.Context, input map[string]any) (any, e
 		if err != nil {
 			cancel()
 			login.Projection["state"] = "failed"
-			login.Projection["detail"] = map[string]any{"message": "登录未完成，请检查所选连接状态。"}
+			login.Projection["detail"] = map[string]any{"message": msgLoginIncomplete}
 			service.persist(login)
 			return nil, err
 		}
@@ -355,7 +357,7 @@ func (service *Service) Start(ctx context.Context, input map[string]any) (any, e
 	if err != nil {
 		if err != context.Canceled {
 			login.Projection["state"] = "failed"
-			login.Projection["detail"] = map[string]any{"message": "登录未完成，请检查所选连接状态。"}
+			login.Projection["detail"] = map[string]any{"message": msgLoginIncomplete}
 			service.persist(login)
 		}
 		return nil, err
@@ -475,7 +477,7 @@ func (service *Service) inspectLogin(ctx context.Context, login *Login) (any, er
 		if err != nil {
 			login.Projection["state"] = "failed"
 			login.Projection["has_qr"] = false
-			login.Projection["detail"] = map[string]any{"message": "登录未完成，请检查所选连接状态。"}
+			login.Projection["detail"] = map[string]any{"message": msgLoginIncomplete}
 			service.persist(login)
 			return nil, err
 		}
@@ -487,7 +489,7 @@ func (service *Service) inspectLogin(ctx context.Context, login *Login) (any, er
 		if err != nil {
 			login.Projection["state"] = "failed"
 			login.Projection["has_qr"] = false
-			login.Projection["detail"] = map[string]any{"message": "登录未完成，请检查所选连接状态。"}
+			login.Projection["detail"] = map[string]any{"message": msgLoginIncomplete}
 			service.persist(login)
 			return nil, err
 		}
@@ -502,7 +504,7 @@ func (service *Service) inspectLogin(ctx context.Context, login *Login) (any, er
 		if err != nil {
 			login.Projection["state"] = "failed"
 			login.Projection["has_qr"] = false
-			login.Projection["detail"] = map[string]any{"message": "登录未完成，请检查所选连接状态。"}
+			login.Projection["detail"] = map[string]any{"message": msgLoginIncomplete}
 			service.persist(login)
 			return nil, err
 		}

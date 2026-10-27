@@ -15,6 +15,11 @@ import (
 	"unicode/utf8"
 )
 
+const (
+	jobDPAPIFile = "job.dpapi"
+	jobJSONFile  = "job.json"
+)
+
 const JobIDPattern = `^[a-f0-9]{32}$`
 
 var jobIDRegexp = regexp.MustCompile(JobIDPattern)
@@ -69,7 +74,7 @@ var allowedTransitions = map[string][]string{
 }
 
 var reservedRecordNames = map[string]bool{
-	"job.json": true, "job.writing": true, "job.dpapi": true, "job.writing.dpapi": true,
+	jobJSONFile: true, "job.writing": true, jobDPAPIFile: true, "job.writing.dpapi": true,
 }
 
 func hashRecipe(identity, source string, recipe any) string {
@@ -159,9 +164,9 @@ func (jobs *DownloadJobs) save(job *NativeDownloadJob) error {
 		return err
 	}
 	encrypted := job.Recipe["privacy"] == true
-	name := "job.json"
+	name := jobJSONFile
 	if encrypted {
-		name = "job.dpapi"
+		name = jobDPAPIFile
 	}
 	writingName := "job.writing"
 	if encrypted {
@@ -229,8 +234,8 @@ func (jobs *DownloadJobs) initializeLocked() error {
 		if err != nil {
 			return err
 		}
-		privatePath := filepath.Join(directory, "job.dpapi")
-		publicPath := filepath.Join(directory, "job.json")
+		privatePath := filepath.Join(directory, jobDPAPIFile)
+		publicPath := filepath.Join(directory, jobJSONFile)
 		encrypted := false
 		if _, err := os.Lstat(privatePath); err == nil {
 			encrypted = true

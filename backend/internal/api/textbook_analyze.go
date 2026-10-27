@@ -23,6 +23,11 @@ import (
 	"github.com/EveSunMaple/Zynote/backend/internal/textbook"
 )
 
+const (
+	msgTextbookPreviewInvalid = "教材预览页不完整或过大"
+	msgImageDecisionInvalid   = "图片识别的坐标或来源依据不符，请手动检查"
+)
+
 type textbookSources struct {
 	Teacher string `json:"teacher"`
 	Focus   string `json:"focus"`
@@ -643,17 +648,17 @@ func (inv *Invoker) analyzeTextbookImages(
 		return nil, contract.Unavailable("教材页面读取失败")
 	}
 	if first < 1 || last < first || last > inspected.Pages || len(images) != last-first+1 || len(images) > 100 {
-		return nil, contract.InputInvalid("教材预览页不完整或过大")
+		return nil, contract.InputInvalid(msgTextbookPreviewInvalid)
 	}
 	total := 0
 	for _, image := range images {
 		if !textbookImagePattern.MatchString(image) {
-			return nil, contract.InputInvalid("教材预览页不完整或过大")
+			return nil, contract.InputInvalid(msgTextbookPreviewInvalid)
 		}
 		total += len(image)
 	}
 	if total > 45000000 {
-		return nil, contract.InputInvalid("教材预览页不完整或过大")
+		return nil, contract.InputInvalid(msgTextbookPreviewInvalid)
 	}
 	client, err := inv.textbookAIClient(state, store)
 	if err != nil {
@@ -705,15 +710,15 @@ func (inv *Invoker) analyzeTextbookImages(
 			if decision.Rect == nil || decision.Source == nil || decision.Quote == nil ||
 				decision.Evidence == nil || decision.Extension == nil || !textbookSourcesHas(*decision.Source) ||
 				len(*decision.Quote) < 1 || len(*decision.Evidence) < 1 {
-				return nil, contract.InputInvalid("图片识别的坐标或来源依据不符，请手动检查")
+				return nil, contract.InputInvalid(msgImageDecisionInvalid)
 			}
 			left, top, right, bottom := decision.Rect[0], decision.Rect[1], decision.Rect[2], decision.Rect[3]
 			if right <= left || bottom <= top {
-				return nil, contract.InputInvalid("图片识别的坐标或来源依据不符，请手动检查")
+				return nil, contract.InputInvalid(msgImageDecisionInvalid)
 			}
 			source := textbookSourceValue(sources, *decision.Source)
 			if strings.TrimSpace(source) == "" || !strings.Contains(source, *decision.Evidence) {
-				return nil, contract.InputInvalid("图片识别的坐标或来源依据不符，请手动检查")
+				return nil, contract.InputInvalid(msgImageDecisionInvalid)
 			}
 			rows = append(rows, textbook.Highlight{
 				ID: ids.New(), Page: page,

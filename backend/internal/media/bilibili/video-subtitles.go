@@ -20,6 +20,11 @@ import (
 	"github.com/EveSunMaple/Zynote/backend/internal/learning"
 )
 
+const (
+	errBiliUrlRequired        = "请输入完整的 B 站视频网址"
+	errSubtitleContentInvalid = "字幕内容为空或格式错误"
+)
+
 type VideoEpisode struct {
 	Page     int     `json:"page"`
 	Title    string  `json:"title"`
@@ -93,7 +98,7 @@ func biliGet(ctx context.Context, client *http.Client, target string) ([]byte, e
 func videoIDOf(parsed *url.URL) (string, string, error) {
 	parts := strings.Split(strings.Trim(parsed.Path, "/"), "/")
 	if len(parts) < 2 {
-		return "", "", contract.InputInvalid("请输入完整的 B 站视频网址")
+		return "", "", contract.InputInvalid(errBiliUrlRequired)
 	}
 	id := parts[len(parts)-1]
 	if strings.HasPrefix(id, "BV") {
@@ -102,13 +107,13 @@ func videoIDOf(parsed *url.URL) (string, string, error) {
 	if strings.HasPrefix(id, "av") {
 		return "aid", strings.TrimPrefix(id, "av"), nil
 	}
-	return "", "", contract.InputInvalid("请输入完整的 B 站视频网址")
+	return "", "", contract.InputInvalid(errBiliUrlRequired)
 }
 
 func fetchPageList(ctx context.Context, client *http.Client, normalized string) ([]pageRow, error) {
 	parsed, err := url.Parse(normalized)
 	if err != nil {
-		return nil, contract.InputInvalid("请输入完整的 B 站视频网址")
+		return nil, contract.InputInvalid(errBiliUrlRequired)
 	}
 	key, id, err := videoIDOf(parsed)
 	if err != nil {
@@ -263,7 +268,7 @@ func FetchVideoSubtitles(ctx context.Context, client *http.Client, value string)
 			Body []subtitleCue `json:"body"`
 		}
 		if json.Unmarshal(raw, &payload) != nil || len(payload.Body) == 0 || len(payload.Body) > 20000 {
-			lastErr = contract.Unavailable("字幕内容为空或格式错误")
+			lastErr = contract.Unavailable(errSubtitleContentInvalid)
 			continue
 		}
 		cues := make([]subtitleCue, 0, len(payload.Body))
@@ -298,12 +303,12 @@ func FetchVideoSubtitles(ctx context.Context, client *http.Client, value string)
 			}
 		}
 		if len(segments) == 0 {
-			lastErr = contract.Unavailable("字幕内容为空或格式错误")
+			lastErr = contract.Unavailable(errSubtitleContentInvalid)
 			continue
 		}
 		srt := learning.ToSrt(segments)
 		if _, err := documents.ParseSrt(srt); err != nil {
-			lastErr = contract.Unavailable("字幕内容为空或格式错误")
+			lastErr = contract.Unavailable(errSubtitleContentInvalid)
 			continue
 		}
 		warning := ""

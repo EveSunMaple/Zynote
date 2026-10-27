@@ -16,6 +16,8 @@ import (
 	"time"
 )
 
+const hostArxiv = "arxiv.org"
+
 type ExternalEvidence struct {
 	Provider       string `json:"provider"`
 	Title          string `json:"title"`
@@ -182,7 +184,7 @@ func (external *External) ReadFulltext(ctx context.Context, channels []string, c
 		if err != nil {
 			return nil, err
 		}
-		arxiv := parsed.Hostname() == "arxiv.org" &&
+		arxiv := parsed.Hostname() == hostArxiv &&
 			regexp.MustCompile(`^/(?:abs|pdf)/(?:\d{4}\.\d{4,5}|[a-z-]+/\d{7})v\d+$`).MatchString(parsed.Path)
 		if arxiv {
 			if !containsChannel(channels, "arxiv_fulltext") || !containsChannel(channels, "arxiv") {
@@ -480,11 +482,11 @@ func (external *External) Search(ctx context.Context, channels []string, questio
 					continue
 				}
 				parsed, err := url.Parse(strings.TrimSpace(id[1]))
-				if err != nil || (parsed.Hostname() != "arxiv.org" && parsed.Hostname() != "export.arxiv.org") {
+				if err != nil || (parsed.Hostname() != hostArxiv && parsed.Hostname() != "export.arxiv.org") {
 					continue
 				}
 				parsed.Scheme = "https"
-				parsed.Host = "arxiv.org"
+				parsed.Host = hostArxiv
 				text := "无可用摘要"
 				scope := "metadata"
 				if summary != nil && strings.TrimSpace(summary[1]) != "" {

@@ -17,6 +17,8 @@ import (
 	"sort"
 )
 
+const errPdfSaveCheck = "PDF 保存校验失败"
+
 type Choice struct {
 	Page int    `json:"page"`
 	Keep bool   `json:"keep"`
@@ -164,11 +166,11 @@ func BuildPDF(ctx context.Context, images []Picture) ([]byte, error) {
 
 func VerifyPDF(data []byte, pages int) error {
 	if !bytes.HasPrefix(data, []byte("%PDF-")) || !bytes.Contains(data, []byte("%%EOF")) {
-		return requestError("PDF 保存校验失败")
+		return requestError(errPdfSaveCheck)
 	}
 	count := bytes.Count(data, []byte("/Type /Page "))
 	if count != pages {
-		return requestError("PDF 保存校验失败")
+		return requestError(errPdfSaveCheck)
 	}
 	return nil
 }
@@ -255,7 +257,7 @@ func (processor Processor) Export(
 	check, err := os.ReadFile(path)
 	if err != nil || !bytes.Equal(check, data) {
 		_ = os.Remove(path)
-		return ExportResult{}, nil, requestError("PDF 保存校验失败")
+		return ExportResult{}, nil, requestError(errPdfSaveCheck)
 	}
 	if err := VerifyPDF(check, len(images)); err != nil {
 		_ = os.Remove(path)

@@ -13,6 +13,12 @@ import (
 	"github.com/EveSunMaple/Zynote/backend/internal/ids"
 )
 
+const (
+	videoFileName  = "video.mp4"
+	taskFileName   = "task.json"
+	errTaskCleanup = "任务清理失败"
+)
+
 var subtitleFilePattern = regexp.MustCompile(`(?i)\.srt$`)
 
 type SubtitleTask struct {
@@ -68,7 +74,7 @@ func (service *Service) CreateSubtitleTask(source, outputName, courseName string
 	if err := os.MkdirAll(directory, 0o755); err != nil {
 		return CreatedTask{}, requestError("任务目录不可创建")
 	}
-	video := filepath.Join(directory, "video.mp4")
+	video := filepath.Join(directory, videoFileName)
 	if err := copyFile(absolute, video); err != nil {
 		_ = os.RemoveAll(directory)
 		return CreatedTask{}, requestError("视频复制失败")
@@ -81,11 +87,11 @@ func (service *Service) CreateSubtitleTask(source, outputName, courseName string
 	temporary := filepath.Join(directory, "task.json.tmp")
 	if err := os.WriteFile(temporary, encoded, 0o644); err != nil {
 		_ = os.RemoveAll(directory)
-		return CreatedTask{}, requestError("任务记录写入失败")
+		return CreatedTask{}, requestError(errTaskRecordWrite)
 	}
-	if err := os.Rename(temporary, filepath.Join(directory, "task.json")); err != nil {
+	if err := os.Rename(temporary, filepath.Join(directory, taskFileName)); err != nil {
 		_ = os.RemoveAll(directory)
-		return CreatedTask{}, requestError("任务记录写入失败")
+		return CreatedTask{}, requestError(errTaskRecordWrite)
 	}
 	return CreatedTask{ID: id, Name: task.Name, Dir: directory, Path: video}, nil
 }
@@ -95,7 +101,7 @@ func (service *Service) SubtitleTask(id string) (SubtitleTask, string, error) {
 	if err != nil {
 		return SubtitleTask{}, "", err
 	}
-	raw, err := os.ReadFile(filepath.Join(directory, "task.json"))
+	raw, err := os.ReadFile(filepath.Join(directory, taskFileName))
 	if err != nil {
 		return SubtitleTask{}, "", err
 	}
@@ -145,7 +151,7 @@ func (service *Service) MarkSubtitleSaved(id, path string) error {
 	if err := os.WriteFile(temporary, encoded, 0o644); err != nil {
 		return requestError("字幕任务记录写入失败")
 	}
-	if err := os.Rename(temporary, filepath.Join(directory, "task.json")); err != nil {
+	if err := os.Rename(temporary, filepath.Join(directory, taskFileName)); err != nil {
 		return requestError("字幕任务记录写入失败")
 	}
 	return nil
@@ -158,7 +164,7 @@ func (service *Service) DiscardCompleted(id string) error {
 	}
 	entries, err := os.ReadDir(directory)
 	if err != nil {
-		return requestError("任务清理失败")
+		return requestError(errTaskCleanup)
 	}
 	for _, entry := range entries {
 		info, err := os.Lstat(filepath.Join(directory, entry.Name()))
@@ -168,11 +174,11 @@ func (service *Service) DiscardCompleted(id string) error {
 	}
 	for _, entry := range entries {
 		if err := os.Remove(filepath.Join(directory, entry.Name())); err != nil {
-			return requestError("任务清理失败")
+			return requestError(errTaskCleanup)
 		}
 	}
 	if err := os.Remove(directory); err != nil {
-		return requestError("任务清理失败")
+		return requestError(errTaskCleanup)
 	}
 	return nil
 }
@@ -187,7 +193,7 @@ func (service *Service) VideoTask(id string) (CreatedTask, error) {
 	if err != nil {
 		return CreatedTask{}, err
 	}
-	raw, err := os.ReadFile(filepath.Join(directory, "task.json"))
+	raw, err := os.ReadFile(filepath.Join(directory, taskFileName))
 	if err != nil {
 		return CreatedTask{}, err
 	}
@@ -199,7 +205,7 @@ func (service *Service) VideoTask(id string) (CreatedTask, error) {
 	if json.Unmarshal(raw, &meta) != nil || meta.ID != id || meta.Kind == "subtitle" || meta.Name == "" {
 		return CreatedTask{}, requestError("这不是视频提取任务")
 	}
-	video := filepath.Join(directory, "video.mp4")
+	video := filepath.Join(directory, videoFileName)
 	if info, err := os.Stat(video); err != nil || !info.Mode().IsRegular() {
 		return CreatedTask{}, requestError("视频文件无效")
 	}
@@ -220,9 +226,9 @@ func (service *Service) CreateBlankTask(name string, meta map[string]any) (Creat
 		record[key] = value
 	}
 	encoded, _ := json.Marshal(record)
-	if err := os.WriteFile(filepath.Join(directory, "task.json"), encoded, 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(directory, taskFileName), encoded, 0o644); err != nil {
 		_ = os.RemoveAll(directory)
-		return CreatedTask{}, requestError("任务记录写入失败")
+		return CreatedTask{}, requestError(errTaskRecordWrite)
 	}
-	return CreatedTask{ID: id, Name: name, Dir: directory, Path: filepath.Join(directory, "video.mp4")}, nil
+	return CreatedTask{ID: id, Name: name, Dir: directory, Path: filepath.Join(directory, videoFileName)}, nil
 }

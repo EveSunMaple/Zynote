@@ -15,6 +15,8 @@ import (
 	"github.com/EveSunMaple/Zynote/backend/internal/storage"
 )
 
+const msgNotesInvalid = "笔记数据无效"
+
 var notesTimestamp = regexp.MustCompile(`^\d{2,}:\d{2}:\d{2}$`)
 var notesNegative = regexp.MustCompile(`不考|了解即可|不作要求|跳过|不用看|不是重点|不重要|不要求`)
 var notesPositive = regexp.MustCompile(`重点|要考|会考|可能考|很重要|一定要掌握|必考|去年考过|记一下|要会算|要求掌握|必须掌握`)
@@ -126,18 +128,18 @@ func validateNotes(notes map[string]any) error {
 			continue
 		}
 		if !ok {
-			return contract.InputInvalid("笔记数据无效")
+			return contract.InputInvalid(msgNotesInvalid)
 		}
 		for _, item := range items {
 			point, _ := item.(map[string]any)
 			if point == nil || len([]rune(textValue(point["quote"]))) < 1 ||
 				!notesTimestamp.MatchString(textValue(point["timestamp"])) {
-				return contract.InputInvalid("笔记数据无效")
+				return contract.InputInvalid(msgNotesInvalid)
 			}
 			if group == "keyPoints" {
 				level := textValue(point["level"])
 				if !notesLevels[level] || textValue(point["topic"]) == "" || textValue(point["detail"]) == "" {
-					return contract.InputInvalid("笔记数据无效")
+					return contract.InputInvalid(msgNotesInvalid)
 				}
 			}
 		}
@@ -190,7 +192,7 @@ func (inv *Invoker) handleNotesSave(_ contract.StateStore, state *contract.State
 		Notes map[string]any `json:"notes"`
 	}
 	if err := json.Unmarshal(params, &input); err != nil || !config.IsUUID(input.ID) || input.Notes == nil {
-		return nil, contract.InputInvalid("笔记数据无效")
+		return nil, contract.InputInvalid(msgNotesInvalid)
 	}
 	if err := validateNotes(input.Notes); err != nil {
 		return nil, err

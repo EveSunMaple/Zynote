@@ -14,6 +14,8 @@ import (
 	"github.com/EveSunMaple/Zynote/backend/internal/library"
 )
 
+const msgNotesExportFailed = "笔记导出失败"
+
 type notePoint struct {
 	Cue       float64 `json:"cue"`
 	Quote     string  `json:"quote"`
@@ -191,7 +193,7 @@ func (inv *Invoker) handleVideoNotesExport(store contract.StateStore, state *con
 		data, err = notesDocx(string(text))
 		if err != nil {
 			_ = os.Remove(path)
-			return nil, contract.Unavailable("笔记导出失败")
+			return nil, contract.Unavailable(msgNotesExportFailed)
 		}
 	case "pdf":
 		html := `<meta charset="utf-8"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'"><style>body{font:12pt 'Microsoft YaHei',sans-serif;line-height:1.7;padding:24px}pre{white-space:pre-wrap;overflow-wrap:anywhere;font:inherit}</style><pre>` + escapeHTML(string(text)) + `</pre>`
@@ -202,7 +204,7 @@ func (inv *Invoker) handleVideoNotesExport(store contract.StateStore, state *con
 		}
 		if _, err := reverse.Call("shell.printHtmlPdf", map[string]any{"html": html, "path": path}, 120000); err != nil {
 			_ = os.Remove(path)
-			return nil, contract.Unavailable("笔记导出失败")
+			return nil, contract.Unavailable(msgNotesExportFailed)
 		}
 		data, err = os.ReadFile(path)
 		if err != nil || len(data) < 5 || !bytes.HasPrefix(data, []byte("%PDF-")) {
@@ -213,7 +215,7 @@ func (inv *Invoker) handleVideoNotesExport(store contract.StateStore, state *con
 	if input.Format != "pdf" {
 		if err := os.WriteFile(path, data, 0o644); err != nil {
 			_ = os.Remove(path)
-			return nil, contract.Unavailable("笔记导出失败")
+			return nil, contract.Unavailable(msgNotesExportFailed)
 		}
 	}
 	check, err := os.ReadFile(path)

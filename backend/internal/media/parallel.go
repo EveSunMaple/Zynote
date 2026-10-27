@@ -18,6 +18,8 @@ import (
 	"github.com/EveSunMaple/Zynote/backend/internal/contract"
 )
 
+const headerContentRange = "Content-Range"
+
 type ParallelInput struct {
 	TransferInput
 	Concurrency int
@@ -159,8 +161,8 @@ func TransferMediaRanges(input ParallelInput) (*TransferResult, error) {
 				return &http.Response{
 					StatusCode: http.StatusRequestedRangeNotSatisfiable,
 					Header: http.Header{
-						"Etag":          []string{etag},
-						"Content-Range": []string{fmt.Sprintf("bytes */%d", total)},
+						"Etag":             []string{etag},
+						headerContentRange: []string{fmt.Sprintf("bytes */%d", total)},
 					},
 					Body: nil,
 				}, nil
@@ -178,7 +180,7 @@ func TransferMediaRanges(input ParallelInput) (*TransferResult, error) {
 				ignored.Store(true)
 				return nil, fmt.Errorf("服务器忽略并行范围")
 			}
-			match := contentRangePattern.FindStringSubmatch(response.Header.Get("Content-Range"))
+			match := contentRangePattern.FindStringSubmatch(response.Header.Get(headerContentRange))
 			valid := response.StatusCode == http.StatusPartialContent && match != nil
 			if valid {
 				rangeStart, _ := strconv.ParseInt(match[1], 10, 64)
@@ -194,7 +196,7 @@ func TransferMediaRanges(input ParallelInput) (*TransferResult, error) {
 				return nil, fmt.Errorf("并行响应或媒体版本不一致，保留恢复文件")
 			}
 			response.Header.Set("Content-Length", strconv.FormatInt(total-prefix, 10))
-			response.Header.Set("Content-Range", fmt.Sprintf("bytes %d-%d/%d", prefix, total-1, total))
+			response.Header.Set(headerContentRange, fmt.Sprintf("bytes %d-%d/%d", prefix, total-1, total))
 			response.StatusCode = http.StatusOK
 			if prefix > 0 {
 				response.StatusCode = http.StatusPartialContent

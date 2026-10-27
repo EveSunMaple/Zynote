@@ -14,6 +14,8 @@ import (
 	"strings"
 )
 
+const ilinkVersion = "2.4.10"
+
 const ilinkBase = "https://ilinkai.weixin.qq.com"
 
 type ILinkSession struct {
@@ -212,7 +214,7 @@ func (session *ILinkSession) Verify(ctx context.Context, expected string) (map[s
 	}
 	value, err := session.request(ctx, "getconfig", http.MethodPost, map[string]any{
 		"ilink_user_id": session.User,
-		"base_info":     map[string]any{"channel_version": "2.4.10", "bot_agent": "Zynote"},
+		"base_info":     map[string]any{"channel_version": ilinkVersion, "bot_agent": "Zynote"},
 	}, map[string]string{})
 	if err != nil {
 		return nil, err
@@ -262,7 +264,7 @@ func (session *ILinkSession) Receive(ctx context.Context, selected, account stri
 	}
 	value, err := session.request(ctx, "getupdates", http.MethodPost, map[string]any{
 		"get_updates_buf": session.Cursor,
-		"base_info":       map[string]any{"channel_version": "2.4.10", "bot_agent": "Zynote"},
+		"base_info":       map[string]any{"channel_version": ilinkVersion, "bot_agent": "Zynote"},
 	}, map[string]string{})
 	if err != nil {
 		return ILinkUpdates{}, err
@@ -338,7 +340,7 @@ func (session *ILinkSession) Send(ctx context.Context, peer, content, operationI
 			"message_type": 2, "message_state": 2, "context_token": token,
 			"item_list": []any{map[string]any{"type": 1, "text_item": map[string]any{"text": content}}},
 		},
-		"base_info": map[string]any{"channel_version": "2.4.10", "bot_agent": "Zynote"},
+		"base_info": map[string]any{"channel_version": ilinkVersion, "bot_agent": "Zynote"},
 	}, map[string]string{})
 	if err != nil {
 		return "", err

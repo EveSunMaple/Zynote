@@ -11,6 +11,11 @@ import (
 	"github.com/EveSunMaple/Zynote/backend/internal/ids"
 )
 
+const (
+	artifactWritingSuffix    = ".writing"
+	artifactIncompletePrefix = ".incomplete-"
+)
+
 func MediaFileHash(path string) (string, error) {
 	hash, _, err := hashFileStreaming(path)
 	return hash, err
@@ -82,16 +87,16 @@ func artifactJSON(path string) ([]byte, os.FileInfo, error) {
 }
 
 func artifactAtomic(path string, value any) error {
-	for _, target := range []string{path, path + ".writing"} {
+	for _, target := range []string{path, path + artifactWritingSuffix} {
 		if info, err := os.Lstat(target); err == nil && (!info.Mode().IsRegular() || info.Mode()&os.ModeSymlink != 0) {
 			return fmt.Errorf("媒体成果记录不是普通文件")
 		}
 	}
 	encoded, _ := json.Marshal(value)
-	if err := os.WriteFile(path+".writing", encoded, 0o644); err != nil {
+	if err := os.WriteFile(path+artifactWritingSuffix, encoded, 0o644); err != nil {
 		return err
 	}
-	return os.Rename(path+".writing", path)
+	return os.Rename(path+artifactWritingSuffix, path)
 }
 
 func (artifact *OwnedMediaArtifact) Prepare() (bool, error) {
@@ -118,7 +123,7 @@ func (artifact *OwnedMediaArtifact) Prepare() (bool, error) {
 			return false, fmt.Errorf("已有媒体恢复记录与本次设置不同，原文件保留")
 		}
 		for _, name := range owner.Prior {
-			stem := strings.TrimPrefix(name, ".incomplete-")
+			stem := strings.TrimPrefix(name, artifactIncompletePrefix)
 			stem = strings.TrimSuffix(stem, "-"+artifact.name)
 			if !incompletePattern.MatchString(name) ||
 				!regexp.MustCompile(`^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$`).MatchString(stem) {
@@ -148,7 +153,7 @@ func (artifact *OwnedMediaArtifact) Prepare() (bool, error) {
 		if owner == nil {
 			return false, fmt.Errorf("媒体输出已经存在，未覆盖原文件")
 		}
-		archived := ".incomplete-" + owner.Owner + "-" + artifact.name
+		archived := artifactIncompletePrefix + owner.Owner + "-" + artifact.name
 		if _, err := os.Lstat(filepath.Join(artifact.directory, archived)); err == nil {
 			return false, fmt.Errorf("媒体恢复备份已存在，保留当前文件")
 		}
@@ -161,7 +166,7 @@ func (artifact *OwnedMediaArtifact) Prepare() (bool, error) {
 			return false, err
 		}
 	} else if owner != nil {
-		archived := ".incomplete-" + owner.Owner + "-" + artifact.name
+		archived := artifactIncompletePrefix + owner.Owner + "-" + artifact.name
 		if _, err := os.Lstat(filepath.Join(artifact.directory, archived)); err == nil {
 			owner.Owner = ids.New()
 			owner.Prior = append(owner.Prior, archived)

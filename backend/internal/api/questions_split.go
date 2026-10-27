@@ -13,6 +13,8 @@ import (
 	"github.com/EveSunMaple/Zynote/backend/internal/storage"
 )
 
+const msgQuestionsInvalid = "题目结果无效"
+
 func (inv *Invoker) handleQuestionsSplit(store contract.StateStore, state *contract.State, params json.RawMessage) (any, error) {
 	var input struct {
 		CourseID string `json:"courseId"`
@@ -62,7 +64,7 @@ func (inv *Invoker) handleQuestionsSplit(store contract.StateStore, state *contr
 			raw, err := client.JSON(ctx, prompt, map[string]any{"sourceFile": filename, "text": part}, func(value []byte) error {
 				var rows []map[string]any
 				if err := json.Unmarshal(value, &rows); err != nil {
-					return contract.InputInvalid("题目结果无效")
+					return contract.InputInvalid(msgQuestionsInvalid)
 				}
 				for _, row := range rows {
 					if err := validateSplitQuestion(row); err != nil {
@@ -109,28 +111,28 @@ func (inv *Invoker) handleQuestionsSplit(store contract.StateStore, state *contr
 
 func validateSplitQuestion(row map[string]any) error {
 	if _, ok := row["type"].(string); !ok || storage.ToStringValue(row["type"]) == "" {
-		return contract.InputInvalid("题目结果无效")
+		return contract.InputInvalid(msgQuestionsInvalid)
 	}
 	if stem, ok := row["stem"].(string); !ok || stem == "" {
-		return contract.InputInvalid("题目结果无效")
+		return contract.InputInvalid(msgQuestionsInvalid)
 	}
 	if year, ok := row["year"]; ok {
 		if _, ok := year.(string); !ok {
-			return contract.InputInvalid("题目结果无效")
+			return contract.InputInvalid(msgQuestionsInvalid)
 		}
 	}
 	if answer, ok := row["answer"]; ok {
 		if _, ok := answer.(string); !ok {
-			return contract.InputInvalid("题目结果无效")
+			return contract.InputInvalid(msgQuestionsInvalid)
 		}
 	}
 	points, ok := row["knowledgePoints"].([]any)
 	if !ok {
-		return contract.InputInvalid("题目结果无效")
+		return contract.InputInvalid(msgQuestionsInvalid)
 	}
 	for _, point := range points {
 		if _, ok := point.(string); !ok {
-			return contract.InputInvalid("题目结果无效")
+			return contract.InputInvalid(msgQuestionsInvalid)
 		}
 	}
 	return nil

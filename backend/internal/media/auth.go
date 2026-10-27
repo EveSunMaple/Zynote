@@ -18,6 +18,11 @@ import (
 	"github.com/EveSunMaple/Zynote/backend/internal/ids"
 )
 
+const (
+	errAuthProfileSiteMismatch = "登录档案不属于当前视频站点"
+	errAuthProfileIdInvalid    = "登录档案标识无效"
+)
+
 const mediaVaultLimit = 8 * 1024 * 1024
 
 var cookieScopePattern = regexp.MustCompile(`^(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}$`)
@@ -245,7 +250,7 @@ func (auth *MediaAuth) Save(input SaveProfileInput) (map[string]any, error) {
 		return nil, contract.InputInvalid("请填写档案名称")
 	}
 	if input.ID != "" && !mediaProfileIDPattern.MatchString(input.ID) {
-		return nil, contract.InputInvalid("登录档案标识无效")
+		return nil, contract.InputInvalid(errAuthProfileIdInvalid)
 	}
 	site, err := MediaCookieScope(input.Site)
 	if err != nil {
@@ -284,7 +289,7 @@ func (auth *MediaAuth) Save(input SaveProfileInput) (map[string]any, error) {
 
 func (auth *MediaAuth) Remove(id string) (bool, error) {
 	if !mediaProfileIDPattern.MatchString(id) {
-		return false, contract.InputInvalid("登录档案标识无效")
+		return false, contract.InputInvalid(errAuthProfileIdInvalid)
 	}
 	auth.mu <- struct{}{}
 	defer func() { <-auth.mu }()
@@ -333,7 +338,7 @@ type AuthFetcher func(requestURL string, headers map[string]string, ctx context.
 
 func (auth *MediaAuth) CookieHeader(profileID, site string) (string, error) {
 	if !mediaProfileIDPattern.MatchString(profileID) {
-		return "", contract.InputInvalid("登录档案标识无效")
+		return "", contract.InputInvalid(errAuthProfileIdInvalid)
 	}
 	auth.mu <- struct{}{}
 	rows, err := auth.readLocked()
@@ -343,10 +348,10 @@ func (auth *MediaAuth) CookieHeader(profileID, site string) (string, error) {
 	}
 	selected := rows[profileID]
 	if selected.ID == "" {
-		return "", contract.InputInvalid("登录档案不属于当前视频站点")
+		return "", contract.InputInvalid(errAuthProfileSiteMismatch)
 	}
 	if selected.Site != site {
-		return "", contract.InputInvalid("登录档案不属于当前视频站点")
+		return "", contract.InputInvalid(errAuthProfileSiteMismatch)
 	}
 	parsed, err := ParseMediaCookies(selected.Cookies, selected.Site)
 	if err != nil {
@@ -367,7 +372,7 @@ func (auth *MediaAuth) Scoped(requestURL string, options NativeMediaOptions, bas
 		return base, nil
 	}
 	if !mediaProfileIDPattern.MatchString(options.CookieProfile) {
-		return nil, contract.InputInvalid("登录档案标识无效")
+		return nil, contract.InputInvalid(errAuthProfileIdInvalid)
 	}
 	auth.mu <- struct{}{}
 	rows, err := auth.readLocked()
@@ -377,7 +382,7 @@ func (auth *MediaAuth) Scoped(requestURL string, options NativeMediaOptions, bas
 	}
 	selected := rows[options.CookieProfile]
 	if selected.ID == "" {
-		return nil, contract.InputInvalid("登录档案不属于当前视频站点")
+		return nil, contract.InputInvalid(errAuthProfileSiteMismatch)
 	}
 	parsed, err := ParseMediaCookies(selected.Cookies, selected.Site)
 	if err != nil {
@@ -385,7 +390,7 @@ func (auth *MediaAuth) Scoped(requestURL string, options NativeMediaOptions, bas
 	}
 	target, err := url.Parse(requestURL)
 	if err != nil || !cookieBelongs(target.Hostname(), selected.Site) {
-		return nil, contract.InputInvalid("登录档案不属于当前视频站点")
+		return nil, contract.InputInvalid(errAuthProfileSiteMismatch)
 	}
 	jar, err := cookiejar.New(nil)
 	if err != nil {

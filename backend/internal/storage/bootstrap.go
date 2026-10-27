@@ -6,6 +6,8 @@ import (
 	"regexp"
 )
 
+const textNotNullDefault = "TEXT NOT NULL DEFAULT ''"
+
 var schemaStatements = []string{
 	`CREATE TABLE IF NOT EXISTS courses(id TEXT PRIMARY KEY,name TEXT NOT NULL,created_at TEXT DEFAULT CURRENT_TIMESTAMP)`,
 	`CREATE TABLE IF NOT EXISTS study_entries(id TEXT PRIMARY KEY,json TEXT NOT NULL)`,
@@ -22,9 +24,9 @@ var schemaStatements = []string{
 
 var bootstrapColumns = map[string]map[string]string{
 	"lectures": {
-		"source_video_path": "TEXT NOT NULL DEFAULT ''",
-		"transcript_path":   "TEXT NOT NULL DEFAULT ''",
-		"transcript_text":   "TEXT NOT NULL DEFAULT ''",
+		"source_video_path": textNotNullDefault,
+		"transcript_path":   textNotNullDefault,
+		"transcript_text":   textNotNullDefault,
 		"time_estimated":    "INTEGER NOT NULL DEFAULT 0",
 		"ppt_processed":     "INTEGER NOT NULL DEFAULT 0",
 	},

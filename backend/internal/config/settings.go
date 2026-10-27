@@ -12,6 +12,8 @@ import (
 	"github.com/EveSunMaple/Zynote/backend/internal/contract"
 )
 
+const errModelConfigInvalid = "模型配置无效"
+
 type ModelParameters struct {
 	Temperature     *float64 `json:"temperature,omitempty"`
 	TopP            *float64 `json:"topP,omitempty"`
@@ -58,7 +60,7 @@ func ReadSettings(dataRoot, promptsRoot string, reverse contract.ReverseCaller) 
 	qwen := defaultProfile
 	if raw, ok := stored["qwenProfile"]; ok {
 		if err := json.Unmarshal(raw, &qwen); err != nil {
-			return nil, contract.InputInvalid("模型配置无效")
+			return nil, contract.InputInvalid(errModelConfigInvalid)
 		}
 	}
 	encryptedSearchKey := rawString(stored["encryptedSearchKey"])
@@ -227,7 +229,7 @@ func ActiveProfile(dataRoot string, reverse contract.ReverseCaller) (RuntimeProf
 	profile := defaultProfile
 	if raw, ok := stored["qwenProfile"]; ok {
 		if err := json.Unmarshal(raw, &profile); err != nil {
-			return RuntimeProfile{}, contract.InputInvalid("模型配置无效")
+			return RuntimeProfile{}, contract.InputInvalid(errModelConfigInvalid)
 		}
 	}
 	baseURL := strings.TrimSpace(profile.BaseURL)
@@ -263,7 +265,7 @@ func CurrentConnectionFingerprint(dataRoot string) (string, error) {
 	profile := defaultProfile
 	if raw, ok := stored["qwenProfile"]; ok {
 		if err := json.Unmarshal(raw, &profile); err != nil {
-			return "", contract.InputInvalid("模型配置无效")
+			return "", contract.InputInvalid(errModelConfigInvalid)
 		}
 	}
 	return connectionFingerprint(profile), nil
@@ -323,7 +325,7 @@ func DraftProfile(dataRoot string, reverse contract.ReverseCaller, draft Profile
 	profile := defaultProfile
 	if raw, ok := stored["qwenProfile"]; ok {
 		if err := json.Unmarshal(raw, &profile); err != nil {
-			return RuntimeProfile{}, contract.InputInvalid("模型配置无效")
+			return RuntimeProfile{}, contract.InputInvalid(errModelConfigInvalid)
 		}
 	}
 	storedIdentity := ""
@@ -357,7 +359,7 @@ func CacheModels(dataRoot string, models []string) error {
 	}
 	profile := defaultProfile
 	if err := json.Unmarshal(raw, &profile); err != nil {
-		return contract.InputInvalid("模型配置无效")
+		return contract.InputInvalid(errModelConfigInvalid)
 	}
 	merged := []string{}
 	seen := map[string]bool{}

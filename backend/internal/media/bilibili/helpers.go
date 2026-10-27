@@ -14,6 +14,8 @@ import (
 	"github.com/EveSunMaple/Zynote/backend/internal/contract"
 )
 
+const errQrUrlInvalid = "扫码地址无效"
+
 var bvidPattern = regexp.MustCompile(`^BV[0-9A-Za-z]{10}$`)
 var tagPattern = regexp.MustCompile(`<[^>]*>`)
 
@@ -77,14 +79,14 @@ func allowedQRURL(value string) bool {
 
 func QRImage(value string) (string, error) {
 	if len(value) > 2000 {
-		return "", contract.InputInvalid("扫码地址无效")
+		return "", contract.InputInvalid(errQrUrlInvalid)
 	}
 	if !allowedQRURL(value) {
-		return "", contract.InputInvalid("扫码地址无效")
+		return "", contract.InputInvalid(errQrUrlInvalid)
 	}
 	code, err := newQRCode(value)
 	if err != nil {
-		return "", contract.InputInvalid("扫码地址无效")
+		return "", contract.InputInvalid(errQrUrlInvalid)
 	}
 	return code, nil
 }

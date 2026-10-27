@@ -11,23 +11,25 @@ import (
 	"github.com/EveSunMaple/Zynote/backend/internal/zhiyun"
 )
 
+const msgZhiyunLoginUnavailable = "智云登录状态不可用"
+
 var zhiyunDigits = regexp.MustCompile(`^\d+$`)
 
 func (inv *Invoker) zhiyunClient(store contract.StateStore) (*zhiyun.Client, error) {
 	reverse := store.Reverse()
 	if reverse == nil {
-		return nil, contract.Unavailable("智云登录状态不可用")
+		return nil, contract.Unavailable(msgZhiyunLoginUnavailable)
 	}
 	raw, err := reverse.Call("shell.zhiyunSession", map[string]any{}, 5000)
 	if err != nil {
-		return nil, contract.Unavailable("智云登录状态不可用")
+		return nil, contract.Unavailable(msgZhiyunLoginUnavailable)
 	}
 	var session struct {
 		Cookie        string `json:"cookie"`
 		Authorization string `json:"authorization"`
 	}
 	if err := json.Unmarshal(raw, &session); err != nil {
-		return nil, contract.Unavailable("智云登录状态不可用")
+		return nil, contract.Unavailable(msgZhiyunLoginUnavailable)
 	}
 	return zhiyun.New("", zhiyun.Session{Cookie: session.Cookie, Authorization: session.Authorization}), nil
 }

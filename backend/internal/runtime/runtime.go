@@ -14,6 +14,11 @@ import (
 	"strings"
 )
 
+const (
+	errRuntimeIntegrity = "组件文件类型、摘要、大小或权限校验失败"
+	errRuntimeManifest  = "v2 组件清单格式或应用版本不符"
+)
+
 type File struct {
 	Path   string `json:"path"`
 	Size   int64  `json:"size"`
@@ -140,17 +145,17 @@ func hashFile(path string) (string, error) {
 func checkRegular(root, relative string, size int64, digest, mode string) (bool, string) {
 	target, err := contained(root, relative)
 	if err != nil {
-		return false, "组件文件类型、摘要、大小或权限校验失败"
+		return false, errRuntimeIntegrity
 	}
 	info, err := os.Lstat(target)
 	if err != nil {
 		if os.IsNotExist(err) {
 			return false, "组件文件缺失；v2 安装尚未开放"
 		}
-		return false, "组件文件类型、摘要、大小或权限校验失败"
+		return false, errRuntimeIntegrity
 	}
 	if !info.Mode().IsRegular() || info.Mode()&os.ModeSymlink != 0 || info.Size() != size {
-		return false, "组件文件类型、摘要、大小或权限校验失败"
+		return false, errRuntimeIntegrity
 	}
 	if mode != "" && runtime.GOOS != "windows" {
 		expected := os.FileMode(0o644)
@@ -158,12 +163,12 @@ func checkRegular(root, relative string, size int64, digest, mode string) (bool,
 			expected = 0o755
 		}
 		if info.Mode().Perm() != expected {
-			return false, "组件文件类型、摘要、大小或权限校验失败"
+			return false, errRuntimeIntegrity
 		}
 	}
 	actual, err := hashFile(target)
 	if err != nil || actual != digest {
-		return false, "组件文件类型、摘要、大小或权限校验失败"
+		return false, errRuntimeIntegrity
 	}
 	return true, ""
 }
@@ -205,7 +210,7 @@ func CheckStatus(resourcesRoot, version string) Status {
 
 func statusV2(resourcesRoot, version string, manifest Manifest) Status {
 	if manifest.ProductVersion != version || len(manifest.Components) == 0 || len(manifest.Components) > 10 {
-		return Status{Version: version, Validation: "invalid", Reason: "v2 组件清单格式或应用版本不符", Components: []StatusComponent{}}
+		return Status{Version: version, Validation: "invalid", Reason: errRuntimeManifest, Components: []StatusComponent{}}
 	}
 	ids := map[string]bool{}
 	directories := map[string]bool{}
@@ -214,12 +219,12 @@ func statusV2(resourcesRoot, version string, manifest Manifest) Status {
 	for _, component := range manifest.Components {
 		if !idPattern.MatchString(component.ID) || ids[component.ID] || !relativePath(component.Directory) ||
 			directories[strings.ToLower(component.Directory)] {
-			return Status{Version: version, Validation: "invalid", Reason: "v2 组件清单格式或应用版本不符", Components: []StatusComponent{}}
+			return Status{Version: version, Validation: "invalid", Reason: errRuntimeManifest, Components: []StatusComponent{}}
 		}
 		ids[component.ID] = true
 		directories[strings.ToLower(component.Directory)] = true
 		if component.Target.Platform != manifest.Target.Platform || component.Target.Arch != manifest.Target.Arch {
-			return Status{Version: version, Validation: "invalid", Reason: "v2 组件清单格式或应用版本不符", Components: []StatusComponent{}}
+			return Status{Version: version, Validation: "invalid", Reason: errRuntimeManifest, Components: []StatusComponent{}}
 		}
 		validation := "missing"
 		reason := "组件文件缺失；v2 安装尚未开放"
@@ -233,7 +238,7 @@ func statusV2(resourcesRoot, version string, manifest Manifest) Status {
 				total += file.Size
 				if !relativePath(file.Path) || paths[strings.ToLower(file.Path)] {
 					validation = "invalid"
-					reason = "组件文件类型、摘要、大小或权限校验失败"
+					reason = errRuntimeIntegrity
 					break
 				}
 				paths[strings.ToLower(file.Path)] = true
@@ -249,7 +254,7 @@ func statusV2(resourcesRoot, version string, manifest Manifest) Status {
 			}
 			if total != component.Bytes {
 				validation = "invalid"
-				reason = "组件文件类型、摘要、大小或权限校验失败"
+				reason = errRuntimeIntegrity
 			}
 		} else {
 			validation = "unsupported_target"

@@ -18,6 +18,8 @@ import (
 	"github.com/EveSunMaple/Zynote/backend/internal/videoppt"
 )
 
+const jobKindVideoSubtitle = "video-subtitle"
+
 func (inv *Invoker) videoProgress(message string) {
 	inv.emit(map[string]any{"kind": "progress", "data": map[string]any{
 		"stage": "视频提取 PPT", "message": message,
@@ -123,7 +125,7 @@ func (inv *Invoker) handleVideoSubtitleTranscribeLocal(store contract.StateStore
 	if picked.Path == nil || *picked.Path == "" {
 		return nil, nil
 	}
-	return inv.runJob("video-subtitle", func(ctx context.Context) (any, error) {
+	return inv.runJob(jobKindVideoSubtitle, func(ctx context.Context) (any, error) {
 		inv.videoProgress("正在复制本地视频用于字幕转写；原文件保持不变")
 		outputName := library.FolderName(videoppt.SubtitleTitle(filepath.Base(*picked.Path))) + "-离线转写.srt"
 		task, err := videoPptService(state).CreateSubtitleTask(*picked.Path, outputName, courseName, 1)
@@ -141,7 +143,7 @@ func (inv *Invoker) handleVideoResumeSubtitle(state *contract.State, params json
 	if err := json.Unmarshal(params, &input); err != nil || !strings.HasPrefix(input.ID, "") || input.ID == "" {
 		return nil, contract.InputInvalid("任务编号无效")
 	}
-	return inv.runJob("video-subtitle", func(ctx context.Context) (any, error) {
+	return inv.runJob(jobKindVideoSubtitle, func(ctx context.Context) (any, error) {
 		service := videoPptService(state)
 		meta, directory, err := service.SubtitleTask(input.ID)
 		if err != nil {
@@ -207,7 +209,7 @@ func (inv *Invoker) handleVideoSubtitleTranscribe(store contract.StateStore, sta
 	if err != nil {
 		return nil, err
 	}
-	return inv.runJob("video-subtitle", func(ctx context.Context) (any, error) {
+	return inv.runJob(jobKindVideoSubtitle, func(ctx context.Context) (any, error) {
 		inv.videoProgress("正在下载视频用于离线字幕转写")
 		task, err := videoPptService(state).CreateBlankTask(videoID+"-P"+page+"-字幕转写", map[string]any{
 			"kind": "subtitle", "outputName": videoID + "-P" + page + "-离线转写.srt",

@@ -10,6 +10,11 @@ import (
 	"github.com/EveSunMaple/Zynote/backend/internal/contract"
 )
 
+const (
+	appearanceFileName         = "appearance.json"
+	errAppearanceCourseInvalid = "外观课程标识无效"
+)
+
 type Appearance struct {
 	Background      string  `json:"background"`
 	Image           string  `json:"image"`
@@ -55,7 +60,7 @@ var backgrounds = map[string]bool{"none": true, "lavender": true, "rose": true, 
 var accents = map[string]bool{"default": true, "lavender": true, "rose": true, "mint": true, "blue": true}
 
 func ReadAppearance(dataRoot string) (AppearanceState, error) {
-	path := filepath.Join(dataRoot, "appearance.json")
+	path := filepath.Join(dataRoot, appearanceFileName)
 	raw, err := os.ReadFile(path)
 	if err != nil {
 		if os.IsNotExist(err) {
@@ -72,7 +77,7 @@ func ReadAppearance(dataRoot string) (AppearanceState, error) {
 	}
 	for courseID, value := range state.Courses {
 		if !IsUUID(courseID) {
-			return AppearanceState{}, contract.InputInvalid("外观课程标识无效")
+			return AppearanceState{}, contract.InputInvalid(errAppearanceCourseInvalid)
 		}
 		if err := validateAppearance(value); err != nil {
 			return AppearanceState{}, err
@@ -117,13 +122,13 @@ func SaveAppearance(dataRoot string, raw json.RawMessage, courseID *string) (App
 	}
 	if courseID != nil {
 		if !IsUUID(*courseID) {
-			return AppearanceState{}, contract.InputInvalid("外观课程标识无效")
+			return AppearanceState{}, contract.InputInvalid(errAppearanceCourseInvalid)
 		}
 		state.Courses[*courseID] = value
 	} else {
 		state.Global = value
 	}
-	if err := writeAtomic(filepath.Join(dataRoot, "appearance.json"), state); err != nil {
+	if err := writeAtomic(filepath.Join(dataRoot, appearanceFileName), state); err != nil {
 		return AppearanceState{}, contract.Unavailable("外观文件不可写")
 	}
 	return state, nil
@@ -131,14 +136,14 @@ func SaveAppearance(dataRoot string, raw json.RawMessage, courseID *string) (App
 
 func ClearAppearance(dataRoot, courseID string) (AppearanceState, error) {
 	if !IsUUID(courseID) {
-		return AppearanceState{}, contract.InputInvalid("外观课程标识无效")
+		return AppearanceState{}, contract.InputInvalid(errAppearanceCourseInvalid)
 	}
 	state, err := ReadAppearance(dataRoot)
 	if err != nil {
 		return AppearanceState{}, err
 	}
 	delete(state.Courses, courseID)
-	if err := writeAtomic(filepath.Join(dataRoot, "appearance.json"), state); err != nil {
+	if err := writeAtomic(filepath.Join(dataRoot, appearanceFileName), state); err != nil {
 		return AppearanceState{}, contract.Unavailable("外观文件不可写")
 	}
 	return state, nil
