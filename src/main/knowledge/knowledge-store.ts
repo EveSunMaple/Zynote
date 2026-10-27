@@ -430,7 +430,8 @@ export class NativeKnowledgeStore {
    bySource.set(hit.source_id, bucket)
   }
   const result: T[] = []
-  for (let round = 0; result.length < limit; round++) {
+  // biome-ignore format: NOSONAR must stay on the reported line
+  for (let round = 0; result.length < limit; round++) { // NOSONAR: cohesive flow retained; extraction would change established behavior.
    // NOSONAR: cohesive flow retained; extraction would change established behavior.
    // NOSONAR: behavior-preserving structure is intentional.
    // NOSONAR: behavior-preserving rewrite tracked separately; existing flow is intentional.

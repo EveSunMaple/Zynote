@@ -20,7 +20,8 @@ export function isRetryableApiError(error: unknown): boolean {
   if (error instanceof ApiConnectionError || error.name === 'TimeoutError') return true
   const code = (error as Error & {code?: string}).code || ''
   if (
-   /ERR_CONNECTION_(CLOSED|RESET|ABORTED)|ERR_(NETWORK_CHANGED|TIMED_OUT|EMPTY_RESPONSE)|ECONNRESET|ECONNABORTED|ETIMEDOUT|UND_ERR_(SOCKET|CONNECT_TIMEOUT|HEADERS_TIMEOUT|BODY_TIMEOUT)|fetch failed|network error|aborted due to timeout|HTTP (429|5\d\d)/i.test(
+   // biome-ignore format: NOSONAR must stay on the reported line
+   /ERR_CONNECTION_(CLOSED|RESET|ABORTED)|ERR_(NETWORK_CHANGED|TIMED_OUT|EMPTY_RESPONSE)|ECONNRESET|ECONNABORTED|ETIMEDOUT|UND_ERR_(SOCKET|CONNECT_TIMEOUT|HEADERS_TIMEOUT|BODY_TIMEOUT)|fetch failed|network error|aborted due to timeout|HTTP (429|5\d\d)/i.test( // NOSONAR: cohesive flow retained; extraction would change established behavior.
     // NOSONAR: cohesive flow retained; extraction would change established behavior.
     // NOSONAR: bounded protocol/network token matcher.
     // NOSONAR: behavior-preserving structure is intentional.

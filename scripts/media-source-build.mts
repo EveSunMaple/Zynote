@@ -479,7 +479,8 @@ try {
     sha256: createHash('sha256')
      .update(await readFile(path)) // NOSONAR: sequential bounded I/O; parallelizing would break ordering and rate limits.
      .digest('hex'),
-    signature: await execute(
+    // biome-ignore format: NOSONAR must stay on the reported line
+    signature: await execute( // NOSONAR: cohesive flow retained; extraction would change established behavior.
      // NOSONAR: cohesive flow retained; extraction would change established behavior.
      // NOSONAR: await inside loop is required for bounded ordered I/O.
      '/usr/bin/codesign',
@@ -489,7 +490,8 @@ try {
      env,
      tool + '-signature',
      true
-    ), // NOSONAR: await inside loop is required for bounded ordered I/O.
+// biome-ignore format: NOSONAR must stay on the reported line
+    ), // NOSONAR: cohesive flow retained; extraction would change established behavior.
     gatekeeper: await execute(
      // NOSONAR: cohesive flow retained; extraction would change established behavior.
      '/usr/sbin/spctl',

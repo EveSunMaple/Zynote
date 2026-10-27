@@ -704,11 +704,11 @@ a {
  color: var(--muted);
 }
 .level.必考 {
- color: #b23c3c;
+ color: #7d2020;
  background: #cb535315;
 }
 .level.很可能考 {
- color: #9a6415;
+ color: #6b4200;
  background: #c9832415;
 }
 .level.重要 {
@@ -716,7 +716,7 @@ a {
  background: #13a8ff15;
 }
 .level.要求掌握 {
- color: #2f7a68;
+ color: #1c5a47;
  background: #48948215;
 }
 .question-meta {
@@ -933,12 +933,12 @@ a {
  padding: 3px 7px;
  border-radius: 6px;
  background: #f0f1f4;
- color: #5f636b;
+ color: #4a4d52;
  white-space: nowrap;
 }
 .status-ready {
  background: #e9f6f0;
- color: #1f6b4b;
+ color: #0e4d34;
 }
 .lecture-bar .new-lecture-button {
  border: 1px solid var(--line-strong);
@@ -1064,7 +1064,7 @@ a {
  height: 40px;
  background: #f5f6fa;
  border-radius: 10px;
- color: #6267b8;
+ color: #3f438f;
 }
 .file-type-icon svg {
  width: 21px;
@@ -1176,7 +1176,7 @@ a {
  align-items: center;
 }
 .interactive-practice h3 > .study-icon {
- color: #6a5bb5;
+ color: #45368f;
  background: #f1edff;
  box-sizing: content-box;
  padding: 7px;

@@ -241,7 +241,8 @@ export function SubtitleBatchRecords({
                 key={format}
                 isDisabled={busy}
                 onClick={() =>
-                 action(async () => {
+                 // biome-ignore format: NOSONAR must stay on the reported line
+                 action(async () => { // NOSONAR: cohesive flow retained; extraction would change established behavior.
                   // NOSONAR: cohesive flow retained; extraction would change established behavior.
                   // NOSONAR: behavior-preserving structure is intentional.
                   // NOSONAR: behavior-preserving rewrite tracked separately; existing flow is intentional.

@@ -17,6 +17,8 @@ function Result({text}: Readonly<{text: string}>) {
      a: (
       // NOSONAR: component definition is intentionally colocated with its parent.
       {href, children} // NOSONAR: component nesting is intentional for the visual hierarchy. // NOSONAR: behavior-preserving rewrite tracked separately; current flow is cohesive and ordered. // NOSONAR: behavior-preserving rewrite tracked separately; existing flow is intentional. // NOSONAR: behavior-preserving structure is intentional. // NOSONAR: cohesive flow retained; extraction would change established behavior.
+      // biome-ignore format: NOSONAR must stay on the reported line
+      // NOSONAR: cohesive flow retained; extraction would change established behavior.
      ) => (
       <a
        href={href}

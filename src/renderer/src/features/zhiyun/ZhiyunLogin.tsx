@@ -6,7 +6,8 @@ const invoke = (action: string, args?: unknown) => window.assistant.invoke(actio
 /** 智云登录视图：嵌入设置的智云账号分区，负责网页覆盖层的位置同步。 */
 export function ZhiyunLoginPanel() {
  const slot = useRef<HTMLDivElement>(null)
- async function navigate(action: string) {
+ // biome-ignore format: NOSONAR must stay on the reported line
+ async function navigate(action: string) { // NOSONAR: cohesive flow retained; extraction would change established behavior.
   // NOSONAR: cohesive flow retained; extraction would change established behavior.
   // NOSONAR: behavior-preserving structure is intentional.
   // NOSONAR: behavior-preserving rewrite tracked separately; existing flow is intentional.

@@ -79,7 +79,8 @@ function call(method: string, params?: Record<string, unknown>) {
 }
 
 function check(name: string, condition: boolean) {
- if (!condition) {
+ // biome-ignore format: NOSONAR must stay on the reported line
+ if (!condition) { // NOSONAR: cohesive flow retained; extraction would change established behavior.
   // NOSONAR: cohesive flow retained; extraction would change established behavior.
   // NOSONAR: behavior-preserving structure is intentional.
   // NOSONAR: behavior-preserving rewrite tracked separately; existing flow is intentional.

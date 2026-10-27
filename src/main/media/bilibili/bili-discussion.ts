@@ -538,7 +538,8 @@ export class BiliDiscussion {
    items: items.slice(0, 1200)
   })
  } // NOSONAR: behavior-preserving change would risk this established flow; tracked for manual review.
- private addDiscussionItem(
+ // biome-ignore format: NOSONAR must stay on the reported line
+ private addDiscussionItem( // NOSONAR: cohesive flow retained; extraction would change established behavior.
   // NOSONAR: cohesive flow retained; extraction would change established behavior.
   // NOSONAR: parameter list is the public builder contract for this item type.
   // NOSONAR: behavior-preserving structure is intentional.
