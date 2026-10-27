@@ -12,15 +12,7 @@ const pointSchema = z.object({
 })
 const normalize = (value: string) => value.replace(/[\p{P}\p{Z}\s]/gu, '').toLowerCase()
 
-export async function summarizeVideo(
- srt: string,
- mode: SummaryMode,
- ask: (prompt: string, input: unknown, signal: AbortSignal) => Promise<unknown>,
- progress: (message: string) => void,
- signal: AbortSignal
-): Promise<{markdown: string; count: number; points: VideoNotePoint[]}> {
- const cues = parseSrt(srt)
- if (!cues.length || cues.length > 20000) throw new Error('字幕数量超出处理范围')
+function summaryChunks(cues: ReturnType<typeof parseSrt>) {
  const chunks: Array<typeof cues> = []
  let chunkLength = 0
  for (const cue of cues) {
@@ -33,10 +25,59 @@ export async function summarizeVideo(
    chunkLength += cue.text.length
   }
  }
+ return chunks
+}
+function verifiedSummaryPoints(
+ points: z.infer<typeof pointSchema>[],
+ cues: ReturnType<typeof parseSrt>,
+ start: number,
+ part: NonNullable<ReturnType<typeof summaryChunks>[number]>
+) {
+ return points
+  .filter(p => {
+   const cue = cues[p.cue]
+   return (
+    p.cue >= start &&
+    p.cue < start + part.length &&
+    cue &&
+    normalize(p.quote).length >= 2 &&
+    normalize(cue.text).includes(normalize(p.quote))
+   )
+  })
+  .sort((a, b) => a.cue - b.cue)
+}
+function appendSummaryPoints(
+ lines: string[],
+ cues: ReturnType<typeof parseSrt>,
+ part: NonNullable<ReturnType<typeof summaryChunks>[number]>,
+ points: z.infer<typeof pointSchema>[],
+ heading: string
+) {
+ if (!points.length) return []
+ lines.push(`## ${time(part[0].start, false)}–${time(part.at(-1)!.end, false)}`, '')
+ const output: (VideoNotePoint & {topic: string; timestamp: string})[] = []
+ for (const point of points) {
+  lines.push(
+   `- **${point.point.replace(/[\r\n]+/g, ' ')}**（${time(cues[point.cue].start, false)}；原话：${point.quote.replace(/[\r\n]+/g, ' ')}）`
+  )
+  output.push({...point, topic: point.topic || heading, timestamp: time(cues[point.cue].start, false)})
+ }
+ lines.push('')
+ return output
+}
+export async function summarizeVideo(
+ srt: string,
+ mode: SummaryMode,
+ ask: (prompt: string, input: unknown, signal: AbortSignal) => Promise<unknown>,
+ progress: (message: string) => void,
+ signal: AbortSignal
+): Promise<{markdown: string; count: number; points: VideoNotePoint[]}> {
+ const cues = parseSrt(srt)
+ if (!cues.length || cues.length > 20000) throw new Error('字幕数量超出处理范围')
+ const chunks = summaryChunks(cues)
  const max = ({brief: 4, keypoints: 8} as Record<string, number>)[mode] ?? 14
  const heading = noteTitles[mode]
  const lines = [`# ${heading}`, '', '以下内容根据字幕生成。引文保留原话与时间点，自动转写的错误仍需核对。', '']
- let count = 0
  const allPoints: VideoNotePoint[] = []
  for (const [index, part] of chunks.entries()) {
   signal.throwIfAborted()
@@ -51,30 +92,9 @@ export async function summarizeVideo(
    signal
   )
   const points = z.array(pointSchema).max(max).parse(raw)
-  const verified = points
-   .filter(p => {
-    const cue = cues[p.cue]
-    return (
-     p.cue >= start &&
-     p.cue < start + part.length &&
-     cue &&
-     normalize(p.quote).length >= 2 &&
-     normalize(cue.text).includes(normalize(p.quote))
-    )
-   })
-   .sort((a, b) => a.cue - b.cue)
-  if (verified.length) {
-   lines.push(`## ${time(part[0].start, false)}–${time(part.at(-1)!.end, false)}`, '')
-   for (const point of verified) {
-    lines.push(
-     `- **${point.point.replace(/[\r\n]+/g, ' ')}**（${time(cues[point.cue].start, false)}；原话：${point.quote.replace(/[\r\n]+/g, ' ')}）`
-    )
-    count++
-    allPoints.push({...point, topic: point.topic || heading, timestamp: time(cues[point.cue].start, false)})
-   }
-   lines.push('')
-  }
+  const verified = verifiedSummaryPoints(points, cues, start, part)
+  allPoints.push(...appendSummaryPoints(lines, cues, part, verified, heading))
  }
- if (!count) throw new Error('模型没有给出能在字幕中核实的要点，未保存摘要')
- return {markdown: lines.join('\n'), count, points: allPoints}
+ if (!allPoints.length) throw new Error('模型没有给出能在字幕中核实的要点，未保存摘要')
+ return {markdown: lines.join('\n'), count: allPoints.length, points: allPoints}
 }
