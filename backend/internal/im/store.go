@@ -290,12 +290,139 @@ func stringMap(input any) map[string]string {
 	return result
 }
 
+func validConnectionChange(action, expected string) bool {
+	if !idPattern.MatchString(expected) {
+		return false
+	}
+	return action == "create" || action == "update" || action == "delete"
+}
+
+func validateConnectionName(name, platform string, old *Connection) error {
+	if name == "" || len([]rune(name)) > 80 || !platforms[platform] || (old != nil && platform != old.Platform) {
+		return fmt.Errorf("连接名称或平台无效")
+	}
+	return nil
+}
+
+func validateConnectionKeys(fields, secrets map[string]string) error {
+	for key := range fields {
+		if key != "mode" && key != "webui_url" && key != "onebot_url" {
+			return fmt.Errorf("通讯连接字段无效")
+		}
+	}
+	for key := range secrets {
+		if key != "webui_token" && key != "onebot_token" {
+			return fmt.Errorf("通讯连接字段无效")
+		}
+	}
+	return nil
+}
+
+func normalizeConnectionFields(platform string, fields, secrets map[string]string) (map[string]string, map[string]string, error) {
+	if platform != "qq_napcat" {
+		if len(fields) > 0 || len(secrets) > 0 {
+			return nil, nil, fmt.Errorf("微信连接不预填第三方凭据")
+		}
+		return fields, secrets, nil
+	}
+	mode := fields["mode"]
+	if mode == "" {
+		mode = "managed"
+	}
+	switch mode {
+	case "managed":
+		return map[string]string{"mode": "managed"}, map[string]string{}, nil
+	case "manual":
+		origin, err := Loopback(fields["webui_url"])
+		if err != nil {
+			return nil, nil, err
+		}
+		return map[string]string{"mode": "manual", "webui_url": origin}, secrets, nil
+	default:
+		return nil, nil, fmt.Errorf("QQ 连接模式无效")
+	}
+}
+
+func (store *Store) sealConnectionChange(old *Connection, fields, secrets map[string]string) ([]byte, bool, error) {
+	if old != nil && fmt.Sprint(old.Fields) == fmt.Sprint(fields) && len(secrets) == 0 {
+		return []byte{}, true, nil
+	}
+	if old != nil && fmt.Sprint(old.Fields) == fmt.Sprint(fields) {
+		prior, err := store.PrivateState(old.ID, old.Revision)
+		if err != nil {
+			return nil, false, err
+		}
+		merged := prior.Secrets
+		for key, value := range secrets {
+			merged[key] = value
+		}
+		sealed := []byte{}
+		if len(merged) > 0 {
+			if store.Crypt == nil {
+				return nil, false, fmt.Errorf("系统加密桥不可用")
+			}
+			raw, _ := json.Marshal(merged)
+			sealed, err = store.Crypt(raw, false)
+			if err != nil {
+				return nil, false, err
+			}
+		}
+		unchanged := true
+		for key, value := range secrets {
+			if prior.Secrets[key] != value {
+				unchanged = false
+			}
+		}
+		return sealed, unchanged, nil
+	}
+	if len(secrets) > 0 {
+		if store.Crypt == nil {
+			return nil, false, fmt.Errorf("系统加密桥不可用")
+		}
+		raw, _ := json.Marshal(secrets)
+		sealed, err := store.Crypt(raw, false)
+		if err != nil {
+			return nil, false, err
+		}
+		return sealed, false, nil
+	}
+	return []byte{}, false, nil
+}
+
+func applyConnectionChange(tx *sql.Tx, action string, old *Connection, name, platform string, fields, secrets map[string]string, sealed []byte, unchanged bool) error {
+	if action == "delete" {
+		if old == nil {
+			return fmt.Errorf("通讯连接不存在")
+		}
+		_, err := tx.Exec("DELETE FROM connections WHERE id=?", old.ID)
+		return err
+	}
+	public, _ := json.Marshal(fields)
+	if old == nil {
+		var count int
+		_ = tx.QueryRow("SELECT COUNT(*) FROM connections").Scan(&count)
+		if count >= 20 {
+			return fmt.Errorf("最多保存20个通讯连接")
+		}
+		_, err := tx.Exec("INSERT INTO connections(id,name,platform,revision,public,sealed) VALUES(?,?,?,?,?,?)",
+			newID(), name, platform, newID(), string(public), sealed)
+		return err
+	}
+	if unchanged && len(secrets) == 0 {
+		_, err := tx.Exec("UPDATE connections SET name=?,revision=? WHERE id=?", name, newID(), old.ID)
+		return err
+	}
+	_, err := tx.Exec("UPDATE connections SET name=?,revision=?,public=?,sealed=?,account='',login_epoch='',session=NULL,checked_at=NULL,capabilities='{}' WHERE id=?",
+		name, newID(), string(public), sealed, old.ID)
+	return err
+}
+
 func (store *Store) Change(input map[string]any) (any, error) {
 	store.mu.Lock()
 	defer store.mu.Unlock()
 	action := text(input["action"])
 	expected := text(input["expected_revision"])
-	if !idPattern.MatchString(expected) || (action != "create" && action != "update" && action != "delete") {
+	if !validConnectionChange(action, expected) {
 		return nil, fmt.Errorf("通讯连接修改参数无效")
 	}
 	if store.revision() != expected {
@@ -309,90 +436,29 @@ func (store *Store) Change(input map[string]any) (any, error) {
 		}
 		old = &value
 	}
-	name := strings.TrimSpace(text(input["name"]))
-	platform := text(input["platform"])
-	fields := stringMap(input["fields"])
-	secrets := stringMap(input["secrets"])
+	name, platform := "", ""
+	fields, secrets := map[string]string{}, map[string]string{}
 	sealed := []byte{}
 	unchanged := false
 	if action != "delete" {
-		if name == "" || len([]rune(name)) > 80 || !platforms[platform] || (old != nil && platform != old.Platform) {
-			return nil, fmt.Errorf("连接名称或平台无效")
+		name = strings.TrimSpace(text(input["name"]))
+		platform = text(input["platform"])
+		if err := validateConnectionName(name, platform, old); err != nil {
+			return nil, err
 		}
-		for key := range fields {
-			if key != "mode" && key != "webui_url" && key != "onebot_url" {
-				return nil, fmt.Errorf("通讯连接字段无效")
-			}
+		fields = stringMap(input["fields"])
+		secrets = stringMap(input["secrets"])
+		if err := validateConnectionKeys(fields, secrets); err != nil {
+			return nil, err
 		}
-		for key := range secrets {
-			if key != "webui_token" && key != "onebot_token" {
-				return nil, fmt.Errorf("通讯连接字段无效")
-			}
+		var err error
+		fields, secrets, err = normalizeConnectionFields(platform, fields, secrets)
+		if err != nil {
+			return nil, err
 		}
-		if platform == "qq_napcat" {
-			mode := fields["mode"]
-			if mode == "" {
-				mode = "managed"
-			}
-			if mode == "managed" {
-				fields = map[string]string{"mode": "managed"}
-				secrets = map[string]string{}
-			} else if mode == "manual" {
-				origin, err := Loopback(fields["webui_url"])
-				if err != nil {
-					return nil, err
-				}
-				fields = map[string]string{"mode": "manual", "webui_url": origin}
-				if fields["onebot_url"] != "" {
-					onebot, err := Loopback(fields["onebot_url"])
-					if err != nil {
-						return nil, err
-					}
-					fields["onebot_url"] = onebot
-				}
-			} else {
-				return nil, fmt.Errorf("QQ 连接模式无效")
-			}
-		} else if len(fields) > 0 || len(secrets) > 0 {
-			return nil, fmt.Errorf("微信连接不预填第三方凭据")
-		}
-		if old != nil && fmt.Sprint(old.Fields) == fmt.Sprint(fields) && len(secrets) == 0 {
-			unchanged = true
-		} else if old != nil && fmt.Sprint(old.Fields) == fmt.Sprint(fields) {
-			prior, err := store.PrivateState(old.ID, old.Revision)
-			if err != nil {
-				return nil, err
-			}
-			merged := prior.Secrets
-			for key, value := range secrets {
-				merged[key] = value
-			}
-			if len(merged) > 0 {
-				if store.Crypt == nil {
-					return nil, fmt.Errorf("系统加密桥不可用")
-				}
-				raw, _ := json.Marshal(merged)
-				sealed, err = store.Crypt(raw, false)
-				if err != nil {
-					return nil, err
-				}
-			}
-			unchanged = true
-			for key, value := range secrets {
-				if prior.Secrets[key] != value {
-					unchanged = false
-				}
-			}
-		} else if len(secrets) > 0 {
-			if store.Crypt == nil {
-				return nil, fmt.Errorf("系统加密桥不可用")
-			}
-			raw, _ := json.Marshal(secrets)
-			var err error
-			sealed, err = store.Crypt(raw, false)
-			if err != nil {
-				return nil, err
-			}
+		sealed, unchanged, err = store.sealConnectionChange(old, fields, secrets)
+		if err != nil {
+			return nil, err
 		}
 	}
 	if store.revision() != expected {
@@ -403,35 +469,8 @@ func (store *Store) Change(input map[string]any) (any, error) {
 		return nil, err
 	}
 	defer tx.Rollback()
-	if action == "delete" {
-		if old == nil {
-			return nil, fmt.Errorf("通讯连接不存在")
-		}
-		if _, err := tx.Exec("DELETE FROM connections WHERE id=?", old.ID); err != nil {
-			return nil, err
-		}
-	} else {
-		public, _ := json.Marshal(fields)
-		if old == nil {
-			var count int
-			_ = tx.QueryRow("SELECT COUNT(*) FROM connections").Scan(&count)
-			if count >= 20 {
-				return nil, fmt.Errorf("最多保存20个通讯连接")
-			}
-			if _, err := tx.Exec("INSERT INTO connections(id,name,platform,revision,public,sealed) VALUES(?,?,?,?,?,?)",
-				newID(), name, platform, newID(), string(public), sealed); err != nil {
-				return nil, err
-			}
-		} else if unchanged && len(secrets) == 0 {
-			if _, err := tx.Exec("UPDATE connections SET name=?,revision=? WHERE id=?", name, newID(), old.ID); err != nil {
-				return nil, err
-			}
-		} else {
-			if _, err := tx.Exec("UPDATE connections SET name=?,revision=?,public=?,sealed=?,account='',login_epoch='',session=NULL,checked_at=NULL,capabilities='{}' WHERE id=?",
-				name, newID(), string(public), sealed, old.ID); err != nil {
-				return nil, err
-			}
-		}
+	if err := applyConnectionChange(tx, action, old, name, platform, fields, secrets, sealed, unchanged); err != nil {
+		return nil, err
 	}
 	if _, err := tx.Exec("UPDATE registry SET revision=? WHERE id=1", newID()); err != nil {
 		return nil, err
@@ -540,37 +579,47 @@ type Limits struct {
 	RetentionDays int  `json:"retention_days"`
 }
 
+func applyRuleLimits(raw string, limits *Limits) {
+	var value map[string]any
+	if json.Unmarshal([]byte(raw), &value) != nil {
+		return
+	}
+	if item, ok := value["read_enabled"].(bool); ok {
+		limits.ReadEnabled = item
+	}
+	if item, ok := value["archive_enabled"].(bool); ok {
+		limits.Archive = item
+	}
+	if item := int(number(value["max_messages"])); item >= 50 && item <= 100000 {
+		limits.MaxMessages = item
+	}
+	if item := int(number(value["max_bytes"])); item >= 1048576 && item <= 1073741824 {
+		limits.MaxBytes = item
+	}
+	if item := int(number(value["retention_days"])); item >= 1 && item <= 3650 {
+		limits.RetentionDays = item
+	}
+}
+
+func (store *Store) accountRuleLimits(scope Scope, limits *Limits) {
+	var exists int
+	_ = store.db.QueryRow("SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='im_rules'").Scan(&exists)
+	if exists == 0 {
+		return
+	}
+	var raw string
+	if store.db.QueryRow("SELECT value FROM im_rules WHERE platform=? AND account=? AND peer=''", scope.Platform, scope.Account).Scan(&raw) == nil {
+		applyRuleLimits(raw, limits)
+	}
+}
+
 func (store *Store) AccountLimits(input any) (Scope, Limits, error) {
 	scope, _, err := store.CheckScope(input)
 	if err != nil {
 		return Scope{}, Limits{}, err
 	}
 	limits := Limits{ReadEnabled: true, Archive: true, MaxMessages: 2000, MaxBytes: 20 * 1048576, RetentionDays: 30}
-	var exists int
-	_ = store.db.QueryRow("SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='im_rules'").Scan(&exists)
-	if exists > 0 {
-		var raw string
-		if store.db.QueryRow("SELECT value FROM im_rules WHERE platform=? AND account=? AND peer=''", scope.Platform, scope.Account).Scan(&raw) == nil {
-			var value map[string]any
-			if json.Unmarshal([]byte(raw), &value) == nil {
-				if item, ok := value["read_enabled"].(bool); ok {
-					limits.ReadEnabled = item
-				}
-				if item, ok := value["archive_enabled"].(bool); ok {
-					limits.Archive = item
-				}
-				if item := int(number(value["max_messages"])); item >= 50 && item <= 100000 {
-					limits.MaxMessages = item
-				}
-				if item := int(number(value["max_bytes"])); item >= 1048576 && item <= 1073741824 {
-					limits.MaxBytes = item
-				}
-				if item := int(number(value["retention_days"])); item >= 1 && item <= 3650 {
-					limits.RetentionDays = item
-				}
-			}
-		}
-	}
+	store.accountRuleLimits(scope, &limits)
 	return scope, limits, nil
 }
 

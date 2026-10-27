@@ -258,6 +258,51 @@ type ILinkUpdates struct {
 	Peers    []string
 }
 
+func ilinkContent(item map[string]any) string {
+	parts, _ := item["item_list"].([]any)
+	texts := []string{}
+	for _, part := range parts {
+		partValue, _ := part.(map[string]any)
+		if textItem, ok := partValue["text_item"].(map[string]any); ok {
+			texts = append(texts, text(textItem["text"]))
+		} else {
+			texts = append(texts, "[未读取的媒体消息]")
+		}
+	}
+	runes := []rune(strings.Join(texts, "\n"))
+	if len(runes) > 50000 {
+		runes = runes[:50000]
+	}
+	return string(runes)
+}
+
+func ilinkInbound(row any, selected, account string) (string, *Message, string, error) {
+	item, _ := row.(map[string]any)
+	from := text(item["from_user_id"])
+	to := text(item["to_user_id"])
+	if from == "" || to == "" {
+		return "", nil, "", nil
+	}
+	peer := from
+	if from == account {
+		peer = to
+	}
+	if peer != selected {
+		return peer, nil, "", nil
+	}
+	token := text(item["context_token"])
+	mid := text(item["message_id"])
+	if mid == "" || len([]rune(mid)) > 200 {
+		return "", nil, "", fmt.Errorf("微信Bot消息编号无效")
+	}
+	ts := number(item["create_time_ms"]) / 1000
+	if ts < 0 {
+		return "", nil, "", fmt.Errorf("微信Bot消息时间无效")
+	}
+	message := Message{MID: mid, TS: ts, Sender: from, Text: ilinkContent(item), Kind: "text"}
+	return peer, &message, token, nil
+}
+
 func (session *ILinkSession) Receive(ctx context.Context, selected, account string) (ILinkUpdates, error) {
 	if session.Token == "" || session.Account != account {
 		return ILinkUpdates{}, fmt.Errorf("微信Bot消息账号不符")
@@ -280,47 +325,20 @@ func (session *ILinkSession) Receive(ctx context.Context, selected, account stri
 	messages := []Message{}
 	peers := []string{}
 	for _, row := range rows {
-		item, _ := row.(map[string]any)
-		from := text(item["from_user_id"])
-		to := text(item["to_user_id"])
-		peer := from
-		if from == account {
-			peer = to
+		peer, message, token, err := ilinkInbound(row, selected, account)
+		if err != nil {
+			return ILinkUpdates{}, err
 		}
-		if from == "" || to == "" {
+		if peer == "" {
 			continue
 		}
 		peers = append(peers, peer)
-		if peer != selected {
-			continue
-		}
-		if token := text(item["context_token"]); token != "" {
+		if token != "" {
 			contexts[peer] = token
 		}
-		mid := text(item["message_id"])
-		if mid == "" || len([]rune(mid)) > 200 {
-			return ILinkUpdates{}, fmt.Errorf("微信Bot消息编号无效")
+		if message != nil {
+			messages = append(messages, *message)
 		}
-		ts := number(item["create_time_ms"]) / 1000
-		if ts < 0 {
-			return ILinkUpdates{}, fmt.Errorf("微信Bot消息时间无效")
-		}
-		parts, _ := item["item_list"].([]any)
-		texts := []string{}
-		for _, part := range parts {
-			partValue, _ := part.(map[string]any)
-			if textItem, ok := partValue["text_item"].(map[string]any); ok {
-				texts = append(texts, text(textItem["text"]))
-			} else {
-				texts = append(texts, "[未读取的媒体消息]")
-			}
-		}
-		content := strings.Join(texts, "\n")
-		runes := []rune(content)
-		if len(runes) > 50000 {
-			runes = runes[:50000]
-		}
-		messages = append(messages, Message{MID: mid, TS: ts, Sender: from, Text: string(runes), Kind: "text"})
 	}
 	if next := text(value["get_updates_buf"]); next != "" {
 		session.Cursor = next

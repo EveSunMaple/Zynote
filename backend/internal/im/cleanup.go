@@ -15,62 +15,55 @@ type CleanupPreview struct {
 	Done      bool    `json:"done"`
 }
 
-func (service *Service) Cleanup(input map[string]any) (any, error) {
-	scope, _, err := service.Store.CheckScope(input)
+func (service *Service) cleanupPreview(scope Scope) (any, error) {
+	protected, err := service.cleanupProtected(scope)
 	if err != nil {
 		return nil, err
 	}
-	if _, err := service.Store.db.Exec("CREATE TABLE IF NOT EXISTS native_im_cleanup(id TEXT PRIMARY KEY,json TEXT NOT NULL)"); err != nil {
-		return nil, err
-	}
-	previewID := text(input["preview_id"])
-	confirmed, _ := input["user_confirmed"].(bool)
-	if previewID == "" {
-		protected, err := service.cleanupProtected(scope)
+	rows := []Message{}
+	reason := "只清理本软件保存的所选会话文字记录。"
+	if protected {
+		reason = "未完成回复待办或未确认发送仍需这些消息，当前保留。"
+	} else {
+		rows, err = service.cleanupRows(scope)
 		if err != nil {
 			return nil, err
 		}
-		rows := []Message{}
-		reason := "只清理本软件保存的所选会话文字记录。"
-		if protected {
-			reason = "未完成回复待办或未确认发送仍需这些消息，当前保留。"
-		} else {
-			rows, err = service.cleanupRows(scope)
-			if err != nil {
-				return nil, err
-			}
-		}
-		bytes := 0
-		for _, row := range rows {
-			bytes += len([]byte(row.Text))
-		}
-		preview := CleanupPreview{Scope: scope, Hash: hashValue(rows), Count: len(rows), Bytes: bytes, CreatedAt: float64(time.Now().UnixMilli())}
-		id := newID()
-		encoded, _ := json.Marshal(preview)
-		if _, err := service.Store.db.Exec("INSERT INTO native_im_cleanup VALUES(?,?)", id, string(encoded)); err != nil {
-			return nil, err
-		}
-		return map[string]any{"preview_id": id, "count": preview.Count, "images": 0, "bytes": preview.Bytes, "reason": reason}, nil
 	}
+	bytes := 0
+	for _, row := range rows {
+		bytes += len([]byte(row.Text))
+	}
+	preview := CleanupPreview{Scope: scope, Hash: hashValue(rows), Count: len(rows), Bytes: bytes, CreatedAt: float64(time.Now().UnixMilli())}
+	id := newID()
+	encoded, _ := json.Marshal(preview)
+	if _, err := service.Store.db.Exec("INSERT INTO native_im_cleanup VALUES(?,?)", id, string(encoded)); err != nil {
+		return nil, err
+	}
+	return map[string]any{"preview_id": id, "count": preview.Count, "images": 0, "bytes": preview.Bytes, "reason": reason}, nil
+}
+
+func (service *Service) validateCleanupPreview(scope Scope, previewID string, confirmed bool) (CleanupPreview, error) {
+	preview := CleanupPreview{}
 	if !idPattern.MatchString(previewID) || !confirmed {
-		return nil, fmt.Errorf("请先确认清理预览")
+		return preview, fmt.Errorf("请先确认清理预览")
 	}
 	var raw string
 	if err := service.Store.db.QueryRow("SELECT json FROM native_im_cleanup WHERE id=?", previewID).Scan(&raw); err != nil {
-		return nil, fmt.Errorf("清理预览不存在")
+		return preview, fmt.Errorf("清理预览不存在")
 	}
-	preview := CleanupPreview{}
 	if json.Unmarshal([]byte(raw), &preview) != nil {
-		return nil, fmt.Errorf("清理预览无效")
+		return preview, fmt.Errorf("清理预览无效")
 	}
 	encodedScope, _ := json.Marshal(preview.Scope)
 	currentScope, _ := json.Marshal(scope)
 	if string(encodedScope) != string(currentScope) {
-		return nil, fmt.Errorf("清理预览不属于当前账号和会话")
+		return preview, fmt.Errorf("清理预览不属于当前账号和会话")
 	}
-	if preview.Done {
-		return map[string]any{"deleted": preview.Count, "replayed": true}, nil
-	}
+	return preview, nil
+}
+
+func (service *Service) deleteCleanupRows(scope Scope, previewID string, preview CleanupPreview) (any, error) {
 	if time.Now().UnixMilli()-int64(preview.CreatedAt) > 10*60*1000 {
 		return nil, fmt.Errorf("清理预览已过期或出现待办，请重新检查")
 	}
@@ -113,6 +106,29 @@ func (service *Service) Cleanup(input map[string]any) (any, error) {
 	return map[string]any{"deleted": preview.Count, "replayed": false}, nil
 }
 
+func (service *Service) Cleanup(input map[string]any) (any, error) {
+	scope, _, err := service.Store.CheckScope(input)
+	if err != nil {
+		return nil, err
+	}
+	if _, err := service.Store.db.Exec("CREATE TABLE IF NOT EXISTS native_im_cleanup(id TEXT PRIMARY KEY,json TEXT NOT NULL)"); err != nil {
+		return nil, err
+	}
+	previewID := text(input["preview_id"])
+	if previewID == "" {
+		return service.cleanupPreview(scope)
+	}
+	confirmed, _ := input["user_confirmed"].(bool)
+	preview, err := service.validateCleanupPreview(scope, previewID, confirmed)
+	if err != nil {
+		return nil, err
+	}
+	if preview.Done {
+		return map[string]any{"deleted": preview.Count, "replayed": true}, nil
+	}
+	return service.deleteCleanupRows(scope, previewID, preview)
+}
+
 func (service *Service) cleanupRows(scope Scope) ([]Message, error) {
 	rows, err := service.Store.db.Query("SELECT mid,ts,sender,text,kind FROM messages WHERE platform=? AND account=? AND login_epoch=? AND peer=? ORDER BY mid LIMIT 10001",
 		scope.Platform, scope.Account, scope.LoginEpoch, scope.Peer)
@@ -134,7 +150,7 @@ func (service *Service) cleanupRows(scope Scope) ([]Message, error) {
 	return result, rows.Err()
 }
 
-func (service *Service) cleanupProtected(scope Scope) (bool, error) {
+func (service *Service) pendingSendScope(scope Scope) (bool, error) {
 	rows, err := service.Store.db.Query("SELECT scope FROM send_operations WHERE state NOT IN ('sent','completed','failed_before_request')")
 	if err != nil {
 		return false, err
@@ -153,31 +169,45 @@ func (service *Service) cleanupProtected(scope Scope) (bool, error) {
 			return true, nil
 		}
 	}
+	return false, nil
+}
+
+func (service *Service) pendingJobScope(scope Scope) (bool, error) {
 	var exists int
 	_ = service.Store.db.QueryRow("SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='native_im_state'").Scan(&exists)
-	if exists > 0 {
-		rows, err := service.Store.db.Query("SELECT json FROM native_im_state WHERE kind='job'")
-		if err != nil {
+	if exists == 0 {
+		return false, nil
+	}
+	rows, err := service.Store.db.Query("SELECT json FROM native_im_state WHERE kind='job'")
+	if err != nil {
+		return false, err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var raw string
+		if err := rows.Scan(&raw); err != nil {
 			return false, err
 		}
-		defer rows.Close()
-		for rows.Next() {
-			var raw string
-			if err := rows.Scan(&raw); err != nil {
-				return false, err
-			}
-			var value map[string]any
-			if json.Unmarshal([]byte(raw), &value) != nil {
-				return true, nil
-			}
-			if text(value["state"]) != "completed" {
-				encoded, _ := json.Marshal(value["scope"])
-				var jobScope Scope
-				if json.Unmarshal(encoded, &jobScope) == nil && jobScope == scope {
-					return true, nil
-				}
-			}
+		var value map[string]any
+		if json.Unmarshal([]byte(raw), &value) != nil {
+			return true, nil
+		}
+		if text(value["state"]) == "completed" {
+			continue
+		}
+		encoded, _ := json.Marshal(value["scope"])
+		var jobScope Scope
+		if json.Unmarshal(encoded, &jobScope) == nil && jobScope == scope {
+			return true, nil
 		}
 	}
 	return false, nil
+}
+
+func (service *Service) cleanupProtected(scope Scope) (bool, error) {
+	protected, err := service.pendingSendScope(scope)
+	if err != nil || protected {
+		return protected, err
+	}
+	return service.pendingJobScope(scope)
 }

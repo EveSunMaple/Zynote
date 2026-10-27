@@ -133,45 +133,63 @@ func (session *QqSession) Identity(ctx context.Context) (string, error) {
 	return account, nil
 }
 
-func (session *QqSession) Directory(ctx context.Context) (map[string]any, error) {
+func qqDirectoryPeer(row any, group bool) (map[string]any, error) {
+	value, _ := row.(map[string]any)
+	idKey, nameKey := "user_id", "nickname"
+	if group {
+		idKey, nameKey = "group_id", "group_name"
+	}
+	id, err := qqAccount(value[idKey])
+	if err != nil {
+		return nil, err
+	}
+	label := text(value[nameKey])
+	if label == "" {
+		label = id
+	}
+	labelRunes := []rune(label)
+	if len(labelRunes) > 200 {
+		labelRunes = labelRunes[:200]
+	}
+	prefix := "private:"
+	if group {
+		prefix = "group:"
+	}
+	return map[string]any{"peer": prefix + id, "name": string(labelRunes)}, nil
+}
+
+func (session *QqSession) directoryPage(ctx context.Context, group bool) ([]map[string]any, error) {
+	name := "get_friend_list"
+	if group {
+		name = "get_group_list"
+	}
+	raw, err := session.action(ctx, name, map[string]any{})
+	if err != nil {
+		return nil, err
+	}
+	rows, _ := raw.([]any)
+	if len(rows) > 5000 {
+		return nil, fmt.Errorf("QQ 联系人数量超过上限")
+	}
 	peers := []map[string]any{}
-	for _, group := range []bool{false, true} {
-		name := "get_friend_list"
-		if group {
-			name = "get_group_list"
-		}
-		raw, err := session.action(ctx, name, map[string]any{})
+	for _, row := range rows {
+		peer, err := qqDirectoryPeer(row, group)
 		if err != nil {
 			return nil, err
 		}
-		rows, _ := raw.([]any)
-		if len(rows) > 5000 {
-			return nil, fmt.Errorf("QQ 联系人数量超过上限")
+		peers = append(peers, peer)
+	}
+	return peers, nil
+}
+
+func (session *QqSession) Directory(ctx context.Context) (map[string]any, error) {
+	peers := []map[string]any{}
+	for _, group := range []bool{false, true} {
+		page, err := session.directoryPage(ctx, group)
+		if err != nil {
+			return nil, err
 		}
-		for _, row := range rows {
-			value, _ := row.(map[string]any)
-			idKey, nameKey := "user_id", "nickname"
-			if group {
-				idKey, nameKey = "group_id", "group_name"
-			}
-			id, err := qqAccount(value[idKey])
-			if err != nil {
-				return nil, err
-			}
-			label := text(value[nameKey])
-			if label == "" {
-				label = id
-			}
-			labelRunes := []rune(label)
-			if len(labelRunes) > 200 {
-				labelRunes = labelRunes[:200]
-			}
-			prefix := "private:"
-			if group {
-				prefix = "group:"
-			}
-			peers = append(peers, map[string]any{"peer": prefix + id, "name": string(labelRunes)})
-		}
+		peers = append(peers, page...)
 	}
 	return map[string]any{"peers": peers}, nil
 }
@@ -206,21 +224,63 @@ func qqMessageText(raw any) (string, error) {
 	return strings.Join(values, ""), nil
 }
 
+func qqHistoryRequest(group bool, peerID string) (string, map[string]any) {
+	body := map[string]any{"count": 50}
+	if group {
+		body["group_id"] = peerID
+		return "get_group_msg_history", body
+	}
+	body["user_id"] = peerID
+	return "get_friend_msg_history", body
+}
+
+func qqHistoryMessage(row any, group bool, account, peerID string) (Message, error) {
+	item, _ := row.(map[string]any)
+	if self, ok := item["self_id"]; ok && self != nil {
+		parsed, err := qqAccount(self)
+		if err != nil || parsed != account {
+			return Message{}, fmt.Errorf("QQ 历史回包账号或所选会话不一致，未保存")
+		}
+	}
+	key := "user_id"
+	if group {
+		key = "group_id"
+	}
+	if value, ok := item[key]; ok && value != nil {
+		parsed, err := qqAccount(value)
+		if err != nil || parsed != peerID {
+			return Message{}, fmt.Errorf("QQ 历史回包账号或所选会话不一致，未保存")
+		}
+	}
+	textValue, err := qqMessageText(item["message"])
+	if err != nil {
+		return Message{}, err
+	}
+	mid, err := messageID(item["message_id"])
+	if err != nil {
+		return Message{}, fmt.Errorf("QQ 消息编号无效")
+	}
+	ts := number(item["time"])
+	if ts < 0 {
+		return Message{}, fmt.Errorf("QQ 消息时间无效")
+	}
+	sender := ""
+	if value, ok := item["sender"].(map[string]any); ok {
+		sender = text(value["user_id"])
+	}
+	textRunes := []rune(textValue)
+	if len(textRunes) > 50000 {
+		textRunes = textRunes[:50000]
+	}
+	return Message{MID: mid, TS: ts, Sender: sender, Text: string(textRunes), Kind: "text"}, nil
+}
+
 func (session *QqSession) Receive(ctx context.Context, selected, account string) ([]Message, error) {
 	group, peerID, err := qqPeer(selected)
 	if err != nil {
 		return nil, err
 	}
-	body := map[string]any{"count": 50}
-	if group {
-		body["group_id"] = peerID
-	} else {
-		body["user_id"] = peerID
-	}
-	action := "get_friend_msg_history"
-	if group {
-		action = "get_group_msg_history"
-	}
+	action, body := qqHistoryRequest(group, peerID)
 	raw, err := session.action(ctx, action, body)
 	if err != nil {
 		return nil, err
@@ -232,44 +292,11 @@ func (session *QqSession) Receive(ctx context.Context, selected, account string)
 	}
 	messages := []Message{}
 	for _, row := range rows {
-		item, _ := row.(map[string]any)
-		if self, ok := item["self_id"]; ok && self != nil {
-			parsed, err := qqAccount(self)
-			if err != nil || parsed != account {
-				return nil, fmt.Errorf("QQ 历史回包账号或所选会话不一致，未保存")
-			}
-		}
-		key := "user_id"
-		if group {
-			key = "group_id"
-		}
-		if value, ok := item[key]; ok && value != nil {
-			parsed, err := qqAccount(value)
-			if err != nil || parsed != peerID {
-				return nil, fmt.Errorf("QQ 历史回包账号或所选会话不一致，未保存")
-			}
-		}
-		textValue, err := qqMessageText(item["message"])
+		message, err := qqHistoryMessage(row, group, account, peerID)
 		if err != nil {
 			return nil, err
 		}
-		mid, err := messageID(item["message_id"])
-		if err != nil {
-			return nil, fmt.Errorf("QQ 消息编号无效")
-		}
-		ts := number(item["time"])
-		if ts < 0 {
-			return nil, fmt.Errorf("QQ 消息时间无效")
-		}
-		sender := ""
-		if value, ok := item["sender"].(map[string]any); ok {
-			sender = text(value["user_id"])
-		}
-		textRunes := []rune(textValue)
-		if len(textRunes) > 50000 {
-			textRunes = textRunes[:50000]
-		}
-		messages = append(messages, Message{MID: mid, TS: ts, Sender: sender, Text: string(textRunes), Kind: "text"})
+		messages = append(messages, message)
 	}
 	return messages, nil
 }
