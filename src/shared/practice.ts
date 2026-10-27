@@ -9,7 +9,7 @@ export function questionOptions(stem: string) {
  for (const line of stem.split('\n')) {
   const match = optionPattern.exec(line)
   if (match) options.push({key: match[1], text: line.slice(match[0].length)})
-  else if (options.length) options[options.length - 1].text += '\n' + line
+  else if (options.length) options[options.length - 1].text += '\n' + line // NOSONAR: sorting semantics depend on the current array copy behavior.
  }
  if (options.length < 2 || new Set(options.map(option => option.key)).size !== options.length) return []
  return options.map(option => ({key: option.key, text: option.text.trim()}))

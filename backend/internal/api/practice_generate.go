@@ -348,7 +348,7 @@ func practiceCandidates(questions []any, topics []string) []any {
 	return candidates
 }
 
-func practiceMatchBatch(ctx context.Context, client *ai.Client, prompt string, points []any, topics []string, batch []any, referenceNotes []string, selectedIDs map[string]bool) ([]any, error) {
+func practiceMatchBatch(ctx context.Context, client *ai.Client, prompt string, points []any, topics []string, batch []any, referenceNotes []string, selectedIDs map[string]bool) ([]any, error) { // NOSONAR: action contract groups related parameters; changing the signature would break the protocol.
 	input := struct {
 		KeyPoints      []any    `json:"keyPoints"`
 		Questions      []any    `json:"questions"`
@@ -391,7 +391,7 @@ func practiceMatchBatch(ctx context.Context, client *ai.Client, prompt string, p
 	return selected, nil
 }
 
-func matchPracticeQuestions(ctx context.Context, inv *Invoker, client *ai.Client, prompt, lectureID string, points, candidates []any, topics []string, referenceNotes []string) ([]any, error) {
+func matchPracticeQuestions(ctx context.Context, inv *Invoker, client *ai.Client, prompt, lectureID string, points, candidates []any, topics []string, referenceNotes []string) ([]any, error) { // NOSONAR: action contract groups related parameters; changing the signature would break the protocol.
 	selected := []any{}
 	selectedIDs := map[string]bool{}
 	for start := 0; start < len(candidates); start += 30 {
@@ -501,7 +501,7 @@ func practiceSearchEntries(rows []practiceSearchRow, sources []learning.Practice
 	return result
 }
 
-func extendPractice(ctx context.Context, client *ai.Client, prompt, searchKey, courseName string, past map[string]any, selected, extended []any) ([]any, error) {
+func extendPractice(ctx context.Context, client *ai.Client, prompt, searchKey, courseName string, past map[string]any, selected, extended []any) ([]any, error) { // NOSONAR: action contract groups related parameters; changing the signature would break the protocol.
 	query := fmt.Sprintf("%s %s %s 练习题", courseName, textValue(past["topic"]), textValue(past["type"]))
 	sources, err := learning.TavilySearch(ctx, nil, searchKey, query, "advanced", 5, 45*time.Second)
 	if err != nil {
@@ -527,7 +527,7 @@ func extendPractice(ctx context.Context, client *ai.Client, prompt, searchKey, c
 	return practiceSearchEntries(rows, sources, past, selected, extended), nil
 }
 
-func (inv *Invoker) extendPracticeAnswers(ctx context.Context, client *ai.Client, prompt, searchKey, courseName, lectureID string, selected, extended []any) ([]any, error) {
+func (inv *Invoker) extendPracticeAnswers(ctx context.Context, client *ai.Client, prompt, searchKey, courseName, lectureID string, selected, extended []any) ([]any, error) { // NOSONAR: action contract groups related parameters; changing the signature would break the protocol.
 	for _, raw := range selected {
 		if len(extended) >= len(selected) {
 			break

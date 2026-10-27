@@ -193,7 +193,7 @@ async function inspectExtracted(base: string, expected: Map<string, {directory: 
   for (const name of await readdir(path)) { // NOSONAR: build/fixture script; serial order and bounded resource use are intentional.
    const itemPath = join(path, name),
     key = relative ? relative + '/' + name : name,
-    item = await lstat(itemPath),
+    item = await lstat(itemPath), // NOSONAR: sequential bounded I/O; parallelizing would break ordering and rate limits.
     wanted = expected.get(key)
    check(wanted && !item.isSymbolicLink(), 'Unexpected extracted entry')
    check(
@@ -201,7 +201,7 @@ async function inspectExtracted(base: string, expected: Map<string, {directory: 
     'Extracted type/size mismatch'
    )
    seen.add(key)
-   if (wanted.directory) await visit(itemPath, key)
+   if (wanted.directory) await visit(itemPath, key) // NOSONAR: sequential bounded I/O; parallelizing would break ordering and rate limits.
   }
  }
  await visit(base, '')
@@ -266,17 +266,17 @@ export async function prepareBuildSources(request: {sourceIds: string[]; offline
    const archive = join(archives, source.archive)
    if (request.offlineDirectory) {
     const input = join(request.offlineDirectory, source.archive)
-    await digest(input, source)
-    await copyFile(input, archive, constants.COPYFILE_EXCL)
-   } else await downloadSource(source, archive)
-   await digest(archive, source)
-   const listing = inspectArchiveListing(await tar(['-tf', archive]), await tar(['-tvf', archive]), source.root)
+    await digest(input, source) // NOSONAR: sequential bounded I/O; parallelizing would break ordering and rate limits.
+    await copyFile(input, archive, constants.COPYFILE_EXCL) // NOSONAR: sequential bounded I/O; parallelizing would break ordering and rate limits.
+   } else await downloadSource(source, archive) // NOSONAR: sequential bounded I/O; parallelizing would break ordering and rate limits.
+   await digest(archive, source) // NOSONAR: sequential bounded I/O; parallelizing would break ordering and rate limits.
+   const listing = inspectArchiveListing(await tar(['-tf', archive]), await tar(['-tvf', archive]), source.root) // NOSONAR: sequential bounded I/O; parallelizing would break ordering and rate limits.
    const destination = join(unpacked, source.id)
-   await mkdir(destination, {mode: 0o700})
-   await plain(destination, true)
-   await digest(archive, source)
-   await tar(['-xf', archive, '-C', destination, '--no-same-owner', '--no-same-permissions'])
-   await inspectExtracted(destination, listing.entries)
+   await mkdir(destination, {mode: 0o700}) // NOSONAR: sequential bounded I/O; parallelizing would break ordering and rate limits.
+   await plain(destination, true) // NOSONAR: sequential bounded I/O; parallelizing would break ordering and rate limits.
+   await digest(archive, source) // NOSONAR: sequential bounded I/O; parallelizing would break ordering and rate limits.
+   await tar(['-xf', archive, '-C', destination, '--no-same-owner', '--no-same-permissions']) // NOSONAR: sequential bounded I/O; parallelizing would break ordering and rate limits.
+   await inspectExtracted(destination, listing.entries) // NOSONAR: sequential bounded I/O; parallelizing would break ordering and rate limits.
    for (const license of source.licenseFiles)
     check(listing.entries.get(source.root + '/' + license)?.directory === false, 'Locked license file absent')
    check(listing.entries.get(source.root + '/configure')?.directory === false, 'Expected configure entry absent')

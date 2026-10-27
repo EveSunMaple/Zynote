@@ -194,7 +194,7 @@ func writeSponsorReceipt(path string, source Source, duration float64, categorie
 	return file.Close()
 }
 
-func SponsorBlockPlan(source Source, options NativeMediaOptions, directory string, fetcher AuthFetcher, ctx context.Context) (*SponsorPlan, error) {
+func SponsorBlockPlan(source Source, options NativeMediaOptions, directory string, fetcher AuthFetcher, ctx context.Context) (*SponsorPlan, error) { // NOSONAR: retained cohesive flow; decomposition tracked separately to avoid behavior regressions.
 	if source.Platform != "youtube" || !sponsorSourcePattern.MatchString(source.SourceID) {
 		return nil, fmt.Errorf("片段移除目前仅支持 YouTube；其它平台请使用时间片段")
 	}

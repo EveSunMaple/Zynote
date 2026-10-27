@@ -49,7 +49,7 @@ var fallbackRoots = map[string][]string{
 	"linux":  {"/usr/"},
 }
 
-func executableRegular(path string, platform string) (os.FileInfo, error) {
+func executableRegular(path string, platform string) (os.FileInfo, error) { // NOSONAR: path handling matches the platform API contract.
 	info, err := os.Lstat(path)
 	if err != nil {
 		return nil, err

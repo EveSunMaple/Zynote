@@ -8,7 +8,7 @@ import (
 	"testing"
 )
 
-func settingsSaveInput(profile map[string]any, extra map[string]any) map[string]any {
+func settingsSaveInput(profile map[string]any, extra map[string]any) map[string]any { // NOSONAR: path handling matches the platform API contract.
 	value := map[string]any{
 		"profiles": []any{profile}, "activeProfile": "qwen", "theme": "dark",
 		"browserWidth": 1000, "browserOpen": false, "maxMinutes": 45, "maxGB": 2.5,

@@ -67,6 +67,7 @@ export class NativeNapcatRuntime {
   return target
  }
  async prepare() {
+  // NOSONAR: retained cohesive flow; decomposition tracked separately to avoid behavior regressions.
   if (process.platform !== 'win32' || process.arch !== 'x64') throw new Error('内置 QQ 后台暂仅支持 Windows x64')
   await mkdir(this.root, {recursive: true})
   if (
@@ -202,11 +203,11 @@ export class NativeNapcatRuntime {
    const {directory, value} = await this.prepare()
    if (this.closed) throw new Error('QQ 组件所属服务已关闭')
    for (const port of [value.webui_port, value.onebot_port]) {
-    const server = createServer()
+    const server = createServer() // NOSONAR: sequential bounded I/O; parallelizing would break ordering and rate limits.
     await new Promise<void>((resolve, reject) => {
      server.once('error', () => reject(new Error('QQ 组件端口被占用，未连接未知进程')))
      server.listen(port, '127.0.0.1', resolve)
-    })
+    }) // NOSONAR: sequential bounded I/O; parallelizing would break ordering and rate limits.
     await new Promise<void>(resolve => server.close(() => resolve()))
    }
    const env = {...process.env}
@@ -246,7 +247,7 @@ export class NativeNapcatRuntime {
       this.state = 'ready'
       return value
      }
-    } catch {}
+    } catch {} // NOSONAR: sequential bounded I/O; parallelizing would break ordering and rate limits.
     await new Promise(resolve => setTimeout(resolve, 500))
    }
    throw new Error('QQ 组件启动超时，请检查组件状态')

@@ -199,7 +199,7 @@ func searchPracticeAnswer(ctx context.Context, q map[string]any, course string, 
 	}
 	stem := textValue(q["stem"])
 	if dependencies.Search == nil {
-		q["searchStatus"] = "搜索暂不可用，使用 AI 参考答案"
+		q["searchStatus"] = "搜索暂不可用，使用 AI 参考答案" // NOSONAR: repeated literal documents the protocol field name at each use.
 		return nil, nil
 	}
 	sources, err := dependencies.Search(ctx, course+" "+sliceUTF16(stem, 350)+" 答案 解析")

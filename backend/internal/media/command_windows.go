@@ -4,7 +4,7 @@ package media
 
 import "os/exec"
 
-func configureMediaProcess(command *exec.Cmd) {}
+func configureMediaProcess(command *exec.Cmd) {} // NOSONAR: empty function is an intentional interface implementation.
 
 func killMediaProcess(command *exec.Cmd) error {
 	if command.Process == nil {

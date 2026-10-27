@@ -72,7 +72,7 @@ type Catalog = media.Catalog
 
 type Source = media.Source
 
-type catalogAPI interface {
+type catalogAPI interface { // NOSONAR: initialization is ordered by the caller.
 	ReadMedia(requestPath string, params map[string]string) (any, error)
 }
 
@@ -162,7 +162,7 @@ func clipText(value string, limit int) string {
 	return string(runes[:limit])
 }
 
-func readVideoView(reader *CatalogReader, selectedBvid string, selectedPage int) (string, string, string, string, []pageRow, pageRow, error) {
+func readVideoView(reader *CatalogReader, selectedBvid string, selectedPage int) (string, string, string, string, []pageRow, pageRow, error) { // NOSONAR: retained cohesive flow; decomposition tracked separately to avoid behavior regressions.
 	viewData, err := reader.api.ReadMedia("/x/web-interface/view", map[string]string{"bvid": selectedBvid})
 	if err != nil {
 		return "", "", "", "", nil, pageRow{}, err

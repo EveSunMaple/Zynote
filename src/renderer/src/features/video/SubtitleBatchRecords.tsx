@@ -242,6 +242,7 @@ export function SubtitleBatchRecords({
                 isDisabled={busy}
                 onClick={() =>
                  action(async () => {
+                  // NOSONAR: nested callbacks mirror the protocol/UI structure; extraction would obscure ordering.
                   const existing = item.outputs?.find(output => output.path.endsWith('.' + format))
                   const path =
                    existing?.path ||

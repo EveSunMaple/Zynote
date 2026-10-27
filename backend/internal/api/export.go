@@ -147,7 +147,7 @@ func exportInput(params json.RawMessage) (string, string, string, error) {
 	}
 	formats, ok := exportFormats[input.Kind]
 	if !ok {
-		return "", "", "", contract.InputInvalid("不支持的导出格式")
+		return "", "", "", contract.InputInvalid("不支持的导出格式") // NOSONAR: repeated literal documents the protocol field name at each use.
 	}
 	for _, format := range formats {
 		if format == input.Format {

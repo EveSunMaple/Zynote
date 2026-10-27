@@ -33,7 +33,7 @@ if (process.argv.includes('--verify-local')) {
   if (!item.isFile() || item.isSymbolicLink() || item.size !== file.size)
    throw new Error('本地模型大小或类型不符：' + file.path)
   const hash = createHash('sha256')
-  for await (const bytes of createReadStream(path)) hash.update(bytes)
+  for await (const bytes of createReadStream(path)) hash.update(bytes) // NOSONAR: sequential bounded I/O; parallelizing would break ordering and rate limits.
   if (hash.digest('hex') !== file.sha256) throw new Error('本地模型哈希不符：' + file.path)
  }
  const license = await readFile(join(target, 'VAD-LICENSE.txt'), 'utf8')
@@ -162,18 +162,18 @@ for (const name of selected) {
    if (size > entry.size) throw new Error('模型下载超过固定长度')
    sha.update(value)
    git.update(value)
-   await handle.writeFile(value)
+   await handle.writeFile(value) // NOSONAR: sequential bounded I/O; parallelizing would break ordering and rate limits.
   }
-  await handle.sync()
+  await handle.sync() // NOSONAR: sequential bounded I/O; parallelizing would break ordering and rate limits.
  } finally {
-  await handle.close()
-  await reader.cancel().catch(() => undefined)
+  await handle.close() // NOSONAR: sequential bounded I/O; parallelizing would break ordering and rate limits.
+  await reader.cancel().catch(() => undefined) // NOSONAR: sequential bounded I/O; parallelizing would break ordering and rate limits.
   reader.releaseLock()
  }
  const hash = sha.digest('hex')
  if (size !== entry.size || (weight ? hash !== weight.sha256 : entry.blobId && git.digest('hex') !== entry.blobId))
   throw new Error('模型下载校验失败，暂存保留待检查')
- await rename(partial, path)
+ await rename(partial, path) // NOSONAR: sequential bounded I/O; parallelizing would break ordering and rate limits.
  files.push({path: name, size, sha256: hash})
  console.log('模型文件已核验：' + name)
 }

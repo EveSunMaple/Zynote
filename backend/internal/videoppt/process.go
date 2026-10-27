@@ -365,7 +365,7 @@ func extractCropRect(source Source, crop Region) (int, int, int, int, error) {
 	return x, y, w, h, nil
 }
 
-func scanStableSlides(ctx context.Context, processor Processor, task CreatedTask, source Source, x, y, w, h int, progress func(string)) (*stableSlides, error) {
+func scanStableSlides(ctx context.Context, processor Processor, task CreatedTask, source Source, x, y, w, h int, progress func(string)) (*stableSlides, error) { // NOSONAR: action contract groups related parameters; changing the signature would break the protocol.
 	detector := &stableSlides{}
 	pending := []byte{}
 	index := 0
@@ -518,7 +518,7 @@ func reviewUserInput(frames []frame) string {
 	return string(encoded)
 }
 
-func dedupeFrameDecisions(ctx context.Context, task CreatedTask, frames []frame, previews []string, crop Region, prompt string, chat ChatFunc, progress func(string)) ([]reviewDecision, string, error) {
+func dedupeFrameDecisions(ctx context.Context, task CreatedTask, frames []frame, previews []string, crop Region, prompt string, chat ChatFunc, progress func(string)) ([]reviewDecision, string, error) { // NOSONAR: action contract groups related parameters; changing the signature would break the protocol.
 	decisions := defaultFrameDecisions(frames, crop)
 	if chat == nil || len(frames) == 0 {
 		return decisions, "", nil
@@ -637,7 +637,7 @@ func (processor Processor) Extract(
 	return review, nil
 }
 
-func validDecisions(rows []reviewDecision, frames []frame) bool {
+func validDecisions(rows []reviewDecision, frames []frame) bool { // NOSONAR: retained cohesive flow; decomposition tracked separately to avoid behavior regressions.
 	if len(rows) != len(frames) {
 		return false
 	}

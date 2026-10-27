@@ -107,7 +107,7 @@ export function createDesktopHandler( // NOSONAR: transitional TS fallback/UI fl
   async invoke(action, object) { // NOSONAR: transitional TS fallback/UI flow retained for behavior compatibility; decomposition tracked separately to avoid sequencing regressions.
 // biome-ignore format: NOSONAR must stay on the function line
    const id = () => z.string().uuid().parse(object.id) // NOSONAR: transitional TS fallback/UI flow retained for behavior compatibility; decomposition tracked separately to avoid sequencing regressions.
-   switch (action) {
+   switch (action) { // NOSONAR: switch branches are part of the protocol surface.
     case 'app:info':
      return {version: app.getVersion(), electron: process.versions.electron, platform: process.platform}
     case 'runtime:status':

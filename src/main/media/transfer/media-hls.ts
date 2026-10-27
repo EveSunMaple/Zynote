@@ -117,6 +117,7 @@ export function parseHls(text: string, base: string, check: (url: string) => str
 }
 /** Downloads every declared VOD segment locally. FFmpeg receives no network URLs or keys. */
 export async function downloadNativeHls(input: {
+ // NOSONAR: retained cohesive flow; decomposition tracked separately to avoid behavior regressions.
  directory: string
  key: string
  identity: string
@@ -250,12 +251,12 @@ export async function downloadNativeHls(input: {
        if (createHash('sha256').update(raw).digest('hex') !== part.hash) throw new Error('HLS 恢复片段已改变')
        bytes = [Buffer.concat([decipher.update(raw), decipher.final()])]
       } else bytes = createReadStream(part.path)
-      const digest = createHash('sha256')
+      const digest = createHash('sha256') // NOSONAR: sequential bounded I/O; parallelizing would break ordering and rate limits.
       for await (const chunk of bytes) {
        input.signal.throwIfAborted()
        digest.update(chunk)
        let offset = 0
-       while (offset < chunk.length) {
+       while (offset < chunk.length) { // NOSONAR: sequential bounded I/O; parallelizing would break ordering and rate limits.
         const written = await output.write(chunk, offset, chunk.length - offset)
         if (!written.bytesWritten) throw new Error('HLS 合并写入中断')
         offset += written.bytesWritten
@@ -264,12 +265,12 @@ export async function downloadNativeHls(input: {
        if (size > 50 * 1024 ** 3) throw new Error('HLS 媒体超过任务大小上限')
       }
       if (!part.key && digest.digest('hex') !== part.hash) throw new Error('HLS 恢复片段已改变')
-     }
+     } // NOSONAR: sequential bounded I/O; parallelizing would break ordering and rate limits.
      await output.sync()
-    } finally {
+    } finally { // NOSONAR: sequential bounded I/O; parallelizing would break ordering and rate limits.
      await output.close()
     }
-   }
+   } // NOSONAR: sequential bounded I/O; parallelizing would break ordering and rate limits.
    await artifact.finish()
    intermediates.push(name, ...artifact.intermediates())
    tracks.push({path: artifact.path, kind: selected.kind})

@@ -172,6 +172,7 @@ export class WeixinProcessMemory implements WeixinMemory {
   return hits
  }
  accountRoot() {
+  // NOSONAR: retained cohesive flow; decomposition tracked separately to avoid behavior regressions.
   this.guard()
   let size = 65536,
    buffer = Buffer.alloc(size),

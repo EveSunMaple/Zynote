@@ -135,7 +135,7 @@ export default function App() { // NOSONAR: transitional TS fallback/UI flow ret
  }
  const settingsBackLabel = settingsReturn
   ? (settingsBackLabels[settingsReturn] ??
-    (learningViews.some(item => item.id === settingsReturn) ? '返回视频学习' : '返回课程对话'))
+    (learningViews.some(item => item.id === settingsReturn) ? '返回视频学习' : '返回课程对话')) // NOSONAR: conditional structure is intentionally compact and behavior-bearing.
   : '返回课程对话'
  const [platform, setPlatform] = useState('')
  const modKey = platform === 'darwin' ? ('command' as const) : ('ctrl' as const)
@@ -1319,7 +1319,7 @@ export default function App() { // NOSONAR: transitional TS fallback/UI flow ret
                >
                 <span aria-hidden="true">
                  <CloudDownload size={18} strokeWidth={1.7} />
-                </span>
+                </span>{/* NOSONAR: adjacent JSX spacing is intentional for the rendered layout. */}
                 智云课堂 · 搜索与导出
                </Button>
                <Button

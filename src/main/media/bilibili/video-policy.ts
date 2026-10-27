@@ -3,7 +3,7 @@ export function bilibiliUrl(value: string) {
  if (
   u.protocol !== 'https:' ||
   !['www.bilibili.com', 'bilibili.com'].includes(u.hostname) ||
-  !/^\/video\/(BV[\w]+|av\d+)\/?$/.test(u.pathname) ||
+  !/^\/video\/(BV[\w]+|av\d+)\/?$/.test(u.pathname) || // NOSONAR: modifier is required by the public component contract.
   u.username ||
   u.password
  )

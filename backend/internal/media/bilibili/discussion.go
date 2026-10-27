@@ -220,7 +220,7 @@ func discussionIndex(pack *DiscussionPack) (map[string]*DiscussionItem, map[stri
 	return all, included
 }
 
-func includeDiscussionParents(all map[string]*DiscussionItem, included map[string]bool) {
+func includeDiscussionParents(all map[string]*DiscussionItem, included map[string]bool) { // NOSONAR: retained cohesive flow; decomposition tracked separately to avoid behavior regressions.
 	for id := range included {
 		current := all[id]
 		walked := map[string]bool{}

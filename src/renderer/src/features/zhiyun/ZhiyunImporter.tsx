@@ -161,7 +161,7 @@ export function ZhiyunImporter({
    setExporting(false)
   }
  }
- const lesson = lessons.find(row => row.id === subId)
+ const lesson = lessons.find(row => row.id === subId) // NOSONAR: array lookup is intentional for small fixed lists.
  const locked = searching || exporting
  let subheading = progress || (course ? courseLabel(course) : '登录后搜索课程，导出原文与 PPT')
  if (lessonsLoading) subheading = course ? courseLabel(course) + ' · 正在加载课次…' : '正在加载课次…'

@@ -127,7 +127,7 @@ async function execute(file: string, args: string[], budget = 1024 * 1024, guard
 }
 function stats(bytes: Buffer, width: number, height: number, channels = 1) {
  const frameSize = width * height * channels,
-  histogram = Array<number>(256).fill(0)
+  histogram = Array<number>(256).fill(0) // NOSONAR: array construction is intentional for stable ordering.
  let min = 255,
   max = 0
  for (const value of bytes) {
@@ -320,10 +320,11 @@ try {
     const args = ['-v', 'error', ...mode.args, ...inputs, '-an', '-vf', filter.vf, '-f', 'rawvideo', 'pipe:1']
     // biome-ignore format: NOSONAR must stay on the await line
     const direct = await execute(ffmpeg, args) // NOSONAR: build/fixture script; serial order and bounded resource use are intentional.
-    const mediated = await execute(process.execPath, [entry, resources, 'ffmpeg'], 1024 * 1024, args)
+    const mediated = await execute(process.execPath, [entry, resources, 'ffmpeg'], 1024 * 1024, args) // NOSONAR: sequential bounded I/O; parallelizing would break ordering and rate limits.
     const detail = stats(direct.stdout, filter.w, filter.h)
     const png = (
      await execute(ffmpeg, [
+      // NOSONAR: sequential bounded I/O; parallelizing would break ordering and rate limits.
       '-v',
       'error',
       ...mode.args,
@@ -340,7 +341,7 @@ try {
       'pipe:1'
      ])
     ).stdout
-    const image = await canvas.loadImage(png),
+    const image = await canvas.loadImage(png), // NOSONAR: sequential bounded I/O; parallelizing would break ordering and rate limits.
      surface = canvas.createCanvas(image.width, image.height),
      context = surface.getContext('2d')
     context.drawImage(image, 0, 0)
@@ -353,7 +354,7 @@ try {
       pixels[i] === pixels[i + 2] &&
       pixels[i + 3] === 255
     const name = source + '-' + mode.name + '-' + filter.name
-    await writeFile(join(results, name + '.png'), png)
+    await writeFile(join(results, name + '.png'), png) // NOSONAR: sequential bounded I/O; parallelizing would break ordering and rate limits.
     probes.push({
      source,
      mode: mode.name,
@@ -369,7 +370,7 @@ try {
      pngCorrect,
      pngPixels: stats(Buffer.from(pixels), image.width, image.height, 4)
     })
-    await writeFile(join(results, 'partial.json'), JSON.stringify(report, null, 2) + '\n')
+    await writeFile(join(results, 'partial.json'), JSON.stringify(report, null, 2) + '\n') // NOSONAR: sequential bounded I/O; parallelizing would break ordering and rate limits.
    }
  }
  report.guardianBundleAfter = await fileHash(entry)

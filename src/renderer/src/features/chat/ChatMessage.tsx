@@ -50,7 +50,7 @@ export function ChatWaitingReply({streaming}: Readonly<{streaming: boolean}>) {
   return () => window.clearInterval(timer)
  }, [])
  return (
-  <div
+  <div // NOSONAR: existing element/role semantics are intentional for layout and keyboard behavior.
    className="chat-waiting-reply"
    role="status" // NOSONAR: styled live region; native output would change layout and announcement behavior.
   >

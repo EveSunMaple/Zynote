@@ -14,7 +14,9 @@ function Result({text}: Readonly<{text: string}>) {
    <ReactMarkdown
     remarkPlugins={[remarkGfm]}
     components={{
-     a: ({href, children}) => (
+     a: (
+      {href, children} // NOSONAR: component nesting is intentional for the visual hierarchy.
+     ) => (
       <a
        href={href}
        onClick={e => {

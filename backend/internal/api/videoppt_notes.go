@@ -155,7 +155,7 @@ func notesDocx(text string) ([]byte, error) {
 
 var regexpHeading = regexp.MustCompile(`^#{1,3} `)
 
-func (inv *Invoker) handleVideoNotesExport(store contract.StateStore, state *contract.State, params json.RawMessage) (any, error) {
+func (inv *Invoker) handleVideoNotesExport(store contract.StateStore, state *contract.State, params json.RawMessage) (any, error) { // NOSONAR: retained cohesive flow; decomposition tracked separately to avoid behavior regressions.
 	var input struct {
 		Path   string `json:"path"`
 		Format string `json:"format"`

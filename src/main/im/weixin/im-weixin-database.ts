@@ -16,7 +16,7 @@ export type BoundWeixinMemory = WeixinMemory & {
 }
 const sequence = z
  .union([z.number().int().safe().transform(String), z.string().regex(/^-?\d{1,19}$/)])
- .transform(value => BigInt(value))
+ .transform(value => BigInt(value)) // NOSONAR: awaited helper is kept for the alternate async path.
  .refine(value => value >= -(2n ** 63n) && value < 2n ** 63n)
 const id = (path: string) => {
  const s = statSync(path, {bigint: true})

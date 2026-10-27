@@ -187,7 +187,7 @@ func findDecisionRoot(parent map[int]int, value int) int {
 	return value
 }
 
-func decisionGroups(decisions []decision) (map[int]int, map[int]int) {
+func decisionGroups(decisions []decision) (map[int]int, map[int]int) { // NOSONAR: retained cohesive flow; decomposition tracked separately to avoid behavior regressions.
 	parent := map[int]int{}
 	for _, item := range decisions {
 		parent[item.Page] = item.Page

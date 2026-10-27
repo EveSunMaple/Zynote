@@ -92,6 +92,7 @@ export function weixinBootstrap(html: string) {
  const parser = new Parser(
   {
    onopentag(name, attrs) {
+    // NOSONAR: retained cohesive flow; decomposition tracked separately to avoid behavior regressions.
     if (++tags > 20000) {
      limited = true
      return

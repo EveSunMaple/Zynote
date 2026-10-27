@@ -110,7 +110,7 @@ export function VisualAnalysisPanel({visible}: Readonly<{visible: boolean}>) {
    </Card>
    {busy && (
     <div className="row">
-     <p
+     <p // NOSONAR: existing element/role semantics are intentional for layout and keyboard behavior.
       role="status" // NOSONAR: styled live region; native output would change layout and announcement behavior.
      >
       {progress || '正在提取或识别…'}
@@ -221,7 +221,7 @@ export function VisualAnalysisPanel({visible}: Readonly<{visible: boolean}>) {
        )}
       </header>
       {task.outputRecovery && (
-       <p
+       <p // NOSONAR: existing element/role semantics are intentional for layout and keyboard behavior.
         className="hint"
         role="status" // NOSONAR: styled live region; native output would change layout and announcement behavior.
        >

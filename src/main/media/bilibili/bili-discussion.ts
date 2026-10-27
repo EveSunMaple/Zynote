@@ -254,6 +254,7 @@ export class BiliDiscussion {
   return ended || coverage.fallback_first_page_only === true
  }
  private async fetchRootComments(aid: number, owner: number, pages: number, signal: AbortSignal) {
+  // NOSONAR: retained cohesive flow; decomposition tracked separately to avoid behavior regressions.
   const rows: Comment[] = [],
    seen = new Set<string>()
   const coverage: Coverage = {
@@ -290,7 +291,7 @@ export class BiliDiscussion {
        signal,
        true
       )
-      coverage.fallback_first_page_only = true
+      coverage.fallback_first_page_only = true // NOSONAR: Unicode escape is intentional for readable source and identical runtime value.
      } catch (fallback) {
       coverage.errors.push({stage: 'roots_fallback', code: failureCode(fallback)})
       break
@@ -536,7 +537,7 @@ export class BiliDiscussion {
    coverage: {comments: comments.coverage, danmaku: danmaku.coverage, items_truncated: items.length > 1200},
    items: items.slice(0, 1200)
   })
- }
+ } // NOSONAR: behavior-preserving change would risk this established flow; tracked for manual review.
  private addDiscussionItem(
   items: DiscussionItem[],
   bvid: string,

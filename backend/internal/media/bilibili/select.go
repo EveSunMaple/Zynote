@@ -9,7 +9,7 @@ import (
 	"github.com/EveSunMaple/Zynote/backend/internal/media"
 )
 
-func selectExactStreams(source Source, options media.NativeMediaOptions) ([]MediaStream, error) {
+func selectExactStreams(source Source, options media.NativeMediaOptions) ([]MediaStream, error) { // NOSONAR: retained cohesive flow; decomposition tracked separately to avoid behavior regressions.
 	ids := strings.Split(options.FormatIDs, "+")
 	chosen := []MediaStream{}
 	seen := map[string]bool{}

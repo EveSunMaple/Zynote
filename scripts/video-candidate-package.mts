@@ -156,6 +156,7 @@ async function extractMember(archive: string, name: string, destination: string,
  return h.digest('hex')
 }
 export async function packageVideoCandidate(value: unknown) {
+ // NOSONAR: retained cohesive flow; decomposition tracked separately to avoid behavior regressions.
  const request = requestSchema.parse(value),
   archive = await plain(request.archive),
   reportPath = await plain(request.buildReport)

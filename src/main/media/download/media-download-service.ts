@@ -75,7 +75,7 @@ export class NativeDownloadService {
  private pump() {
   if (this.pumping || this.stopped) return
   const run = async () => {
-   while (this.queue.length && !this.stopped) await this.pumpOnce()
+   while (this.queue.length && !this.stopped) await this.pumpOnce() // NOSONAR: sequential bounded I/O; parallelizing would break ordering and rate limits.
   }
   this.pumping = run().finally(() => {
    this.pumping = undefined
@@ -93,6 +93,7 @@ export class NativeDownloadService {
   }
  }
  private async directAction(action: string, input: unknown): Promise<{handled: boolean; value?: unknown}> {
+  // NOSONAR: retained cohesive flow; decomposition tracked separately to avoid behavior regressions.
   if (action === 'options') return {handled: true, value: mediaOptionChoices()}
   if (action === 'auth-list') return {handled: true, value: await this.auth.list()}
   if (action === 'auth-save') return {handled: true, value: await this.auth.save(input)}

@@ -139,7 +139,7 @@ export function ImAutomation({
     生效。默认不运行；首次取得的历史消息建立基线，新消息才登记回复待办。关闭软件会暂停，重启后需要再次手动开启。
    </p>
    {!liveAvailable && (
-    <p
+    <p // NOSONAR: existing element/role semantics are intentional for layout and keyboard behavior.
      className="hint"
      role="status" // NOSONAR: styled live region; native output would change layout and announcement behavior.
     >

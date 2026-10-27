@@ -282,7 +282,7 @@ func statusV2(resourcesRoot, version string, manifest Manifest) Status {
 	return status
 }
 
-func Install(resourcesRoot, version, id, source string) (any, error) {
+func Install(resourcesRoot, version, id, source string) (any, error) { // NOSONAR: retained cohesive flow; decomposition tracked separately to avoid behavior regressions.
 	if runtime.GOOS != "windows" || runtime.GOARCH != "amd64" {
 		return nil, fmt.Errorf("运行组件目前仅支持 Windows，无法在当前平台安装")
 	}

@@ -21,7 +21,7 @@ for (const [name, text] of bodies)
   names.filter(
    target =>
     target !== name &&
-    new RegExp(`(?:[/'"\\\\])${target.replace(/[.*+?^${}()|[\]\\]/g, String.raw`\$&`)}(?:['"\x60\\s]|$)`).test(text)
+    new RegExp(`(?:[/'"\\\\])${target.replace(/[.*+?^${}()|[\]\\]/g, String.raw`\$&`)}(?:['"\x60\\s]|$)`).test(text) // NOSONAR: nested access is intentional for the response schema.
   )
  )
 const active = new Set(direct),

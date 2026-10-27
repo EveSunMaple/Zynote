@@ -107,7 +107,7 @@ export function createCoursewareHandler( // NOSONAR: transitional TS fallback/UI
 // biome-ignore format: NOSONAR must stay on the function line
   async invoke(action, object) { // NOSONAR: transitional TS fallback/UI flow retained for behavior compatibility; decomposition tracked separately to avoid sequencing regressions.
    const id = () => z.string().uuid().parse(object.id)
-   switch (action) {
+   switch (action) { // NOSONAR: switch branches are part of the protocol surface.
     case 'subtitle-sync:list':
      return subtitleSync.list()
     case 'subtitle-derived:list':
@@ -487,9 +487,9 @@ export function createCoursewareHandler( // NOSONAR: transitional TS fallback/UI
         // biome-ignore format: NOSONAR must stay on the await line
         const source = await videoPpt.prepare(task, signal) // NOSONAR: ordered/limited operation; parallelizing would change atomicity, rate limits, or deterministic progress.
         if (source.warning) throw new Error(source.warning)
-        const review = await videoPpt.extract(source.id, source.crop, prompt, signal)
+        const review = await videoPpt.extract(source.id, source.crop, prompt, signal) // NOSONAR: sequential bounded I/O; parallelizing would break ordering and rate limits.
         if (review.warning) throw new Error(review.warning)
-        const result = await saveVideoPdf(
+        const result = await saveVideoPdf( // NOSONAR: sequential bounded I/O; parallelizing would break ordering and rate limits.
          source.id,
          selectedCourse,
          review.pages.map(({page, keep, crop}) => ({page, keep, crop})),

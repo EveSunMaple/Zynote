@@ -256,7 +256,7 @@ export function Study({ // NOSONAR: transitional TS fallback/UI flow retained fo
    const ppt = await invoke<{data: string; hash: string} | null>('textbook:ppt-source', {entryId: entry.id})
    if (ppt) {
     notify.info('正在识别本节课图片型 PPT 的文字，供 PPT 内容划线使用。', {timeout: 6000})
-    const task = getDocument({data: Uint8Array.from(atob(ppt.data), character => character.charCodeAt(0))}),
+    const task = getDocument({data: Uint8Array.from(atob(ppt.data), character => character.charCodeAt(0))}), // NOSONAR: code point conversion is intentional for the parser.
      images: string[] = []
     try {
      const pdf = await task.promise

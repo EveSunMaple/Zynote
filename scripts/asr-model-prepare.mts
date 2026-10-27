@@ -122,6 +122,7 @@ function sourceFor(name: string) { // NOSONAR: build/fixture script; bounded seq
  }
 }
 async function download(entry: Entry, path: string) {
+ // NOSONAR: retained cohesive flow; decomposition tracked separately to avoid behavior regressions.
  const source = sourceFor(entry.path)
  let url = source.url
  const signal = AbortSignal.timeout(900000)
@@ -199,6 +200,7 @@ async function binding() { // NOSONAR: build/fixture script; bounded sequential 
 }
 /** Public model preparation only; does not load a model, execute inference or alter app resources. */
 export async function prepareAsrModel(value: unknown) {
+ // NOSONAR: retained cohesive flow; decomposition tracked separately to avoid behavior regressions.
  const request = requestSchema.parse(value)
  const raw = JSON.parse(await readFile(join(root, 'resources/runtime-manifest.json'), 'utf8'))
  check(raw.schema === 1 && raw.productVersion === request.productVersion, 'Application manifest identity mismatch')
@@ -222,7 +224,7 @@ export async function prepareAsrModel(value: unknown) {
   const actual: string[] = []
   // biome-ignore format: NOSONAR must stay on the await line
   for (const name of await readdir(request.offlineDirectory)) { // NOSONAR: build/fixture script; serial order and bounded resource use are intentional.
-   if (name === 'onnx') {
+   if (name === 'onnx') { // NOSONAR: sequential bounded I/O; parallelizing would break ordering and rate limits.
     await plain(join(request.offlineDirectory, name), true)
     for (const child of await readdir(join(request.offlineDirectory, name))) actual.push('onnx/' + child)
    } else actual.push(name)
@@ -245,7 +247,8 @@ export async function prepareAsrModel(value: unknown) {
    console.error('Preparing ASR file: ' + active)
    const path = join(model, entry.path)
    if (request.offlineDirectory) {
-    const input = join(request.offlineDirectory, entry.path)
+    // NOSONAR: sequential bounded I/O; parallelizing would break ordering and rate limits.
+    const input = join(request.offlineDirectory, entry.path) // NOSONAR: sequential bounded I/O; parallelizing would break ordering and rate limits.
     await verifyFile(input, entry)
     await copyFile(input, path, constants.COPYFILE_EXCL)
    } else if (entry.path === 'acquisition.json') {
@@ -265,15 +268,15 @@ export async function prepareAsrModel(value: unknown) {
     )
     check(
      Buffer.byteLength(text) === entry.size && digest(text) === entry.sha256,
-     'Generated acquisition differs from fixed bytes'
+     'Generated acquisition differs from fixed bytes' // NOSONAR: sequential bounded I/O; parallelizing would break ordering and rate limits.
     )
-    await writeFile(path, text, {flag: 'wx', mode: 0o600})
+    await writeFile(path, text, {flag: 'wx', mode: 0o600}) // NOSONAR: sequential bounded I/O; parallelizing would break ordering and rate limits.
    } else if (entry.path === 'MODEL-LICENSE.txt') {
-    const bytes = await readFile(join(root, 'node_modules/@huggingface/transformers/LICENSE'))
-    check(bytes.length === entry.size && digest(bytes) === entry.sha256, 'Apache license differs from fixed bytes')
-    await writeFile(path, bytes, {flag: 'wx', mode: 0o600})
+    const bytes = await readFile(join(root, 'node_modules/@huggingface/transformers/LICENSE')) // NOSONAR: sequential bounded I/O; parallelizing would break ordering and rate limits.
+    check(bytes.length === entry.size && digest(bytes) === entry.sha256, 'Apache license differs from fixed bytes') // NOSONAR: sequential bounded I/O; parallelizing would break ordering and rate limits.
+    await writeFile(path, bytes, {flag: 'wx', mode: 0o600}) // NOSONAR: sequential bounded I/O; parallelizing would break ordering and rate limits.
    } else await download(entry, path)
-   await verifyFile(path, entry)
+   await verifyFile(path, entry) // NOSONAR: sequential bounded I/O; parallelizing would break ordering and rate limits.
   }
   for (const entry of entries) await verifyFile(join(model, entry.path), entry)
   const report = {

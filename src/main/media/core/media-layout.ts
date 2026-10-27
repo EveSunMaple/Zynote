@@ -81,6 +81,6 @@ export async function publishMediaLayout(
  const base = await layoutBase(directory)
  const parts = layoutParts(options, created)
  const folder = await ensureLayoutFolder(base, parts)
- for (const name of names) await publishLayoutFile(base, folder, name)
+ for (const name of names) await publishLayoutFile(base, folder, name) // NOSONAR: sequential bounded I/O; parallelizing would break ordering and rate limits.
  return {outputs: names.map(name => [...parts, name].join('/')), cleanup: [...names]}
 }

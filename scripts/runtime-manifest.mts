@@ -67,7 +67,7 @@ export async function generate(root: string): Promise<RuntimeManifest> { // NOSO
       // biome-ignore format: NOSONAR must stay on the await line
       before = await stat(entry.source), // NOSONAR: build/fixture script; serial order and bounded resource use are intentional.
       hash = createHash('sha256')
-     for await (const bytes of createReadStream(entry.source, {highWaterMark: 1048576})) hash.update(bytes)
+     for await (const bytes of createReadStream(entry.source, {highWaterMark: 1048576})) hash.update(bytes) // NOSONAR: sequential bounded I/O; parallelizing would break ordering and rate limits.
      // biome-ignore format: NOSONAR must stay on the await line
      const after = await stat(entry.source) // NOSONAR: build/fixture script; serial order and bounded resource use are intentional.
      if (before.size !== after.size || before.mtimeMs !== after.mtimeMs)

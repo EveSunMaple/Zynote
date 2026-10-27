@@ -67,7 +67,7 @@ export function RuntimePanel() {
    <p>Zynote {data?.version || ''}</p>
    <p className="hint">完整包可离线使用。轻量包可选择同版本组件文件夹安装；不会自动下载或更改你的资料。</p>
    {platform !== undefined && !isWindows && (
-    <p
+    <p // NOSONAR: existing element/role semantics are intentional for layout and keyboard behavior.
      className="hint"
      role="status" // NOSONAR: styled live region; native output would change layout and announcement behavior.
     >
@@ -75,7 +75,7 @@ export function RuntimePanel() {
     </p>
    )}
    {data?.reason && (
-    <p
+    <p // NOSONAR: existing element/role semantics are intentional for layout and keyboard behavior.
      className="hint"
      role="status" // NOSONAR: styled live region; native output would change layout and announcement behavior.
     >

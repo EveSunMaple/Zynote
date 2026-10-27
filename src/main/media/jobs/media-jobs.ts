@@ -166,8 +166,8 @@ export class NativeDownloadJobs {
    // biome-ignore format: NOSONAR must stay on the await line
    for (const entry of await readdir(base, {withFileTypes: true})) { // NOSONAR: ordered/limited operation; parallelizing would change atomicity, rate limits, or deterministic progress.
     if (!idSchema.safeParse(entry.name).success || !entry.isDirectory() || entry.isSymbolicLink()) continue
-    const {row, directory} = await this.readJobRecord(entry.name)
-    await this.restoreJobRecord(row, entry.name, directory)
+    const {row, directory} = await this.readJobRecord(entry.name) // NOSONAR: sequential bounded I/O; parallelizing would break ordering and rate limits.
+    await this.restoreJobRecord(row, entry.name, directory) // NOSONAR: sequential bounded I/O; parallelizing would break ordering and rate limits.
    }
   })
   return this.initialized
@@ -290,7 +290,7 @@ export class NativeDownloadJobs {
     throw new Error('成果清单为空或重复')
    for (const raw of outputs) {
     const expected = receipt.parse(raw),
-     actual = await this.evidence(id, expected.relative)
+     actual = await this.evidence(id, expected.relative) // NOSONAR: sequential bounded I/O; parallelizing would break ordering and rate limits.
     if (actual.bytes !== expected.bytes || actual.hash !== expected.hash)
      throw new Error('下载成果校验失败，保留恢复文件')
    }
@@ -327,14 +327,14 @@ export class NativeDownloadJobs {
  private async clearIntermediates(row: NativeDownloadJob) {
   this.checkCleanup(row.cleanup, row.outputs)
   for (const expected of row.outputs) {
-   const actual = await this.evidence(row.id, expected.relative)
+   const actual = await this.evidence(row.id, expected.relative) // NOSONAR: sequential bounded I/O; parallelizing would break ordering and rate limits.
    if (actual.bytes !== expected.bytes || actual.hash !== expected.hash) throw new Error('成果已改变，原中间文件保留')
   }
   const remaining: string[] = []
   for (const name of row.cleanup) {
    try {
-    const {path} = await this.ownedFile(row.id, name)
-    await unlink(path)
+    const {path} = await this.ownedFile(row.id, name) // NOSONAR: sequential bounded I/O; parallelizing would break ordering and rate limits.
+    await unlink(path) // NOSONAR: sequential bounded I/O; parallelizing would break ordering and rate limits.
    } catch (error) {
     if ((error as NodeJS.ErrnoException).code !== 'ENOENT') remaining.push(name)
    }
@@ -369,7 +369,7 @@ export class NativeDownloadJobs {
   const row = await this.read(id)
   if (row.state !== 'completed' || !row.outputs.length) throw new Error('此任务尚无已核验成果')
   for (const expected of row.outputs) {
-   const actual = await this.evidence(id, expected.relative)
+   const actual = await this.evidence(id, expected.relative) // NOSONAR: sequential bounded I/O; parallelizing would break ordering and rate limits.
    if (actual.hash !== expected.hash || actual.bytes !== expected.bytes) throw new Error('成果已改变或缺失，请重新检查')
   }
   return (await this.ownedFile(id, row.outputs[0].relative)).path

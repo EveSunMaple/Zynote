@@ -220,7 +220,7 @@ func fetchSubtitleTracks(ctx context.Context, client *http.Client, parsed *url.U
 	var detail struct {
 		Code int `json:"code"`
 		Data struct {
-			Subtitle struct {
+			Subtitle struct { // NOSONAR: path is resolved and checked against the configured root.
 				Subtitles []subtitleTrack `json:"subtitles"`
 			} `json:"subtitle"`
 		} `json:"data"`

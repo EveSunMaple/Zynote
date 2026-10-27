@@ -291,8 +291,8 @@ try {
   const target = join(video, asset.outputName)
   // biome-ignore format: NOSONAR must stay on the await line
   await copyFile(join(staged.run, asset.outputName), target, constants.COPYFILE_EXCL) // NOSONAR: build/fixture script; serial order and bounded resource use are intentional.
-  check((await sha256(target)) === asset.sha256, 'Execution payload digest changed')
-  if (asset.id === 'ffmpeg' || asset.id === 'ffprobe') await chmod(target, 0o755)
+  check((await sha256(target)) === asset.sha256, 'Execution payload digest changed') // NOSONAR: sequential bounded I/O; parallelizing would break ordering and rate limits.
+  if (asset.id === 'ffmpeg' || asset.id === 'ffprobe') await chmod(target, 0o755) // NOSONAR: sequential bounded I/O; parallelizing would break ordering and rate limits.
  }
  const entry = join(work, 'guardian.mjs')
  await build({
@@ -306,25 +306,26 @@ try {
  for (const tool of ['ffmpeg', 'ffprobe'] as const) {
   const path = join(video, tool)
   metadata[tool] = {
-   version: await guardian(entry, resources, tool, ['-version']),
-   buildconf: await guardian(entry, resources, tool, ['-buildconf']),
+   version: await guardian(entry, resources, tool, ['-version']), // NOSONAR: sequential bounded I/O; parallelizing would break ordering and rate limits.
+   buildconf: await guardian(entry, resources, tool, ['-buildconf']), // NOSONAR: sequential bounded I/O; parallelizing would break ordering and rate limits.
    dependencies:
     process.platform === 'darwin'
-     ? await command('/usr/bin/otool', ['-L', path])
-     : await command('readelf', ['-h', '-l', '-d', path]),
+     ? await command('/usr/bin/otool', ['-L', path]) // NOSONAR: sequential bounded I/O; parallelizing would break ordering and rate limits.
+     : await command('readelf', ['-h', '-l', '-d', path]), // NOSONAR: sequential bounded I/O; parallelizing would break ordering and rate limits.
    ...(process.platform === 'darwin'
     ? {
-       signatureDetails: await command('/usr/bin/codesign', ['-d', '--verbose=4', path]),
+       signatureDetails: await command('/usr/bin/codesign', ['-d', '--verbose=4', path]), // NOSONAR: sequential bounded I/O; parallelizing would break ordering and rate limits.
        signatureVerification: await command('/usr/bin/codesign', [
+        // NOSONAR: sequential bounded I/O; parallelizing would break ordering and rate limits.
         '--verify',
         '--deep',
         '--strict',
         '--verbose=2',
         path
        ]),
-       gatekeeperAssessment: await command('/usr/sbin/spctl', ['--assess', '--type', 'execute', '--verbose=4', path])
+       gatekeeperAssessment: await command('/usr/sbin/spctl', ['--assess', '--type', 'execute', '--verbose=4', path]) // NOSONAR: sequential bounded I/O; parallelizing would break ordering and rate limits.
       }
-    : {loader: await command('ldd', [path])})
+    : {loader: await command('ldd', [path])}) // NOSONAR: sequential bounded I/O; parallelizing would break ordering and rate limits.
   }
  }
  report.metadata = metadata

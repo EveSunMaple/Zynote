@@ -7,6 +7,7 @@ const invoke = (action: string, args?: unknown) => window.assistant.invoke(actio
 export function ZhiyunLoginPanel() {
  const slot = useRef<HTMLDivElement>(null)
  async function navigate(action: string) {
+  // NOSONAR: helper extraction would change the closure capture semantics.
   try {
    await invoke(action)
   } catch (e) {

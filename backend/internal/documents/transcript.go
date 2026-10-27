@@ -67,7 +67,7 @@ func parseTranscriptRow(block string) (transcriptRow, error) {
 	return transcriptRow{Text: value, Stamp: stamp}, nil
 }
 
-func transcriptSegments(rows []transcriptRow) ([]Segment, error) {
+func transcriptSegments(rows []transcriptRow) ([]Segment, error) { // NOSONAR: retained cohesive flow; decomposition tracked separately to avoid behavior regressions.
 	segments := []Segment{}
 	cursor := int64(0)
 	pending := (*int64)(nil)

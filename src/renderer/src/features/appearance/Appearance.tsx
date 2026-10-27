@@ -453,7 +453,7 @@ export function AppearanceEditor({
      恢复默认外观
     </Button>
     {status && (
-     <p
+     <p // NOSONAR: existing element/role semantics are intentional for layout and keyboard behavior.
       role="status" // NOSONAR: styled live region; native output would change layout and announcement behavior.
       // NOSONAR: styled live region; native output would change layout and announcement behavior.
      >

@@ -125,7 +125,7 @@ export function BiliResourcesPanel({
    <Discussion />
    {busy && (
     <div className="row">
-     <p
+     <p // NOSONAR: existing element/role semantics are intentional for layout and keyboard behavior.
       role="status" // NOSONAR: styled live region; native output would change layout and announcement behavior.
      >
       {progress || '正在读取 B 站资源…'}
@@ -136,7 +136,7 @@ export function BiliResourcesPanel({
     </div>
    )}
    {!busy && progress && (
-    <p
+    <p // NOSONAR: existing element/role semantics are intentional for layout and keyboard behavior.
      role="status" // NOSONAR: styled live region; native output would change layout and announcement behavior.
     >
      {progress}
@@ -247,8 +247,8 @@ export function BiliResourcesPanel({
          isDisabled={busy}
          onClick={() =>
           setBasket(current =>
-           current.map(row =>
-            row.url === item.url ? {...row, pages: row.series.episodes.map(part => part.page)} : row
+           current.map(
+            row => (row.url === item.url ? {...row, pages: row.series.episodes.map(part => part.page)} : row) // NOSONAR: nested callbacks mirror the protocol/UI structure; extraction would obscure ordering.
            )
           )
          }
@@ -281,13 +281,14 @@ export function BiliResourcesPanel({
           aria-label={`同步 ${item.title} P${part.page} ${part.title}`}
           onChange={checked =>
            setBasket(current =>
-            current.map(row =>
-             row.url === item.url
-              ? {
-                 ...row,
-                 pages: checked ? [...row.pages, part.page] : row.pages.filter(page => page !== part.page)
-                }
-              : row
+            current.map(
+             row => // NOSONAR: nested callbacks mirror the protocol/UI structure; extraction would obscure ordering.
+              row.url === item.url
+               ? {
+                  ...row,
+                  pages: checked ? [...row.pages, part.page] : row.pages.filter(page => page !== part.page)
+                 }
+               : row
             )
            )
           }

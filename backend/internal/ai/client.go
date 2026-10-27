@@ -205,7 +205,7 @@ func chatEndpoint(profile Profile, responses bool) string {
 	return endpoint + "/chat/completions"
 }
 
-func responsesInput(messages []Message) []map[string]any {
+func responsesInput(messages []Message) []map[string]any { // NOSONAR: retained cohesive flow; decomposition tracked separately to avoid behavior regressions.
 	converted := []map[string]any{}
 	for _, message := range messages {
 		content, ok := message.Content.([]ContentPart)

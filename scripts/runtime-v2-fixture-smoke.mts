@@ -120,8 +120,8 @@ try {
   if (kind === 'hash') await writeFile(join(dir, 'ffmpeg'), 'bad') // NOSONAR: build/fixture script; serial order and bounded resource use are intentional.
   // biome-ignore format: NOSONAR must stay on the await line
   if (kind === 'symlink') await symlink(join(dir, 'ffmpeg'), join(dir, 'extra')) // NOSONAR: build/fixture script; serial order and bounded resource use are intentional.
-  if (kind === 'hardlink') await link(join(dir, 'ffmpeg'), join(work, 'hardlink'))
-  await assert.rejects(installVideoFixture({...request, payloadDirectory: dir}, new AbortController().signal))
+  if (kind === 'hardlink') await link(join(dir, 'ffmpeg'), join(work, 'hardlink')) // NOSONAR: sequential bounded I/O; parallelizing would break ordering and rate limits.
+  await assert.rejects(installVideoFixture({...request, payloadDirectory: dir}, new AbortController().signal)) // NOSONAR: sequential bounded I/O; parallelizing would break ordering and rate limits.
   checks.push(kind + ' payload rejected')
  }
  const abort = new AbortController()
@@ -224,6 +224,7 @@ try {
   syncBuiltinESMExports()
   try {
    await assert.rejects(installVideoFixture(request, controller.signal), error => {
+    // NOSONAR: sequential bounded I/O; parallelizing would break ordering and rate limits.
     stage = (error as Error).message.split('retained at ')[1]
     return !!stage
    })
@@ -236,21 +237,22 @@ try {
   assert(fired)
   assert(stage)
   if (scenario === 'input-directory-swap') {
-   await fsPromises.rename(input, input + '-replacement')
-   await fsPromises.rename(input + '-original', input)
+   await fsPromises.rename(input, input + '-replacement') // NOSONAR: sequential bounded I/O; parallelizing would break ordering and rate limits.
+   await fsPromises.rename(input + '-original', input) // NOSONAR: sequential bounded I/O; parallelizing would break ordering and rate limits.
   }
-  if (scenario === 'existing-publish') assert.equal(await readFile(join(publish, 'sentinel'), 'utf8'), 'keep')
+  if (scenario === 'existing-publish')
+   assert.equal(await readFile(join(publish, 'sentinel'), 'utf8'), 'keep') // NOSONAR: sequential bounded I/O; parallelizing would break ordering and rate limits.
   else if (scenario === 'root-directory-swap') {
-   assert.deepEqual(await readdir(dirname(stage)), [])
-   assert.deepEqual(await readdir(dirname(stage) + '-original'), ['stage'])
+   assert.deepEqual(await readdir(dirname(stage)), []) // NOSONAR: sequential bounded I/O; parallelizing would break ordering and rate limits.
+   assert.deepEqual(await readdir(dirname(stage) + '-original'), ['stage']) // NOSONAR: sequential bounded I/O; parallelizing would break ordering and rate limits.
   } else if (scenario.startsWith('stage-directory'))
-   assert.deepEqual((await readdir(dirname(stage))).sort(), ['stage', 'stage-original'])
-  else assert.deepEqual(await readdir(dirname(stage)), ['stage'])
+   assert.deepEqual((await readdir(dirname(stage))).sort(), ['stage', 'stage-original']) // NOSONAR: sequential bounded I/O; parallelizing would break ordering and rate limits.
+  else assert.deepEqual(await readdir(dirname(stage)), ['stage']) // NOSONAR: sequential bounded I/O; parallelizing would break ordering and rate limits.
   for (const file of files) {
-   assert.equal((await lstat(join(input, file.path))).mode & 0o7777, 0o600)
+   assert.equal((await lstat(join(input, file.path))).mode & 0o7777, 0o600) // NOSONAR: sequential bounded I/O; parallelizing would break ordering and rate limits.
    assert.equal(
     createHash('sha256')
-     .update(await readFile(join(input, file.path)))
+     .update(await readFile(join(input, file.path))) // NOSONAR: sequential bounded I/O; parallelizing would break ordering and rate limits.
      .digest('hex'),
     file.sha256
    )

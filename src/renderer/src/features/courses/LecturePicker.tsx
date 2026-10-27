@@ -43,7 +43,7 @@ export function LecturePicker({
     {open && (
      <>
       <button className="picker-dismiss" aria-label="收起课次列表" onClick={() => setOpen(false)} />
-      <div
+      <div // NOSONAR: existing element/role semantics are intentional for layout and keyboard behavior.
        className="lecture-popover"
        role="listbox" // NOSONAR: custom keyboard-interactive listbox; native select cannot preserve filtering behavior.
        aria-label="课次列表"

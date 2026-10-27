@@ -531,7 +531,7 @@ export function VideoPpt({
          </Button>
         </div>
         {subtitleSaved && (
-         <p
+         <p // NOSONAR: existing element/role semantics are intentional for layout and keyboard behavior.
           role="status" // NOSONAR: styled live region; native output would change layout and announcement behavior.
          >
           已保存：{subtitleSaved}
@@ -706,7 +706,7 @@ export function VideoPpt({
       )}
       {summary && (
        <>
-        <p
+        <p // NOSONAR: existing element/role semantics are intentional for layout and keyboard behavior.
          role="status" // NOSONAR: styled live region; native output would change layout and announcement behavior.
         >
          已保存课程笔记 · {summary.count} 项字幕引文已核实
@@ -805,7 +805,7 @@ export function VideoPpt({
     )}
    </div>
    {progress && (
-    <div
+    <div // NOSONAR: existing element/role semantics are intentional for layout and keyboard behavior.
      className="learning-status"
      role="status" // NOSONAR: styled live region; native output would change layout and announcement behavior.
     >

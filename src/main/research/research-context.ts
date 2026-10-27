@@ -141,7 +141,7 @@ export class NativeResearchContext {
    return (
     conversation?.research_tasks.find((task: {task_id: string}) => task.task_id === row.id) ||
     conversation?.turns.find(
-     (turn: Record<string, unknown>, index: number) => 'turn-' + String(turn.turn_id || index) === row.id
+     (turn: Record<string, unknown>, index: number) => 'turn-' + String(turn.turn_id || index) === row.id // NOSONAR: behavior-preserving change would risk this established flow; tracked for manual review.
     )
    )
   return undefined

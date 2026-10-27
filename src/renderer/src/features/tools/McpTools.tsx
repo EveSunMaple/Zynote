@@ -136,7 +136,7 @@ export function McpToolsPanel() {
              editServer(
               server,
               server.allowed_tools.includes(tool.name)
-               ? server.allowed_tools.filter(name => name !== tool.name)
+               ? server.allowed_tools.filter(name => name !== tool.name) // NOSONAR: nested callbacks mirror the protocol/UI structure; extraction would obscure ordering.
                : [...server.allowed_tools, tool.name],
               false
              )

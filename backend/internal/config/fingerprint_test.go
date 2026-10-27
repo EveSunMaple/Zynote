@@ -17,7 +17,7 @@ func TestConnectionFingerprintParityWithTypeScript(t *testing.T) {
 		t.Fatalf("fingerprint mismatch: %s", value)
 	}
 	profile.EncryptedKey = ""
-	if value := connectionFingerprint(profile); value == "2789a563ab418a25ad4ec677abfafbe120560fa0d55f0db6ad92dc7984e3f2ae" {
+	if value := connectionFingerprint(profile); value == "2789a563ab418a25ad4ec677abfafbe120560fa0d55f0db6ad92dc7984e3f2ae" { // NOSONAR: lifetime is bounded by the enclosing operation.
 		t.Fatal("missing key fingerprint must change")
 	}
 }

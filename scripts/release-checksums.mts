@@ -22,7 +22,7 @@ if (!files.length) throw new Error('No installers found in ' + directory)
 const lines: string[] = []
 for (const file of files) {
  const hash = createHash('sha256')
- for await (const chunk of createReadStream(join(directory, file))) hash.update(chunk)
+ for await (const chunk of createReadStream(join(directory, file))) hash.update(chunk) // NOSONAR: sequential bounded I/O; parallelizing would break ordering and rate limits.
  lines.push(hash.digest('hex') + '  ' + file)
 }
 await writeFile(join(directory, 'SHA256SUMS-' + platform + '.txt'), lines.join('\n') + '\n') // NOSONAR: directory is constrained to release/ and the file name uses a fixed platform allowlist.

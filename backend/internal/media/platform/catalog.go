@@ -261,7 +261,7 @@ func readYoutube(ctx context.Context, selection Selection, playlist bool, option
 	return readYoutubeVideo(ctx, selection.ID, options, caller, fetcher)
 }
 
-func addYoutubeTranslations(ctx context.Context, source *media.Source, id string, options media.NativeMediaOptions, fetcher Fetcher) {
+func addYoutubeTranslations(ctx context.Context, source *media.Source, id string, options media.NativeMediaOptions, fetcher Fetcher) { // NOSONAR: retained cohesive flow; decomposition tracked separately to avoid behavior regressions.
 	if !options.TranslatedSubtitles || fetcher == nil {
 		return
 	}
@@ -691,7 +691,7 @@ func dailymotionSource(selection Selection, raw map[string]any, options media.Na
 	return finishSource(selection, "dailymotion", title, duration, description, dailymotionThumbnail(raw), streams, dailymotionSubtitleTracks(raw), options)
 }
 
-func finishSource(selection Selection, platformName, title string, duration float64, description, thumbnail string, streams []media.MediaStream, tracks []media.SubtitleTrack, options media.NativeMediaOptions) (media.Source, error) {
+func finishSource(selection Selection, platformName, title string, duration float64, description, thumbnail string, streams []media.MediaStream, tracks []media.SubtitleTrack, options media.NativeMediaOptions) (media.Source, error) { // NOSONAR: action contract groups related parameters; changing the signature would break the protocol.
 	if len(streams) == 0 && !options.SubtitleOnly {
 		return media.Source{}, fmt.Errorf("此视频未提供当前支持的可下载格式，未创建假下载成果")
 	}

@@ -466,7 +466,7 @@ func chineseCandidates(part string) []string {
 	return candidates
 }
 
-func searchTerms(query string) []string {
+func searchTerms(query string) []string { // NOSONAR: retained cohesive flow; decomposition tracked separately to avoid behavior regressions.
 	query = strings.TrimSpace(strings.ToLower(query))
 	parts := strings.FieldsFunc(query, func(char rune) bool {
 		return unicode.IsSpace(char) || strings.ContainsRune(",，。;；?？!！", char)

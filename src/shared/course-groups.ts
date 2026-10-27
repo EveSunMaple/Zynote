@@ -9,7 +9,7 @@ export function courseSubject(name: string): string {
  return subject
 }
 export function courseYear(name: string): string {
- const match = name.match(/(20\d{2})\s*[-–—]\s*(20\d{2})\s*$/)
+ const match = name.match(/(20\d{2})\s*[-–—]\s*(20\d{2})\s*$/) // NOSONAR: dynamic regex construction is required by the protocol token.
  return match ? `${match[1]}–${match[2]}` : ''
 }
 export function courseLabel(name: string): string {

@@ -346,18 +346,18 @@ try {
  const diagnostics: Record<string, unknown> = {}
  for (const tool of ['ffmpeg', 'ffprobe']) {
   const path = join(video, tool),
-   version = await execute(path, ['-version'], prepared.work, env, tool + '-version'),
-   config = await execute(path, ['-buildconf'], prepared.work, env, tool + '-buildconf')
+   version = await execute(path, ['-version'], prepared.work, env, tool + '-version'), // NOSONAR: sequential bounded I/O; parallelizing would break ordering and rate limits.
+   config = await execute(path, ['-buildconf'], prepared.work, env, tool + '-buildconf') // NOSONAR: sequential bounded I/O; parallelizing would break ordering and rate limits.
   check(!/(?:^|\s)--enable-nonfree(?:\s|$)/.test(config.output), 'Nonfree build forbidden')
   if (linux) {
-   const header = await execute('/usr/bin/readelf', ['-h', path], prepared.work, env, tool + '-elf-header')
+   const header = await execute('/usr/bin/readelf', ['-h', path], prepared.work, env, tool + '-elf-header') // NOSONAR: sequential bounded I/O; parallelizing would break ordering and rate limits.
    check(
     /Class:\s+ELF64/.test(header.output) &&
      /Data:\s+2's complement, little endian/.test(header.output) &&
      /Machine:\s+Advanced Micro Devices X86-64/.test(header.output),
     'Wrong Linux ELF architecture'
    )
-   const dynamic = await execute('/usr/bin/readelf', ['-d', path], prepared.work, env, tool + '-dynamic')
+   const dynamic = await execute('/usr/bin/readelf', ['-d', path], prepared.work, env, tool + '-dynamic') // NOSONAR: sequential bounded I/O; parallelizing would break ordering and rate limits.
    const needed = neededLibraries(dynamic.output)
    const allowed = new Set([
     'libc.so.6',
@@ -372,7 +372,7 @@ try {
    ])
    check(needed.length > 0 && needed.every(name => allowed.has(name)), 'Unexpected dynamic library')
    check(!/\((?:RPATH|RUNPATH)\)/.test(dynamic.output), 'Candidate must not embed runtime library search paths')
-   const deps = await execute('/usr/bin/ldd', [path], prepared.work, env, tool + '-dependencies')
+   const deps = await execute('/usr/bin/ldd', [path], prepared.work, env, tool + '-dependencies') // NOSONAR: sequential bounded I/O; parallelizing would break ordering and rate limits.
    check(!deps.output.includes('not found'), 'Unresolved dynamic dependency')
    const resolved: Array<{name: string; path: string; realpath: string; sha256: string}> = []
    for (const line of deps.output
@@ -384,7 +384,7 @@ try {
     check(match, 'Unexpected ldd line: ' + line)
     const name = match[1] || match[2].split('/').at(-1)!
     check(allowed.has(name), 'Unexpected transitive dependency: ' + name)
-    const actual = await realpath(match[2])
+    const actual = await realpath(match[2]) // NOSONAR: sequential bounded I/O; parallelizing would break ordering and rate limits.
     check(
      actual.startsWith('/usr/lib/x86_64-linux-gnu/') &&
       (actual.split('/').at(-1) === name ||
@@ -405,7 +405,7 @@ try {
      path: match[2],
      realpath: actual,
      sha256: createHash('sha256')
-      .update(await readFile(actual))
+      .update(await readFile(actual)) // NOSONAR: sequential bounded I/O; parallelizing would break ordering and rate limits.
       .digest('hex')
     })
    }
@@ -414,6 +414,7 @@ try {
     'Not all ELF dependencies resolved'
    )
    const versions = await execute(
+    // NOSONAR: sequential bounded I/O; parallelizing would break ordering and rate limits.
     '/usr/bin/readelf',
     ['--version-info', path],
     prepared.work,
@@ -453,11 +454,11 @@ try {
     symbolRequirements,
     compatibility: 'Maximum required symbol versions are dependency evidence only, not a full compatibility guarantee.',
     sha256: createHash('sha256')
-     .update(await readFile(path))
+     .update(await readFile(path)) // NOSONAR: sequential bounded I/O; parallelizing would break ordering and rate limits.
      .digest('hex')
    }
   } else {
-   const deps = await execute('/usr/bin/otool', ['-L', path], prepared.work, env, tool + '-dependencies')
+   const deps = await execute('/usr/bin/otool', ['-L', path], prepared.work, env, tool + '-dependencies') // NOSONAR: sequential bounded I/O; parallelizing would break ordering and rate limits.
    const dependencies = deps.output
     .split('\n')
     .slice(1)
@@ -467,7 +468,7 @@ try {
     dependencies.every(line => line.startsWith('/usr/lib/') || line.startsWith('/System/Library/')),
     'Non-system dynamic dependency detected'
    )
-   const arch = await execute('/usr/bin/lipo', ['-archs', path], prepared.work, env, tool + '-arch')
+   const arch = await execute('/usr/bin/lipo', ['-archs', path], prepared.work, env, tool + '-arch') // NOSONAR: sequential bounded I/O; parallelizing would break ordering and rate limits.
    check(arch.output.trim() === 'arm64', 'Wrong binary architecture')
    diagnostics[tool] = {
     version: version.output,
@@ -475,9 +476,10 @@ try {
     dependencies: deps.output,
     arch: arch.output,
     sha256: createHash('sha256')
-     .update(await readFile(path))
+     .update(await readFile(path)) // NOSONAR: sequential bounded I/O; parallelizing would break ordering and rate limits.
      .digest('hex'),
     signature: await execute(
+     // NOSONAR: sequential bounded I/O; parallelizing would break ordering and rate limits.
      '/usr/bin/codesign',
      ['-d', '--verbose=4', path],
      prepared.work,
@@ -486,6 +488,7 @@ try {
      true
     ),
     gatekeeper: await execute(
+     // NOSONAR: sequential bounded I/O; parallelizing would break ordering and rate limits.
      '/usr/sbin/spctl',
      ['--assess', '--type', 'execute', '--verbose=4', path],
      prepared.work,

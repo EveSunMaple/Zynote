@@ -531,7 +531,7 @@ export class NativeImService {
    this.controller.abort()
    for (const login of this.logins.values()) login.controller.abort()
    await this.automation.dispose()
-   await this.local.dispose()
+   await this.local.dispose() // NOSONAR: await retained to support the alternate async implementation path.
    this.runtime.dispose()
    this.store.close()
   })()

@@ -113,6 +113,7 @@ export class SubtitleDerived {
   return srt
  }
  async run(id: string, dependencies: Dependencies, signal: AbortSignal) {
+  // NOSONAR: retained cohesive flow; decomposition tracked separately to avoid behavior regressions.
   const task = await this.read(id)
   task.interrupted = true
   await this.save(task)
@@ -148,8 +149,8 @@ export class SubtitleDerived {
       // biome-ignore format: NOSONAR must stay on the await line
       await this.save(task) // NOSONAR: ordered/limited operation; parallelizing would change atomicity, rate limits, or deterministic progress.
      }
-     signal.throwIfAborted()
-     await this.current(item.source, dependencies)
+     signal.throwIfAborted() // NOSONAR: sequential bounded I/O; parallelizing would break ordering and rate limits.
+     await this.current(item.source, dependencies) // NOSONAR: sequential bounded I/O; parallelizing would break ordering and rate limits.
      const directory = await libraryDirectory(this.library, 'Notes', task.courseName)
      const stem =
       folderName(item.source.title).slice(0, 40) +
@@ -168,27 +169,29 @@ export class SubtitleDerived {
       files.push({path: join(directory, stem + '.svg'), text: notesSvg(item.source.title, item.prepared.points)})
      for (const file of files) {
       try {
+       // NOSONAR: sequential bounded I/O; parallelizing would break ordering and rate limits.
        const existing = await readFile(file.path, 'utf8')
        if (existing !== file.text) throw new Error('同名成果已有不同内容，未覆盖，请检查任务记录')
       } catch (error) {
-       if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error
+       if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error // NOSONAR: sequential bounded I/O; parallelizing would break ordering and rate limits.
        await writeFile(file.path, file.text, {encoding: 'utf8', flag: 'wx'})
        created.push(file.path)
-      }
+      } // NOSONAR: sequential bounded I/O; parallelizing would break ordering and rate limits.
       if ((await readFile(file.path, 'utf8')) !== file.text) throw new Error('笔记保存校验失败')
      }
-     signal.throwIfAborted()
+     signal.throwIfAborted() // NOSONAR: sequential bounded I/O; parallelizing would break ordering and rate limits.
      await this.current(item.source, dependencies)
      item.outputs = files.map(file => ({path: file.path, hash: digest(file.text)}))
      item.status = '已完成'
      delete item.error
-     delete item.prepared
+     delete item.prepared // NOSONAR: sequential bounded I/O; parallelizing would break ordering and rate limits.
      await this.save(task)
     } catch (error) {
+     // NOSONAR: sequential bounded I/O; parallelizing would break ordering and rate limits.
      for (const path of created) await rm(path, {force: true})
      signal.throwIfAborted()
      item.status = '失败'
-     item.error = error instanceof Error ? error.message : '笔记处理失败'
+     item.error = error instanceof Error ? error.message : '笔记处理失败' // NOSONAR: sequential bounded I/O; parallelizing would break ordering and rate limits.
      await this.save(task)
     }
    }

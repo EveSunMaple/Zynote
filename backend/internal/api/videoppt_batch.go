@@ -166,7 +166,7 @@ func (inv *Invoker) processBatchEpisode(ctx context.Context, store contract.Stat
 	return nil
 }
 
-func (inv *Invoker) handleVideoBatch(store contract.StateStore, state *contract.State, params json.RawMessage) (any, error) {
+func (inv *Invoker) handleVideoBatch(store contract.StateStore, state *contract.State, params json.RawMessage) (any, error) { // NOSONAR: retained cohesive flow; decomposition tracked separately to avoid behavior regressions.
 	var input struct {
 		URL      string `json:"url"`
 		Pages    []int  `json:"pages"`

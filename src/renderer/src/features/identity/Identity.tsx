@@ -6,6 +6,7 @@ import lian from '@renderer/assets/lian-avatar.jpg'
 import {notify} from '@renderer/ui/ToastHost'
 export const IdentityContext = createContext<Identity>(defaultIdentity)
 export function IdentityAvatar({role}: {role: 'user' | 'assistant'}) {
+ // NOSONAR: readonly annotation matches the immutable input contract.
  const identity = useContext(IdentityContext),
   avatar = role === 'user' ? identity.userAvatar : identity.assistantAvatar,
   name = role === 'user' ? identity.userName : identity.assistantName

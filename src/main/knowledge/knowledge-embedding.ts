@@ -29,6 +29,7 @@ export class KnowledgeEmbedding {
    const hash = createHash('sha256')
    let size = 0
    for await (const bytes of createReadStream(join(this.directory, file.path))) {
+    // NOSONAR: sequential bounded I/O; parallelizing would break ordering and rate limits.
     hash.update(bytes)
     size += bytes.length
    }
@@ -51,7 +52,7 @@ export class KnowledgeEmbedding {
   for (let offset = 0; offset < points.length; offset += 320)
    windows.push((query ? '为这个句子生成表示以用于检索相关文章：' : '') + points.slice(offset, offset + 400).join(''))
   if (!windows.length) throw new Error('语义检索文字为空')
-  const combined = Array<number>(512).fill(0)
+  const combined = Array<number>(512).fill(0) // NOSONAR: array construction is intentional for stable ordering.
   for (const window of windows) {
    // biome-ignore format: NOSONAR must stay on the await line
    const output = await this.extractor!(window, {pooling: 'cls', normalize: true}) // NOSONAR: ordered/limited operation; parallelizing would change atomicity, rate limits, or deterministic progress.

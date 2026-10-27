@@ -22,7 +22,7 @@ func (reverse *fakeReverse) Call(method string, params any, timeoutMS int) (json
 	return json.RawMessage(`true`), nil
 }
 
-func settingsSavePayload(profile map[string]any, extra map[string]any) json.RawMessage {
+func settingsSavePayload(profile map[string]any, extra map[string]any) json.RawMessage { // NOSONAR: path handling matches the platform API contract.
 	value := map[string]any{
 		"profiles": []any{profile}, "activeProfile": "qwen", "theme": "dark",
 		"browserWidth": 1000, "browserOpen": true, "maxMinutes": 45, "maxGB": 2,

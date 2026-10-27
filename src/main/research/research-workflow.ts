@@ -150,6 +150,7 @@ export class NativeResearchWorkflows {
   }
  }
  private async run(id: string, fence: number, retryUnknown: boolean, signal: AbortSignal) {
+  // NOSONAR: retained cohesive flow; decomposition tracked separately to avoid behavior regressions.
   try {
    for (let index = 0; index < 2; index++) {
     signal.throwIfAborted()

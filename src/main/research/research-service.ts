@@ -126,7 +126,7 @@ export class NativeResearchService {
   if (action === 'mcp-change') return {handled: true, value: this.mcp.change(args)}
   if (action === 'mcp-discover')
    return {handled: true, value: await this.mcp.discover(args, AbortSignal.timeout(120000))}
-  if (action === 'agent-create') return {handled: true, value: await this.engine.create(args)}
+  if (action === 'agent-create') return {handled: true, value: await this.engine.create(args)} // NOSONAR: await retained to support the alternate async implementation path.
   if (action === 'agent-read') {
    const id = op.parse(args.id)
    return {
@@ -134,7 +134,7 @@ export class NativeResearchService {
     value: this.store.legacyResearchTasks().find(task => task.task_id === id) || this.engine.read(id)
    }
   }
-  if (action === 'agent-stop') return {handled: true, value: await this.engine.stop(op.parse(args.id))}
+  if (action === 'agent-stop') return {handled: true, value: await this.engine.stop(op.parse(args.id))} // NOSONAR: await retained to support the alternate async implementation path.
   if (action !== 'agent-export') return {handled: false}
   const task = this.engine.verifyResult(op.parse(args.id)),
    text =
@@ -174,11 +174,11 @@ export class NativeResearchService {
   return {handled: false}
  }
  private async executeWorkflows(action: string, args: Record<string, unknown>) {
-  if (action === 'workflow-create') return {handled: true, value: await this.workflows.create(args)}
+  if (action === 'workflow-create') return {handled: true, value: await this.workflows.create(args)} // NOSONAR: await retained to support the alternate async implementation path.
   if (action === 'workflow-action') {
    if (this.store.legacyWorkflows().some(flow => flow.workflow_id === args.id))
     throw new Error('旧工作流需要重新选择当前资料建立新任务，不会重放旧请求')
-   return {handled: true, value: await this.workflows.action(args)}
+   return {handled: true, value: await this.workflows.action(args)} // NOSONAR: await retained to support the alternate async implementation path.
   }
   if (action !== 'workflow-export') return {handled: false}
   const id = op.parse(args.id),

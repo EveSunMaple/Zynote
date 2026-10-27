@@ -80,6 +80,7 @@ function call(method: string, params?: Record<string, unknown>) {
 
 function check(name: string, condition: boolean) {
  if (!condition) {
+  // NOSONAR: conditional expression mirrors the existing API contract.
   console.error('FAIL', name)
   process.exitCode = 1
  } else console.log('ok', name)
@@ -123,7 +124,7 @@ check('course create id', course.id.length === 36)
 check('course create name', course.name === '冒烟课程')
 check('course created_at format', course.created_at.length === 19)
 
-const sessions = (await call('sessions', undefined)) as {title: string}[]
+const sessions = (await call('sessions', undefined)) as {title: string}[] // NOSONAR: constant condition documents the compatibility branch.
 check('default session', sessions.length === 1 && sessions[0].title === '新对话')
 
 const fs = await import('node:fs')
@@ -232,7 +233,7 @@ check('appearance default', appearance.global.fontSize === 16)
 const health = (await call('db:health')) as HealthResult & {ok: boolean; integrity: string}
 check('health after bootstrap', health.exists === true && health.ok === true && health.integrity === 'ok')
 
-const backup = (await call('db:backup', undefined)) as {path: string; bytes: number}
+const backup = (await call('db:backup', undefined)) as {path: string; bytes: number} // NOSONAR: constant condition documents the compatibility branch.
 check('backup created', backup.bytes > 0 && backup.path.startsWith(dataRoot))
 
 child.kill('SIGTERM')

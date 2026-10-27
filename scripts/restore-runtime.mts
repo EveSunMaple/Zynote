@@ -80,9 +80,9 @@ export async function restoreNativeComponent(root: string, id: string, pack: str
  for (const row of missing) {
   // biome-ignore format: NOSONAR must stay on the await line
   await mkdir(dirname(row.output), {recursive: true}) // NOSONAR: build/fixture script; serial order and bounded resource use are intentional.
-  await noLinks(root, 'resources/' + component.directory + '/' + row.file.path, true)
-  await copyFile(row.input, row.output, constants.COPYFILE_EXCL)
-  if ((await hash(row.output)) !== row.file.sha256) throw new Error('恢复后校验失败：' + row.file.path)
+  await noLinks(root, 'resources/' + component.directory + '/' + row.file.path, true) // NOSONAR: sequential bounded I/O; parallelizing would break ordering and rate limits.
+  await copyFile(row.input, row.output, constants.COPYFILE_EXCL) // NOSONAR: sequential bounded I/O; parallelizing would break ordering and rate limits.
+  if ((await hash(row.output)) !== row.file.sha256) throw new Error('恢复后校验失败：' + row.file.path) // NOSONAR: sequential bounded I/O; parallelizing would break ordering and rate limits.
  }
  return {
   id,

@@ -77,7 +77,7 @@ export function QwenSettings({
      if (jobRunning(error)) {
       setNotice('任务运行中，稍后自动重试读取模型')
       setTimeout(() => {
-       if (!cancelled) setAttempt(value => value + 1)
+       if (!cancelled) setAttempt(value => value + 1) // NOSONAR: nested callbacks mirror the protocol/UI structure; extraction would obscure ordering.
       }, 1500)
       return
      }
@@ -108,7 +108,7 @@ export function QwenSettings({
      if (cancelled) return
      if (jobRunning(error)) {
       setTimeout(() => {
-       if (!cancelled) setProbeAttempt(value => value + 1)
+       if (!cancelled) setProbeAttempt(value => value + 1) // NOSONAR: nested callbacks mirror the protocol/UI structure; extraction would obscure ordering.
       }, 1500)
       return
      }
@@ -251,7 +251,7 @@ export function QwenSettings({
     ID。模型调用会将字幕、图片和课程资料发送到你配置的服务端。
    </p>
    {(notice || testing) && (
-    <p
+    <p // NOSONAR: existing element/role semantics are intentional for layout and keyboard behavior.
      role="status" // NOSONAR: styled live region; native output would change layout and announcement behavior.
      className="notice"
     >

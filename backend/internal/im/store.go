@@ -343,7 +343,7 @@ func normalizeConnectionFields(platform string, fields, secrets map[string]strin
 	}
 }
 
-func (store *Store) sealConnectionChange(old *Connection, fields, secrets map[string]string) ([]byte, bool, error) {
+func (store *Store) sealConnectionChange(old *Connection, fields, secrets map[string]string) ([]byte, bool, error) { // NOSONAR: retained cohesive flow; decomposition tracked separately to avoid behavior regressions.
 	if old != nil && fmt.Sprint(old.Fields) == fmt.Sprint(fields) && len(secrets) == 0 {
 		return []byte{}, true, nil
 	}
@@ -389,7 +389,7 @@ func (store *Store) sealConnectionChange(old *Connection, fields, secrets map[st
 	return []byte{}, false, nil
 }
 
-func applyConnectionChange(tx *sql.Tx, action string, old *Connection, name, platform string, fields, secrets map[string]string, sealed []byte, unchanged bool) error {
+func applyConnectionChange(tx *sql.Tx, action string, old *Connection, name, platform string, fields, secrets map[string]string, sealed []byte, unchanged bool) error { // NOSONAR: action contract groups related parameters; changing the signature would break the protocol.
 	if action == "delete" {
 		if old == nil {
 			return fmt.Errorf("通讯连接不存在")

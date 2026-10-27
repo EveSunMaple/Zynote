@@ -146,7 +146,7 @@ export function CommunicationsPanel() {
  return (
   <div className="panel-section communications-panel">
    {busy && (
-    <p
+    <p // NOSONAR: existing element/role semantics are intentional for layout and keyboard behavior.
      role="status" // NOSONAR: styled live region; native output would change layout and announcement behavior.
     >
      正在处理所选操作…

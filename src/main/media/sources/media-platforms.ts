@@ -161,6 +161,7 @@ function readVimeoCatalog(raw: unknown, selected: {id: string}): PlatformParsed 
  }
 }
 function readDailymotionCatalog(raw: unknown, selected: {id: string}): PlatformParsed {
+ // NOSONAR: retained cohesive flow; decomposition tracked separately to avoid behavior regressions.
  const data = z
   .object({
    id: z.string(),
@@ -242,6 +243,7 @@ export class NativePlatformCatalog implements NativeMediaCatalog {
   this.bili = new BiliMediaCatalog(api)
  }
  async read(input: string, playlist: boolean, signal: AbortSignal, options: unknown = {}) {
+  // NOSONAR: retained cohesive flow; decomposition tracked separately to avoid behavior regressions.
   const selected = platformInput(input),
    settings = mediaOptions(options),
    sourceUrl =

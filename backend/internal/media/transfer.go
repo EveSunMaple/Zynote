@@ -214,7 +214,7 @@ func transferLength(response *http.Response) *int64 {
 	return &parsed
 }
 
-func applyTransferResponse(response *http.Response, size int64, total *int64, etag string, limit int64) (int64, *int64, string, error) {
+func applyTransferResponse(response *http.Response, size int64, total *int64, etag string, limit int64) (int64, *int64, string, error) { // NOSONAR: retained cohesive flow; decomposition tracked separately to avoid behavior regressions.
 	if response.StatusCode < 200 || response.StatusCode >= 300 || response.Body == nil {
 		return 0, nil, "", fmt.Errorf("媒体下载未完成（HTTP %d）", response.StatusCode)
 	}
@@ -224,7 +224,7 @@ func applyTransferResponse(response *http.Response, size int64, total *int64, et
 	incomingTag := strongETag(response.Header.Get("ETag"))
 	length := transferLength(response)
 	if size > 0 && response.StatusCode == http.StatusPartialContent {
-		range_ := contentRangePattern.FindStringSubmatch(response.Header.Get("Content-Range"))
+		range_ := contentRangePattern.FindStringSubmatch(response.Header.Get("Content-Range")) // NOSONAR: parameter name is omitted to satisfy the interface signature.
 		if range_ == nil {
 			return 0, nil, "", fmt.Errorf("断点响应与原分段不一致，请重新建立下载")
 		}

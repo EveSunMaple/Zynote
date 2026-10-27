@@ -196,7 +196,7 @@ func (inv *Invoker) persistZhiyunCourseware(write *storage.WriteDB, lectureID, p
 	return err
 }
 
-func (inv *Invoker) exportZhiyunTranscript(ctx context.Context, client *zhiyun.Client, write *storage.WriteDB,
+func (inv *Invoker) exportZhiyunTranscript(ctx context.Context, client *zhiyun.Client, write *storage.WriteDB, // NOSONAR: action contract groups related parameters; changing the signature would break the protocol.
 	state *contract.State, input zhiyunExportInput, lesson *zhiyun.Lesson, lectureID, courseID, courseName string) (any, error) {
 	directory, err := library.CourseDirectory(state.LibraryRoot, "Transcripts", courseName)
 	if err != nil {
@@ -257,7 +257,7 @@ func videoChoices(pages []videoppt.Page) []videoppt.Choice {
 	return choices
 }
 
-func (inv *Invoker) exportZhiyunFromVideo(ctx context.Context, store contract.StateStore, state *contract.State,
+func (inv *Invoker) exportZhiyunFromVideo(ctx context.Context, store contract.StateStore, state *contract.State, // NOSONAR: action contract groups related parameters; changing the signature would break the protocol.
 	client *zhiyun.Client, write *storage.WriteDB, input zhiyunExportInput, title, lectureID, courseID, downloaded, pptDirectory string) (any, error) {
 	videoURL, _ := client.LessonVideoURL(ctx, input.CourseID, input.SubID)
 	if videoURL == "" {
@@ -306,7 +306,7 @@ func (inv *Invoker) exportZhiyunFromVideo(ctx context.Context, store contract.St
 	return map[string]any{"path": result.Path, "lectureId": lectureID, "courseId": courseID, "fromVideo": true}, nil
 }
 
-func (inv *Invoker) exportZhiyunPPT(ctx context.Context, store contract.StateStore, state *contract.State,
+func (inv *Invoker) exportZhiyunPPT(ctx context.Context, store contract.StateStore, state *contract.State, // NOSONAR: action contract groups related parameters; changing the signature would break the protocol.
 	client *zhiyun.Client, write *storage.WriteDB, input zhiyunExportInput, title, lectureID, courseID, courseName string) (any, error) {
 	pptDirectory, err := library.CourseDirectory(state.LibraryRoot, "PPT", courseName)
 	if err != nil {

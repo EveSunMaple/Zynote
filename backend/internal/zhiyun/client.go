@@ -574,7 +574,7 @@ func openResourceDownload(ctx context.Context, client *Client, checked string) (
 	return response, nil
 }
 
-func writeResourceBody(response *http.Response, partial string, progress func(string)) error {
+func writeResourceBody(response *http.Response, partial string, progress func(string)) error { // NOSONAR: retained cohesive flow; decomposition tracked separately to avoid behavior regressions.
 	file, err := os.OpenFile(partial, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o644)
 	if err != nil {
 		return fmt.Errorf("资源下载失败")

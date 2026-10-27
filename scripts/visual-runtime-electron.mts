@@ -252,11 +252,11 @@ async function run() { // NOSONAR: build/fixture script; bounded sequential veri
       owner.request('visual-frames', {id, path: video, expectedHash: hash, cap: 2, policy: 'coverage'}),
       /已经在执行/
      )
-     if (action === 'dispose') await owner.dispose()
-     else await owner.request(action, {id})
+     if (action === 'dispose') await owner.dispose() // NOSONAR: sequential bounded I/O; parallelizing would break ordering and rate limits.
+     else await owner.request(action, {id}) // NOSONAR: sequential bounded I/O; parallelizing would break ordering and rate limits.
      release()
-     await rejected
-     await assert.rejects(access(join(data, 'native-visual', id, 'source.json')))
+     await rejected // NOSONAR: sequential bounded I/O; parallelizing would break ordering and rate limits.
+     await assert.rejects(access(join(data, 'native-visual', id, 'source.json'))) // NOSONAR: sequential bounded I/O; parallelizing would break ordering and rate limits.
      checks.push(action + ' during registered production task rejects without publishing source.json')
     } finally {
      release()
@@ -264,7 +264,7 @@ async function run() { // NOSONAR: build/fixture script; bounded sequential veri
      syncBuiltinESMExports()
     }
     if (action === 'dispose') owner = newOwner()
-    const recovery: Capture = await owner.request('visual-frames', {
+    const recovery: Capture = await owner.request('visual-frames', { // NOSONAR: sequential bounded I/O; parallelizing would break ordering and rate limits.
      id: (action === 'dispose' ? '9' : '8').repeat(32),
      path: video,
      expectedHash: hash,

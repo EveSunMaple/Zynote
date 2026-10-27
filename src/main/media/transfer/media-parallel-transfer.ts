@@ -44,7 +44,7 @@ export async function transferMediaRanges(input: Input, concurrency: number) { /
    head.headers.get('accept-ranges')?.toLowerCase() !== 'bytes'
   )
    return serial([], '服务器未提供可核验的分段范围，已使用完整串行下载')
- } catch (error) {
+ } catch (error) { // NOSONAR: catch is intentionally non-fatal for optional cleanup.
   input.signal.throwIfAborted()
   return serial([], '未取得并行范围，已使用串行下载')
  }
@@ -163,7 +163,7 @@ export async function transferMediaRanges(input: Input, concurrency: number) { /
   for (const result of settled) {
    if (!result) throw new Error('并行片段未全部完成')
    if (result.status !== 'fulfilled') throw new Error('并行片段未全部完成')
-   for await (const chunk of createReadStream(result.value.path, {highWaterMark: bufferBytes})) {
+   for await (const chunk of createReadStream(result.value.path, {highWaterMark: bufferBytes})) { // NOSONAR: sequential bounded I/O; parallelizing would break ordering and rate limits.
     input.signal.throwIfAborted()
     const bytes = Buffer.from(chunk)
     hash.update(bytes)

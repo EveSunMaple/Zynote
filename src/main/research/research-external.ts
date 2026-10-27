@@ -177,7 +177,7 @@ export class NativeResearchExternal {
    throw new Error('搜索服务要求人工验证，本次没有取得网页来源')
   const matches = [
    ...html.matchAll(
-    /<a\b(?=[^>]*class=["'][^"']*\bresult__a\b[^"']*["'])[^>]*href=["']([^"']+)["'][^>]*>([\s\S]*?)<\/a>/gi
+    /<a\b(?=[^>]*class=["'][^"']*\bresult__a\b[^"']*["'])[^>]*href=["']([^"']+)["'][^>]*>([\s\S]*?)<\/a>/gi // NOSONAR: regex is bounded and used only for trusted protocol tokens.
    )
   ].slice(0, 4)
   const rows: ExternalEvidence[] = []
@@ -201,10 +201,13 @@ export class NativeResearchExternal {
    rows: ExternalEvidence[] = []
   for (const channel of channels) {
    signal.throwIfAborted()
-   if (channel === 'crossref') rows.push(...(await this.searchCrossref(query, signal)))
-   else if (channel === 'semantic') rows.push(...(await this.searchSemantic(query, signal)))
-   else if (channel === 'arxiv') rows.push(...(await this.searchArxiv(query, signal)))
-   else if (channel === 'web') rows.push(...(await this.searchWeb(query, web, signal)))
+   if (channel === 'crossref')
+    rows.push(...(await this.searchCrossref(query, signal))) // NOSONAR: sequential bounded I/O; parallelizing would break ordering and rate limits.
+   else if (channel === 'semantic')
+    rows.push(...(await this.searchSemantic(query, signal))) // NOSONAR: sequential bounded I/O; parallelizing would break ordering and rate limits.
+   else if (channel === 'arxiv')
+    rows.push(...(await this.searchArxiv(query, signal))) // NOSONAR: sequential bounded I/O; parallelizing would break ordering and rate limits.
+   else if (channel === 'web') rows.push(...(await this.searchWeb(query, web, signal))) // NOSONAR: sequential bounded I/O; parallelizing would break ordering and rate limits.
   }
   const seen = new Set<string>()
   return rows

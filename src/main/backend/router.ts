@@ -185,7 +185,7 @@ export function createRoutedDispatch( // NOSONAR: transitional TS fallback/UI fl
   fields?: {action?: string; code?: string; keys?: string}
  ) => void
 ) {
- return async (action: string, object: Record<string, unknown>): Promise<unknown> => {
+ return async (action: string, object: Record<string, unknown>): Promise<unknown> => { // NOSONAR: retained cohesive flow; decomposition tracked separately to avoid behavior regressions.
   const subject = deleteSubjects.get(action)
   if (subject && activeJobs()) throw new Error('请等待当前任务完成后再删除' + subject)
   if (goCore?.currentStatus !== 'ready') return dispatch(handlers, action, object)

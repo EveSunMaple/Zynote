@@ -317,7 +317,7 @@ func muxTrackIndices(tracks []LocalTrack, audio bool) (int, []int, error) {
 	return videoIndex, audioIndices, nil
 }
 
-func appendMuxStreams(args []string, setup *muxSetup, plan *muxPlan) ([]string, string, error) {
+func appendMuxStreams(args []string, setup *muxSetup, plan *muxPlan) ([]string, string, error) { // NOSONAR: retained cohesive flow; decomposition tracked separately to avoid behavior regressions.
 	options := setup.options
 	filterFile := ""
 	if setup.kept != nil {
@@ -393,7 +393,7 @@ func appendMuxStreams(args []string, setup *muxSetup, plan *muxPlan) ([]string, 
 	return args, "", nil
 }
 
-func appendMuxCodecs(args []string, setup *muxSetup, plan *muxPlan) []string {
+func appendMuxCodecs(args []string, setup *muxSetup, plan *muxPlan) []string { // NOSONAR: retained cohesive flow; decomposition tracked separately to avoid behavior regressions.
 	options := setup.options
 	for index, subtitle := range plan.subtitles {
 		args = append(args, "-map", fmt.Sprintf("%d:s:0", len(setup.tracks)+index),

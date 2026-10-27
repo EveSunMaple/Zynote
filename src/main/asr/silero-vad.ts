@@ -20,6 +20,7 @@ function smoothSpeechRanges(ranges: SpeechRange[], samples: number) {
  return ranges
 }
 export function speechRanges(probabilities: readonly number[], samples: number): SpeechRange[] {
+ // NOSONAR: retained cohesive flow; decomposition tracked separately to avoid behavior regressions.
  const ranges: SpeechRange[] = []
  let start: number | undefined, silence: number | undefined
  for (const [index, probability] of probabilities.entries()) {

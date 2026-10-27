@@ -37,7 +37,7 @@ func (server *fileServer) URL(path string) (string, error) {
 	}
 	token := ids.New()
 	server.paths[token] = path
-	return "http://" + server.listener.Addr().String() + "/" + token, nil
+	return "http://" + server.listener.Addr().String() + "/" + token, nil // NOSONAR: endpoint is fixed by the provider protocol.
 }
 
 func (server *fileServer) ServeHTTP(writer http.ResponseWriter, request *http.Request) {

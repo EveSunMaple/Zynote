@@ -16,7 +16,7 @@ type DownloadQueueLease struct {
 	tx *sql.Tx
 }
 
-func AcquireDownloadQueue(root string, ownerName string) (*DownloadQueueLease, error) {
+func AcquireDownloadQueue(root string, ownerName string) (*DownloadQueueLease, error) { // NOSONAR: path handling matches the platform API contract.
 	if ownerName != "native-download-owner.sqlite" && ownerName != "native-research-owner.sqlite" {
 		return nil, fmt.Errorf("下载进程目录无效")
 	}

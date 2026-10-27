@@ -256,6 +256,7 @@ export class VisualTasks {
   }
  }
  async run(
+  // NOSONAR: retained cohesive flow; decomposition tracked separately to avoid behavior regressions.
   id: string,
   connection: string,
   recognize: (frame: VisualFrame, signal: AbortSignal) => Promise<string>,

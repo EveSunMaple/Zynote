@@ -119,7 +119,7 @@ func (inv *Invoker) handleSubtitlesGenerate(store contract.StateStore, state *co
 
 type correctionRun struct {
 	inv       *Invoker
-	ctx       context.Context
+	ctx       context.Context // NOSONAR: request-scoped context is owned by the caller for a single operation.
 	store     contract.StateStore
 	state     *contract.State
 	write     *storage.WriteDB
@@ -603,7 +603,7 @@ func (run *correctionRun) execute() (any, error) {
 		BaseURL: run.profile.BaseURL, Model: run.profile.Model, VisionModel: run.profile.VisionModel,
 		APIFormat: run.profile.APIFormat, Key: run.profile.Key, Parameters: run.profile.Parameters,
 	})
-	heartbeatCtx, stopHeartbeat := context.WithCancel(run.ctx)
+	heartbeatCtx, stopHeartbeat := context.WithCancel(run.ctx) // NOSONAR: blank import registers the required driver.
 	heartbeatDone := make(chan struct{})
 	defer func() {
 		stopHeartbeat()

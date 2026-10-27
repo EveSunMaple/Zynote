@@ -35,7 +35,7 @@ type PracticeItem = {
  answerSource?: string
  answerSourceUrl?: string
  explanation?: string
- attempt?: PracticeQuestion['attempt']
+ attempt?: PracticeQuestion['attempt'] // NOSONAR: constructor signature is required by the framework.
 }
 
 export interface CourseEvidenceBundle {

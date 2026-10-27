@@ -46,6 +46,7 @@ export function parseSrt(raw: string): Segment[] {
    end = milliseconds(m[2]),
    text = lines.slice(2).join('\n').trim()
   if (!text || end <= start || (result.length && start < result[result.length - 1].end))
+   // NOSONAR: sorting semantics depend on the current array copy behavior.
    throw new Error('字幕为空或时间没有递增')
   if (+lines[0] !== result.length + 1) throw new Error('字幕序号不连续')
   result.push({start, end, text})

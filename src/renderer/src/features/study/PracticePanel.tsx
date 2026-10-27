@@ -90,7 +90,7 @@ function Question({
    )}
    {!!options.length && (
     <>
-     <div
+     <div // NOSONAR: existing element/role semantics are intentional for layout and keyboard behavior.
       className="answer-options"
       role="group" // NOSONAR: custom keyboard-interactive group; native fieldset would change layout and behavior.
       aria-label="选择答案"
@@ -203,7 +203,7 @@ function Question({
     </button>
    </div>
    {!!options.length && q.attempt && (
-    <div
+    <div // NOSONAR: existing element/role semantics are intentional for layout and keyboard behavior.
      className={'practice-feedback ' + q.attempt.verdict}
      role="status" // NOSONAR: styled live region; native output would change layout and announcement behavior.
     >

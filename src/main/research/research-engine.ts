@@ -239,6 +239,7 @@ export class NativeResearchEngine {
   })
  }
  private async run(id: string, signal: AbortSignal) {
+  // NOSONAR: retained cohesive flow; decomposition tracked separately to avoid behavior regressions.
   let task = this.read(id)
   try {
    if (task.turns >= 8) throw new Error('研究已达到8次模型请求上限，请新建任务')
@@ -494,6 +495,7 @@ export class NativeResearchEngine {
   return task
  }
  private verifyPublishedSources(task: NativeResearchTask) {
+  // NOSONAR: retained cohesive flow; decomposition tracked separately to avoid behavior regressions.
   this.sources.verify(task.materials)
   this.external.verify(task.external || [])
   if (task.sources.length !== task.materials.length + (task.external || []).length)

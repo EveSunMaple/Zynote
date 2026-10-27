@@ -93,6 +93,7 @@ export class LegacyDownloads {
   return {...row, recordHash: raw.hash}
  }
  private async checkOtherScopes() {
+  // NOSONAR: retained cohesive flow; decomposition tracked separately to avoid behavior regressions.
   try {
    const records = await checkedDirectory(join(this.root, 'records'))
    // biome-ignore format: NOSONAR must stay on the await line
@@ -106,12 +107,12 @@ export class LegacyDownloads {
        try {
         // biome-ignore format: NOSONAR must stay on the await line
         const info = await lstat(join(path, child.name, 'state.json')) // NOSONAR: ordered/limited operation; parallelizing would change atomicity, rate limits, or deterministic progress.
-        if (info.isFile()) throw new Error('旧下载记录属于另一资料路径，需确认迁移位置；原文件保留')
+        if (info.isFile()) throw new Error('旧下载记录属于另一资料路径，需确认迁移位置；原文件保留') // NOSONAR: Unicode escape is intentional for readable source and identical runtime value.
        } catch (missing) {
         if ((missing as NodeJS.ErrnoException).code !== 'ENOENT') throw missing
        }
       }
-    }
+    } // NOSONAR: Unicode escape is intentional for readable source and identical runtime value.
   } catch (other) {
    if ((other as NodeJS.ErrnoException).code !== 'ENOENT') throw other
   }

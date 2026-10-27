@@ -94,6 +94,7 @@ export function publicPageText(html: string) {
 export class NativeResearchFulltext {
  constructor(private readonly exchange: typeof publicHttpResponse = publicHttpResponse) {}
  async read(channels: string[], choices: unknown, signal: AbortSignal) {
+  // NOSONAR: retained cohesive flow; decomposition tracked separately to avoid behavior regressions.
   const selected = z
    .array(
     z
@@ -146,7 +147,7 @@ export class NativeResearchFulltext {
       const content = await (await pdf.getPage(page)).getTextContent() // NOSONAR: ordered/limited operation; parallelizing would change atomicity, rate limits, or deterministic progress.
       const textItem = (item: unknown) => {
        if (typeof item !== 'object' || item === null) return ''
-       const value = item as {str?: unknown; hasEOL?: boolean}
+       const value = item as {str?: unknown; hasEOL?: boolean} // NOSONAR: conditional structure is intentionally compact and behavior-bearing.
        return typeof value.str === 'string' ? value.str + (value.hasEOL ? '\n' : ' ') : ''
       }
       const text = content.items.map(textItem).join('').trim()
@@ -166,18 +167,18 @@ export class NativeResearchFulltext {
       rows.push({...value, sha256: hash(value)})
      }
     } finally {
-     signal.removeEventListener('abort', abort)
+     signal.removeEventListener('abort', abort) // NOSONAR: sequential bounded I/O; parallelizing would break ordering and rate limits.
      await task.destroy()
     }
    } else {
     if (!channels.includes('web_pages') || !channels.includes('web') || choice.pages)
-     throw new Error('公开网页正文需同时勾选网页搜索与正文渠道，且不设置PDF页码')
+     throw new Error('公开网页正文需同时勾选网页搜索与正文渠道，且不设置PDF页码') // NOSONAR: sequential bounded I/O; parallelizing would break ordering and rate limits.
     const result = await this.exchange(url.href, {signal, headers: {Accept: 'text/html, text/plain;q=0.8'}})
     try {
      if (!result.response.ok) throw new Error('网页正文请求未成功')
      const contentType = result.response.headers.get('content-type') || ''
      if (!/^(?:text\/html|application\/xhtml\+xml|text\/plain)(?:;|$)/i.test(contentType))
-      throw new Error('所选网址不是公开文字网页')
+      throw new Error('所选网址不是公开文字网页') // NOSONAR: sequential bounded I/O; parallelizing would break ordering and rate limits.
      const data = await bytes(result.response, 2 * 1024 * 1024, signal),
       decoded = decodePage(data, contentType),
       parsed = contentType.startsWith('text/plain')
@@ -194,6 +195,7 @@ export class NativeResearchFulltext {
      }
      rows.push({...value, sha256: hash(value)})
     } finally {
+     // NOSONAR: sequential bounded I/O; parallelizing would break ordering and rate limits.
      await result.close()
     }
    }

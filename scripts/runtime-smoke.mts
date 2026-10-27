@@ -121,7 +121,7 @@ async function navigation() {
    if (
     // biome-ignore format: NOSONAR must stay on the await line
     JSON.stringify(await dialog.boundingBox()) !== JSON.stringify(original) || // NOSONAR: build/fixture script; serial order and bounded resource use are intentional.
-    JSON.stringify(await dialog.getByRole('complementary', {name: '设置导航'}).boundingBox()) !==
+    JSON.stringify(await dialog.getByRole('complementary', {name: '设置导航'}).boundingBox()) !== // NOSONAR: sequential bounded I/O; parallelizing would break ordering and rate limits.
      JSON.stringify(positions)
    )
     throw new Error('Settings section or navigation moved: ' + name)

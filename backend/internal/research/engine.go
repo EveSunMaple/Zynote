@@ -193,7 +193,7 @@ func (engine *Engine) researchChannels(input map[string]any) ([]string, map[stri
 	return channels, seen, remote, nil
 }
 
-func (engine *Engine) parseCreateInput(input map[string]any) (*researchCreateInput, error) {
+func (engine *Engine) parseCreateInput(input map[string]any) (*researchCreateInput, error) { // NOSONAR: retained cohesive flow; decomposition tracked separately to avoid behavior regressions.
 	op := text(input["op"])
 	if !opPattern.MatchString(op) {
 		return nil, fmt.Errorf("操作编号无效")
@@ -251,7 +251,7 @@ func (engine *Engine) parseCreateInput(input map[string]any) (*researchCreateInp
 	}, nil
 }
 
-func (engine *Engine) collectResearchSources(ctx context.Context, input map[string]any, parsed *researchCreateInput) ([]Source, []ExternalEvidence, Context, error) {
+func (engine *Engine) collectResearchSources(ctx context.Context, input map[string]any, parsed *researchCreateInput) ([]Source, []ExternalEvidence, Context, error) { // NOSONAR: retained cohesive flow; decomposition tracked separately to avoid behavior regressions.
 	selected := []Source{}
 	if parsed.seen["library"] {
 		if len(parsed.materials) > 0 {

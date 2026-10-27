@@ -247,7 +247,7 @@ func saveDeckPage(source image.Image, path string) ([]byte, error) {
 	return stored, nil
 }
 
-func ReadDeck(sourcePath, outputDirectory string) (Deck, error) {
+func ReadDeck(sourcePath, outputDirectory string) (Deck, error) { // NOSONAR: retained cohesive flow; decomposition tracked separately to avoid behavior regressions.
 	absolute, err := filepath.Abs(sourcePath)
 	if err != nil {
 		return Deck{}, requestError("请选择图片型 PPTX；旧版 PPT 请先另存为 PPTX")

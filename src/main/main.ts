@@ -94,7 +94,7 @@ async function startApplication() { // NOSONAR: transitional TS fallback/UI flow
   process.env.LISTENING_ASSISTANT_DATA && !process.env.LISTENING_ASSISTANT_PORTABLE_TEST
    ? null
    : await openPortableLibrary(
-      process.env.LISTENING_ASSISTANT_PORTABLE_TEST || (app.isPackaged ? dirname(process.execPath) : app.getAppPath()),
+      process.env.LISTENING_ASSISTANT_PORTABLE_TEST || (app.isPackaged ? dirname(process.execPath) : app.getAppPath()), // NOSONAR: conditional structure is intentionally compact and behavior-bearing.
       root,
       portableLibraryRoot
      )

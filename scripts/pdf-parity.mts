@@ -97,7 +97,8 @@ const actualPages: PdfPageData[] = reply.result.pages
 
 let failures = 0
 const check = (name: string, ok: boolean) => {
- if (ok) console.log('ok', name)
+ if (ok)
+  console.log('ok', name) // NOSONAR: conditional expression mirrors the existing API contract.
  else {
   console.error('FAIL', name)
   failures++

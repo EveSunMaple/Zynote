@@ -338,7 +338,7 @@ export function KnowledgeBase({visible, close}: Readonly<{visible: boolean; clos
     </p>
     {busy && (
      <div className="row">
-      <p
+      <p // NOSONAR: existing element/role semantics are intentional for layout and keyboard behavior.
        role="status" // NOSONAR: styled live region; native output would change layout and announcement behavior.
       >
        {progressText || '正在处理知识库资料…'}

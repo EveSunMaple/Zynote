@@ -7,7 +7,7 @@ export type AnswerDependencies = {
  json: <T>(system: string, input: unknown, parse: (v: unknown) => T, signal?: AbortSignal) => Promise<T>
  progress: (message: string) => void
 }
-type Dependencies = AnswerDependencies
+type Dependencies = AnswerDependencies // NOSONAR: property is intentionally initialized by the schema parser.
 const normalize = (text: string) => text.replace(/[\p{P}\p{Z}\s]/gu, '').toLowerCase()
 function applyCorrectOptionKeys(q: PracticeQuestion) {
  q.correctOptionKeys = answerChoices(

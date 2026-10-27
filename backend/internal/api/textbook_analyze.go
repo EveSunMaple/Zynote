@@ -753,7 +753,7 @@ func textbookImageRows(page int, size [3]float64, decisions []textbookImageDecis
 	return rows, nil
 }
 
-func (inv *Invoker) analyzeTextbookImages(
+func (inv *Invoker) analyzeTextbookImages( // NOSONAR: action contract groups related parameters; changing the signature would break the protocol.
 	ctx context.Context,
 	store contract.StateStore,
 	state *contract.State,

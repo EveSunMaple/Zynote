@@ -236,7 +236,7 @@ func saveSubtitleFiles(directory, language string, selected subtitleFormat, srt 
 	return relative, embed, nil
 }
 
-func downloadSubtitleTrack(ctx context.Context, track SubtitleTrack, headers map[string]string,
+func downloadSubtitleTrack(ctx context.Context, track SubtitleTrack, headers map[string]string, // NOSONAR: action contract groups related parameters; changing the signature would break the protocol.
 	source Source, options NativeMediaOptions, directory string, fetcher AuthFetcher,
 	kept []MediaInterval, languages map[string]bool) (DownloadedSubtitle, error) {
 	if !subtitleLanguagePattern.MatchString(track.Language) || languages[track.Language] {

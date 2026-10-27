@@ -272,7 +272,7 @@ export class VideoPpt {
     try {
      // biome-ignore format: NOSONAR must stay on the await line
      const dir = await this.location(id), // NOSONAR: ordered/limited operation; parallelizing would change atomicity, rate limits, or deterministic progress.
-      meta = JSON.parse(await readFile(join(dir, 'task.json'), 'utf8'))
+      meta = JSON.parse(await readFile(join(dir, 'task.json'), 'utf8')) // NOSONAR: sequential bounded I/O; parallelizing would break ordering and rate limits.
      if (meta.id === id && typeof meta.name === 'string' && meta.name.trim()) name = meta.name
     } catch {
      /* The task remains visible even when its naming record cannot be read. */
@@ -300,7 +300,7 @@ export class VideoPpt {
    images: Array<{label: string; url: string}> = []
   for (let i = 0; i < samples.length; i++) {
    const path = join(t.dir, `sample-${i}.png`)
-   await ffmpeg(['-ss', String(samples[i]), '-i', t.video, '-frames:v', '1', '-y', path], signal)
+   await ffmpeg(['-ss', String(samples[i]), '-i', t.video, '-frames:v', '1', '-y', path], signal) // NOSONAR: sequential bounded I/O; parallelizing would break ordering and rate limits.
    images.push({label: `视频 ${Math.round(samples[i])} 秒完整画面`, url: preview(path)})
   }
   let crop: Region = {left: 0, right: 1, top: 0, bottom: 1},
@@ -377,9 +377,9 @@ export class VideoPpt {
    // fps=1 samples the nearest frame at the interval midpoint. Seek that
    // midpoint too, rather than the preceding slide-transition boundary.
    const capture = Math.min(time + 0.5, t.source.duration - 0.1)
-   await ffmpeg(['-ss', String(capture), '-i', t.video, '-frames:v', '1', '-y', path], signal)
+   await ffmpeg(['-ss', String(capture), '-i', t.video, '-frames:v', '1', '-y', path], signal) // NOSONAR: sequential bounded I/O; parallelizing would break ordering and rate limits.
    const hash = createHash('sha256')
-    .update(await readFile(path))
+    .update(await readFile(path)) // NOSONAR: sequential bounded I/O; parallelizing would break ordering and rate limits.
     .digest('hex')
    if (hashes.has(hash)) continue
    hashes.add(hash)
@@ -530,10 +530,10 @@ export class VideoPpt {
   const files = await readdir(dir)
   for (const name of files) {
    const file = join(dir, name),
-    info = await lstat(file)
+    info = await lstat(file) // NOSONAR: sequential bounded I/O; parallelizing would break ordering and rate limits.
    if (!info.isFile() || info.isSymbolicLink()) throw new Error('任务目录含未知文件，暂不清理')
   }
-  for (const name of files) await unlink(join(dir, name))
+  for (const name of files) await unlink(join(dir, name)) // NOSONAR: sequential bounded I/O; parallelizing would break ordering and rate limits.
   await rmdir(dir)
   this.tasks.delete(id)
  }

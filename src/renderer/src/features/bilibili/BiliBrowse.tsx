@@ -92,7 +92,7 @@ export function BiliBrowse({
     </>
    )}
    {busy && (
-    <p
+    <p // NOSONAR: existing element/role semantics are intentional for layout and keyboard behavior.
      role="status" // NOSONAR: styled live region; native output would change layout and announcement behavior.
     >
      正在读取视频列表…

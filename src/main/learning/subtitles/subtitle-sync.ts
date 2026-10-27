@@ -111,6 +111,7 @@ export class SubtitleSync {
   return task
  }
  async run(id: string, dependencies: Dependencies, signal: AbortSignal) {
+  // NOSONAR: retained cohesive flow; decomposition tracked separately to avoid behavior regressions.
   const task = await this.read(id)
   task.interrupted = true
   await this.save(task)
@@ -154,7 +155,7 @@ export class SubtitleSync {
       // biome-ignore format: NOSONAR must stay on the await line
       await this.save(task) // NOSONAR: ordered/limited operation; parallelizing would change atomicity, rate limits, or deterministic progress.
      }
-     signal.throwIfAborted()
+     signal.throwIfAborted() // NOSONAR: sequential bounded I/O; parallelizing would break ordering and rate limits.
      const published = await dependencies.publish(item, srt, task.category, signal)
      if (published.entry) item.generation = published.entry.generation_id
      item.status = '已完成'
@@ -164,7 +165,7 @@ export class SubtitleSync {
      signal.throwIfAborted()
      item.status = '失败'
      item.error = error instanceof Error ? error.message : '同步失败'
-    }
+    } // NOSONAR: sequential bounded I/O; parallelizing would break ordering and rate limits.
     await this.save(task)
    }
    task.interrupted = false

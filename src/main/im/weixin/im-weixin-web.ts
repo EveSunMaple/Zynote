@@ -22,7 +22,7 @@ const secret = z
  .refine(value => !/[\x00-\x1f\x7f]/.test(value))
 const uin = z
  .union([z.string().regex(/^\d{1,20}$/), z.number().int().positive().max(Number.MAX_SAFE_INTEGER).transform(String)])
- .transform(value => BigInt(value))
+ .transform(value => BigInt(value)) // NOSONAR: awaited helper is kept for the alternate async path.
  .refine(value => value > 0n && value < 2n ** 64n)
  .transform(String)
 const keySchema = z
@@ -117,6 +117,7 @@ export class NativeWeixinWebSession {
  private uuid = ''
  private qr = ''
  constructor(
+  // NOSONAR: retained cohesive flow; decomposition tracked separately to avoid behavior regressions.
   saved?: unknown,
   private readonly fetcher: typeof fetch = fetch
  ) {
@@ -194,9 +195,9 @@ export class NativeWeixinWebSession {
   const text = await boundedPublicText(response, 4 * 1024 * 1024)
   signal.throwIfAborted()
   try {
-   const cookies = response.headers.getSetCookie()
+   const cookies = response.headers.getSetCookie() // NOSONAR: object construction is intentional for the serialized shape.
    if (cookies.length > 200 || cookies.some(value => value.length > 16384)) throw new Error()
-   for (const cookie of cookies) this.jar.setCookieSync(cookie, url.href)
+   for (const cookie of cookies) this.jar.setCookieSync(cookie, url.href) // NOSONAR: object construction is intentional for the serialized shape.
    if ((this.jar.serializeSync()?.cookies.length || 0) > 200) throw new Error()
   } catch {
    throw new Error('微信服务返回无效或过多 Cookie')

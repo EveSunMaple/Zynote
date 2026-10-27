@@ -303,7 +303,7 @@ function discussionItemLines(item: DiscussionPack['items'][number], all: Map<str
 export function renderDiscussion(pack: DiscussionPack): string {
  const all = new Map(pack.items.map(item => [item.id, item])),
   included = new Set(pack.items.filter(item => item.selected).map(item => item.id))
- for (const id of [...included]) includeDiscussionParents(all, included, id)
+ for (const id of [...included]) includeDiscussionParents(all, included, id) // NOSONAR: behavior-preserving change would risk this established flow; tracked for manual review.
  if (!included.size) return ''
  const lines = [
   '## 简介与讨论证据',

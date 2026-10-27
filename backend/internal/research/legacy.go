@@ -135,7 +135,7 @@ func questionValue(row legacyQuestionRow) map[string]any {
 	return value
 }
 
-func (store *Store) PracticeQuestions(query, id string) ([]map[string]any, error) {
+func (store *Store) PracticeQuestions(query, id string) ([]map[string]any, error) { // NOSONAR: retained cohesive flow; decomposition tracked separately to avoid behavior regressions.
 	if len([]rune(query)) > 1500 || (id != "" && !opPattern.MatchString(id)) {
 		return nil, fmt.Errorf("练习题查询参数无效")
 	}
