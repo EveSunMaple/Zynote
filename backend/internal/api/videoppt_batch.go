@@ -39,6 +39,54 @@ func selectedEpisodes(series mediaBilibili.VideoSeries, pages []int) ([]mediaBil
 	return selected, nil
 }
 
+func (inv *Invoker) transcribeEpisode(ctx context.Context, store contract.StateStore, state *contract.State, episode mediaBilibili.VideoEpisode, courseName string) (string, error) {
+	videoID, page, _, err := biliTaskName(episode.URL, "")
+	if err != nil {
+		return "", err
+	}
+	task, err := videoPptService(state).CreateBlankTask(videoID+"-P"+page+"-字幕转写", map[string]any{
+		"kind": "subtitle", "outputName": videoID + "-P" + page + "-离线转写.srt",
+		"courseName": courseName, "url": episode.URL, "page": atoiSafe(page),
+	})
+	if err != nil {
+		return "", err
+	}
+	if err := inv.downloadBiliVideo(store, ctx, episode.URL, task.Path); err != nil {
+		return "", err
+	}
+	result, err := inv.transcribeVideoTask(ctx, state, task)
+	if err != nil {
+		return "", err
+	}
+	return textValue(result.(map[string]any)["savedPath"]), nil
+}
+
+func (inv *Invoker) batchSubtitleItem(ctx context.Context, store contract.StateStore, state *contract.State, episode mediaBilibili.VideoEpisode, courseName string) map[string]any {
+	item := map[string]any{"page": episode.Page, "title": episode.Title}
+	subtitle, err := mediaBilibili.FetchVideoSubtitles(ctx, nil, episode.URL)
+	if err == nil {
+		path, saveErr := saveVideoSubtitleFile(state, episode.URL, episode.Title, subtitle.SRT, courseName)
+		if saveErr != nil {
+			item["status"] = "失败"
+			item["error"] = saveErr.Error()
+		} else {
+			item["status"] = "已完成"
+			item["path"] = path
+		}
+		return item
+	}
+	inv.videoProgress(fmt.Sprintf("P%d 无可用站内字幕，正在下载并离线转写", episode.Page))
+	path, err := inv.transcribeEpisode(ctx, store, state, episode, courseName)
+	if err != nil {
+		item["status"] = "失败"
+		item["error"] = err.Error()
+		return item
+	}
+	item["status"] = "已完成"
+	item["path"] = path
+	return item
+}
+
 func (inv *Invoker) handleVideoBatchSubtitles(store contract.StateStore, state *contract.State, params json.RawMessage) (any, error) {
 	var input struct {
 		URL      string `json:"url"`
@@ -67,49 +115,55 @@ func (inv *Invoker) handleVideoBatchSubtitles(store contract.StateStore, state *
 				return nil, ctx.Err()
 			}
 			inv.videoProgress(fmt.Sprintf("正在取得所选字幕 %d/%d · P%d %s", index+1, len(selected), episode.Page, episode.Title))
-			item := map[string]any{"page": episode.Page, "title": episode.Title}
-			subtitle, err := mediaBilibili.FetchVideoSubtitles(ctx, nil, episode.URL)
-			if err == nil {
-				path, saveErr := saveVideoSubtitleFile(state, episode.URL, episode.Title, subtitle.SRT, courseName)
-				if saveErr != nil {
-					item["status"] = "失败"
-					item["error"] = saveErr.Error()
-				} else {
-					item["status"] = "已完成"
-					item["path"] = path
-				}
-			} else {
-				inv.videoProgress(fmt.Sprintf("P%d 无可用站内字幕，正在下载并离线转写", episode.Page))
-				videoID, page, _, taskErr := biliTaskName(episode.URL, "")
-				if taskErr != nil {
-					item["status"] = "失败"
-					item["error"] = taskErr.Error()
-					items = append(items, item)
-					continue
-				}
-				task, taskErr := videoPptService(state).CreateBlankTask(videoID+"-P"+page+"-字幕转写", map[string]any{
-					"kind": "subtitle", "outputName": videoID + "-P" + page + "-离线转写.srt",
-					"courseName": courseName, "url": episode.URL, "page": atoiSafe(page),
-				})
-				if taskErr != nil {
-					item["status"] = "失败"
-					item["error"] = taskErr.Error()
-				} else if downloadErr := inv.downloadBiliVideo(store, ctx, episode.URL, task.Path); downloadErr != nil {
-					item["status"] = "失败"
-					item["error"] = downloadErr.Error()
-				} else if result, transcribeErr := inv.transcribeVideoTask(ctx, state, task); transcribeErr != nil {
-					item["status"] = "失败"
-					item["error"] = transcribeErr.Error()
-				} else {
-					values := result.(map[string]any)
-					item["status"] = "已完成"
-					item["path"] = values["savedPath"]
-				}
-			}
-			items = append(items, item)
+			items = append(items, inv.batchSubtitleItem(ctx, store, state, episode, courseName))
 		}
 		return items, nil
 	})
+}
+
+func (inv *Invoker) processBatchEpisode(ctx context.Context, store contract.StateStore, state *contract.State, episode mediaBilibili.VideoEpisode, prompt, courseName string, item map[string]any) error {
+	task, err := videoPptService(state).CreateBlankTask(fmt.Sprintf("P%03d-%s", episode.Page, episode.Title), nil)
+	if err != nil {
+		return err
+	}
+	if err := inv.downloadBiliVideo(store, ctx, episode.URL, task.Path); err != nil {
+		return err
+	}
+	chat, err := inv.videoChat(store, state)
+	if err != nil {
+		return err
+	}
+	prepared, err := videoProcessor(state).Prepare(ctx, task, chat, inv.videoProgress)
+	if err != nil {
+		return err
+	}
+	if prepared.Source.Warning != "" {
+		return contract.InputInvalid(prepared.Source.Warning)
+	}
+	review, err := videoProcessor(state).Extract(ctx, task, prepared.Source.Crop, prompt, chat, inv.videoProgress)
+	if err != nil {
+		return err
+	}
+	if review.Warning != "" {
+		return contract.InputInvalid(review.Warning)
+	}
+	choices := make([]videoppt.Choice, 0, len(review.Pages))
+	for _, page := range review.Pages {
+		choices = append(choices, videoppt.Choice{Page: page.Page, Keep: page.Keep, Crop: page.Crop})
+	}
+	directory, err := library.CourseDirectory(state.LibraryRoot, "PPT", courseName)
+	if err != nil {
+		return err
+	}
+	result, _, err := videoProcessor(state).Export(ctx, task, choices, directory)
+	if err != nil {
+		return err
+	}
+	if err := videoPptService(state).DiscardCompleted(task.ID); err != nil {
+		item["error"] = err.Error()
+	}
+	item["path"] = result.Path
+	return nil
 }
 
 func (inv *Invoker) handleVideoBatch(store contract.StateStore, state *contract.State, params json.RawMessage) (any, error) {
@@ -155,50 +209,7 @@ func (inv *Invoker) handleVideoBatch(store contract.StateStore, state *contract.
 			item["status"] = "处理中"
 			notify()
 			inv.videoProgress(fmt.Sprintf("正在处理所选课程 %d/%d · P%d %s", index+1, len(selected), episode.Page, episode.Title))
-			err := func() error {
-				task, err := videoPptService(state).CreateBlankTask(fmt.Sprintf("P%03d-%s", episode.Page, episode.Title), nil)
-				if err != nil {
-					return err
-				}
-				if err := inv.downloadBiliVideo(store, ctx, episode.URL, task.Path); err != nil {
-					return err
-				}
-				chat, err := inv.videoChat(store, state)
-				if err != nil {
-					return err
-				}
-				prepared, err := videoProcessor(state).Prepare(ctx, task, chat, inv.videoProgress)
-				if err != nil {
-					return err
-				}
-				if prepared.Source.Warning != "" {
-					return contract.InputInvalid(prepared.Source.Warning)
-				}
-				review, err := videoProcessor(state).Extract(ctx, task, prepared.Source.Crop, prompt, chat, inv.videoProgress)
-				if err != nil {
-					return err
-				}
-				if review.Warning != "" {
-					return contract.InputInvalid(review.Warning)
-				}
-				choices := make([]videoppt.Choice, 0, len(review.Pages))
-				for _, page := range review.Pages {
-					choices = append(choices, videoppt.Choice{Page: page.Page, Keep: page.Keep, Crop: page.Crop})
-				}
-				directory, err := library.CourseDirectory(state.LibraryRoot, "PPT", courseName)
-				if err != nil {
-					return err
-				}
-				result, _, err := videoProcessor(state).Export(ctx, task, choices, directory)
-				if err != nil {
-					return err
-				}
-				if err := videoPptService(state).DiscardCompleted(task.ID); err != nil {
-					item["error"] = err.Error()
-				}
-				item["path"] = result.Path
-				return nil
-			}()
+			err := inv.processBatchEpisode(ctx, store, state, episode, prompt, courseName, item)
 			if err != nil {
 				if ctx.Err() != nil {
 					return nil, ctx.Err()

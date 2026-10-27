@@ -15,14 +15,20 @@ import (
 
 const msgQuestionsInvalid = "题目结果无效"
 
-func (inv *Invoker) handleQuestionsSplit(store contract.StateStore, state *contract.State, params json.RawMessage) (any, error) {
-	var input struct {
-		CourseID string `json:"courseId"`
-		ID       string `json:"id"`
-	}
+type questionsSplitInput struct {
+	CourseID string `json:"courseId"`
+	ID       string `json:"id"`
+}
+
+func parseQuestionsSplitInput(params json.RawMessage) (questionsSplitInput, error) {
+	var input questionsSplitInput
 	if err := json.Unmarshal(params, &input); err != nil || !config.IsUUID(input.CourseID) || !config.IsUUID(input.ID) {
-		return nil, contract.InputInvalid("题目资料标识无效")
+		return input, contract.InputInvalid("题目资料标识无效")
 	}
+	return input, nil
+}
+
+func splitExamFile(state *contract.State, input questionsSplitInput) (map[string]any, error) {
 	db, err := openReadOnlyDB(state)
 	if err != nil {
 		return nil, err
@@ -37,6 +43,63 @@ func (inv *Invoker) handleQuestionsSplit(store contract.StateStore, state *contr
 	}
 	if truthy(file["needs_ocr"]) {
 		return nil, contract.InputInvalid("扫描件需 OCR，当前版本不支持")
+	}
+	return file, nil
+}
+
+func splitQuestionRows(ctx context.Context, inv *Invoker, client *ai.Client, prompt string, parts []string, filename, courseID string) ([]map[string]any, error) {
+	result := []map[string]any{}
+	for index, part := range parts {
+		inv.emit(map[string]any{"kind": "progress", "data": map[string]any{
+			"stage": "拆题", "message": "正在拆分 " + filename + "（" + itoa(index+1) + "/" + itoa(len(parts)) + "）",
+		}})
+		raw, err := client.JSON(ctx, prompt, map[string]any{"sourceFile": filename, "text": part}, func(value []byte) error {
+			var rows []map[string]any
+			if err := json.Unmarshal(value, &rows); err != nil {
+				return contract.InputInvalid(msgQuestionsInvalid)
+			}
+			for _, row := range rows {
+				if err := validateSplitQuestion(row); err != nil {
+					return err
+				}
+			}
+			return nil
+		})
+		if err != nil {
+			return nil, err
+		}
+		var rows []map[string]any
+		_ = json.Unmarshal(raw, &rows)
+		for _, row := range rows {
+			question := map[string]any{
+				"type": row["type"], "stem": row["stem"], "knowledgePoints": row["knowledgePoints"],
+			}
+			if year, ok := row["year"].(string); ok {
+				question["year"] = year
+			}
+			if answer, ok := row["answer"].(string); ok {
+				question["answer"] = answer
+			}
+			question["id"] = ids.New()
+			question["courseId"] = courseID
+			question["sourceFile"] = filename
+			result = append(result, question)
+		}
+	}
+	if len(result) == 0 {
+		return nil, contract.InputInvalid("未识别出题目，已保留原有题库")
+	}
+	return result, nil
+}
+
+func (inv *Invoker) handleQuestionsSplit(store contract.StateStore, state *contract.State, params json.RawMessage) (any, error) {
+	input, err := parseQuestionsSplitInput(params)
+	if err != nil {
+		return nil, err
+	}
+	file, err := splitExamFile(state, input)
+	if err != nil {
+		return nil, err
 	}
 	prompt, err := config.Prompt(state.DataRoot, state.PromptsRoot, "past-exam")
 	if err != nil {
@@ -56,46 +119,9 @@ func (inv *Invoker) handleQuestionsSplit(store contract.StateStore, state *contr
 		APIFormat: profile.APIFormat, Key: profile.Key, Parameters: profile.Parameters,
 	})
 	return inv.runJob("exam:"+input.ID, func(ctx context.Context) (any, error) {
-		result := []map[string]any{}
-		for index, part := range parts {
-			inv.emit(map[string]any{"kind": "progress", "data": map[string]any{
-				"stage": "拆题", "message": "正在拆分 " + filename + "（" + itoa(index+1) + "/" + itoa(len(parts)) + "）",
-			}})
-			raw, err := client.JSON(ctx, prompt, map[string]any{"sourceFile": filename, "text": part}, func(value []byte) error {
-				var rows []map[string]any
-				if err := json.Unmarshal(value, &rows); err != nil {
-					return contract.InputInvalid(msgQuestionsInvalid)
-				}
-				for _, row := range rows {
-					if err := validateSplitQuestion(row); err != nil {
-						return err
-					}
-				}
-				return nil
-			})
-			if err != nil {
-				return nil, err
-			}
-			var rows []map[string]any
-			_ = json.Unmarshal(raw, &rows)
-			for _, row := range rows {
-				question := map[string]any{
-					"type": row["type"], "stem": row["stem"], "knowledgePoints": row["knowledgePoints"],
-				}
-				if year, ok := row["year"].(string); ok {
-					question["year"] = year
-				}
-				if answer, ok := row["answer"].(string); ok {
-					question["answer"] = answer
-				}
-				question["id"] = ids.New()
-				question["courseId"] = input.CourseID
-				question["sourceFile"] = filename
-				result = append(result, question)
-			}
-		}
-		if len(result) == 0 {
-			return nil, contract.InputInvalid("未识别出题目，已保留原有题库")
+		result, err := splitQuestionRows(ctx, inv, client, prompt, parts, filename, input.CourseID)
+		if err != nil {
+			return nil, err
 		}
 		write, err := openWriteDB(state)
 		if err != nil {

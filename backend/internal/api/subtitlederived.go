@@ -101,63 +101,92 @@ func (inv *Invoker) handleSubtitleDerivedResume(store contract.StateStore, state
 	})
 }
 
-func (inv *Invoker) handleSubtitleDerivedStart(store contract.StateStore, state *contract.State, params json.RawMessage) (any, error) {
-	var input struct {
-		ID    string   `json:"id"`
-		URLs  []string `json:"urls"`
-		Modes []string `json:"modes"`
-	}
+type subtitleDerivedInput struct {
+	ID    string   `json:"id"`
+	URLs  []string `json:"urls"`
+	Modes []string `json:"modes"`
+}
+
+func parseSubtitleDerivedInput(params json.RawMessage) (subtitleDerivedInput, error) {
+	var input subtitleDerivedInput
 	if err := json.Unmarshal(params, &input); err != nil || !config.IsUUID(input.ID) ||
 		len(input.URLs) < 1 || len(input.URLs) > 1000 || len(input.Modes) < 1 || len(input.Modes) > 4 {
-		return nil, contract.InputInvalid("笔记任务参数无效")
+		return input, contract.InputInvalid("笔记任务参数无效")
 	}
-	return inv.runJob("批量课程笔记", func(ctx context.Context) (any, error) {
-		tasks, err := subtitleSyncService(state).List()
+	return input, nil
+}
+
+func findSubtitleSyncTask(state *contract.State, id string) (*subtitlesync.Task, error) {
+	tasks, err := subtitleSyncService(state).List()
+	if err != nil {
+		return nil, contract.Unavailable(err.Error())
+	}
+	for index := range tasks {
+		if tasks[index].ID == id {
+			return &tasks[index], nil
+		}
+	}
+	return nil, contract.InputInvalid("同步记录不存在")
+}
+
+func derivedLocators(urls []string) ([]string, error) {
+	locators := []string{}
+	seen := map[string]bool{}
+	for _, value := range urls {
+		locator, err := subtitlesync.Locator(value)
 		if err != nil {
-			return nil, contract.Unavailable(err.Error())
+			return nil, err
 		}
-		var syncTask *subtitlesync.Task
-		for index := range tasks {
-			if tasks[index].ID == input.ID {
-				syncTask = &tasks[index]
-				break
-			}
+		if seen[locator] {
+			return nil, contract.InputInvalid("不要重复选择分集")
 		}
-		if syncTask == nil {
-			return nil, contract.InputInvalid("同步记录不存在")
-		}
-		locators := []string{}
-		seen := map[string]bool{}
-		for _, value := range input.URLs {
-			locator, err := subtitlesync.Locator(value)
-			if err != nil {
-				return nil, err
+		seen[locator] = true
+		locators = append(locators, locator)
+	}
+	return locators, nil
+}
+
+func derivedSources(task *subtitlesync.Task, locators []string) ([]subtitlederived.Source, error) {
+	sources := []subtitlederived.Source{}
+	for _, locator := range locators {
+		found := false
+		for _, item := range task.Items {
+			if item.URL != locator {
+				continue
 			}
-			if seen[locator] {
-				return nil, contract.InputInvalid("不要重复选择分集")
-			}
-			seen[locator] = true
-			locators = append(locators, locator)
-		}
-		sources := []subtitlederived.Source{}
-		for _, locator := range locators {
-			found := false
-			for _, item := range syncTask.Items {
-				if item.URL != locator {
-					continue
-				}
-				if item.Status != "已完成" || item.Path == "" || item.Hash == "" || item.Generation == nil {
-					return nil, contract.InputInvalid("请选择已成功同步的分集")
-				}
-				sources = append(sources, subtitlederived.Source{
-					URL: locator, Title: item.Title, Path: item.Path, Hash: item.Hash, Generation: *item.Generation,
-				})
-				found = true
-				break
-			}
-			if !found {
+			if item.Status != "已完成" || item.Path == "" || item.Hash == "" || item.Generation == nil {
 				return nil, contract.InputInvalid("请选择已成功同步的分集")
 			}
+			sources = append(sources, subtitlederived.Source{
+				URL: locator, Title: item.Title, Path: item.Path, Hash: item.Hash, Generation: *item.Generation,
+			})
+			found = true
+			break
+		}
+		if !found {
+			return nil, contract.InputInvalid("请选择已成功同步的分集")
+		}
+	}
+	return sources, nil
+}
+
+func (inv *Invoker) handleSubtitleDerivedStart(store contract.StateStore, state *contract.State, params json.RawMessage) (any, error) {
+	input, err := parseSubtitleDerivedInput(params)
+	if err != nil {
+		return nil, err
+	}
+	return inv.runJob("批量课程笔记", func(ctx context.Context) (any, error) {
+		syncTask, err := findSubtitleSyncTask(state, input.ID)
+		if err != nil {
+			return nil, err
+		}
+		locators, err := derivedLocators(input.URLs)
+		if err != nil {
+			return nil, err
+		}
+		sources, err := derivedSources(syncTask, locators)
+		if err != nil {
+			return nil, err
 		}
 		task, err := subtitleDerivedService(state).Create(sources, input.Modes, syncTask.CourseName)
 		if err != nil {

@@ -47,58 +47,45 @@ func (inv *Invoker) handleNotesGenerate(store contract.StateStore, state *contra
 	})
 }
 
-func (inv *Invoker) generateNotes(
-	ctx context.Context,
-	store contract.StateStore,
-	state *contract.State,
-	lectureID string,
-) (any, error) {
-	detailAny, err := inv.lectureDetailOf(state, lectureID)
-	if err != nil {
-		return nil, err
-	}
-	detail := detailAny.(map[string]any)
-	if _, exists := detail["correction"]; exists {
-		return nil, contract.InputInvalid("字幕仍在校订，请完成剩余批次后生成笔记")
-	}
-	segmentsRaw, _ := detail["segments"].([]any)
-	if len(segmentsRaw) == 0 {
-		return nil, contract.InputInvalid("请先生成或导入完整字幕")
-	}
-	lecture, _ := detail["lecture"].(map[string]any)
+func notesTranscriptLines(segments []any) []string {
 	lines := []string{}
-	for _, item := range segmentsRaw {
+	for _, item := range segments {
 		segment, _ := item.(map[string]any)
 		if segment == nil {
 			continue
 		}
 		lines = append(lines, "["+transcriptClock(numberValue(segment["start"]))+"] "+textValue(segment["text"]))
 	}
-	coursewareText := ""
+	return lines
+}
+
+func (inv *Invoker) notesCourseware(lecture map[string]any, lectureID string) (string, []string) {
+	pptText := textValue(lecture["ppt_text"])
+	if pptText == "" {
+		return "", nil
+	}
+	var identity *courseware.SourceIdentity
+	if pptPath := textValue(lecture["ppt_path"]); pptPath != "" {
+		if current, readErr := courseware.ReadSourceIdentity(pptPath); readErr == nil {
+			identity = &current
+		}
+	}
+	parsed := courseware.ParseCacheWithIdentity(pptText, identity)
+	coursewareText := parsed.Text
 	limitations := []string{}
-	if pptText := textValue(lecture["ppt_text"]); pptText != "" {
-		var identity *courseware.SourceIdentity
-		if pptPath := textValue(lecture["ppt_path"]); pptPath != "" {
-			if current, readErr := courseware.ReadSourceIdentity(pptPath); readErr == nil {
-				identity = &current
+	const marker = "[课件提取限制]"
+	if index := strings.LastIndex(coursewareText, marker); index >= 0 {
+		for _, line := range strings.Split(coursewareText[index+len(marker):], "\n") {
+			trimmed := strings.TrimSpace(line)
+			if strings.HasPrefix(trimmed, "- ") {
+				limitations = append(limitations, strings.TrimSpace(trimmed[2:]))
 			}
 		}
-		parsed := courseware.ParseCacheWithIdentity(pptText, identity)
-		coursewareText = parsed.Text
-		const marker = "[课件提取限制]"
-		if index := strings.LastIndex(coursewareText, marker); index >= 0 {
-			for _, line := range strings.Split(coursewareText[index+len(marker):], "\n") {
-				trimmed := strings.TrimSpace(line)
-				if strings.HasPrefix(trimmed, "- ") {
-					limitations = append(limitations, strings.TrimSpace(trimmed[2:]))
-				}
-			}
-			coursewareText = strings.TrimSpace(coursewareText[:index])
-		}
-		limitations = append(limitations, courseware.Limitations(parsed)...)
-		if strings.HasPrefix(coursewareText, "[扫描 PDF：") || strings.HasPrefix(coursewareText, "[扫描 PDF:") {
-			limitations = append(limitations, "课件为扫描 PDF，未执行 OCR。")
-		}
+		coursewareText = strings.TrimSpace(coursewareText[:index])
+	}
+	limitations = append(limitations, courseware.Limitations(parsed)...)
+	if strings.HasPrefix(coursewareText, "[扫描 PDF：") || strings.HasPrefix(coursewareText, "[扫描 PDF:") {
+		limitations = append(limitations, "课件为扫描 PDF，未执行 OCR。")
 	}
 	if len([]rune(coursewareText)) > 12000 {
 		coursewareText = string([]rune(coursewareText)[:12000])
@@ -114,23 +101,10 @@ func (inv *Invoker) generateNotes(
 			"lectureId": lectureID, "stage": "课件提取限制", "message": strings.Join(limitations, "；"),
 		}})
 	}
-	prompt, err := config.Prompt(state.DataRoot, state.PromptsRoot, "notes")
-	if err != nil {
-		return nil, err
-	}
-	if prompt == "" {
-		return nil, contract.Unavailable("笔记提示词未配置")
-	}
-	profile, err := config.ActiveProfile(state.DataRoot, store.Reverse())
-	if err != nil {
-		return nil, err
-	}
-	client := ai.New(ai.Profile{
-		BaseURL: profile.BaseURL, Model: profile.Model, VisionModel: profile.VisionModel,
-		APIFormat: profile.APIFormat, Key: profile.Key, Parameters: profile.Parameters,
-	})
-	full := strings.Join(lines, "\n")
-	parts := courseware.Chunks(full, 16000)
+	return coursewareText, limitations
+}
+
+func (inv *Invoker) notesBatches(ctx context.Context, client *ai.Client, prompt string, parts []string, coursewareText string, limitations []string, lectureID string) (map[string]any, error) {
 	result := map[string]any{"keyPoints": []any{}, "notTested": []any{}, "uncertain": []any{}}
 	for index, part := range parts {
 		message := fmt.Sprintf("提取教师明确表态 %d/%d", index+1, len(parts))
@@ -163,16 +137,60 @@ func (inv *Invoker) generateNotes(
 	for _, key := range []string{"keyPoints", "notTested", "uncertain"} {
 		result[key] = dedupeNotesItems(result[key].([]any))
 	}
+	return result, nil
+}
+
+func verifyNotesGroup(result map[string]any, key, group string, segments []notesSegment) {
+	for _, item := range result[key].([]any) {
+		verifyNotesPoint(item.(map[string]any), group, segments)
+	}
+}
+
+func (inv *Invoker) generateNotes(
+	ctx context.Context,
+	store contract.StateStore,
+	state *contract.State,
+	lectureID string,
+) (any, error) {
+	detailAny, err := inv.lectureDetailOf(state, lectureID)
+	if err != nil {
+		return nil, err
+	}
+	detail := detailAny.(map[string]any)
+	if _, exists := detail["correction"]; exists {
+		return nil, contract.InputInvalid("字幕仍在校订，请完成剩余批次后生成笔记")
+	}
+	segmentsRaw, _ := detail["segments"].([]any)
+	if len(segmentsRaw) == 0 {
+		return nil, contract.InputInvalid("请先生成或导入完整字幕")
+	}
+	lecture, _ := detail["lecture"].(map[string]any)
+	lines := notesTranscriptLines(segmentsRaw)
+	coursewareText, limitations := inv.notesCourseware(lecture, lectureID)
+	prompt, err := config.Prompt(state.DataRoot, state.PromptsRoot, "notes")
+	if err != nil {
+		return nil, err
+	}
+	if prompt == "" {
+		return nil, contract.Unavailable("笔记提示词未配置")
+	}
+	profile, err := config.ActiveProfile(state.DataRoot, store.Reverse())
+	if err != nil {
+		return nil, err
+	}
+	client := ai.New(ai.Profile{
+		BaseURL: profile.BaseURL, Model: profile.Model, VisionModel: profile.VisionModel,
+		APIFormat: profile.APIFormat, Key: profile.Key, Parameters: profile.Parameters,
+	})
+	parts := courseware.Chunks(strings.Join(lines, "\n"), 16000)
+	result, err := inv.notesBatches(ctx, client, prompt, parts, coursewareText, limitations, lectureID)
+	if err != nil {
+		return nil, err
+	}
 	segments := notesSegments(detail)
-	for _, item := range result["keyPoints"].([]any) {
-		verifyNotesPoint(item.(map[string]any), "key", segments)
-	}
-	for _, item := range result["notTested"].([]any) {
-		verifyNotesPoint(item.(map[string]any), "not", segments)
-	}
-	for _, item := range result["uncertain"].([]any) {
-		verifyNotesPoint(item.(map[string]any), "uncertain", segments)
-	}
+	verifyNotesGroup(result, "keyPoints", "key", segments)
+	verifyNotesGroup(result, "notTested", "not", segments)
+	verifyNotesGroup(result, "uncertain", "uncertain", segments)
 	return inv.persistNotes(state, lectureID, result)
 }
 

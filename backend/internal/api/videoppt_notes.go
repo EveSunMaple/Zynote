@@ -101,17 +101,38 @@ func minNoteInt(left, right int) int {
 	return right
 }
 
-func notesDocx(text string) ([]byte, error) {
-	var buffer bytes.Buffer
-	archive := zip.NewWriter(&buffer)
-	write := func(name, content string) error {
+func docxParagraph(line string) string {
+	clean := regexpHeading.ReplaceAllString(line, "")
+	clean = strings.ReplaceAll(clean, "**", "")
+	bold := strings.HasPrefix(line, "#")
+	size := "22"
+	if strings.HasPrefix(line, "# ") {
+		size = "32"
+	}
+	properties := `<w:pPr><w:spacing w:after="120"/></w:pPr>`
+	runProperties := `<w:sz w:val="` + size + `"/>`
+	if bold {
+		runProperties = `<w:b/>` + runProperties
+	}
+	return `<w:p>` + properties + `<w:r><w:rPr>` + runProperties + `</w:rPr><w:t xml:space="preserve">` + escapeXML(clean) + `</w:t></w:r></w:p>`
+}
+
+func writeDocxFiles(archive *zip.Writer, files map[string]string) error {
+	for name, content := range files {
 		entry, err := archive.Create(name)
 		if err != nil {
 			return err
 		}
-		_, err = entry.Write([]byte(content))
-		return err
+		if _, err := entry.Write([]byte(content)); err != nil {
+			return err
+		}
 	}
+	return nil
+}
+
+func notesDocx(text string) ([]byte, error) {
+	var buffer bytes.Buffer
+	archive := zip.NewWriter(&buffer)
 	files := map[string]string{
 		"[Content_Types].xml":          `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/word/document.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/></Types>`,
 		"_rels/.rels":                  `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="word/document.xml"/></Relationships>`,
@@ -119,26 +140,12 @@ func notesDocx(text string) ([]byte, error) {
 	}
 	paragraphs := []string{}
 	for _, line := range strings.Split(text, "\n") {
-		clean := regexpHeading.ReplaceAllString(line, "")
-		clean = strings.ReplaceAll(clean, "**", "")
-		bold := strings.HasPrefix(line, "#")
-		size := "22"
-		if strings.HasPrefix(line, "# ") {
-			size = "32"
-		}
-		properties := `<w:pPr><w:spacing w:after="120"/></w:pPr>`
-		runProperties := `<w:sz w:val="` + size + `"/>`
-		if bold {
-			runProperties = `<w:b/>` + runProperties
-		}
-		paragraphs = append(paragraphs, `<w:p>`+properties+`<w:r><w:rPr>`+runProperties+`</w:rPr><w:t xml:space="preserve">`+escapeXML(clean)+`</w:t></w:r></w:p>`)
+		paragraphs = append(paragraphs, docxParagraph(line))
 	}
 	files["word/document.xml"] = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:body>` + strings.Join(paragraphs, "") + `<w:sectPr><w:pgSz w:w="11906" w:h="16838"/><w:pgMar w:top="1134" w:right="1134" w:bottom="1134" w:left="1134"/></w:sectPr></w:body></w:document>`
-	for name, content := range files {
-		if err := write(name, content); err != nil {
-			archive.Close()
-			return nil, err
-		}
+	if err := writeDocxFiles(archive, files); err != nil {
+		archive.Close()
+		return nil, err
 	}
 	if err := archive.Close(); err != nil {
 		return nil, err

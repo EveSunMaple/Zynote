@@ -258,6 +258,34 @@ func normalizeCitation(value string) string {
 	return strings.Join(strings.Fields(value), "")
 }
 
+func knowledgeSource(hits []map[string]any, id string) map[string]any {
+	for _, hit := range hits {
+		if textValue(hit["evidence_id"]) == id {
+			return hit
+		}
+	}
+	return nil
+}
+
+func validKnowledgeCitation(citation knowledgeAnswerCitation, hits []map[string]any) bool {
+	source := knowledgeSource(hits, citation.ID)
+	quote := normalizeCitation(citation.Quote)
+	return source != nil && len([]rune(quote)) >= 6 &&
+		strings.Contains(normalizeCitation(textValue(source["content"])), quote)
+}
+
+func validKnowledgeParagraph(paragraph knowledgeAnswerParagraph, hits []map[string]any) bool {
+	if strings.TrimSpace(paragraph.Text) == "" || len(paragraph.Citations) == 0 {
+		return false
+	}
+	for _, citation := range paragraph.Citations {
+		if !validKnowledgeCitation(citation, hits) {
+			return false
+		}
+	}
+	return true
+}
+
 func validateKnowledgeAnswer(raw []byte, hits []map[string]any) (knowledgeAnswer, error) {
 	var answer knowledgeAnswer
 	if err := json.Unmarshal(raw, &answer); err != nil {
@@ -267,22 +295,8 @@ func validateKnowledgeAnswer(raw []byte, hits []map[string]any) (knowledgeAnswer
 		return knowledgeAnswer{}, contract.InputInvalid(msgCitationUnverified)
 	}
 	for _, paragraph := range answer.Paragraphs {
-		if strings.TrimSpace(paragraph.Text) == "" || len(paragraph.Citations) == 0 {
+		if !validKnowledgeParagraph(paragraph, hits) {
 			return knowledgeAnswer{}, contract.InputInvalid(msgCitationUnverified)
-		}
-		for _, citation := range paragraph.Citations {
-			var source map[string]any
-			for _, hit := range hits {
-				if textValue(hit["evidence_id"]) == citation.ID {
-					source = hit
-					break
-				}
-			}
-			quote := normalizeCitation(citation.Quote)
-			if source == nil || len([]rune(quote)) < 6 ||
-				!strings.Contains(normalizeCitation(textValue(source["content"])), quote) {
-				return knowledgeAnswer{}, contract.InputInvalid(msgCitationUnverified)
-			}
 		}
 	}
 	return answer, nil

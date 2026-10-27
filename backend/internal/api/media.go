@@ -334,6 +334,57 @@ func (inv *Invoker) downloadServiceFor(state *contract.State, reverse contract.R
 	return inv.download, nil
 }
 
+func existingMediaJob(service *media.MediaService, fresh media.Source, options media.NativeMediaOptions) (any, bool) {
+	jobs, err := service.Jobs.List()
+	if err != nil {
+		return nil, false
+	}
+	for _, row := range jobs {
+		if row.State != "completed" || row.Identity != fresh.Identity ||
+			row.SourceURL != fresh.Catalog.URL ||
+			!reflect.DeepEqual(row.Recipe, media.OptionsMap(options)) {
+			continue
+		}
+		if _, fileErr := service.Jobs.File(row.ID); fileErr == nil {
+			return service.Project(row), true
+		}
+	}
+	return nil, false
+}
+
+func existingLegacyDownload(service *media.MediaService, fresh media.Source, options media.NativeMediaOptions) (any, bool, error) {
+	legacy := download.NewLegacyDownloads(service.Root)
+	legacyRows, err := legacy.List()
+	if err != nil {
+		return nil, false, err
+	}
+	for _, row := range legacyRows {
+		if row["state"] != "completed" {
+			continue
+		}
+		id, _ := row["id"].(string)
+		recipe, readErr := legacy.Recipe(id)
+		if readErr != nil || recipe.Identity != fresh.Identity ||
+			!reflect.DeepEqual(media.OptionsMap(recipe.Options), media.OptionsMap(options)) {
+			continue
+		}
+		if _, fileErr := legacy.File(id); fileErr == nil {
+			return row, true, nil
+		}
+	}
+	return nil, false, nil
+}
+
+func existingDownload(service *media.MediaService, fresh media.Source, options media.NativeMediaOptions) (any, bool, error) {
+	if !options.SkipExisting {
+		return nil, false, nil
+	}
+	if projection, ok := existingMediaJob(service, fresh, options); ok {
+		return projection, true, nil
+	}
+	return existingLegacyDownload(service, fresh, options)
+}
+
 func (inv *Invoker) handleMediaCreate(store contract.StateStore, state *contract.State, params json.RawMessage) (any, error) {
 	var input struct {
 		Token   string `json:"token"`
@@ -364,38 +415,10 @@ func (inv *Invoker) handleMediaCreate(store contract.StateStore, state *contract
 	if err != nil {
 		return nil, err
 	}
-	if options.SkipExisting {
-		jobs, err := service.Jobs.List()
-		if err == nil {
-			for _, row := range jobs {
-				if row.State != "completed" || row.Identity != fresh.Identity ||
-					row.SourceURL != fresh.Catalog.URL ||
-					!reflect.DeepEqual(row.Recipe, media.OptionsMap(options)) {
-					continue
-				}
-				if _, fileErr := service.Jobs.File(row.ID); fileErr == nil {
-					return service.Project(row), nil
-				}
-			}
-		}
-		legacyRows, err := download.NewLegacyDownloads(service.Root).List()
-		if err != nil {
-			return nil, err
-		}
-		for _, row := range legacyRows {
-			if row["state"] != "completed" {
-				continue
-			}
-			id, _ := row["id"].(string)
-			recipe, readErr := download.NewLegacyDownloads(service.Root).Recipe(id)
-			if readErr != nil || recipe.Identity != fresh.Identity ||
-				!reflect.DeepEqual(media.OptionsMap(recipe.Options), media.OptionsMap(options)) {
-				continue
-			}
-			if _, fileErr := download.NewLegacyDownloads(service.Root).File(id); fileErr == nil {
-				return row, nil
-			}
-		}
+	if projection, found, err := existingDownload(service, fresh, options); err != nil {
+		return nil, err
+	} else if found {
+		return projection, nil
 	}
 	job, err := service.Jobs.Create(fresh.Identity, fresh.Catalog.URL, fresh.Catalog.Title, options, nil)
 	if err != nil {

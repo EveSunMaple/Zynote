@@ -14,16 +14,28 @@ const msgMethodHeaderUnsupported = "方法文件头部格式不支持"
 var skillNamePattern = regexp.MustCompile(`^[a-z0-9]+(?:-[a-z0-9]+)*$`)
 var skillFrontMatter = regexp.MustCompile(`(?s)^\x{FEFF}?---\r?\n(.*?)\r?\n---\r?\n(.+)$`)
 
-func parseSkillMarkdown(text string) (map[string]any, error) {
-	if len(text) > 12000 {
-		return nil, contract.InputInvalid("方法文件超过 12000 字，请精简后导入")
+func parseSkillValue(value string) (string, error) {
+	if strings.HasPrefix(value, `"`) {
+		var decoded string
+		if json.Unmarshal([]byte(value), &decoded) != nil {
+			return "", contract.InputInvalid("方法头部引号无效")
+		}
+		return decoded, nil
 	}
-	match := skillFrontMatter.FindStringSubmatch(text)
-	if match == nil {
-		return nil, contract.InputInvalid("方法文件需包含 name 和 description 的头部及正文")
+	if strings.HasPrefix(value, "'") && strings.HasSuffix(value, "'") && len(value) >= 2 {
+		return strings.ReplaceAll(value[1:len(value)-1], "''", "'"), nil
 	}
+	for _, prefix := range []string{"!", "&", "*", "[", "{", ">", "|"} {
+		if strings.HasPrefix(value, prefix) {
+			return "", contract.InputInvalid("方法头部仅支持普通文本")
+		}
+	}
+	return value, nil
+}
+
+func parseSkillFields(raw string) (map[string]string, error) {
 	fields := map[string]string{}
-	for _, line := range strings.Split(match[1], "\n") {
+	for _, line := range strings.Split(raw, "\n") {
 		line = strings.TrimSpace(line)
 		if line == "" {
 			continue
@@ -39,22 +51,35 @@ func parseSkillMarkdown(text string) (map[string]any, error) {
 		if _, exists := fields[key]; exists {
 			return nil, contract.InputInvalid(msgMethodHeaderUnsupported)
 		}
-		value := strings.TrimSpace(line[index+1:])
-		if strings.HasPrefix(value, `"`) {
-			var decoded string
-			if json.Unmarshal([]byte(value), &decoded) != nil {
-				return nil, contract.InputInvalid("方法头部引号无效")
-			}
-			value = decoded
-		} else if strings.HasPrefix(value, "'") && strings.HasSuffix(value, "'") && len(value) >= 2 {
-			value = strings.ReplaceAll(value[1:len(value)-1], "''", "'")
-		} else if strings.HasPrefix(value, "!") || strings.HasPrefix(value, "&") ||
-			strings.HasPrefix(value, "*") || strings.HasPrefix(value, "[") ||
-			strings.HasPrefix(value, "{") || strings.HasPrefix(value, ">") ||
-			strings.HasPrefix(value, "|") {
-			return nil, contract.InputInvalid("方法头部仅支持普通文本")
+		value, err := parseSkillValue(strings.TrimSpace(line[index+1:]))
+		if err != nil {
+			return nil, err
 		}
 		fields[key] = value
+	}
+	return fields, nil
+}
+
+func invalidSkillCharacters(text string) bool {
+	for _, char := range text {
+		if char >= 0 && char <= 8 || char == 11 || char == 12 || (char >= 14 && char <= 31) {
+			return true
+		}
+	}
+	return false
+}
+
+func parseSkillMarkdown(text string) (map[string]any, error) {
+	if len(text) > 12000 {
+		return nil, contract.InputInvalid("方法文件超过 12000 字，请精简后导入")
+	}
+	match := skillFrontMatter.FindStringSubmatch(text)
+	if match == nil {
+		return nil, contract.InputInvalid("方法文件需包含 name 和 description 的头部及正文")
+	}
+	fields, err := parseSkillFields(match[1])
+	if err != nil {
+		return nil, err
 	}
 	name := fields["name"]
 	description := fields["description"]
@@ -64,10 +89,8 @@ func parseSkillMarkdown(text string) (map[string]any, error) {
 		len([]rune(body)) < 1 || len([]rune(body)) > 6000 {
 		return nil, contract.InputInvalid(msgMethodHeaderUnsupported)
 	}
-	for _, char := range text {
-		if char >= 0 && char <= 8 || char == 11 || char == 12 || (char >= 14 && char <= 31) {
-			return nil, contract.InputInvalid("学习方法包含无效字符")
-		}
+	if invalidSkillCharacters(text) {
+		return nil, contract.InputInvalid("学习方法包含无效字符")
 	}
 	return map[string]any{
 		"name": name, "description": description, "body": body, "enabled": false,

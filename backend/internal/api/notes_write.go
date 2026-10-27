@@ -121,6 +121,18 @@ func absFloat(value float64) float64 {
 	return value
 }
 
+func validNotesPoint(point map[string]any, group string) bool {
+	if point == nil || len([]rune(textValue(point["quote"]))) < 1 ||
+		!notesTimestamp.MatchString(textValue(point["timestamp"])) {
+		return false
+	}
+	if group != "keyPoints" {
+		return true
+	}
+	level := textValue(point["level"])
+	return notesLevels[level] && textValue(point["topic"]) != "" && textValue(point["detail"]) != ""
+}
+
 func validateNotes(notes map[string]any) error {
 	for _, group := range []string{"keyPoints", "notTested", "uncertain"} {
 		items, ok := notes[group].([]any)
@@ -132,19 +144,33 @@ func validateNotes(notes map[string]any) error {
 		}
 		for _, item := range items {
 			point, _ := item.(map[string]any)
-			if point == nil || len([]rune(textValue(point["quote"]))) < 1 ||
-				!notesTimestamp.MatchString(textValue(point["timestamp"])) {
+			if !validNotesPoint(point, group) {
 				return contract.InputInvalid(msgNotesInvalid)
-			}
-			if group == "keyPoints" {
-				level := textValue(point["level"])
-				if !notesLevels[level] || textValue(point["topic"]) == "" || textValue(point["detail"]) == "" {
-					return contract.InputInvalid(msgNotesInvalid)
-				}
 			}
 		}
 	}
 	return nil
+}
+
+func notesMarkdownPoint(point map[string]any) []string {
+	heading := "### "
+	if level, ok := point["level"].(string); ok && level != "" {
+		heading += "[" + level + "] "
+	}
+	heading += textValue(point["topic"])
+	status := textValue(point["timestamp"]) + " · "
+	if truthy(point["verified"]) {
+		status += "原话已核验"
+	} else {
+		status += "⚠ 疑似编造或时间不符"
+	}
+	out := []string{heading, status, "", "> " + textValue(point["quote"]), "", textValue(point["detail"])}
+	if ppt, ok := point["pptRef"].(string); ok && ppt != "" {
+		out = append(out, "课件："+ppt)
+	} else {
+		out = append(out, "")
+	}
+	return append(out, "")
 }
 
 func notesMarkdown(lectureTitle string, notes map[string]any) string {
@@ -163,24 +189,7 @@ func notesMarkdown(lectureTitle string, notes map[string]any) string {
 			if point == nil {
 				continue
 			}
-			heading := "### "
-			if level, ok := point["level"].(string); ok && level != "" {
-				heading += "[" + level + "] "
-			}
-			heading += textValue(point["topic"])
-			status := textValue(point["timestamp"]) + " · "
-			if truthy(point["verified"]) {
-				status += "原话已核验"
-			} else {
-				status += "⚠ 疑似编造或时间不符"
-			}
-			out = append(out, heading, status, "", "> "+textValue(point["quote"]), "", textValue(point["detail"]))
-			if ppt, ok := point["pptRef"].(string); ok && ppt != "" {
-				out = append(out, "课件："+ppt)
-			} else {
-				out = append(out, "")
-			}
-			out = append(out, "")
+			out = append(out, notesMarkdownPoint(point)...)
 		}
 	}
 	return strings.Join(out, "\n")

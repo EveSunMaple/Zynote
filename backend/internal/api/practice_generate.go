@@ -139,6 +139,15 @@ func practiceCourseInfo(db *sql.DB, courseID string) (string, []any, []map[strin
 	return storage.ToStringValue(row["name"]), questions, files, nil
 }
 
+func chunkMatchesTopic(chunk string, topics []string) bool {
+	for _, topic := range topics {
+		if strings.Contains(chunk, topic) {
+			return true
+		}
+	}
+	return false
+}
+
 func practiceReferenceNotes(files []map[string]any, topics []string) []string {
 	result := []string{}
 	for _, file := range files {
@@ -148,15 +157,10 @@ func practiceReferenceNotes(files []map[string]any, topics []string) []string {
 		chunks, _ := file["chunks"].([]any)
 		for _, raw := range chunks {
 			chunk, _ := raw.(string)
-			if chunk == "" {
+			if chunk == "" || !chunkMatchesTopic(chunk, topics) {
 				continue
 			}
-			for _, topic := range topics {
-				if strings.Contains(chunk, topic) {
-					result = append(result, chunk)
-					break
-				}
-			}
+			result = append(result, chunk)
 		}
 	}
 	if len(result) > 4 {
