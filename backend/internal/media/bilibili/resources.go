@@ -127,6 +127,29 @@ func (store *cookieStore) header(host, requestPath string, secure bool) string {
 	return strings.Join(pairs, "; ")
 }
 
+func responseCookie(cookie *http.Cookie, host string, now int64) (storedCookie, bool) {
+	domain := cookie.Domain
+	if domain == "" {
+		domain = host
+	}
+	path := cookie.Path
+	if path == "" {
+		path = "/"
+	}
+	expires := int64(0)
+	if !cookie.Expires.IsZero() {
+		expires = cookie.Expires.Unix()
+	}
+	value := storedCookie{
+		Name: cookie.Name, Value: cookie.Value, Domain: strings.TrimPrefix(domain, "."),
+		Path: path, Secure: cookie.Secure, HTTPOnly: cookie.HttpOnly, Expires: expires,
+	}
+	if cookie.MaxAge < 0 || (expires > 0 && expires <= now) {
+		return value, false
+	}
+	return value, true
+}
+
 func (store *cookieStore) setFromResponse(host string, response *http.Response) {
 	store.mu.Lock()
 	defer store.mu.Unlock()
@@ -134,28 +157,13 @@ func (store *cookieStore) setFromResponse(host string, response *http.Response) 
 	for _, raw := range response.Header.Values("Set-Cookie") {
 		header := http.Header{}
 		header.Add("Set-Cookie", raw)
-		parsed := (&http.Response{Header: header}).Cookies()
-		for _, cookie := range parsed {
-			domain := cookie.Domain
-			if domain == "" {
-				domain = host
-			}
-			path := cookie.Path
-			if path == "" {
-				path = "/"
-			}
-			expires := int64(0)
-			if !cookie.Expires.IsZero() {
-				expires = cookie.Expires.Unix()
-			}
-			if cookie.MaxAge < 0 || (expires > 0 && expires <= now.Unix()) {
-				store.removeLocked(domain, path, cookie.Name)
+		for _, cookie := range (&http.Response{Header: header}).Cookies() {
+			value, keep := responseCookie(cookie, host, now.Unix())
+			if !keep {
+				store.removeLocked(value.Domain, value.Path, value.Name)
 				continue
 			}
-			store.upsertLocked(storedCookie{
-				Name: cookie.Name, Value: cookie.Value, Domain: strings.TrimPrefix(domain, "."),
-				Path: path, Secure: cookie.Secure, HTTPOnly: cookie.HttpOnly, Expires: expires,
-			})
+			store.upsertLocked(value)
 		}
 	}
 	_ = store.saveLocked()
@@ -334,47 +342,19 @@ func NewScopedResources(fetcher ScopedFetcher) *Resources {
 	}
 }
 
-func (resources *Resources) readContext(ctx context.Context, requestPath string, params map[string]string, passport bool) (any, error) {
-	if resources.cookies != nil {
-		if err := resources.cookies.load(); err != nil {
-			return nil, err
-		}
-	}
-	base := resources.baseAPI
-	if passport {
-		base = resources.basePass
-	}
+func biliTarget(base, requestPath string, params map[string]string) string {
 	target := base + requestPath
-	if len(params) > 0 {
-		pairs := make([]string, 0, len(params))
-		for key, value := range params {
-			pairs = append(pairs, urlEncode(key)+"="+urlEncode(value))
-		}
-		target += "?" + strings.Join(pairs, "&")
+	if len(params) == 0 {
+		return target
 	}
-	request, err := http.NewRequestWithContext(ctx, http.MethodGet, target, nil)
-	if err != nil {
-		return nil, contract.InputInvalid("B 站请求地址无效")
+	pairs := make([]string, 0, len(params))
+	for key, value := range params {
+		pairs = append(pairs, urlEncode(key)+"="+urlEncode(value))
 	}
-	for key, value := range biliHeaders {
-		request.Header.Set(key, value)
-	}
-	if resources.cookies != nil {
-		if cookie := resources.cookies.header(request.URL.Hostname(), request.URL.Path, request.URL.Scheme == "https"); cookie != "" {
-			request.Header.Set("Cookie", cookie)
-		}
-	}
-	response, err := resources.do(request)
-	if err != nil {
-		if ctx.Err() != nil {
-			return nil, ctx.Err()
-		}
-		return nil, contract.Unavailable("B 站服务暂不可用，请稍后重试")
-	}
-	defer response.Body.Close()
-	if resources.cookies != nil {
-		resources.cookies.setFromResponse(request.URL.Hostname(), response)
-	}
+	return target + "?" + strings.Join(pairs, "&")
+}
+
+func (resources *Resources) decodeBiliResponse(requestPath string, response *http.Response) (any, error) {
 	if response.StatusCode < 200 || response.StatusCode >= 300 {
 		return nil, contract.Unavailable(fmt.Sprintf("B 站服务暂不可用（HTTP %d）", response.StatusCode))
 	}
@@ -404,6 +384,42 @@ func (resources *Resources) readContext(ctx context.Context, requestPath string,
 		_ = json.Unmarshal(payload.Data, &data)
 	}
 	return data, nil
+}
+
+func (resources *Resources) readContext(ctx context.Context, requestPath string, params map[string]string, passport bool) (any, error) {
+	if resources.cookies != nil {
+		if err := resources.cookies.load(); err != nil {
+			return nil, err
+		}
+	}
+	base := resources.baseAPI
+	if passport {
+		base = resources.basePass
+	}
+	request, err := http.NewRequestWithContext(ctx, http.MethodGet, biliTarget(base, requestPath, params), nil)
+	if err != nil {
+		return nil, contract.InputInvalid("B 站请求地址无效")
+	}
+	for key, value := range biliHeaders {
+		request.Header.Set(key, value)
+	}
+	if resources.cookies != nil {
+		if cookie := resources.cookies.header(request.URL.Hostname(), request.URL.Path, request.URL.Scheme == "https"); cookie != "" {
+			request.Header.Set("Cookie", cookie)
+		}
+	}
+	response, err := resources.do(request)
+	if err != nil {
+		if ctx.Err() != nil {
+			return nil, ctx.Err()
+		}
+		return nil, contract.Unavailable("B 站服务暂不可用，请稍后重试")
+	}
+	defer response.Body.Close()
+	if resources.cookies != nil {
+		resources.cookies.setFromResponse(request.URL.Hostname(), response)
+	}
+	return resources.decodeBiliResponse(requestPath, response)
 }
 
 var mediaReadPaths = map[string]bool{
@@ -455,36 +471,48 @@ var wbiOrder = []int{
 	41, 13,
 }
 
-func (resources *Resources) sign(params map[string]string) (map[string]string, error) {
+func (resources *Resources) signingKeyFor() (*wbiKey, error) {
 	resources.mu.Lock()
 	key := resources.signingKey
 	resources.mu.Unlock()
-	if key == nil || key.expires <= time.Now().UnixMilli() {
-		data, err := resources.read(apiWebInterfaceNav, nil, false)
-		if err != nil {
-			return nil, err
+	if key != nil && key.expires > time.Now().UnixMilli() {
+		return key, nil
+	}
+	data, err := resources.read(apiWebInterfaceNav, nil, false)
+	if err != nil {
+		return nil, err
+	}
+	user, _ := data.(map[string]any)
+	wbi, _ := user["wbi_img"].(map[string]any)
+	if wbi == nil {
+		return nil, nil
+	}
+	imgURL, _ := wbi["img_url"].(string)
+	subURL, _ := wbi["sub_url"].(string)
+	keys := wbiPart(imgURL) + wbiPart(subURL)
+	if len(keys) != 64 || !isHex(keys) {
+		return nil, contract.Unavailable("B 站搜索签名无效，请稍后重试")
+	}
+	mixed := make([]byte, 0, 32)
+	for _, index := range wbiOrder {
+		if index < len(keys) {
+			mixed = append(mixed, keys[index])
 		}
-		user, _ := data.(map[string]any)
-		wbi, _ := user["wbi_img"].(map[string]any)
-		if wbi == nil {
-			return params, nil
-		}
-		imgURL, _ := wbi["img_url"].(string)
-		subURL, _ := wbi["sub_url"].(string)
-		keys := wbiPart(imgURL) + wbiPart(subURL)
-		if len(keys) != 64 || !isHex(keys) {
-			return nil, contract.Unavailable("B 站搜索签名无效，请稍后重试")
-		}
-		mixed := make([]byte, 0, 32)
-		for _, index := range wbiOrder {
-			if index < len(keys) {
-				mixed = append(mixed, keys[index])
-			}
-		}
-		key = &wbiKey{value: string(mixed), expires: time.Now().UnixMilli() + 3600000}
-		resources.mu.Lock()
-		resources.signingKey = key
-		resources.mu.Unlock()
+	}
+	key = &wbiKey{value: string(mixed), expires: time.Now().UnixMilli() + 3600000}
+	resources.mu.Lock()
+	resources.signingKey = key
+	resources.mu.Unlock()
+	return key, nil
+}
+
+func (resources *Resources) sign(params map[string]string) (map[string]string, error) {
+	key, err := resources.signingKeyFor()
+	if err != nil {
+		return nil, err
+	}
+	if key == nil {
+		return params, nil
 	}
 	signed := map[string]string{}
 	for name, value := range params {
@@ -500,8 +528,7 @@ func (resources *Resources) sign(params map[string]string) (map[string]string, e
 	for _, name := range names {
 		pairs = append(pairs, urlEncode(name)+"="+strings.ReplaceAll(urlEncode(signed[name]), "%20", "+"))
 	}
-	encoded := strings.Join(pairs, "&")
-	signed["w_rid"] = md5Hex(encoded + key.value)
+	signed["w_rid"] = md5Hex(strings.Join(pairs, "&") + key.value)
 	return signed, nil
 }
 
@@ -518,44 +545,22 @@ func wbiPart(value string) string {
 	return last
 }
 
-func (resources *Resources) Browse(kind, query string, page int) (map[string]any, error) {
+func browseRequest(kind, query string, page int) (string, map[string]string, error) {
 	if page < 1 || page > 100 || len(query) > 100 || (kind != "search" && kind != "popular") {
-		return nil, contract.InputInvalid("视频检索参数无效")
+		return "", nil, contract.InputInvalid("视频检索参数无效")
 	}
 	if kind == "search" && strings.TrimSpace(query) == "" {
-		return nil, contract.InputInvalid("请输入搜索关键词")
+		return "", nil, contract.InputInvalid("请输入搜索关键词")
 	}
-	params := map[string]string{}
-	if kind == "search" {
-		signed, err := resources.sign(map[string]string{
-			"keyword": query, "search_type": "video", "page": fmt.Sprintf("%d", page),
-		})
-		if err != nil {
-			return nil, err
-		}
-		params = signed
-	}
-	path := "/x/web-interface/popular"
-	if kind == "search" {
-		path = "/x/web-interface/search/type"
-	}
-	data, err := resources.read(path, params, false)
-	if err != nil {
-		return nil, err
-	}
-	response, _ := data.(map[string]any)
-	if response == nil {
-		return nil, contract.Unavailable("B 站视频列表格式异常，请稍后重试")
-	}
-	var raw []any
 	if kind == "popular" {
-		raw, _ = response["list"].([]any)
-	} else {
-		raw, _ = response["result"].([]any)
+		return "/x/web-interface/popular", map[string]string{}, nil
 	}
-	if raw == nil {
-		return nil, contract.Unavailable("B 站视频列表格式异常，请稍后重试")
-	}
+	return "/x/web-interface/search/type", map[string]string{
+		"keyword": query, "search_type": "video", "page": fmt.Sprintf("%d", page),
+	}, nil
+}
+
+func browseVideos(raw []any, kind string) []map[string]any {
 	videos := []map[string]any{}
 	limit := len(raw)
 	if limit > 50 {
@@ -583,18 +588,55 @@ func (resources *Resources) Browse(kind, query string, page int) (map[string]any
 			"url": "https://www.bilibili.com/video/" + bvid + "/",
 		})
 	}
-	hasMore := false
-	if kind != "popular" {
-		pages := 1
-		if value, ok := response["numPages"].(float64); ok {
-			pages = int(value)
-		}
-		if pages > 100 {
-			pages = 100
-		}
-		hasMore = page < pages
+	return videos
+}
+
+func browseHasMore(response map[string]any, kind string, page int) bool {
+	if kind == "popular" {
+		return false
 	}
-	return map[string]any{"videos": videos, "page": page, "hasMore": hasMore}, nil
+	pages := 1
+	if value, ok := response["numPages"].(float64); ok {
+		pages = int(value)
+	}
+	if pages > 100 {
+		pages = 100
+	}
+	return page < pages
+}
+
+func (resources *Resources) Browse(kind, query string, page int) (map[string]any, error) {
+	path, params, err := browseRequest(kind, query, page)
+	if err != nil {
+		return nil, err
+	}
+	if kind == "search" {
+		signed, err := resources.sign(params)
+		if err != nil {
+			return nil, err
+		}
+		params = signed
+	}
+	data, err := resources.read(path, params, false)
+	if err != nil {
+		return nil, err
+	}
+	response, _ := data.(map[string]any)
+	if response == nil {
+		return nil, contract.Unavailable("B 站视频列表格式异常，请稍后重试")
+	}
+	var raw []any
+	if kind == "popular" {
+		raw, _ = response["list"].([]any)
+	} else {
+		raw, _ = response["result"].([]any)
+	}
+	if raw == nil {
+		return nil, contract.Unavailable("B 站视频列表格式异常，请稍后重试")
+	}
+	return map[string]any{
+		"videos": browseVideos(raw, kind), "page": page, "hasMore": browseHasMore(response, kind, page),
+	}, nil
 }
 
 func (resources *Resources) Begin() (string, error) {

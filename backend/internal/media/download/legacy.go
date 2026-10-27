@@ -148,20 +148,60 @@ func (legacy *LegacyDownloads) Unchanged(row *LegacyRecord) error {
 	return nil
 }
 
+func legacyBrokenRow(id string) map[string]any {
+	return map[string]any{
+		"id": id, "title": "无法读取的旧下载任务", "state": "error",
+		"stage": "保留原始记录", "progress": map[string]any{},
+		"error_message": "旧任务记录无法核对，未改写或删除；请检查记录来源和格式",
+		"warning":       "", "source_url": "", "output": "", "files": []string{},
+	}
+}
+
+func legacyListRow(row *LegacyRecord) (map[string]any, bool) {
+	if row.State == "forgotten" {
+		return nil, false
+	}
+	state := row.State
+	if state == "queued" || state == "running" {
+		state = "interrupted"
+	}
+	errorMessage := ""
+	if row.Error != "" {
+		errorMessage = "旧下载未完成，请核对后继续"
+	}
+	progress := map[string]any{}
+	if row.Progress.Downloaded != nil {
+		progress["downloaded"] = *row.Progress.Downloaded
+	}
+	if row.Progress.Total != nil {
+		progress["total"] = *row.Progress.Total
+	}
+	files := row.Files
+	if files == nil {
+		files = []string{}
+	}
+	return map[string]any{
+		"id": row.ID, "title": row.Title, "state": state, "stage": row.Stage,
+		"progress": progress, "error_message": errorMessage, "warning": row.Warning,
+		"source_url": row.Source.URL, "output": row.Output, "files": files,
+	}, true
+}
+
+func legacyListFallback(legacy *LegacyDownloads, err error) ([]map[string]any, error) {
+	if errorsIsNotExist(err) {
+		return legacy.listOtherScopes()
+	}
+	return nil, err
+}
+
 func (legacy *LegacyDownloads) List() ([]map[string]any, error) {
 	base, err := legacy.base()
 	if err != nil {
-		if !errorsIsNotExist(err) {
-			return nil, err
-		}
-		return legacy.listOtherScopes()
+		return legacyListFallback(legacy, err)
 	}
 	entries, err := os.ReadDir(base)
 	if err != nil {
-		if errorsIsNotExist(err) {
-			return legacy.listOtherScopes()
-		}
-		return nil, err
+		return legacyListFallback(legacy, err)
 	}
 	rows := []map[string]any{}
 	for _, entry := range entries {
@@ -170,43 +210,38 @@ func (legacy *LegacyDownloads) List() ([]map[string]any, error) {
 		}
 		row, err := legacy.Read(entry.Name())
 		if err != nil {
-			rows = append(rows, map[string]any{
-				"id": entry.Name(), "title": "无法读取的旧下载任务", "state": "error",
-				"stage": "保留原始记录", "progress": map[string]any{},
-				"error_message": "旧任务记录无法核对，未改写或删除；请检查记录来源和格式",
-				"warning":       "", "source_url": "", "output": "", "files": []string{},
-			})
+			rows = append(rows, legacyBrokenRow(entry.Name()))
 			continue
 		}
-		if row.State == "forgotten" {
-			continue
+		if value, ok := legacyListRow(row); ok {
+			rows = append(rows, value)
 		}
-		state := row.State
-		if state == "queued" || state == "running" {
-			state = "interrupted"
-		}
-		errorMessage := ""
-		if row.Error != "" {
-			errorMessage = "旧下载未完成，请核对后继续"
-		}
-		progress := map[string]any{}
-		if row.Progress.Downloaded != nil {
-			progress["downloaded"] = *row.Progress.Downloaded
-		}
-		if row.Progress.Total != nil {
-			progress["total"] = *row.Progress.Total
-		}
-		files := row.Files
-		if files == nil {
-			files = []string{}
-		}
-		rows = append(rows, map[string]any{
-			"id": row.ID, "title": row.Title, "state": state, "stage": row.Stage,
-			"progress": progress, "error_message": errorMessage, "warning": row.Warning,
-			"source_url": row.Source.URL, "output": row.Output, "files": files,
-		})
 	}
 	return rows, nil
+}
+
+func legacyScopeDirectory(records, name string) (string, error) {
+	directory, err := checkedLegacyDirectory(filepath.Join(records, name))
+	if err != nil {
+		return "", err
+	}
+	children, err := os.ReadDir(directory)
+	if err != nil {
+		return "", err
+	}
+	for _, child := range children {
+		if !child.IsDir() || child.Type()&os.ModeSymlink != 0 || !legacyIDPattern.MatchString(child.Name()) {
+			continue
+		}
+		_, statErr := os.Lstat(filepath.Join(directory, child.Name(), "state.json"))
+		if statErr == nil {
+			return "", fmt.Errorf("旧下载记录属于另一资料路径，需确认迁移位置；原文件保留")
+		}
+		if !errorsIsNotExist(statErr) {
+			return "", statErr
+		}
+	}
+	return directory, nil
 }
 
 func (legacy *LegacyDownloads) listOtherScopes() ([]map[string]any, error) {
@@ -228,71 +263,45 @@ func (legacy *LegacyDownloads) listOtherScopes() ([]map[string]any, error) {
 		if !entry.IsDir() || !legacyScopePattern.MatchString(entry.Name()) {
 			continue
 		}
-		directory, err := checkedLegacyDirectory(filepath.Join(records, entry.Name()))
-		if err != nil {
+		if _, err := legacyScopeDirectory(records, entry.Name()); err != nil {
 			if errorsIsNotExist(err) {
 				return []map[string]any{}, nil
 			}
 			return nil, err
-		}
-		children, err := os.ReadDir(directory)
-		if err != nil {
-			if errorsIsNotExist(err) {
-				return []map[string]any{}, nil
-			}
-			return nil, err
-		}
-		for _, child := range children {
-			if !child.IsDir() || child.Type()&os.ModeSymlink != 0 || !legacyIDPattern.MatchString(child.Name()) {
-				continue
-			}
-			_, statErr := os.Lstat(filepath.Join(directory, child.Name(), "state.json"))
-			if statErr == nil {
-				return nil, fmt.Errorf("旧下载记录属于另一资料路径，需确认迁移位置；原文件保留")
-			}
-			if !errorsIsNotExist(statErr) {
-				return nil, statErr
-			}
 		}
 	}
 	return []map[string]any{}, nil
 }
 
-func (legacy *LegacyDownloads) File(id string) (string, error) {
-	row, err := legacy.Read(id)
-	if err != nil {
-		return "", err
-	}
+type legacyMarker struct {
+	SchemaVersion int    `json:"schema_version"`
+	ManagedBy     string `json:"managed_by"`
+	Bvid          string `json:"bvid"`
+	OwnershipID   string `json:"ownership_id"`
+	DownloadRoot  string `json:"download_root"`
+	Directory     string `json:"directory"`
+	MediaKind     string `json:"media_kind"`
+}
+
+func legacyArtifactDirs(row *LegacyRecord) (string, string, error) {
 	if row.State != "completed" || !filepath.IsAbs(row.DownloadRoot) || !filepath.IsAbs(row.Output) {
-		return "", fmt.Errorf("旧任务尚无可确认成果")
+		return "", "", fmt.Errorf("旧任务尚无可确认成果")
 	}
 	root, err := checkedLegacyDirectory(row.DownloadRoot)
 	if err != nil {
-		return "", err
+		return "", "", err
 	}
 	directory, err := checkedLegacyDirectory(row.Output)
 	if err != nil {
-		return "", err
+		return "", "", err
 	}
 	if !strings.EqualFold(filepath.Dir(directory), root) {
-		return "", fmt.Errorf("旧成果不属于声明的下载目录")
+		return "", "", fmt.Errorf("旧成果不属于声明的下载目录")
 	}
-	markerValue, markerHash, err := readLegacyJSON(filepath.Join(directory, ".bilisum-download.json"), 1024*1024)
-	if err != nil {
-		return "", err
-	}
-	var manifest struct {
-		SchemaVersion int    `json:"schema_version"`
-		ManagedBy     string `json:"managed_by"`
-		Bvid          string `json:"bvid"`
-		OwnershipID   string `json:"ownership_id"`
-		DownloadRoot  string `json:"download_root"`
-		Directory     string `json:"directory"`
-		MediaKind     string `json:"media_kind"`
-	}
-	if err := json.Unmarshal(markerValue, &manifest); err != nil {
-		return "", fmt.Errorf("旧下载成果所有权标记不匹配")
-	}
+	return root, directory, nil
+}
+
+func legacyMarkerKind(manifest legacyMarker) (string, error) {
 	kind := manifest.MediaKind
 	if kind == "" {
 		kind = "video"
@@ -302,6 +311,10 @@ func (legacy *LegacyDownloads) File(id string) (string, error) {
 		legacyMediaExtensions[kind] == nil {
 		return "", fmt.Errorf("旧下载成果所有权标记不匹配")
 	}
+	return kind, nil
+}
+
+func verifyLegacyMarker(manifest legacyMarker, row *LegacyRecord, root, directory string) error {
 	name := strings.ToLower(filepath.Base(directory))
 	storage := strings.ToLower(row.Source.StorageID)
 	rootCanonical, _ := filepath.Abs(root)
@@ -310,31 +323,65 @@ func (legacy *LegacyDownloads) File(id string) (string, error) {
 		manifest.DownloadRoot != strings.ToLower(rootCanonical) ||
 		manifest.Directory != strings.ToLower(directoryCanonical) ||
 		(name != storage && !strings.HasSuffix(name, "_"+storage)) {
-		return "", fmt.Errorf("旧下载成果所有权标记不匹配")
+		return fmt.Errorf("旧下载成果所有权标记不匹配")
 	}
+	return nil
+}
+
+func validateLegacyEntries(directory, kind string) error {
 	entries, err := os.ReadDir(directory)
 	if err != nil {
-		return "", err
+		return err
 	}
 	primary := false
 	for _, entry := range entries {
 		if entry.Type()&os.ModeSymlink != 0 || !entry.Type().IsRegular() {
-			return "", fmt.Errorf("旧成果包含未确认文件或链接")
+			return fmt.Errorf("旧成果包含未确认文件或链接")
 		}
 		info, err := entry.Info()
 		if err != nil {
-			return "", err
+			return err
 		}
 		extension := strings.ToLower(filepath.Ext(entry.Name()))
 		if extension == ".part" || extension == ".ytdl" || extension == ".tmp" {
-			return "", fmt.Errorf("旧成果仍有未完成分段")
+			return fmt.Errorf("旧成果仍有未完成分段")
 		}
 		if containsExtension(legacyMediaExtensions[kind], extension) && info.Size() > 0 {
 			primary = true
 		}
 	}
 	if !primary {
-		return "", fmt.Errorf("旧成果缺少有效媒体或字幕")
+		return fmt.Errorf("旧成果缺少有效媒体或字幕")
+	}
+	return nil
+}
+
+func (legacy *LegacyDownloads) File(id string) (string, error) {
+	row, err := legacy.Read(id)
+	if err != nil {
+		return "", err
+	}
+	root, directory, err := legacyArtifactDirs(row)
+	if err != nil {
+		return "", err
+	}
+	markerValue, markerHash, err := readLegacyJSON(filepath.Join(directory, ".bilisum-download.json"), 1024*1024)
+	if err != nil {
+		return "", err
+	}
+	var manifest legacyMarker
+	if err := json.Unmarshal(markerValue, &manifest); err != nil {
+		return "", fmt.Errorf("旧下载成果所有权标记不匹配")
+	}
+	kind, err := legacyMarkerKind(manifest)
+	if err != nil {
+		return "", err
+	}
+	if err := verifyLegacyMarker(manifest, row, root, directory); err != nil {
+		return "", err
+	}
+	if err := validateLegacyEntries(directory, kind); err != nil {
+		return "", err
 	}
 	if err := legacy.Unchanged(row); err != nil {
 		return "", err
