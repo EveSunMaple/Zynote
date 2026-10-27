@@ -8,6 +8,20 @@ import {StudyIcon} from './StudyIcon'
 import {notify} from './ToastHost'
 export const invoke = <T,>(action: string, args?: unknown) => window.assistant.invoke<T>(action, args)
 export const basename = (p: string) => p.split(/[\\/]/).at(-1) || p
+
+function MarkdownLink({href, children}: Readonly<{href?: string; children?: ReactNode}>) {
+ return (
+  <a
+   href={href}
+   onClick={e => {
+    e.preventDefault()
+    if (href) void invoke('external', {url: href})
+   }}
+  >
+   {children}
+  </a>
+ )
+}
 const displayPath = (p: string) => (/^(?:[A-Za-z]:[\\/]|\\\\|\/)/.test(p) ? p : `资料库 / ${p}`)
 export function Modal({title, children, close}: Readonly<{title: string; children: ReactNode; close: () => void}>) {
  return (
@@ -189,29 +203,7 @@ export function FilePicker({
 }
 export function Markdown({text}: Readonly<{text: string}>) {
  return (
-  <ReactMarkdown
-   remarkPlugins={[remarkGfm]}
-   components={{
-    a: (
-     // NOSONAR: component definition is intentionally colocated with its parent.
-     {href, children} // NOSONAR: component nesting is intentional for the visual hierarchy. // NOSONAR: behavior-preserving rewrite tracked separately; current flow is cohesive and ordered. // NOSONAR: behavior-preserving rewrite tracked separately; existing flow is intentional. // NOSONAR: behavior-preserving structure is intentional. // NOSONAR: cohesive flow retained; extraction would change established behavior.
-     // biome-ignore format: NOSONAR must stay on the reported line
-     // NOSONAR: cohesive flow retained; extraction would change established behavior.
-     // biome-ignore format: NOSONAR must stay on the reported line
-     // NOSONAR: component definition intentionally colocated with its parent for state access.
-    ) => (
-     <a
-      href={href}
-      onClick={e => {
-       e.preventDefault()
-       if (href) void invoke('external', {url: href})
-      }}
-     >
-      {children}
-     </a>
-    )
-   }}
-  >
+  <ReactMarkdown remarkPlugins={[remarkGfm]} components={{a: MarkdownLink}}>
    {text}
   </ReactMarkdown>
  )

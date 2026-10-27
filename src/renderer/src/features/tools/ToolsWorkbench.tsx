@@ -1,4 +1,4 @@
-import {useEffect, useState} from 'react'
+import {useEffect, useState, type ReactNode} from 'react'
 import {Button, Card, Checkbox, Chip, Input, TextArea} from '@heroui/react'
 import {WindowMenuButton, WindowPanel} from '@renderer/ui/WindowPanel'
 import ReactMarkdown from 'react-markdown'
@@ -8,32 +8,24 @@ import {notify} from '@renderer/ui/ToastHost'
 import {SettingsLink} from '@renderer/app/settings-navigation'
 import remarkGfm from 'remark-gfm'
 import type {Settings} from '@shared/types'
+
+function MarkdownLink({href, children}: Readonly<{href?: string; children?: ReactNode}>) {
+ return (
+  <a
+   href={href}
+   onClick={e => {
+    e.preventDefault()
+    if (href) void window.assistant.invoke('external', {url: href})
+   }}
+  >
+   {children}
+  </a>
+ )
+}
 function Result({text}: Readonly<{text: string}>) {
  return (
   <div className="learning-summary">
-   <ReactMarkdown
-    remarkPlugins={[remarkGfm]}
-    components={{
-     a: (
-      // NOSONAR: component definition is intentionally colocated with its parent.
-      {href, children} // NOSONAR: component nesting is intentional for the visual hierarchy. // NOSONAR: behavior-preserving rewrite tracked separately; current flow is cohesive and ordered. // NOSONAR: behavior-preserving rewrite tracked separately; existing flow is intentional. // NOSONAR: behavior-preserving structure is intentional. // NOSONAR: cohesive flow retained; extraction would change established behavior.
-      // biome-ignore format: NOSONAR must stay on the reported line
-      // NOSONAR: cohesive flow retained; extraction would change established behavior.
-      // biome-ignore format: NOSONAR must stay on the reported line
-      // NOSONAR: component definition intentionally colocated with its parent for state access.
-     ) => (
-      <a
-       href={href}
-       onClick={e => {
-        e.preventDefault()
-        if (href) void window.assistant.invoke('external', {url: href})
-       }}
-      >
-       {children}
-      </a>
-     )
-    }}
-   >
+   <ReactMarkdown remarkPlugins={[remarkGfm]} components={{a: MarkdownLink}}>
     {text}
    </ReactMarkdown>
   </div>
