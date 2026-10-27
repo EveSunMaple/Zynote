@@ -61,31 +61,30 @@ func evidenceStatusForNotes(items []any, present bool) string {
 	return "verified"
 }
 
+func evidenceNoteEntry(item map[string]any, category string) map[string]any {
+	status := "uncertain"
+	if category != msgTeacherAmbiguous {
+		if verified, ok := item["verified"].(bool); ok && verified {
+			status = "verified"
+		}
+	}
+	entry := map[string]any{
+		"status": status, "quoteVerified": item["verified"] == true, "category": category,
+		"topic": textValue(item["topic"]), "quote": textValue(item["quote"]), "timestamp": textValue(item["timestamp"]),
+	}
+	for _, key := range []string{"detail", "level", "pptRef"} {
+		if value := textValue(item[key]); value != "" {
+			entry[key] = value
+		}
+	}
+	return entry
+}
+
 func evidenceNoteItems(value any, present bool, category string) map[string]any {
 	items := evidenceList(value)
 	data := []any{}
 	for _, raw := range items {
-		item := evidenceMap(raw)
-		status := "uncertain"
-		if category != msgTeacherAmbiguous {
-			if verified, ok := item["verified"].(bool); ok && verified {
-				status = "verified"
-			}
-		}
-		entry := map[string]any{
-			"status": status, "quoteVerified": item["verified"] == true, "category": category,
-			"topic": textValue(item["topic"]), "quote": textValue(item["quote"]), "timestamp": textValue(item["timestamp"]),
-		}
-		if detail := textValue(item["detail"]); detail != "" {
-			entry["detail"] = detail
-		}
-		if level := textValue(item["level"]); level != "" {
-			entry["level"] = level
-		}
-		if ref := textValue(item["pptRef"]); ref != "" {
-			entry["pptRef"] = ref
-		}
-		data = append(data, entry)
+		data = append(data, evidenceNoteEntry(evidenceMap(raw), category))
 	}
 	status := evidenceStatusForNotes(items, present)
 	if category == msgTeacherAmbiguous && len(data) > 0 {
@@ -98,45 +97,52 @@ func evidenceNoteItems(value any, present bool, category string) map[string]any 
 	return evidenceBlock(status, "verified 仅表示应用的原话/时间匹配校验通过；含糊陈述仍按其类别保留。", data, contentHash)
 }
 
+func evidencePracticeSource(item map[string]any) map[string]any {
+	source := map[string]any{}
+	if url := textValue(item["sourceUrl"]); url != "" {
+		source["url"] = url
+	}
+	if file := textValue(item["sourceFile"]); file != "" {
+		source["file"] = file
+	}
+	if year := textValue(item["year"]); year != "" {
+		source["year"] = year
+	}
+	return source
+}
+
+func evidencePracticeEntry(item map[string]any, aiGenerated bool) map[string]any {
+	answer := textValue(item["answer"])
+	entry := map[string]any{
+		"status": "uncertain", "aiGenerated": aiGenerated || item["aiAnswer"] == true,
+		"topic": textValue(item["topic"]), "type": textValue(item["type"]), "stem": textValue(item["stem"]),
+		"reason": textValue(item["reason"]), "source": evidencePracticeSource(item),
+		"answerStatus": map[bool]string{true: "uncertain", false: "unavailable"}[answer != ""],
+	}
+	if answer != "" {
+		entry["answer"] = answer
+	}
+	if answerSource := textValue(item["answerSource"]); answerSource != "" {
+		entry["answerSource"] = answerSource
+	} else if item["aiAnswer"] == true {
+		entry["answerSource"] = "ai"
+	}
+	for _, key := range []string{"answerSourceUrl", "explanation"} {
+		if value := textValue(item[key]); value != "" {
+			entry[key] = value
+		}
+	}
+	if attempt := item["attempt"]; attempt != nil {
+		entry["attempt"] = attempt
+	}
+	return entry
+}
+
 func evidencePracticeItems(value any, present, aiGenerated bool) map[string]any {
 	items := evidenceList(value)
 	data := []any{}
 	for _, raw := range items {
-		item := evidenceMap(raw)
-		source := map[string]any{}
-		if url := textValue(item["sourceUrl"]); url != "" {
-			source["url"] = url
-		}
-		if file := textValue(item["sourceFile"]); file != "" {
-			source["file"] = file
-		}
-		if year := textValue(item["year"]); year != "" {
-			source["year"] = year
-		}
-		entry := map[string]any{
-			"status": "uncertain", "aiGenerated": aiGenerated || item["aiAnswer"] == true,
-			"topic": textValue(item["topic"]), "type": textValue(item["type"]), "stem": textValue(item["stem"]),
-			"reason": textValue(item["reason"]), "source": source,
-			"answerStatus": map[bool]string{true: "uncertain", false: "unavailable"}[textValue(item["answer"]) != ""],
-		}
-		if answer := textValue(item["answer"]); answer != "" {
-			entry["answer"] = answer
-		}
-		if answerSource := textValue(item["answerSource"]); answerSource != "" {
-			entry["answerSource"] = answerSource
-		} else if item["aiAnswer"] == true {
-			entry["answerSource"] = "ai"
-		}
-		if url := textValue(item["answerSourceUrl"]); url != "" {
-			entry["answerSourceUrl"] = url
-		}
-		if explanation := textValue(item["explanation"]); explanation != "" {
-			entry["explanation"] = explanation
-		}
-		if attempt := item["attempt"]; attempt != nil {
-			entry["attempt"] = attempt
-		}
-		data = append(data, entry)
+		data = append(data, evidencePracticeEntry(evidenceMap(raw), aiGenerated))
 	}
 	status := "unavailable"
 	if present {
@@ -159,40 +165,33 @@ func evidencePracticeItems(value any, present, aiGenerated bool) map[string]any 
 	return evidenceBlock(status, note, data, contentHash)
 }
 
-func buildEvidenceBundle(course map[string]any, detail map[string]any, generatedAt, version string) map[string]any {
-	lecture := evidenceMap(detail["lecture"])
-	segments := evidenceList(detail["segments"])
-	correction := evidenceMap(detail["correction"])
-	partial := correction != nil
-	notes := evidenceMap(detail["notes"])
-	notesPresent := detail["notes"] != nil
-	practice := evidenceMap(detail["practice"])
-	practicePresent := detail["practice"] != nil
-	transcriptText := textValue(lecture["transcript_text"])
-	coursewareText := textValue(lecture["ppt_text"])
-	transcriptAvailable := transcriptText != ""
-	coursewareAvailable := coursewareText != ""
-	pageMarkers := []int{}
-	for _, match := range evidencePageMarker.FindAllStringSubmatch(coursewareText, -1) {
+func evidencePageMarkers(text string) []int {
+	markers := []int{}
+	for _, match := range evidencePageMarker.FindAllStringSubmatch(text, -1) {
 		page := 0
 		fmt.Sscanf(match[1], "%d", &page)
 		if page > 0 {
-			pageMarkers = append(pageMarkers, page)
+			markers = append(markers, page)
 		}
 	}
-	subtitlesComplete := len(segments) > 0 && !partial
-	allTraceable := subtitlesComplete
+	return markers
+}
+
+func evidenceSegmentsTraceable(segments []any, complete bool) bool {
+	if !complete {
+		return false
+	}
 	for _, raw := range segments {
 		segment := evidenceMap(raw)
 		if textValue(segment["originalText"]) == "" || segment["uncertain"] != false {
-			allTraceable = false
-			break
+			return false
 		}
 	}
-	notesKeyPoints := evidenceNoteItems(notes["keyPoints"], notes["keyPoints"] != nil, "教师明确重点")
-	notesNotTested := evidenceNoteItems(notes["notTested"], notes["notTested"] != nil, "教师明确不考")
-	notesUncertain := evidenceNoteItems(notes["uncertain"], notes["uncertain"] != nil, msgTeacherAmbiguous)
-	subtitleData := []any{}
+	return true
+}
+
+func evidenceSubtitleData(segments []any, lecture map[string]any, partial bool) []any {
+	data := []any{}
 	for _, raw := range segments {
 		segment := evidenceMap(raw)
 		start, end := int64(numberValue(segment["start"])), int64(numberValue(segment["end"]))
@@ -219,90 +218,98 @@ func buildEvidenceBundle(course map[string]any, detail map[string]any, generated
 		if partial || !hasUncertain || uncertain || textValue(segment["originalText"]) == "" {
 			entry["status"] = "uncertain"
 		}
-		subtitleData = append(subtitleData, entry)
+		data = append(data, entry)
 	}
-	subtitleHash := ""
-	if len(segments) > 0 {
-		subtitleHash = evidenceHash(segments)
+	return data
+}
+
+func evidenceSubtitleState(segments []any, partial, allTraceable bool) (status, note, evidenceStatus, hash string) {
+	status = "unavailable"
+	note = "字幕来源方式或原文对照未完整保存，无法据此确认每条字幕的校订来源。"
+	if len(segments) == 0 {
+		return
 	}
-	transcriptHash, coursewareHash, noteHash := "", "", ""
-	if transcriptAvailable {
-		transcriptHash = sha256Hex(transcriptText)
+	status = "uncertain"
+	if partial {
+		note = "字幕校订仍在进行；覆盖字段记录已保存片段数和总片段数，不能代表全课完整。"
+	} else if allTraceable {
+		status = "verified"
+		note = "每条字幕都有原始文本对照且没有待核对标记；这只描述应用中的校订状态。"
 	}
-	if coursewareAvailable {
-		coursewareHash = sha256Hex(coursewareText)
-	}
-	if notesPresent {
-		noteHash = evidenceHash(notes)
-	}
-	subtitleStatus := "unavailable"
-	subtitleNote := "字幕来源方式或原文对照未完整保存，无法据此确认每条字幕的校订来源。"
-	if len(segments) > 0 {
-		subtitleStatus = "uncertain"
-		if partial {
-			subtitleNote = "字幕校订仍在进行；覆盖字段记录已保存片段数和总片段数，不能代表全课完整。"
-		} else if allTraceable {
-			subtitleStatus = "verified"
-			subtitleNote = "每条字幕都有原始文本对照且没有待核对标记；这只描述应用中的校订状态。"
+	evidenceStatus = status
+	for _, raw := range segments {
+		if evidenceMap(raw)["uncertain"] == true {
+			evidenceStatus = "uncertain"
 		}
 	}
-	subtitleEvidenceStatus := subtitleStatus
-	if len(segments) > 0 {
-		for _, raw := range segments {
-			if evidenceMap(raw)["uncertain"] == true {
-				subtitleEvidenceStatus = "uncertain"
-			}
-		}
+	hash = evidenceHash(segments)
+	return
+}
+
+func evidenceTranscriptState(available bool, text string) (status, note, hash string) {
+	if !available {
+		return "unavailable", "数据库中没有保存的语音原文文本。", ""
 	}
-	transcriptStatus := "unavailable"
-	if transcriptAvailable {
-		transcriptStatus = "uncertain"
+	return "uncertain", "导出的是数据库中保存的语音识别原文；哈希针对保存的文本，不含本地文件字节。", sha256Hex(text)
+}
+
+func evidenceCoursewareState(available bool, lecture map[string]any, text string) (status, note, hash string) {
+	if available {
+		return "uncertain", "包含已保存的提取文本哈希；课件文件本身不打包，且原有记录未保存逐页 OCR/置信度。", sha256Hex(text)
 	}
-	transcriptNote := "数据库中没有保存的语音原文文本。"
-	if transcriptAvailable {
-		transcriptNote = "导出的是数据库中保存的语音识别原文；哈希针对保存的文本，不含本地文件字节。"
+	if textValue(lecture["ppt_path"]) == "" {
+		return "unavailable", "没有关联课件。", ""
 	}
-	coursewareStatus := "unavailable"
-	if coursewareAvailable {
-		coursewareStatus = "uncertain"
-	}
-	coursewareNote := "已关联课件文件，但数据库没有可导出的提取文本。"
-	if coursewareAvailable {
-		coursewareNote = "包含已保存的提取文本哈希；课件文件本身不打包，且原有记录未保存逐页 OCR/置信度。"
-	} else if textValue(lecture["ppt_path"]) == "" {
-		coursewareNote = "没有关联课件。"
-	}
-	practiceData := map[string]any{
-		"past":      evidencePracticeItems(practice["past"], practicePresent, false),
-		"extended":  evidencePracticeItems(practice["extended"], practicePresent, false),
-		"generated": evidencePracticeItems(practice["generated"], practicePresent, true),
+	return "unavailable", "已关联课件文件，但数据库没有可导出的提取文本。", ""
+}
+
+func evidencePracticeData(practice map[string]any, present bool) (map[string]any, string) {
+	data := map[string]any{
+		"past":      evidencePracticeItems(practice["past"], present, false),
+		"extended":  evidencePracticeItems(practice["extended"], present, false),
+		"generated": evidencePracticeItems(practice["generated"], present, true),
 		"shortage":  numberValue(practice["shortage"]),
 	}
-	practiceHash := ""
-	if practicePresent {
-		practiceHash = evidenceHash(practice)
+	if !present {
+		return data, ""
 	}
-	notesStatus := "unavailable"
-	if notesPresent {
-		notesStatus = "verified"
-		for _, block := range []map[string]any{notesKeyPoints, notesNotTested, notesUncertain} {
-			if textValue(block["status"]) == "uncertain" {
-				notesStatus = "uncertain"
-			}
+	return data, evidenceHash(practice)
+}
+
+func evidenceNotesState(notes map[string]any, present bool, blocks ...map[string]any) (status, hash string) {
+	if !present {
+		return "unavailable", ""
+	}
+	status = "verified"
+	empty := true
+	for _, block := range blocks {
+		if textValue(block["status"]) == "uncertain" {
+			status = "uncertain"
 		}
-		if len(notesKeyPoints["data"].([]any)) == 0 && len(notesNotTested["data"].([]any)) == 0 && len(notesUncertain["data"].([]any)) == 0 {
-			notesStatus = "unavailable"
+		if len(block["data"].([]any)) > 0 {
+			empty = false
 		}
 	}
-	noteReferences := []any{}
+	if empty {
+		status = "unavailable"
+	}
+	return status, evidenceHash(notes)
+}
+
+func evidenceNoteReferences(notes map[string]any) []any {
+	refs := []any{}
 	for _, raw := range evidenceList(notes["keyPoints"]) {
 		point := evidenceMap(raw)
 		if ref := textValue(point["pptRef"]); ref != "" {
-			noteReferences = append(noteReferences, map[string]any{
+			refs = append(refs, map[string]any{
 				"topic": textValue(point["topic"]), "timestamp": textValue(point["timestamp"]), "locator": ref, "status": "uncertain",
 			})
 		}
 	}
+	return refs
+}
+
+func evidenceCoverage(segments []any, partial bool, correction map[string]any) map[string]any {
 	coverage := map[string]any{"segmentCount": len(segments), "partial": partial}
 	if len(segments) > 0 {
 		start := int64(numberValue(evidenceMap(segments[0])["start"]))
@@ -323,6 +330,36 @@ func buildEvidenceBundle(course map[string]any, detail map[string]any, generated
 		coverage["completed"] = numberValue(correction["completed"])
 		coverage["total"] = numberValue(correction["total"])
 	}
+	return coverage
+}
+
+func buildEvidenceBundle(course map[string]any, detail map[string]any, generatedAt, version string) map[string]any {
+	lecture := evidenceMap(detail["lecture"])
+	segments := evidenceList(detail["segments"])
+	correction := evidenceMap(detail["correction"])
+	partial := correction != nil
+	notes := evidenceMap(detail["notes"])
+	notesPresent := detail["notes"] != nil
+	practice := evidenceMap(detail["practice"])
+	practicePresent := detail["practice"] != nil
+	transcriptText := textValue(lecture["transcript_text"])
+	coursewareText := textValue(lecture["ppt_text"])
+	transcriptAvailable := transcriptText != ""
+	coursewareAvailable := coursewareText != ""
+	pageMarkers := evidencePageMarkers(coursewareText)
+	subtitlesComplete := len(segments) > 0 && !partial
+	allTraceable := evidenceSegmentsTraceable(segments, subtitlesComplete)
+	notesKeyPoints := evidenceNoteItems(notes["keyPoints"], notes["keyPoints"] != nil, "教师明确重点")
+	notesNotTested := evidenceNoteItems(notes["notTested"], notes["notTested"] != nil, "教师明确不考")
+	notesUncertain := evidenceNoteItems(notes["uncertain"], notes["uncertain"] != nil, msgTeacherAmbiguous)
+	subtitleData := evidenceSubtitleData(segments, lecture, partial)
+	subtitleStatus, subtitleNote, subtitleEvidenceStatus, subtitleHash := evidenceSubtitleState(segments, partial, allTraceable)
+	transcriptStatus, transcriptNote, transcriptHash := evidenceTranscriptState(transcriptAvailable, transcriptText)
+	coursewareStatus, coursewareNote, coursewareHash := evidenceCoursewareState(coursewareAvailable, lecture, coursewareText)
+	practiceData, practiceHash := evidencePracticeData(practice, practicePresent)
+	notesStatus, noteHash := evidenceNotesState(notes, notesPresent, notesKeyPoints, notesNotTested, notesUncertain)
+	noteReferences := evidenceNoteReferences(notes)
+	coverage := evidenceCoverage(segments, partial, correction)
 	revisionId := evidenceHash(map[string]any{
 		"course":         []any{course["id"], course["name"], course["created_at"]},
 		"lecture":        []any{lecture["id"], lecture["title"], lecture["created_at"], lecture["status"]},
@@ -426,49 +463,47 @@ func pageIndex(pages []int) []any {
 	return result
 }
 
-func evidenceMarkdown(bundle map[string]any) string {
-	lines := []string{
-		"# " + textValue(evidenceMap(bundle["course"])["name"]) + " · " + textValue(evidenceMap(bundle["lecture"])["title"]) + " · 课程学习证据包",
-		"", "- Schema：" + textValue(bundle["schemaVersion"]),
-		"- 生成应用：摘云 " + textValue(evidenceMap(bundle["producer"])["version"]),
-		"- 生成时间：" + textValue(bundle["generatedAt"]),
-		"- 课程 ID：" + textValue(evidenceMap(bundle["course"])["id"]) + "；创建：" + textValue(evidenceMap(bundle["course"])["createdAt"]),
-		"- 课次 ID：" + textValue(evidenceMap(bundle["lecture"])["id"]) + "；创建：" + textValue(evidenceMap(bundle["lecture"])["createdAt"]) + "；当前状态：" + textValue(evidenceMap(bundle["lecture"])["status"]),
-		"- 内容修订指纹：" + textValue(bundle["revisionId"]),
-		"- 核验范围：" + textValue(bundle["verificationScope"]),
-		"- 字幕覆盖：" + fmt.Sprintf("%d", int(numberValue(evidenceMap(evidenceMap(bundle["lecture"])["coverage"])["segmentCount"]))) + " 条",
-		"",
+var evidenceStatusText = map[string]string{
+	"verified": "已核验（应用内标记）", "uncertain": "待核对/来源不完整", "unavailable": "不可用",
+}
+
+func appendEvidenceSection(lines []string, title string, block map[string]any) []string {
+	lines = append(lines, "## "+title+" · "+evidenceStatusText[textValue(block["status"])], "", textValue(block["note"]))
+	if hash := textValue(block["contentHash"]); hash != "" {
+		lines = append(lines, "", "内容 SHA-256："+hash)
 	}
-	statusText := map[string]string{"verified": "已核验（应用内标记）", "uncertain": "待核对/来源不完整", "unavailable": "不可用"}
-	section := func(title string, block map[string]any) {
-		lines = append(lines, "## "+title+" · "+statusText[textValue(block["status"])], "", textValue(block["note"]))
-		if hash := textValue(block["contentHash"]); hash != "" {
-			lines = append(lines, "", "内容 SHA-256："+hash)
-		}
-		lines = append(lines, "")
+	return append(lines, "")
+}
+
+func evidenceTranscriptLines(lines []string, source map[string]any) []string {
+	data := evidenceMap(source["data"])
+	if data == nil {
+		return lines
 	}
-	sources := evidenceMap(bundle["sources"])
-	section("来源：语音原文", evidenceMap(sources["transcript"]))
-	if data := evidenceMap(evidenceMap(sources["transcript"])["data"]); data != nil {
-		if name := textValue(data["filename"]); name != "" {
-			lines = append(lines, "存储文件："+name, "")
-		}
-		if text := textValue(data["text"]); text != "" {
-			lines = append(lines, "### 原始语音识别文本", "", "```text", text, "```", "")
-		}
+	if name := textValue(data["filename"]); name != "" {
+		lines = append(lines, "存储文件："+name, "")
 	}
-	section("来源：字幕", evidenceMap(sources["subtitles"]))
-	section("来源：视频文件", evidenceMap(sources["video"]))
-	if data := evidenceMap(evidenceMap(sources["video"])["data"]); data != nil {
-		if name := textValue(data["filename"]); name != "" {
-			lines = append(lines, "存储文件："+name, "")
-		}
+	if text := textValue(data["text"]); text != "" {
+		lines = append(lines, "### 原始语音识别文本", "", "```text", text, "```", "")
 	}
-	evidence := evidenceMap(bundle["evidence"])
-	section("字幕片段", evidenceMap(evidence["subtitles"]))
-	for _, raw := range evidenceList(evidenceMap(evidence["subtitles"])["data"]) {
+	return lines
+}
+
+func evidenceVideoLines(lines []string, source map[string]any) []string {
+	data := evidenceMap(source["data"])
+	if data == nil {
+		return lines
+	}
+	if name := textValue(data["filename"]); name != "" {
+		lines = append(lines, "存储文件："+name, "")
+	}
+	return lines
+}
+
+func evidenceSubtitleLines(lines []string, block map[string]any) []string {
+	for _, raw := range evidenceList(block["data"]) {
 		segment := evidenceMap(raw)
-		lines = append(lines, "### "+fmt.Sprintf("%d–%d ms", int64(numberValue(segment["startMs"])), int64(numberValue(segment["endMs"])))+" · "+statusText[textValue(segment["status"])], "", "片段 ID："+textValue(segment["id"]), "", textValue(segment["text"]), "")
+		lines = append(lines, "### "+fmt.Sprintf("%d–%d ms", int64(numberValue(segment["startMs"])), int64(numberValue(segment["endMs"])))+" · "+evidenceStatusText[textValue(segment["status"])], "", "片段 ID："+textValue(segment["id"]), "", textValue(segment["text"]), "")
 		if original := textValue(segment["originalText"]); original != "" {
 			lines = append(lines, "原文对照："+original, "")
 		}
@@ -478,17 +513,21 @@ func evidenceMarkdown(bundle map[string]any) string {
 			}
 		}
 	}
-	section("课程笔记", evidenceMap(evidence["notes"]))
-	notesData := evidenceMap(evidenceMap(evidence["notes"])["data"])
+	return lines
+}
+
+func evidenceNotesLines(lines []string, block map[string]any) []string {
+	notesData := evidenceMap(block["data"])
+	titles := map[string]string{"keyPoints": "教师明确重点", "notTested": "教师明确不考", "uncertain": msgTeacherAmbiguous}
 	for _, key := range []string{"keyPoints", "notTested", "uncertain"} {
 		if notesData == nil {
 			continue
 		}
 		note := evidenceMap(notesData[key])
-		section(map[string]string{"keyPoints": "教师明确重点", "notTested": "教师明确不考", "uncertain": msgTeacherAmbiguous}[key], note)
+		lines = appendEvidenceSection(lines, titles[key], note)
 		for _, raw := range evidenceList(note["data"]) {
 			item := evidenceMap(raw)
-			line := "- [" + statusText[textValue(item["status"])] + "] " + textValue(item["timestamp"]) + " · " + textValue(item["topic"]) + "：“" + textValue(item["quote"]) + "”"
+			line := "- [" + evidenceStatusText[textValue(item["status"])] + "] " + textValue(item["timestamp"]) + " · " + textValue(item["topic"]) + "：“" + textValue(item["quote"]) + "”"
 			if level := textValue(item["level"]); level != "" {
 				line += "（" + level + "）"
 			}
@@ -502,45 +541,91 @@ func evidenceMarkdown(bundle map[string]any) string {
 		}
 		lines = append(lines, "")
 	}
-	section("摘要要点（复用教师明确重点）", evidenceMap(evidence["summary"]))
-	for _, raw := range evidenceList(evidenceMap(evidence["summary"])["data"]) {
+	return lines
+}
+
+func evidenceSummaryLines(lines []string, block map[string]any) []string {
+	for _, raw := range evidenceList(block["data"]) {
 		item := evidenceMap(raw)
-		lines = append(lines, "- ["+statusText[textValue(item["status"])]+"] "+textValue(item["timestamp"])+" · "+textValue(item["topic"])+"：“"+textValue(item["quote"])+"”")
+		lines = append(lines, "- ["+evidenceStatusText[textValue(item["status"])]+"] "+textValue(item["timestamp"])+" · "+textValue(item["topic"])+"：“"+textValue(item["quote"])+"”")
 	}
-	lines = append(lines, "")
-	section("来源：课件/提取文本", evidenceMap(sources["courseware"]))
-	section("课件文本与页索引", evidenceMap(evidence["courseware"]))
-	if data := evidenceMap(evidenceMap(evidence["courseware"])["data"]); data != nil {
-		if extracted := textValue(data["extractedText"]); extracted != "" {
-			lines = append(lines, "```text", extracted, "```", "")
-		}
-		for _, raw := range evidenceList(data["pageIndex"]) {
-			page := evidenceMap(raw)
-			lines = append(lines, fmt.Sprintf("- 第 %d 页 · %s", int(numberValue(page["page"])), textValue(page["locator"])))
-		}
-		for _, raw := range evidenceList(data["noteReferences"]) {
-			ref := evidenceMap(raw)
-			lines = append(lines, "- 笔记引用："+textValue(ref["topic"])+" · "+textValue(ref["timestamp"])+" · "+textValue(ref["locator"]))
+	return append(lines, "")
+}
+
+func evidenceCoursewareLines(lines []string, block map[string]any) []string {
+	data := evidenceMap(block["data"])
+	if data == nil {
+		return lines
+	}
+	if extracted := textValue(data["extractedText"]); extracted != "" {
+		lines = append(lines, "```text", extracted, "```", "")
+	}
+	for _, raw := range evidenceList(data["pageIndex"]) {
+		page := evidenceMap(raw)
+		lines = append(lines, fmt.Sprintf("- 第 %d 页 · %s", int(numberValue(page["page"])), textValue(page["locator"])))
+	}
+	for _, raw := range evidenceList(data["noteReferences"]) {
+		ref := evidenceMap(raw)
+		lines = append(lines, "- 笔记引用："+textValue(ref["topic"])+" · "+textValue(ref["timestamp"])+" · "+textValue(ref["locator"]))
+	}
+	return append(lines, "")
+}
+
+func evidencePracticeLines(lines []string, block map[string]any) []string {
+	data := evidenceMap(block["data"])
+	if data == nil {
+		return lines
+	}
+	for _, group := range []struct{ Key, Title string }{{"past", "历年真题"}, {"extended", "有来源的拓展练习"}, {"generated", "AI 自测题（非历年真题）"}} {
+		groupData := evidenceMap(data[group.Key])
+		lines = append(lines, "### "+group.Title+"（"+fmt.Sprintf("%d", len(evidenceList(groupData["data"])))+" 道）", "")
+		for _, raw := range evidenceList(groupData["data"]) {
+			item := evidenceMap(raw)
+			lines = append(lines, fmt.Sprintf("- %s · %s：%s", textValue(item["topic"]), textValue(item["type"]), textValue(item["stem"])))
 		}
 		lines = append(lines, "")
 	}
-	section("画面证据", evidenceMap(evidence["frames"]))
-	section("知识库引用", evidenceMap(evidence["knowledgeBase"]))
-	section("练习与作答", evidenceMap(evidence["practice"]))
-	if data := evidenceMap(evidenceMap(evidence["practice"])["data"]); data != nil {
-		for _, group := range []struct{ Key, Title string }{{"past", "历年真题"}, {"extended", "有来源的拓展练习"}, {"generated", "AI 自测题（非历年真题）"}} {
-			block := evidenceMap(data[group.Key])
-			lines = append(lines, "### "+group.Title+"（"+fmt.Sprintf("%d", len(evidenceList(block["data"])))+" 道）", "")
-			for _, raw := range evidenceList(block["data"]) {
-				item := evidenceMap(raw)
-				lines = append(lines, fmt.Sprintf("- %s · %s：%s", textValue(item["topic"]), textValue(item["type"]), textValue(item["stem"])))
-			}
-			lines = append(lines, "")
-		}
-		if shortage := int(numberValue(data["shortage"])); shortage > 0 {
-			lines = append(lines, fmt.Sprintf("拓展题不足 %d 道，未用 AI 编题冒充搜索结果。", shortage))
-		}
+	if shortage := int(numberValue(data["shortage"])); shortage > 0 {
+		lines = append(lines, fmt.Sprintf("拓展题不足 %d 道，未用 AI 编题冒充搜索结果。", shortage))
 	}
+	return lines
+}
+
+func evidenceMarkdown(bundle map[string]any) string {
+	course := evidenceMap(bundle["course"])
+	lecture := evidenceMap(bundle["lecture"])
+	lines := []string{
+		"# " + textValue(course["name"]) + " · " + textValue(lecture["title"]) + " · 课程学习证据包",
+		"", "- Schema：" + textValue(bundle["schemaVersion"]),
+		"- 生成应用：摘云 " + textValue(evidenceMap(bundle["producer"])["version"]),
+		"- 生成时间：" + textValue(bundle["generatedAt"]),
+		"- 课程 ID：" + textValue(course["id"]) + "；创建：" + textValue(course["createdAt"]),
+		"- 课次 ID：" + textValue(lecture["id"]) + "；创建：" + textValue(lecture["createdAt"]) + "；当前状态：" + textValue(lecture["status"]),
+		"- 内容修订指纹：" + textValue(bundle["revisionId"]),
+		"- 核验范围：" + textValue(bundle["verificationScope"]),
+		"- 字幕覆盖：" + fmt.Sprintf("%d", int(numberValue(evidenceMap(lecture["coverage"])["segmentCount"]))) + " 条",
+		"",
+	}
+	sources := evidenceMap(bundle["sources"])
+	evidence := evidenceMap(bundle["evidence"])
+	lines = appendEvidenceSection(lines, "来源：语音原文", evidenceMap(sources["transcript"]))
+	lines = evidenceTranscriptLines(lines, evidenceMap(sources["transcript"]))
+	lines = appendEvidenceSection(lines, "来源：字幕", evidenceMap(sources["subtitles"]))
+	lines = appendEvidenceSection(lines, "来源：视频文件", evidenceMap(sources["video"]))
+	lines = evidenceVideoLines(lines, evidenceMap(sources["video"]))
+	lines = appendEvidenceSection(lines, "字幕片段", evidenceMap(evidence["subtitles"]))
+	lines = evidenceSubtitleLines(lines, evidenceMap(evidence["subtitles"]))
+	lines = appendEvidenceSection(lines, "课程笔记", evidenceMap(evidence["notes"]))
+	lines = evidenceNotesLines(lines, evidenceMap(evidence["notes"]))
+	lines = appendEvidenceSection(lines, "摘要要点（复用教师明确重点）", evidenceMap(evidence["summary"]))
+	lines = evidenceSummaryLines(lines, evidenceMap(evidence["summary"]))
+	lines = appendEvidenceSection(lines, "来源：课件/提取文本", evidenceMap(sources["courseware"]))
+	lines = appendEvidenceSection(lines, "课件文本与页索引", evidenceMap(evidence["courseware"]))
+	lines = evidenceCoursewareLines(lines, evidenceMap(evidence["courseware"]))
+	lines = appendEvidenceSection(lines, "画面证据", evidenceMap(evidence["frames"]))
+	lines = appendEvidenceSection(lines, "知识库引用", evidenceMap(evidence["knowledgeBase"]))
+	lines = appendEvidenceSection(lines, "练习与作答", evidenceMap(evidence["practice"]))
+	lines = evidencePracticeLines(lines, evidenceMap(evidence["practice"]))
 	return strings.Join(lines, "\n") + "\n"
 }
 
