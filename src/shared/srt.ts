@@ -77,7 +77,9 @@ export function verifyNotes(notes: LectureNotes, segments: Segment[]): LectureNo
   const quote = normalize(point.quote)
   const negative = /不考|了解即可|不作要求|跳过|不用看|不是重点|不重要|不要求/.test(quote)
   const positive = /重点|要考|会考|可能考|很重要|一定要掌握|必考|去年考过|记一下|要会算|要求掌握|必须掌握/.test(quote)
-  const trigger = group === 'key' ? positive && !negative : group === 'not' ? negative : true
+  let trigger = true
+  if (group === 'key') trigger = positive && !negative
+  else if (group === 'not') trigger = negative
   return {
    ...point,
    verified: quote.length >= 3 && all.includes(quote) && nearby.includes(quote) && trigger && !quote.startsWith('学生')

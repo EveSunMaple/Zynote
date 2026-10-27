@@ -340,11 +340,14 @@ export class NativeBiliDownloadRunner {
    }
   } catch (error) {
    const current = await this.jobs.read(id)
-   if (current.state === 'running')
+   if (current.state === 'running') {
+    let downloadError = ''
+    if (!signal.aborted) downloadError = error instanceof Error ? error.message : '下载未完成'
     await this.jobs.transition(id, current.revision, signal.aborted ? 'cancelled' : 'error', {
      stage: signal.aborted ? '已取消，恢复材料保留' : '未发布成果，恢复材料保留',
-     error: signal.aborted ? '' : error instanceof Error ? error.message : '下载未完成'
+     error: downloadError
     })
+   }
    throw error
   } finally {
    await transport?.close()

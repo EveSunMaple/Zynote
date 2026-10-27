@@ -33,7 +33,7 @@ export async function summarizeVideo(
    chunkLength += cue.text.length
   }
  }
- const max = mode === 'brief' ? 4 : mode === 'keypoints' ? 8 : 14
+ const max = ({brief: 4, keypoints: 8} as Record<string, number>)[mode] ?? 14
  const heading = noteTitles[mode]
  const lines = [`# ${heading}`, '', '以下内容根据字幕生成。引文保留原话与时间点，自动转写的错误仍需核对。', '']
  let count = 0

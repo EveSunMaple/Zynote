@@ -15,8 +15,12 @@ export async function publishMediaLayout(
  if ((await lstat(base)).isSymbolicLink() || resolve(await realpath(base)).toLowerCase() !== base.toLowerCase())
   throw new Error('目录整理根路径无效')
  const parts: string[] = []
- if (options.folder_layout.includes('type'))
-  parts.push(options.subtitle_only ? '字幕' : options.audio_only ? '音频' : '视频')
+ if (options.folder_layout.includes('type')) {
+  let mediaType = '视频'
+  if (options.subtitle_only) mediaType = '字幕'
+  else if (options.audio_only) mediaType = '音频'
+  parts.push(mediaType)
+ }
  if (options.folder_layout.includes('date')) {
   const date = /^\d{4}-(?:0[1-9]|1[0-2])/.exec(created)?.[0]
   if (!date) throw new Error('下载创建月份无效')

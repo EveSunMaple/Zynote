@@ -24,12 +24,10 @@ export function systemProtect(raw: Buffer, decrypt = false, domain: 'media' | 'i
   binding = domain === 'im' ? `im:${process.platform}:` : ''
  if (decrypt) {
   const current = header(false),
-   legacyHeader = header(true),
-   matched = raw.subarray(0, current.length).equals(current)
-    ? current
-    : raw.subarray(0, legacyHeader.length).equals(legacyHeader)
-      ? legacyHeader
-      : undefined
+   legacyHeader = header(true)
+  let matched: Buffer | undefined
+  if (raw.subarray(0, current.length).equals(current)) matched = current
+  else if (raw.subarray(0, legacyHeader.length).equals(legacyHeader)) matched = legacyHeader
   if (!matched || raw.length <= matched.length) throw new Error('凭据格式或所属平台不匹配，请在当前系统重新导入')
   const payload = safeStorage.decryptString(raw.subarray(matched.length))
   if (!payload.startsWith(binding)) throw new Error('系统加密内容所属范围不匹配')

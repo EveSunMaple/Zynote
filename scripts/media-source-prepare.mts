@@ -90,10 +90,15 @@ export async function downloadSource(source: Source, destination: string) {
  }
  throw new Error('Source redirect limit exceeded')
 }
+function tarBinary() {
+ if (process.platform === 'darwin') return '/usr/bin/tar'
+ if (process.platform === 'linux') return '/usr/bin/bsdtar'
+ return 'tar'
+}
 async function tar(args: string[]) {
  return await new Promise<string>((done, fail) => {
   execFile(
-   process.platform === 'darwin' ? '/usr/bin/tar' : process.platform === 'linux' ? '/usr/bin/bsdtar' : 'tar',
+   tarBinary(),
    args,
    {
     encoding: 'utf8',

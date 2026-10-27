@@ -225,11 +225,11 @@ export function ScheduleContent(props: ScheduleProps) {
     <div>
      <strong>{dirty ? '有未保存的修改' : '课表已保存'}</strong>
      <small>
-      {issues.length
-       ? `还有 ${issues.length} 处信息需要完善`
-       : dirty
-         ? '保存后会同步更新已关联课次的名称和聊天标题'
-         : '所有条目均已保存'}
+      {(() => {
+       if (issues.length) return `还有 ${issues.length} 处信息需要完善`
+       if (dirty) return '保存后会同步更新已关联课次的名称和聊天标题'
+       return '所有条目均已保存'
+      })()}
      </small>
     </div>
     <Button variant="primary" size="sm" isDisabled={busy || !dirty || issues.length > 0} onClick={onSave}>

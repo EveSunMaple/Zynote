@@ -2,7 +2,7 @@ import {glob, readFile} from 'node:fs/promises'
 import {dirname, join, resolve} from 'node:path'
 import {fileURLToPath} from 'node:url'
 
-const compareCodeUnit = (a: string, b: string) => (a < b ? -1 : a > b ? 1 : 0)
+const compareCodeUnit = (a: string, b: string) => Number(a > b) - Number(a < b)
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 const contract = JSON.parse(await readFile(join(root, 'contract/actions.json'), 'utf8')) as {
  schema: number

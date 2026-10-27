@@ -96,7 +96,13 @@ export function BiliResourcesPanel({
  return (
   <>
    <div className="row bili-account-bar">
-    <span className="learning-course">{user.loggedIn ? user.name || '已登录' : checked ? '未登录' : '未检查账号'}</span>
+    <span className="learning-course">
+     {(() => {
+      if (user.loggedIn) return user.name || '已登录'
+      if (checked) return '未登录'
+      return '未检查账号'
+     })()}
+    </span>
     {user.loggedIn && (
      <SelectField
       label="收藏夹"

@@ -32,30 +32,30 @@ while (queue.length) {
    queue.push(next)
   }
 }
-const records = names.map(name => ({
- path: 'scripts/' + name,
- sha256: createHash('sha256').update(bodies.get(name)!).digest('hex'),
- bytes: Buffer.byteLength(bodies.get(name)!),
- language: /\.(?:ts|mts|cts)$/.test(name)
-  ? 'typescript'
-  : name.endsWith('.py')
-    ? 'python'
-    : name.endsWith('.ps1')
-      ? 'powershell'
-      : 'javascript',
- npmReachable: active.has(name),
- directNpmEntrypoint: direct.has(name),
- referencedBy: [...edges].filter(([, targets]) => targets.includes(name)).map(([name]) => name),
- references: edges.get(name),
- review: active.has(name) ? 'active-entrypoint' : 'not-proven-active-do-not-delete',
- legacyResourceReferences: [
-  ...new Set(
-   (bodies.get(name)!.match(/resources[/\\](?:asr|knowledge|pdf|video)[^'"\x60\r\n)]*/g) || []).map(value =>
-    value.slice(0, 300)
+const records = names.map(name => {
+ let language = 'javascript'
+ if (/\.(?:ts|mts|cts)$/.test(name)) language = 'typescript'
+ else if (name.endsWith('.py')) language = 'python'
+ else if (name.endsWith('.ps1')) language = 'powershell'
+ return {
+  path: 'scripts/' + name,
+  sha256: createHash('sha256').update(bodies.get(name)!).digest('hex'),
+  bytes: Buffer.byteLength(bodies.get(name)!),
+  language,
+  npmReachable: active.has(name),
+  directNpmEntrypoint: direct.has(name),
+  referencedBy: [...edges].filter(([, targets]) => targets.includes(name)).map(([name]) => name),
+  references: edges.get(name),
+  review: active.has(name) ? 'active-entrypoint' : 'not-proven-active-do-not-delete',
+  legacyResourceReferences: [
+   ...new Set(
+    (bodies.get(name)!.match(/resources[/\\](?:asr|knowledge|pdf|video)[^'"\x60\r\n)]*/g) || []).map(value =>
+     value.slice(0, 300)
+    )
    )
-  )
- ]
-}))
+  ]
+ }
+})
 const report = {
  updatedAt: new Date().toISOString(),
  scope: '静态 npm 入口及脚本文本依赖图；外部手动调用和动态路径仍须复核，不以未引用为删除授权',

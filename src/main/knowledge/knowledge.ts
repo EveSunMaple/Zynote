@@ -85,10 +85,10 @@ export class KnowledgeBase {
     finish(error)
    }
    const cancel = () => abort(new Error('知识库处理已取消，已有资料保留'))
-   const timer = setTimeout(
-    () => abort(new Error('知识库处理超时，已有资料保留')),
-    action === 'vector-rebuild' ? 900000 : action === 'search' ? 180000 : 120000
-   )
+   let timeout = 120000
+   if (action === 'vector-rebuild') timeout = 900000
+   else if (action === 'search') timeout = 180000
+   const timer = setTimeout(() => abort(new Error('知识库处理超时，已有资料保留')), timeout)
    const finish = (error?: Error, result?: unknown) => {
     if (this.active?.id !== id) return
     this.active = undefined

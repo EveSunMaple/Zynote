@@ -76,16 +76,13 @@ export class NativeMcpSession {
   if (Buffer.byteLength(body) > 32768) throw new Error('MCP 请求参数超过大小上限')
   const {response, close} = await this.exchange(this.endpoint, {method: 'POST', headers, body, signal})
   try {
-   if (!response.ok)
-    throw new Error(
-     response.status === 429
-      ? 'MCP 服务已限流，不自动重试'
-      : response.status === 401 || response.status === 403
-        ? 'MCP 服务需要身份验证，公开连接不支持密钥'
-        : response.status === 404 && this.session
-          ? 'MCP 会话已过期，不自动重放调用'
-          : `MCP 服务返回 HTTP ${response.status}`
-    )
+   if (!response.ok) {
+    let message = `MCP 服务返回 HTTP ${response.status}`
+    if (response.status === 429) message = 'MCP 服务已限流，不自动重试'
+    else if (response.status === 401 || response.status === 403) message = 'MCP 服务需要身份验证，公开连接不支持密钥'
+    else if (response.status === 404 && this.session) message = 'MCP 会话已过期，不自动重放调用'
+    throw new Error(message)
+   }
    const session = response.headers.get('MCP-Session-Id')
    if (session && !/^[\x21-\x7e]{1,512}$/.test(session)) throw new Error('MCP 会话编号无效')
    if (this.session && session && session !== this.session) throw new Error('MCP 会话发生改变')

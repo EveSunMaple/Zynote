@@ -30,6 +30,11 @@ const conversationSchema = z.object({
 type StoredMemory = z.infer<typeof memorySchema>
 type Conversation = z.infer<typeof conversationSchema>
 /** Separate native state database; the old database remains a read-only migration source. */
+function availabilityOf(row: {paused: boolean; expires_at: number | null}, now: number) {
+ if (row.paused) return 'paused'
+ if (row.expires_at !== null && row.expires_at <= now) return 'expired'
+ return 'active'
+}
 export class NativeResearchStore {
  readonly db: Database.Database
  readonly rootId: string
@@ -98,7 +103,7 @@ export class NativeResearchStore {
    kb_root_id: this.rootId,
    records: rows.map(row => ({
     ...row,
-    availability: row.paused ? 'paused' : row.expires_at !== null && row.expires_at <= now ? 'expired' : 'active'
+    availability: availabilityOf(row, now)
    })),
    reviewed_pairs: [],
    capacity: {used: rows.length, limit: 100, remaining: Math.max(0, 100 - rows.length)}

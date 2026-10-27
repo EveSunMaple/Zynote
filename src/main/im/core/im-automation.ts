@@ -319,9 +319,12 @@ export class NativeImAutomation {
     outcome_unknown: receipt.state !== 'sent'
    })
   } catch {
+   let state: 'unknown' | 'blocked' | 'failed' = 'failed'
+   if (job.send_op) state = 'unknown'
+   else if (signal.aborted) state = 'blocked'
    this.job({
     ...job,
-    state: job.send_op ? 'unknown' : signal.aborted ? 'blocked' : 'failed',
+    state,
     error: '本条未确认完成，请核对模型、账号、规则及消息；未自动重发。',
     outcome_unknown: job.outcome_unknown
    })
@@ -345,14 +348,12 @@ export class NativeImAutomation {
     .filter(job => job.scope_key === key)
     .sort((a, b) => b.createdAt - a.createdAt)
    return {
-    jobs: rows.slice(args.offset, args.offset + args.limit).map(job => ({
-     ...job,
-     allowed_actions: job.send_op
-      ? ['reconcile']
-      : ['failed', 'unknown', 'blocked'].includes(job.state)
-        ? ['retry_generation']
-        : []
-    })),
+    jobs: rows.slice(args.offset, args.offset + args.limit).map(job => {
+     let actions: string[] = []
+     if (job.send_op) actions = ['reconcile']
+     else if (['failed', 'unknown', 'blocked'].includes(job.state)) actions = ['retry_generation']
+     return {...job, allowed_actions: actions}
+    }),
     next_offset: args.offset + args.limit < rows.length ? args.offset + args.limit : null
    }
   }

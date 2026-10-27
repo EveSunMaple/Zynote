@@ -270,16 +270,10 @@ export class VideoPpt {
      /* The task remains visible even when its naming record cannot be read. */
     }
     const code = (error as NodeJS.ErrnoException).code
-    result.push({
-     id,
-     name,
-     error:
-      code === 'ENOENT'
-       ? '任务准备未完成，已保留下载文件，请查看任务文件。'
-       : code === 'EACCES' || code === 'EPERM'
-         ? '任务文件无法读取，请检查文件访问权限。'
-         : '任务记录损坏或不一致，已保留原文件，请查看任务文件。'
-    })
+    let errorMessage = '任务记录损坏或不一致，已保留原文件，请查看任务文件。'
+    if (code === 'ENOENT') errorMessage = '任务准备未完成，已保留下载文件，请查看任务文件。'
+    else if (code === 'EACCES' || code === 'EPERM') errorMessage = '任务文件无法读取，请检查文件访问权限。'
+    result.push({id, name, error: errorMessage})
    }
   }
   return result

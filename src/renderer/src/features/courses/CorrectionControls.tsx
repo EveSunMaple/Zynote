@@ -45,14 +45,10 @@ export function CorrectionControls({
   }
   applyMode(next)
  }
- const label =
-  switched && hasCheckpoint
-   ? '按新策略重新校订'
-   : hasCheckpoint
-     ? '继续校订字幕'
-     : hasSegments
-       ? '重新校订字幕'
-       : '原文 + PPT 校订字幕'
+ let label = '原文 + PPT 校订字幕'
+ if (switched && hasCheckpoint) label = '按新策略重新校订'
+ else if (hasCheckpoint) label = '继续校订字幕'
+ else if (hasSegments) label = '重新校订字幕'
  return (
   <div className="flex flex-col gap-2">
    <div className="flex flex-wrap items-center gap-2">

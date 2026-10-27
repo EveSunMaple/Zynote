@@ -15,14 +15,13 @@ import type {MediaCrypt} from '@main/security/worker-crypt'
 function availability(row: Pick<NativeImConnection, 'platform' | 'fields'>) {
  const native = row.platform === 'weixin_local' || (row.platform === 'qq_napcat' && row.fields.mode !== 'manual'),
   available = !native || (process.platform === 'win32' && process.arch === 'x64')
- return {
-  available,
-  reason: available
-   ? ''
-   : row.platform === 'weixin_local'
-     ? '本机微信读取暂仅支持 Windows x64；仍可查看已保存消息。'
-     : '内置 QQ 后台暂仅支持 Windows x64；手工连接已有 QQ 服务不受此限制。'
- }
+ let reason = ''
+ if (!available)
+  reason =
+   row.platform === 'weixin_local'
+    ? '本机微信读取暂仅支持 Windows x64；仍可查看已保存消息。'
+    : '内置 QQ 后台暂仅支持 Windows x64；手工连接已有 QQ 服务不受此限制。'
+ return {available, reason}
 }
 function requireAvailable(row: Pick<NativeImConnection, 'platform' | 'fields'>) {
  const capability = availability(row)

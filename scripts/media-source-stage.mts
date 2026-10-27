@@ -7,7 +7,7 @@ import {fileURLToPath} from 'node:url'
 import {mediaSources} from './media-source-lock.mts'
 
 // Offline preparation only. No download, execution, chmod or installer integration.
-const compareCodeUnit = (a: string, b: string) => (a < b ? -1 : a > b ? 1 : 0)
+const compareCodeUnit = (a: string, b: string) => Number(a > b) - Number(a < b)
 type Source = (typeof mediaSources)[number]
 type Asset = Source['files'][number]
 function requireCheck(value: unknown, message: string): asserts value {

@@ -9,13 +9,10 @@ export function IdentityAvatar({role}: {role: 'user' | 'assistant'}) {
  const identity = useContext(IdentityContext),
   avatar = role === 'user' ? identity.userAvatar : identity.assistantAvatar,
   name = role === 'user' ? identity.userName : identity.assistantName
- return avatar ? (
-  <img className="identity-avatar" src={avatar} alt={name + '的头像'} />
- ) : role === 'assistant' ? (
-  <img className="identity-avatar" src={buddy} alt={name + '的头像'} />
- ) : (
-  <img className="identity-avatar" src={lian} alt={name + '的头像'} />
- )
+ let source = lian
+ if (avatar) source = avatar
+ else if (role === 'assistant') source = buddy
+ return <img className="identity-avatar" src={source} alt={name + '的头像'} />
 }
 export function IdentityEditor({
  initial,

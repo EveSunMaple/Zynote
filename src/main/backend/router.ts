@@ -159,7 +159,7 @@ const deleteSubjects = new Map([
  ['lecture:delete', '课次']
 ])
 
-const compareCodeUnit = (a: string, b: string) => (a < b ? -1 : a > b ? 1 : 0)
+const compareCodeUnit = (a: string, b: string) => Number(a > b) - Number(a < b)
 
 function stable(value: unknown): unknown {
  if (Array.isArray(value)) return value.map(item => stable(item))

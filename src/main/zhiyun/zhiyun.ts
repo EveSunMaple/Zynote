@@ -37,12 +37,9 @@ export function zhiyunLessons(rows: Record<string, unknown>[]): ZhiyunLesson[] {
   .map(row => {
    let content: Record<string, any>
    try {
-    content =
-     typeof row.content === 'string'
-      ? JSON.parse(row.content)
-      : row.content == null
-        ? {}
-        : (row.content as Record<string, any>)
+    if (typeof row.content === 'string') content = JSON.parse(row.content)
+    else if (row.content == null) content = {}
+    else content = row.content as Record<string, any>
    } catch {
     throw new Error('智云课次播放信息损坏，请刷新课次列表后重试')
    }

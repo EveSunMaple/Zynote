@@ -159,12 +159,11 @@ export const notify = {
   return heroToast.promise(task, {
    loading: messages.loading,
    success: messages.success,
-   error: error =>
-    messages.error
-     ? typeof messages.error === 'function'
-      ? messages.error(error)
-      : messages.error
-     : errorMessage(error)
+   error: error => {
+    if (!messages.error) return errorMessage(error)
+    if (typeof messages.error === 'function') return messages.error(error)
+    return messages.error
+   }
   })
  }
 }

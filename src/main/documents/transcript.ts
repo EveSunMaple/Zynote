@@ -33,9 +33,11 @@ export function splitTranscript(text: string) {
  const rows: {text: string; stamp: number | null}[] = []
  for (const block of blocks) {
   const row = transcriptRow(block)
-  const stamp = row
-   ? milliseconds(row.stamp.split(':').length === 2 ? '00:' + row.stamp.padStart(5, '0') : row.stamp.padStart(8, '0'))
-   : null
+  let stamp: number | null = null
+  if (row)
+   stamp = milliseconds(
+    row.stamp.split(':').length === 2 ? '00:' + row.stamp.padStart(5, '0') : row.stamp.padStart(8, '0')
+   )
   const value = row ? row.text : block
   if (value) rows.push({text: value, stamp})
   else if (stamp !== null) rows.push({text: '', stamp})

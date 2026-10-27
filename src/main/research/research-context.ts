@@ -77,7 +77,9 @@ export class NativeResearchContext {
     })
    }
    for (const [index, turn] of (current.turns as Record<string, unknown>[]).entries()) {
-    const text = typeof turn.answer === 'string' ? turn.answer : typeof turn.text === 'string' ? turn.text : ''
+    let text = ''
+    if (typeof turn.answer === 'string') text = turn.answer
+    else if (typeof turn.text === 'string') text = turn.text
     if (text)
      rows.push({
       kind: 'conversation',

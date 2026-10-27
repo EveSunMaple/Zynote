@@ -8,7 +8,7 @@ import {fileURLToPath} from 'node:url'
 import {z} from 'zod'
 import {modelFetch} from './model-fetch.mts'
 
-const compareCodeUnit = (a: string, b: string) => (a < b ? -1 : a > b ? 1 : 0)
+const compareCodeUnit = (a: string, b: string) => Number(a > b) - Number(a < b)
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 const repository = 'onnx-community/whisper-small',
  revision = '36050c46d777d46dc4b5f43f6d90574fc38f8732',

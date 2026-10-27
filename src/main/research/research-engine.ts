@@ -52,6 +52,11 @@ export type ResearchModel = (
  signal: AbortSignal
 ) => Promise<string>
 /** Durable native execution: source reads precede generation and are revalidated before any result is published. */
+function researchErrorCode(aborted: boolean, error: unknown) {
+ if (aborted) return '研究已停止，未发布未核验回答'
+ if (error instanceof Error) return error.message
+ return '研究未完成'
+}
 export class NativeResearchEngine {
  private readonly active = new Map<string, {controller: AbortController; done: Promise<void>}>()
  private closed = false
@@ -162,11 +167,11 @@ export class NativeResearchEngine {
     const conversation = this.store.conversation(request.conversation.id)
     if (conversation.revision !== request.conversation.revision) throw new Error('所选知识会话版本已改变')
    }
-   const materials = request.channels.includes('library')
-    ? request.materials.length
+   let materials: ResearchSource[] = []
+   if (request.channels.includes('library'))
+    materials = request.materials.length
      ? request.materials.map(binding => this.sources.read(binding))
      : this.sources.search(request.question)
-    : []
    if (
     !materials.length &&
     !request.channels.some(channel => ['notes', 'crossref', 'semantic', 'arxiv', 'web'].includes(channel))
@@ -458,7 +463,7 @@ export class NativeResearchEngine {
      outcome_unknown: current.outcome_unknown,
      note: '',
      answerHash: null,
-     error_code: signal.aborted ? '研究已停止，未发布未核验回答' : error instanceof Error ? error.message : '研究未完成'
+     error_code: researchErrorCode(signal.aborted, error)
     })
   }
  }

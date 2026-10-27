@@ -163,6 +163,8 @@ export function ZhiyunImporter({
  }
  const lesson = lessons.find(row => row.id === subId)
  const locked = searching || exporting
+ let subheading = progress || (course ? courseLabel(course) : '登录后搜索课程，导出原文与 PPT')
+ if (lessonsLoading) subheading = course ? courseLabel(course) + ' · 正在加载课次…' : '正在加载课次…'
  return (
   <WindowPanel
    visible={visible}
@@ -170,13 +172,7 @@ export function ZhiyunImporter({
    title="智云导入"
    description="搜索智云课程，导出语音原文与课件；登录在设置中完成。"
    heading="智云导入"
-   subheading={
-    lessonsLoading
-     ? course
-      ? courseLabel(course) + ' · 正在加载课次…'
-      : '正在加载课次…'
-     : progress || (course ? courseLabel(course) : '登录后搜索课程，导出原文与 PPT')
-   }
+   subheading={subheading}
    menu={
     <>
      {groups.map(group => (

@@ -125,8 +125,10 @@ export class BiliMediaCatalog {
      (s): s is string => !!s
     )
     if (!addresses.length) throw new Error('媒体格式缺少下载地址')
-    const mime = row.mimeType || row.mime_type || '',
-     extension = mime.includes('webm') ? 'webm' : kind === 'audio' ? 'm4a' : 'mp4'
+    const mime = row.mimeType || row.mime_type || ''
+    let extension = 'mp4'
+    if (mime.includes('webm')) extension = 'webm'
+    else if (kind === 'audio') extension = 'm4a'
     streams.push({
      id: `${kind === 'video' ? 'v' : 'a'}${row.id}-${row.codecid}`,
      kind,

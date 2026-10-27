@@ -91,15 +91,11 @@ export function createLearningHandler(
      )
      q.correctOptionKeys = correct
      const matched = compareChoices(response, correct)
-     q.attempt = {
-      response,
-      verdict: correct.length ? (matched ? 'correct' : 'incorrect') : 'review',
-      feedback: correct.length
-       ? matched
-        ? '选项正确。'
-        : '所选选项与参考答案不一致。'
-       : '参考答案未明确标出选项字母，请对照答案自查。'
-     }
+     let verdict: 'correct' | 'incorrect' | 'review' = 'review'
+     if (correct.length) verdict = matched ? 'correct' : 'incorrect'
+     let feedback = '参考答案未明确标出选项字母，请对照答案自查。'
+     if (correct.length) feedback = matched ? '选项正确。' : '所选选项与参考答案不一致。'
+     q.attempt = {response, verdict, feedback}
      db.savePractice(id(), detail.practice)
      return detail.practice
     }

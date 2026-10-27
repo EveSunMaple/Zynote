@@ -54,6 +54,11 @@ const states: Record<string, string> = {
  cancelled: '已取消',
  unknown: '登录结果待确认'
 }
+function sendStateText(state: string) {
+ if (state === 'sent') return '服务已确认发送'
+ if (state === 'unknown') return '发送结果未知，请在手机核对，不自动重发'
+ return state
+}
 export function CommunicationsPanel() {
  const [data, setData] = useState<Listing>(),
   [platform, setPlatform] = useState('qq_napcat'),
@@ -507,14 +512,7 @@ export function CommunicationsPanel() {
              text,
              user_confirmed: true
             })
-            const message =
-             (result.state === 'sent'
-              ? '服务已确认发送'
-              : result.state === 'unknown'
-                ? '发送结果未知，请在手机核对，不自动重发'
-                : result.state) +
-             ' · 操作编号 ' +
-             result.operation_id
+            const message = sendStateText(result.state) + ' · 操作编号 ' + result.operation_id
             if (result.state === 'sent') notify.success(message, {timeout: 8000})
             else if (result.state === 'unknown') notify.warning(message, {timeout: 10000})
             else notify.info(message, {timeout: 8000})

@@ -17,7 +17,11 @@ export function StudyField({
   <div className={'study-field ' + className}>
    <span className="study-field__label">{label}</span>
    {children}
-   {error ? <small className="study-field__error">{error}</small> : hint ? <small>{hint}</small> : null}
+   {(() => {
+    if (error) return <small className="study-field__error">{error}</small>
+    if (hint) return <small>{hint}</small>
+    return null
+   })()}
   </div>
  )
 }

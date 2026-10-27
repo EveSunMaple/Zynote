@@ -1,4 +1,4 @@
-const compareCodeUnit = (a: string, b: string) => (a < b ? -1 : a > b ? 1 : 0)
+const compareCodeUnit = (a: string, b: string) => Number(a > b) - Number(a < b)
 const optionPattern = /^\s*([A-H])[.、．)）:：]\s*/
 const choiceSuffix = '.。、，,:：'
 const choiceSeparator = '、,，'

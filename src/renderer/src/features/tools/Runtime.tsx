@@ -20,8 +20,11 @@ export function RuntimePanel() {
      <div className="row" key={item.id}>
       <span>{item.label}</span>
       <span>
-       {item.state === 'detected' ? '已找到' : item.state === 'missing' ? '当前环境未找到' : '待检查'}{' '}
-       {item.version || ''}
+       {(() => {
+        if (item.state === 'detected') return '已找到'
+        if (item.state === 'missing') return '当前环境未找到'
+        return '待检查'
+       })()} {item.version || ''}
       </span>
      </div>
     ))}

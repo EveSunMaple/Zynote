@@ -30,7 +30,8 @@ export function classifyDiscussion(text: string): {labels: Label[]; score: numbe
  const labels = (Object.entries(rules) as [Label, RegExp][])
   .filter(([, pattern]) => pattern.test(text))
   .map(([label]) => label)
- const noise = isDiscussionNoise(text)
+ const noise = isDiscussionNoise(text),
+  lengthBoost = Array.from(text).length >= 30 ? 1 : 0
  const weights: Record<Label, number> = {
   correction: 6,
   counterexample: 5,
@@ -41,7 +42,7 @@ export function classifyDiscussion(text: string): {labels: Label[]; score: numbe
  }
  return {
   labels: labels.length ? labels : ['discussion'],
-  score: noise ? 0 : labels.reduce((sum, label) => sum + weights[label], Array.from(text).length >= 30 ? 1 : 0)
+  score: noise ? 0 : labels.reduce((sum, label) => sum + weights[label], lengthBoost)
  }
 }
 export type Coverage = {
@@ -95,7 +96,7 @@ export function canonicalJson(value: unknown): string {
   return (
    '{' +
    Object.entries(value)
-    .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
+    .sort(([a], [b]) => Number(a > b) - Number(a < b))
     .filter(([, item]) => item !== undefined)
     .map(([key, item]) => JSON.stringify(key) + ':' + canonicalJson(item))
     .join(',') +

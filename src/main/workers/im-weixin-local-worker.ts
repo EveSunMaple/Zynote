@@ -112,12 +112,9 @@ process.on('message', (message: unknown) => {
     reader = readers.get(value.connection_id)
    if (!reader) throw new Error('本机微信绑定已失效，请重新选择进程核验')
    reader.verify(value.account, value.session.reader_id)
-   result =
-    request.action === 'verify'
-     ? {verified: true}
-     : request.action === 'directory'
-       ? reader.directory()
-       : reader.receive(z.string().parse(input.peer), value.session)
+   if (request.action === 'verify') result = {verified: true}
+   else if (request.action === 'directory') result = reader.directory()
+   else result = reader.receive(z.string().parse(input.peer), value.session)
   }
   process.send?.({id: requestId, ok: true, result})
  } catch (error) {

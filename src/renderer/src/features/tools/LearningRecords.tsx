@@ -224,8 +224,11 @@ export function LearningRecords() {
        <article key={task.task_id}>
         <h4>{task.question}</h4>
         <p>
-         {task.status === 'running' ? '正在核验与回答' : task.status === 'completed' ? '已保存' : '未完成'}{' '}
-         {task.error_code || ''}
+         {(() => {
+          if (task.status === 'running') return '正在核验与回答'
+          if (task.status === 'completed') return '已保存'
+          return '未完成'
+         })()} {task.error_code || ''}
         </p>
         {task.status === 'running' && (
          <Button

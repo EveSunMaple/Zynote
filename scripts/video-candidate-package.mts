@@ -51,7 +51,7 @@ async function sha(path: string) {
 async function listing(archive: string) {
  return await new Promise<string>((done, fail) =>
   execFile(
-   process.platform === 'darwin' ? '/usr/bin/tar' : process.platform === 'linux' ? '/usr/bin/bsdtar' : 'tar',
+   tarBinary(),
    ['-tvf', archive],
    {
     encoding: 'utf8',
@@ -62,6 +62,11 @@ async function listing(archive: string) {
    (e, out, err) => (e || err.trim() ? fail(new Error('Archive listing failed')) : done(out))
   )
  )
+}
+function tarBinary() {
+ if (process.platform === 'darwin') return '/usr/bin/tar'
+ if (process.platform === 'linux') return '/usr/bin/bsdtar'
+ return 'tar'
 }
 function verboseListing(line: string) {
  const fields: string[] = []
@@ -105,14 +110,10 @@ async function extractMember(archive: string, name: string, destination: string,
  let count = 0
  try {
   await new Promise<void>((done, fail) => {
-   const child = spawn(
-    process.platform === 'darwin' ? '/usr/bin/tar' : process.platform === 'linux' ? '/usr/bin/bsdtar' : 'tar',
-    ['-xOf', archive, name],
-    {
-     stdio: ['ignore', 'pipe', 'pipe'],
-     env: {...process.env, LC_ALL: 'C', LANG: 'C', TAR_OPTIONS: ''}
-    }
-   )
+   const child = spawn(tarBinary(), ['-xOf', archive, name], {
+    stdio: ['ignore', 'pipe', 'pipe'],
+    env: {...process.env, LC_ALL: 'C', LANG: 'C', TAR_OPTIONS: ''}
+   })
    const timer = setTimeout(() => {
     child.kill()
     fail(new Error('Member read timed out'))

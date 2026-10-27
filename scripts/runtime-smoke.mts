@@ -8,7 +8,7 @@ import {dirname, isAbsolute, join, resolve} from 'node:path'
 import {fileURLToPath, pathToFileURL} from 'node:url'
 import {release} from 'node:os'
 
-const compareCodeUnit = (a: string, b: string) => (a < b ? -1 : a > b ? 1 : 0)
+const compareCodeUnit = (a: string, b: string) => Number(a > b) - Number(a < b)
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..'),
  require = createRequire(import.meta.url),
  outputIndex = process.argv.indexOf('--output'),

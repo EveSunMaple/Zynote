@@ -81,11 +81,9 @@ export async function transcribeLocalVideo(video: string, signal: AbortSignal, p
   })
   child.once('close', code => {
    signal.removeEventListener('abort', abort)
-   signal.aborted
-    ? reject(new Error('字幕转写已取消，原视频与恢复记录保留'))
-    : code === 0
-      ? resolve()
-      : reject(new Error('完整音频读取失败，原视频保留'))
+   if (signal.aborted) reject(new Error('字幕转写已取消，原视频与恢复记录保留'))
+   else if (code === 0) resolve()
+   else reject(new Error('完整音频读取失败，原视频保留'))
   })
   if (signal.aborted) abort()
  })

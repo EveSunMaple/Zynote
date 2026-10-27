@@ -1,6 +1,8 @@
 export function methodFrontMatter(input: string) {
- const value = input.startsWith('\ufeff') ? input.slice(1) : input,
-  opening = value.startsWith('---\r\n') ? 5 : value.startsWith('---\n') ? 4 : -1
+ const value = input.startsWith('\ufeff') ? input.slice(1) : input
+ let opening = -1
+ if (value.startsWith('---\r\n')) opening = 5
+ else if (value.startsWith('---\n')) opening = 4
  if (opening < 0) return undefined
  let cursor = opening
  for (;;) {

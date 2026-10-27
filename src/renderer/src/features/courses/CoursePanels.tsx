@@ -235,7 +235,11 @@ export function Notes({
       <article key={`${p.topic}-${p.timestamp}-${p.quote}`} className={`note-card ${p.verified ? '' : 'unverified'}`}>
        <div className="row">
         <span className={`level ${'level' in p ? p.level : ''}`}>
-         {'level' in p ? p.level : group === 'notTested' ? '不考' : '待判断'}
+         {(() => {
+          if ('level' in p) return p.level
+          if (group === 'notTested') return '不考'
+          return '待判断'
+         })()}
         </span>
         <strong>{p.topic}</strong>
         <button className="timestamp" onClick={() => jump(p.timestamp)}>

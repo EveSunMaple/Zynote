@@ -7,7 +7,7 @@ import {dirname, isAbsolute, join, resolve} from 'node:path'
 import {tmpdir, release} from 'node:os'
 import {fileURLToPath, pathToFileURL} from 'node:url'
 import {packageVideoCandidate} from './video-candidate-package.mts'
-const compareCodeUnit = (a: string, b: string) => (a < b ? -1 : a > b ? 1 : 0)
+const compareCodeUnit = (a: string, b: string) => Number(a > b) - Number(a < b)
 function neededLibraries(output: string) {
  const result: string[] = []
  for (const line of output.split('\n')) {

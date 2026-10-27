@@ -30,7 +30,7 @@ export function manifestIdentity(manifest: RuntimeManifestV2) {
     [c.target.platform, c.target.arch],
     c.bytes,
     [...c.files]
-     .sort((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0))
+     .sort((a, b) => Number(a.path > b.path) - Number(a.path < b.path))
      .map(f => [f.path, f.size, f.sha256, f.mode])
    ])
  ]
@@ -48,7 +48,7 @@ export function createVideoDescriptor(manifest: RuntimeManifestV2): VideoDescrip
   bytes: component.bytes,
   filesDigest: digest(
    [...component.files]
-    .sort((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0))
+    .sort((a, b) => Number(a.path > b.path) - Number(a.path < b.path))
     .map(f => [f.path, f.size, f.sha256, f.mode])
   ),
   manifestDigest: digest(manifestIdentity(checked))

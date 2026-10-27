@@ -15,7 +15,7 @@ export function migrateDataLayout(root: string): {library: string} {
    renameSync(source, target)
   } catch {}
  }
- return {library: existsSync(join(root, 'Library')) ? 'Library' : existsSync(join(root, '资料')) ? '资料' : 'Library'}
+ return {library: existsSync(join(root, 'Library')) || !existsSync(join(root, '资料')) ? 'Library' : '资料'}
 }
 
 export function migrateLibraryLayout(libraryRoot: string) {

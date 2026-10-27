@@ -62,12 +62,11 @@ port.on('message', event => {
      })
      .parse(raw),
     request = pending.get(reply.key)
-   if (request)
-    reply.error
-     ? request.reject(new Error(reply.error))
-     : reply.text !== undefined
-       ? request.resolve(reply.text)
-       : request.reject(new Error('模型结果缺失'))
+   if (request) {
+    if (reply.error) request.reject(new Error(reply.error))
+    else if (reply.text !== undefined) request.resolve(reply.text)
+    else request.reject(new Error('模型结果缺失'))
+   }
   } catch {
    process.exit(1)
   }

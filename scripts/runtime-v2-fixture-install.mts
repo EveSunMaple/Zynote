@@ -6,7 +6,7 @@ import {tmpdir} from 'node:os'
 import {parseRuntimeManifestV2, type RuntimeTarget} from '../src/shared/runtime-manifest-v2.ts'
 import {validateVideoDescriptor} from '../src/shared/runtime-descriptor-v2.ts'
 
-const compareCodeUnit = (a: string, b: string) => (a < b ? -1 : a > b ? 1 : 0)
+const compareCodeUnit = (a: string, b: string) => Number(a > b) - Number(a < b)
 function check(value: unknown, message: string): asserts value {
  if (!value) throw new Error(message)
 }

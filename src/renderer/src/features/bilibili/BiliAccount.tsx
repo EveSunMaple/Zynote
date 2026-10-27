@@ -4,6 +4,12 @@ import {notify} from '@renderer/ui/ToastHost'
 const invoke = <T,>(action: string, args?: unknown) => window.assistant.invoke<T>(action, args)
 type User = {loggedIn: boolean; name?: string; mid?: number}
 
+function loginHint(login: string) {
+ if (login === 'scanning') return '已扫码，请在手机上确认'
+ if (login === 'expired') return '二维码已过期，请重新生成'
+ if (login === 'failed') return '检查失败，请重试'
+ return '请使用 B 站手机应用扫码'
+}
 export function BiliAccountPanel() {
  const [user, setUser] = useState<User>({loggedIn: false})
  const [busy, setBusy] = useState(false)
@@ -98,15 +104,7 @@ export function BiliAccountPanel() {
    {qr && (
     <div className="resource-qr">
      <img src={qr} alt="B 站官方登录二维码" />
-     <p>
-      {login === 'scanning'
-       ? '已扫码，请在手机上确认'
-       : login === 'expired'
-         ? '二维码已过期，请重新生成'
-         : login === 'failed'
-           ? '检查失败，请重试'
-           : '请使用 B 站手机应用扫码'}
-     </p>
+     <p>{loginHint(login)}</p>
     </div>
    )}
   </div>

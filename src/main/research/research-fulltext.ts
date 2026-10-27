@@ -129,11 +129,13 @@ export class NativeResearchFulltext {
       throw new Error('论文页数超出预算或所选物理页不存在')
      for (const page of choice.pages) {
       signal.throwIfAborted()
-      const content = await (await pdf.getPage(page)).getTextContent(),
-       text = content.items
-        .map(item => ('str' in item ? item.str + ('hasEOL' in item && item.hasEOL ? '\n' : ' ') : ''))
-        .join('')
-        .trim()
+      const content = await (await pdf.getPage(page)).getTextContent()
+      const textItem = (item: unknown) => {
+       if (typeof item !== 'object' || item === null) return ''
+       const value = item as {str?: unknown; hasEOL?: boolean}
+       return typeof value.str === 'string' ? value.str + (value.hasEOL ? '\n' : ' ') : ''
+      }
+      const text = content.items.map(textItem).join('').trim()
       if (!text) throw new Error('所选论文页未取得文字，当前不会自动OCR或宣称读完')
       const value = {
        provider: 'arxiv' as const,

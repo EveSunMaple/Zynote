@@ -46,9 +46,13 @@ export function QwenSettings({
   })
  const disabled = busy || reading,
   hasKey = !!(profile.apiKey?.trim() || profile.hasKey),
-  unavailable = available !== true,
-  textPlaceholder = reading ? '正在读取可用模型…' : unavailable ? '暂无可用的文本模型' : '请选择文本模型',
-  visionPlaceholder = reading ? '正在读取可用模型…' : unavailable ? '暂无可用的视觉模型' : '请选择视觉模型'
+  unavailable = available !== true
+ let textPlaceholder = '请选择文本模型'
+ if (reading) textPlaceholder = '正在读取可用模型…'
+ else if (unavailable) textPlaceholder = '暂无可用的文本模型'
+ let visionPlaceholder = '请选择视觉模型'
+ if (reading) visionPlaceholder = '正在读取可用模型…'
+ else if (unavailable) visionPlaceholder = '暂无可用的视觉模型'
  // 自动读取可用模型：进入页面、地址或密钥变化时重新读取；失败即视为 API 不可用。
  useEffect(() => {
   if (!hasKey) {
