@@ -204,6 +204,7 @@ func TestTransferMediaCancelKeepsCheckpoint(t *testing.T) {
 	defer server.Close()
 
 	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
 	directory := t.TempDir()
 	_, err := TransferMedia(TransferInput{
 		Directory: directory, Key: "track-1", Identity: "identity-1", URL: server.URL,

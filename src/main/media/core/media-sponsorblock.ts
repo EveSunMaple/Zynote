@@ -29,6 +29,7 @@ const receipt = z
  })
  .strict()
 const hash = (value: unknown) => createHash('sha256').update(JSON.stringify(value)).digest('hex')
+const compareCodeUnit = (a: string, b: string) => (a < b ? -1 : a > b ? 1 : 0)
 /** Read-only hash-prefix lookup. This never sends a complete video ID, account cookies or submissions. */
 export async function sponsorBlockPlan(
  source: NativeMediaSource,
@@ -39,7 +40,7 @@ export async function sponsorBlockPlan(
 ) {
  if (source.platform !== 'youtube' || !source.sourceId || !/^[A-Za-z0-9_-]{11}$/.test(source.sourceId))
   throw new Error('片段移除目前仅支持 YouTube；其它平台请使用时间片段')
- const categories = [...new Set(options.sponsorblock.split(','))].sort()
+ const categories = [...new Set(options.sponsorblock.split(','))].sort(compareCodeUnit)
  if (!categories.length || categories.some(value => !mediaSponsors.includes(value))) throw new Error('片段移除分类无效')
  const duration = source.catalog.duration
  if (!duration || !Number.isFinite(duration)) throw new Error('缺少完整视频时长，不能核验片段位置')

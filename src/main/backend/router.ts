@@ -159,11 +159,13 @@ const deleteSubjects = new Map([
  ['lecture:delete', '课次']
 ])
 
+const compareCodeUnit = (a: string, b: string) => (a < b ? -1 : a > b ? 1 : 0)
+
 function stable(value: unknown): unknown {
  if (Array.isArray(value)) return value.map(item => stable(item))
  if (value && typeof value === 'object') {
   const result: Record<string, unknown> = {}
-  for (const key of Object.keys(value as Record<string, unknown>).sort())
+  for (const key of Object.keys(value as Record<string, unknown>).sort(compareCodeUnit))
    result[key] = stable((value as Record<string, unknown>)[key])
   return result
  }

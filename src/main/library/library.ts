@@ -1,15 +1,12 @@
 import {mkdir, open} from 'node:fs/promises'
 import {join, basename, extname} from 'node:path'
+import {stripTrailing} from '@shared/text-trim'
 
 export const categories = ['PPT', 'Transcripts', 'Notes', 'PastExams'] as const
 export type Category = (typeof categories)[number]
 export function folderName(name: string) {
  const value =
-  name
-   .replace(/[<>:"/\\|?*\x00-\x1f]/g, '_')
-   .replace(/[. ]+$/g, '')
-   .slice(0, 100)
-   .replace(/[. ]+$/g, '') || '未命名课程'
+  stripTrailing(stripTrailing(name.replace(/[<>:"/\\|?*\x00-\x1f]/g, '_'), '. ').slice(0, 100), '. ') || '未命名课程'
  return /^(CON|PRN|AUX|NUL|COM[1-9]|LPT[1-9])(?:\.|$)/i.test(value) ? '_' + value : value
 }
 export async function libraryDirectory(root: string, category: Category, course?: string) {

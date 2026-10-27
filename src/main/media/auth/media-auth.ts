@@ -3,6 +3,7 @@ import {randomUUID} from 'node:crypto'
 import {lstat, mkdir, readFile, realpath, rename, writeFile} from 'node:fs/promises'
 import {join, resolve} from 'node:path'
 import {z} from 'zod'
+import {stripLeading, stripTrailing} from '@shared/text-trim'
 import {windowsProtect} from '@main/security/windows-native'
 import type {MediaCrypt} from '@main/security/worker-crypt'
 import type {NativeMediaOptions} from '@main/media/core/media-options'
@@ -21,10 +22,7 @@ const profile = z
 type Profile = z.infer<typeof profile>
 type Fetcher = (url: string, init?: RequestInit) => Promise<Response>
 export function mediaCookieScope(value: string) {
- const site = value
-  .trim()
-  .toLowerCase()
-  .replace(/^\.+|\.+$/g, '')
+ const site = stripLeading(stripTrailing(value.trim().toLowerCase(), '.'), '.')
  if (
   !/^(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}$/.test(site) ||
   ['co.uk', 'com.cn', 'com.au'].includes(site)

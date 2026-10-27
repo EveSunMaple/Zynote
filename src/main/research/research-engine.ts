@@ -8,6 +8,7 @@ import {NativeResearchContext, type ResearchContext} from '@main/research/resear
 import {readResearchAnswer, type MemoryCandidate} from '@main/research/research-memory'
 import {NativeResearchExternal, externalEvidenceText, type ExternalEvidence} from '@main/research/research-external'
 import {NativeResearchFulltext, type FulltextChoice} from '@main/research/research-fulltext'
+import {stripCodeFence} from '@shared/code-fence'
 const op = z.string().regex(/^[a-f0-9]{32}$/)
 const hash = (text: string) => createHash('sha256').update(text).digest('hex')
 export type NativeResearchTask = {
@@ -351,7 +352,7 @@ export class NativeResearchEngine {
      throw new Error('研究配置或任务已改变，工具未发送')
     const parsed = z
      .object({arguments: z.record(z.string(), z.unknown())})
-     .parse(JSON.parse(plan.replace(/^```(?:json)?\s*|\s*```$/g, '')))
+     .parse(JSON.parse(stripCodeFence(plan, 'json')))
     const result = await this.mcp.call(
      {
       op: hash(JSON.stringify([id, tool.server_id, tool.name])).slice(0, 32),

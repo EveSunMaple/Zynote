@@ -106,9 +106,12 @@ const grams = (value: string) => {
 
 // Index once per lecture; both text and image selection share the same page evidence.
 export function correctionContext(ppt: string, images: {label: string; url: string}[]) {
- const matches = [...ppt.matchAll(/\[第\s*(\d+)\s*页\]\n([\s\S]*?)(?=\n\s*\[第\s*\d+\s*页\]|$)/g)]
- const pages = matches.length
-  ? matches.map(m => ({page: Number(m[1]), text: m[0]}))
+ const headers = [...ppt.matchAll(/\[第\s*(\d+)\s*页\]\n/g)]
+ const pages = headers.length
+  ? headers.map((header, index) => ({
+     page: Number(header[1]),
+     text: ppt.slice(header.index, index + 1 < headers.length ? headers[index + 1].index! - 1 : ppt.length)
+    }))
   : Array.from({length: Math.ceil(ppt.length / 2000)}, (_, i) => ({
      page: i + 1,
      text: ppt.slice(i * 2000, (i + 1) * 2000)

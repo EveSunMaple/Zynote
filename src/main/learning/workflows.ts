@@ -317,7 +317,10 @@ export class Workflows {
     ? coursewareText
        .slice(markerIndex + limitationMarker.length)
        .split(/\r?\n/)
-       .map(line => /^\s*-\s*(.+)$/.exec(line)?.[1]?.trim())
+       .map(line => {
+        const value = line.trimStart()
+        return value.startsWith('-') ? value.slice(1).trim() : undefined
+       })
        .filter((line): line is string => !!line)
     : [])
   ]

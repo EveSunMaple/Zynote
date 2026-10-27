@@ -1,10 +1,9 @@
 import type {Course} from './types'
 
 export function courseSubject(name: string): string {
- const subject = name
-  .trim()
-  .replace(/\s*20\d{2}\s*[-–—]\s*20\d{2}\s*$/, '')
-  .trim()
+ const trimmed = name.trim(),
+  yearRange = /(20\d{2})\s*[-–—]\s*(20\d{2})\s*$/.exec(trimmed),
+  subject = yearRange ? trimmed.slice(0, yearRange.index).trim() : trimmed
  if (/^口腔颌面外科学\s*[ⅠI１1]$/.test(subject)) return '口腔颌面外科学1'
  if (/^口腔修复学\s*[ⅠI１1]$/.test(subject)) return '口腔修复学I'
  return subject

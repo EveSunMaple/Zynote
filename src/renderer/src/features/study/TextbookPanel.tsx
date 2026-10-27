@@ -407,8 +407,24 @@ export function TextbookContent(props: TextbookProps) {
       <div className="study-canvas" ref={frame}>
        <div className="study-page-shell">
         <div
+         aria-label="教材页面：拖拽框选划线区域，左右方向键翻页，Esc 取消框选"
          className="study-page"
+         role="application"
          style={{width: size.width, height: size.height}}
+         // biome-ignore lint/a11y/noNoninteractiveTabindex: this is an application surface that must accept keyboard focus.
+         tabIndex={0}
+         onKeyDown={event => {
+          if (event.key === 'Escape') {
+           start.current = null
+           setRectangle(null)
+          } else if (event.key === 'ArrowLeft' && pageNumber > 1) {
+           event.preventDefault()
+           onPageNumber(pageNumber - 1)
+          } else if (event.key === 'ArrowRight' && pageNumber < book.pages) {
+           event.preventDefault()
+           onPageNumber(pageNumber + 1)
+          }
+         }}
          onMouseDown={event => {
           if (!busy && viewport) start.current = point(event)
          }}

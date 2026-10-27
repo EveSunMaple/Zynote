@@ -11,6 +11,7 @@ import {croppedImage} from '@main/documents/ppt-extract'
 import {imagePdf} from '@main/documents/image-pdf'
 import {verifyGeneratedPdf} from '@main/documents/pdf-ppt-cleanup'
 import {StableSlides, checkedRegion, type Region} from '@main/media/bilibili/video-policy'
+import {stripCodeFence} from '@shared/code-fence'
 import type {VideoSource, VideoReview, PendingVideoTask} from '@shared/video-ppt'
 
 const mediaResources = () => (app.isPackaged ? process.resourcesPath : join(app.getAppPath(), 'resources'))
@@ -78,13 +79,7 @@ export async function ffmpeg(args: string[], signal: AbortSignal, onData?: (b: B
   if (signal.aborted) abort()
  })
 }
-const json = (raw: string) =>
- JSON.parse(
-  raw
-   .replace(/^\s*```(?:json)?\s*/i, '')
-   .replace(/\s*```\s*$/, '')
-   .trim()
- )
+const json = (raw: string) => JSON.parse(stripCodeFence(raw, 'json'))
 const regionSchema = z
  .object({left: z.number(), right: z.number(), top: z.number(), bottom: z.number()})
  .transform(checkedRegion)

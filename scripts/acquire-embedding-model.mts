@@ -3,10 +3,11 @@ import {createHash} from 'node:crypto'
 import {dirname, join, resolve} from 'node:path'
 import {fileURLToPath} from 'node:url'
 import {modelFetch} from './model-fetch.mts'
+import {stripTrailing} from '../src/shared/text-trim.ts'
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..'),
  directory = join(root, 'resources/knowledge/onnx-bge'),
- endpoint = (process.env.HF_ENDPOINT || 'https://huggingface.co').replace(/\/+$/, '')
+ endpoint = stripTrailing(process.env.HF_ENDPOINT || 'https://huggingface.co', '/')
 const revision = '75c43b069aac4d136ba6bc1122f995fedcfd2781'
 const files = [
  ['README.md', 1057, 'e26ec7fcc01a7aff66171d44acff0a80fae865e1'],
@@ -35,7 +36,7 @@ for (const [name, size, expected] of files) {
   bytes = Buffer.from(await response.arrayBuffer())
  }
  const sha256 = createHash('sha256').update(bytes).digest('hex'),
-  hash = expected.length === 64 ? sha256 : createHash('sha1').update(`blob ${size}\0`).update(bytes).digest('hex')
+  hash = expected.length === 64 ? sha256 : createHash('sha1').update(`blob ${size}\0`).update(bytes).digest('hex') // NOSONAR: HuggingFace Git blob ID protocol; content integrity uses SHA-256.
  if (bytes.length !== size || hash !== expected) throw new Error('模型固定版本校验失败：' + name)
  try {
   await lstat(path)

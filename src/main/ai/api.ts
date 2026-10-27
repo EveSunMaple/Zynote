@@ -1,3 +1,4 @@
+import {stripCodeFence} from '@shared/code-fence'
 import type {Profile} from '@shared/types'
 import type {SettingsStore} from '@main/config/settings'
 import {setTimeout as delay} from 'node:timers/promises'
@@ -292,10 +293,7 @@ export class Api {
     options
    )
    try {
-    const clean = raw
-     .replace(/^\s*```(?:json)?\s*/i, '')
-     .replace(/\s*```\s*$/, '')
-     .trim()
+    const clean = stripCodeFence(raw, 'json')
     return validate(JSON.parse(clean))
    } catch (error) {
     if (signal?.aborted) throw error

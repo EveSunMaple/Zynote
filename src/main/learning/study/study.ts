@@ -1,6 +1,7 @@
 import {randomUUID, createHash} from 'node:crypto'
 import {readFile, writeFile, rename, copyFile, rm} from 'node:fs/promises'
 import {TextbookFiles, fileHash, pdfOperation, type BookInfo} from '@main/learning/study/textbook-files'
+import {stripCodeFence} from '@shared/code-fence'
 import {z} from 'zod'
 import type {Store} from '@main/storage/db'
 import type {Api} from '@main/ai/api'
@@ -102,14 +103,7 @@ export class TextbookHighlighter {
      })
     )
     .max(20)
-    .parse(
-     JSON.parse(
-      raw
-       .replace(/^\s*```(?:json)?\s*/, '')
-       .replace(/\s*```\s*$/, '')
-       .trim()
-     )
-    )
+    .parse(JSON.parse(stripCodeFence(raw, 'json')))
    const [width, height, rotation] = doc.sizes[first + index - 1]
    if (rotation !== 0) throw new Error('旋转的扫描页面请使用手动框选')
    for (const item of result) {

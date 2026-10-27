@@ -7,6 +7,7 @@ import {dirname, isAbsolute, join, resolve} from 'node:path'
 import {tmpdir, release} from 'node:os'
 import {fileURLToPath, pathToFileURL} from 'node:url'
 import {packageVideoCandidate} from './video-candidate-package.mts'
+const compareCodeUnit = (a: string, b: string) => (a < b ? -1 : a > b ? 1 : 0)
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..'),
  require = createRequire(import.meta.url)
 const [artifactDirectory, outputDirectory] = process.argv.slice(2)
@@ -105,9 +106,9 @@ try {
    const path = join(resources, 'video', tool),
     diagnostic = fixed.diagnostics[tool]
    const dynamic = execFileSync('/usr/bin/readelf', ['-d', path], {encoding: 'utf8', timeout: 15000})
-   const needed = [...dynamic.matchAll(/\(NEEDED\).*\[([^\]]+)\]/g)].map(match => match[1]).sort()
+   const needed = [...dynamic.matchAll(/\(NEEDED\)[^\n]*\[([^\]\n]+)\]/g)].map(match => match[1]).sort(compareCodeUnit)
    if (
-    JSON.stringify(needed) !== JSON.stringify([...diagnostic.needed].sort()) ||
+    JSON.stringify(needed) !== JSON.stringify([...diagnostic.needed].sort(compareCodeUnit)) ||
     /\((?:RPATH|RUNPATH)\)/.test(dynamic)
    )
     throw new Error('Linux ELF dependency mismatch')
@@ -117,8 +118,11 @@ try {
      ...new Set(
       [...versions.matchAll(new RegExp('Name: ' + family + '_([0-9]+(?:\\.[0-9]+)*)', 'g'))].map(match => match[1])
      )
-    ].sort()
-    if (JSON.stringify(actual) !== JSON.stringify([...diagnostic.symbolRequirements[family].versions].sort()))
+    ].sort(compareCodeUnit)
+    if (
+     JSON.stringify(actual) !==
+     JSON.stringify([...diagnostic.symbolRequirements[family].versions].sort(compareCodeUnit))
+    )
      throw new Error('Linux symbol requirements mismatch')
    }
    const ldd = execFileSync('/usr/bin/ldd', [path], {encoding: 'utf8', timeout: 15000})

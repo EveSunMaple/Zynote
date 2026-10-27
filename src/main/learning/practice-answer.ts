@@ -1,6 +1,6 @@
 import {z} from 'zod'
 import type {PracticeQuestion} from '@shared/types'
-import {answerChoices, compareChoices, questionOptions} from '@shared/practice'
+import {answerChoices, compareChoices, questionOptions, questionStem} from '@shared/practice'
 type Source = {url: string; text: string}
 export type AnswerDependencies = {
  search: (query: string, signal?: AbortSignal) => Promise<Source[]>
@@ -40,7 +40,7 @@ export async function prepareAnswer(
      signal
     )
     const source = sources.find(s => s.url === found.sourceUrl),
-     stem = normalize(q.stem.split(/\n\s*A[.、．)）:：]/)[0]).slice(0, 60)
+     stem = normalize(questionStem(q.stem)).slice(0, 60)
     if (
      source &&
      found.answer &&
@@ -110,7 +110,7 @@ export async function gradeAnswer(q: PracticeQuestion, response: string, deps: D
 function xmlText(text: string) {
  return text
   .replace(/<!\[CDATA\[([^]*?)\]\]>/g, '$1')
-  .replace(/<[^>]*>/g, ' ')
+  .replace(/<[^<>]*>/g, ' ')
   .replace(/&amp;/g, '&')
   .replace(/&lt;/g, '<')
   .replace(/&gt;/g, '>')

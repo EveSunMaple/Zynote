@@ -82,7 +82,21 @@ func Health(path string) (HealthReport, error) {
 	report.FKIntegrity = "ok"
 	for _, table := range []string{"courses", "lectures", "messages", "chat_sessions", "course_files"} {
 		var count int
-		row := db.QueryRow("SELECT COUNT(*) FROM " + table)
+		var row *sql.Row
+		switch table {
+		case "courses":
+			row = db.QueryRow("SELECT COUNT(*) FROM courses")
+		case "lectures":
+			row = db.QueryRow("SELECT COUNT(*) FROM lectures")
+		case "messages":
+			row = db.QueryRow("SELECT COUNT(*) FROM messages")
+		case "chat_sessions":
+			row = db.QueryRow("SELECT COUNT(*) FROM chat_sessions")
+		case "course_files":
+			row = db.QueryRow("SELECT COUNT(*) FROM course_files")
+		default:
+			continue
+		}
 		if err := row.Scan(&count); err != nil {
 			if strings.Contains(err.Error(), "no such table") {
 				report.Tables[table] = -1

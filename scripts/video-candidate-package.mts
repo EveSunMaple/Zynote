@@ -10,6 +10,7 @@ import {inspectExecutable} from './media-source-stage.mts'
 import {buildSources} from './media-build-source-lock.mts'
 import {parseRuntimeManifestV2} from '../src/shared/runtime-manifest-v2.ts'
 import {createVideoDescriptor, validateVideoDescriptor} from '../src/shared/runtime-descriptor-v2.ts'
+import {containsPath} from './path-guard.mts'
 const hex = z.string().regex(/^[a-f0-9]{64}$/)
 const requestSchema = z
  .object({
@@ -62,6 +63,23 @@ async function listing(archive: string) {
   )
  )
 }
+function verboseListing(line: string) {
+ const fields: string[] = []
+ let index = 0
+ while (fields.length < 8) {
+  while (index < line.length && (line[index] === ' ' || line[index] === '\t')) index++
+  const start = index
+  while (index < line.length && line[index] !== ' ' && line[index] !== '\t') index++
+  if (start === index) return undefined
+  fields.push(line.slice(start, index))
+ }
+ while (index < line.length && (line[index] === ' ' || line[index] === '\t')) index++
+ const name = line.slice(index)
+ if (!name || !/^-[rwx-]{9}$/.test(fields[0]) || !/^\d+$/.test(fields[1]) || !/^\d+$/.test(fields[4])) return undefined
+ if (!/^[A-Za-z]{3}$/.test(fields[5]) || !/^\d{1,2}$/.test(fields[6])) return undefined
+ if (!/^(?:\d{4}|\d{1,2}:\d{2})$/.test(fields[7])) return undefined
+ return {size: Number(fields[4]), name}
+}
 export function selectedMemberSize(text: string, name: string) {
  check(
   /^[A-Za-z0-9._+~/-]+$/.test(name) && !name.split('/').some(p => !p || p === '..' || p === '.'),
@@ -74,11 +92,10 @@ export function selectedMemberSize(text: string, name: string) {
    line => line.endsWith(' ' + name) || line.includes(' ' + name + ' -> ') || line.includes(' ' + name + ' link to ')
   )
  check(lines.length === 1, 'Selected archive member missing or duplicated: ' + name)
- const m = /^-[rwx-]{9}\s+\d+\s+\S+\s+\S+\s+(\d+)\s+[A-Za-z]{3}\s+\d{1,2}\s+(?:\d{4}|\d{1,2}:\d{2})\s+(.+)$/.exec(
-  lines[0]
- )
- check(m && m[2] === name, 'Selected archive member is not a plain regular file')
- const size = Number(m[1])
+ const match = verboseListing(lines[0])
+ check(match, 'Selected archive member is not a plain regular file')
+ check(match.name === name, 'Selected archive member is not a plain regular file')
+ const size = match.size
  check(Number.isSafeInteger(size) && size > 0 && size <= 256 * 1024 * 1024, 'Invalid selected member size')
  return size
 }
@@ -315,7 +332,16 @@ export async function packageVideoCandidate(value: unknown) {
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
  try {
   check(process.argv.length === 3, 'Usage: node scripts/video-candidate-package.mts <request.json>')
-  console.log(JSON.stringify(await packageVideoCandidate(JSON.parse(await readFile(process.argv[2], 'utf8')))))
+  const requestPath = await realpath(process.argv[2])
+  check(
+   [resolve('.'), resolve(process.env.GITHUB_WORKSPACE || '.'), await realpath(tmpdir())].some(root =>
+    containsPath(root, requestPath)
+   ),
+   'Request file must stay inside the workspace or temporary directory'
+  )
+  check((await lstat(requestPath)).size <= 1024 * 1024, 'Request file too large')
+  const request = JSON.parse(await readFile(requestPath, 'utf8')) // NOSONAR: requestPath is resolved and constrained to the workspace/tmp roots with a 1 MiB cap above.
+  console.log(JSON.stringify(await packageVideoCandidate(request)))
  } catch (error) {
   console.error(error)
   process.exitCode = 1

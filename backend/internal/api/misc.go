@@ -2,6 +2,7 @@ package api
 
 import (
 	"encoding/json"
+	"math"
 	"os"
 	"strings"
 
@@ -97,7 +98,7 @@ func (inv *Invoker) handleZhiyunControl(store contract.StateStore, action string
 		}
 		for _, key := range []string{"x", "y", "width", "height"} {
 			value, ok := input.Bounds[key]
-			if !ok || value < 0 || value > 10000 || value != value {
+			if !ok || value < 0 || value > 10000 || math.IsNaN(value) {
 				return nil, contract.InputInvalid("智云窗口参数无效")
 			}
 		}

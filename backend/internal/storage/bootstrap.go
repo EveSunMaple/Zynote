@@ -2,6 +2,7 @@ package storage
 
 import (
 	"database/sql"
+	"errors"
 	"regexp"
 )
 
@@ -19,12 +20,24 @@ var schemaStatements = []string{
 	`CREATE TABLE IF NOT EXISTS chat_sessions(id TEXT PRIMARY KEY,course_id TEXT NOT NULL REFERENCES courses(id) ON DELETE CASCADE,title TEXT NOT NULL,created_at TEXT DEFAULT CURRENT_TIMESTAMP)`,
 }
 
-var lecturesColumns = [][2]string{
-	{"source_video_path", "TEXT NOT NULL DEFAULT ''"},
-	{"transcript_path", "TEXT NOT NULL DEFAULT ''"},
-	{"transcript_text", "TEXT NOT NULL DEFAULT ''"},
-	{"time_estimated", "INTEGER NOT NULL DEFAULT 0"},
-	{"ppt_processed", "INTEGER NOT NULL DEFAULT 0"},
+var bootstrapColumns = map[string]map[string]string{
+	"lectures": {
+		"source_video_path": "TEXT NOT NULL DEFAULT ''",
+		"transcript_path":   "TEXT NOT NULL DEFAULT ''",
+		"transcript_text":   "TEXT NOT NULL DEFAULT ''",
+		"time_estimated":    "INTEGER NOT NULL DEFAULT 0",
+		"ppt_processed":     "INTEGER NOT NULL DEFAULT 0",
+	},
+	"chat_sessions": {"lecture_id": "TEXT REFERENCES lectures(id) ON DELETE SET NULL"},
+	"messages":      {"session_id": "TEXT REFERENCES chat_sessions(id) ON DELETE CASCADE"},
+}
+
+var lecturesColumns = []string{
+	"source_video_path",
+	"transcript_path",
+	"transcript_text",
+	"time_estimated",
+	"ppt_processed",
 }
 
 func Bootstrap(db *sql.DB) error {
@@ -34,14 +47,14 @@ func Bootstrap(db *sql.DB) error {
 		}
 	}
 	for _, column := range lecturesColumns {
-		if err := addColumnIfMissing(db, "lectures", column[0], column[1]); err != nil {
+		if err := addColumnIfMissing(db, "lectures", column); err != nil {
 			return err
 		}
 	}
-	if err := addColumnIfMissing(db, "chat_sessions", "lecture_id", "TEXT REFERENCES lectures(id) ON DELETE SET NULL"); err != nil {
+	if err := addColumnIfMissing(db, "chat_sessions", "lecture_id"); err != nil {
 		return err
 	}
-	if err := addColumnIfMissing(db, "messages", "session_id", "TEXT REFERENCES chat_sessions(id) ON DELETE CASCADE"); err != nil {
+	if err := addColumnIfMissing(db, "messages", "session_id"); err != nil {
 		return err
 	}
 	tx, err := db.Begin()
@@ -82,7 +95,11 @@ func Bootstrap(db *sql.DB) error {
 	return tx.Commit()
 }
 
-func addColumnIfMissing(db *sql.DB, table, column, declaration string) error {
+func addColumnIfMissing(db *sql.DB, table, column string) error {
+	declaration, ok := bootstrapColumns[table][column]
+	if !ok {
+		return errors.New("未知的数据库迁移列")
+	}
 	rows, err := db.Query("PRAGMA table_info(" + table + ")")
 	if err != nil {
 		return err
@@ -103,7 +120,7 @@ func addColumnIfMissing(db *sql.DB, table, column, declaration string) error {
 	if err := rows.Err(); err != nil {
 		return err
 	}
-	_, err = db.Exec("ALTER TABLE " + table + " ADD COLUMN " + column + " " + declaration)
+	_, err = db.Exec("ALTER TABLE " + table + " ADD COLUMN " + column + " " + declaration) // NOSONAR: table, column and declaration are all checked against the fixed migration allowlist above.
 	return err
 }
 

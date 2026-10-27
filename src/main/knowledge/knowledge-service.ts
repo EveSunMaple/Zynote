@@ -7,7 +7,7 @@ import {NativeKnowledgeStore, nativeClassificationOptions} from '@main/knowledge
 export class NativeKnowledgeService {
  private store: NativeKnowledgeStore
  private embedding: KnowledgeEmbedding
- private baseline: Promise<unknown>
+ private baseline?: Promise<unknown>
  private modelPath: string
  constructor(
   resources: string,
@@ -17,12 +17,12 @@ export class NativeKnowledgeService {
   this.store = new NativeKnowledgeStore(root)
   this.modelPath = join(resources, 'knowledge/onnx-bge')
   this.embedding = new KnowledgeEmbedding(this.modelPath)
-  this.baseline = this.store.importLegacyBaseline()
-  // Keep a failed baseline available to the caller without an unhandled rejection.
-  void this.baseline.catch(() => undefined)
+ }
+ private ensureBaseline(): Promise<unknown> {
+  return (this.baseline ??= this.store.importLegacyBaseline())
  }
  async execute(action: string, input: unknown = {}): Promise<unknown> {
-  await this.baseline
+  await this.ensureBaseline()
   const args = z.record(z.string(), z.unknown()).parse(input)
   switch (action) {
    case 'list':

@@ -109,7 +109,7 @@ function* fields(bytes: Uint8Array): Generator<[number, bigint | Uint8Array]> {
    yield [field, read()]
    continue
   }
-  const size = wire === 2 ? Number(read()) : wire === 1 ? 8 : wire === 5 ? 4 : NaN
+  const size = wire === 2 ? Number(read()) : wire === 1 ? 8 : wire === 5 ? 4 : Number.NaN
   if (!Number.isSafeInteger(size) || size < 0) throw new Error('unsupported_protobuf_wire')
   if (size > bytes.length - position) throw new Error('truncated_protobuf')
   yield [field, bytes.subarray(position, position + size)]

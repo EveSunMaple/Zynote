@@ -8,6 +8,7 @@ import {build} from 'esbuild'
 import {prepareBuildSources} from './media-source-prepare.mts'
 import {buildSources} from './media-build-source-lock.mts'
 import {verifySourceCodecs} from './media-source-codecs.mts'
+import {containsPath} from './path-guard.mts'
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 const linux = process.platform === 'linux'
@@ -25,9 +26,14 @@ check(
  'Source build runs only on isolated macOS arm64 or Ubuntu 24.04 x64 GitHub runners'
 )
 const artifacts = resolve(process.argv[3])
-await mkdir(artifacts, {recursive: false})
+check(
+ containsPath(process.env.GITHUB_WORKSPACE || root, artifacts) ||
+  (!!process.env.RUNNER_TEMP && containsPath(process.env.RUNNER_TEMP, artifacts)),
+ 'Artifact directory must stay inside GITHUB_WORKSPACE or RUNNER_TEMP'
+)
+await mkdir(artifacts, {recursive: false}) // NOSONAR: path is constrained to GITHUB_WORKSPACE/RUNNER_TEMP above and must not pre-exist.
 const logs = join(artifacts, 'logs')
-await mkdir(logs)
+await mkdir(logs) // NOSONAR: child of the constrained artifact directory above.
 const report: Record<string, unknown> = {
  state: 'building',
  distribution_status: 'pending',
@@ -135,6 +141,8 @@ try {
  await writeFile(join(artifacts, 'source-report.json'), JSON.stringify(prepared.report, null, 2) + '\n')
  const prefix = join(prepared.work, 'prefix')
  await mkdir(prefix)
+ const temp = join(prepared.work, 'tmp')
+ await mkdir(temp, {mode: 0o700})
  const pkg = execFileSync('/usr/bin/which', ['pkg-config'], {encoding: 'utf8'}).trim()
  check(pkg.startsWith('/') && !pkg.includes('\n'), 'pkg-config path unavailable')
  const sdk = linux
@@ -143,7 +151,9 @@ try {
  const env: NodeJS.ProcessEnv = {
   PATH: '/usr/bin:/bin:/usr/sbin:/sbin',
   HOME: process.env.HOME,
-  TMPDIR: process.env.TMPDIR,
+  TMPDIR: temp,
+  TMP: temp,
+  TEMP: temp,
   LC_ALL: 'C',
   LANG: 'C',
   CC: linux ? '/usr/bin/gcc' : '/usr/bin/clang',
@@ -161,7 +171,13 @@ try {
   PKG_CONFIG_LIBDIR: prefix + '/lib/pkgconfig',
   PKG_CONFIG_SYSROOT_DIR: ''
  }
- report.environment = {...env, HOME: '<runner-home>', TMPDIR: '<runner-temp>'}
+ report.environment = {
+  ...env,
+  HOME: '<runner-home>',
+  TMPDIR: '<runner-temp>',
+  TMP: '<runner-temp>',
+  TEMP: '<runner-temp>'
+ }
  report.toolchain = {
   [linux ? 'gcc' : 'clang']: (await execute(env.CC!, ['--version'], prepared.work, env, linux ? 'gcc' : 'clang'))
    .output,
@@ -323,7 +339,7 @@ try {
     'Wrong Linux ELF architecture'
    )
    const dynamic = await execute('/usr/bin/readelf', ['-d', path], prepared.work, env, tool + '-dynamic')
-   const needed = [...dynamic.output.matchAll(/\(NEEDED\).*\[([^\]]+)\]/g)].map(match => match[1])
+   const needed = [...dynamic.output.matchAll(/\(NEEDED\)[^\n]*\[([^\]\n]+)\]/g)].map(match => match[1])
    const allowed = new Set([
     'libc.so.6',
     'libm.so.6',

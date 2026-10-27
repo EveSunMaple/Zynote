@@ -22,13 +22,15 @@ const rules: Partial<Record<Label, RegExp>> = {
  supplement: /补充|参考|论文|文献|出处|资料|https?:\/\/|数据[集源]|实验|复现|source|reference/i,
  marker: /重点|结论|划重点|公式|章节|定义|\b\d{1,2}:\d{2}\b/
 }
+const noiseTokens = /已三连|前排|沙发|打卡|签到|路过|三连|666+|哈哈+|\[[^\]]{1,20}\]/gu
+export function isDiscussionNoise(text: string): boolean {
+ return !/[\p{L}\p{N}]/u.test(text.replace(noiseTokens, ''))
+}
 export function classifyDiscussion(text: string): {labels: Label[]; score: number} {
  const labels = (Object.entries(rules) as [Label, RegExp][])
   .filter(([, pattern]) => pattern.test(text))
   .map(([label]) => label)
- const noise = /^\s*(?:(?:前排|沙发|打卡|签到|路过|三连|已三连|666+|哈哈+|\[[^\]]{1,20}\])|[^\p{L}\p{N}])+\s*$/u.test(
-  text
- )
+ const noise = isDiscussionNoise(text)
  const weights: Record<Label, number> = {
   correction: 6,
   counterexample: 5,

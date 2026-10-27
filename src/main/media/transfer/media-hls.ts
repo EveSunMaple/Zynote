@@ -11,13 +11,33 @@ type Fetcher = (url: string, init?: RequestInit) => Promise<Response>
 function attrs(line: string) {
  const result: Record<string, string> = {},
   raw = line.slice(line.indexOf(':') + 1)
- let consumed = ''
- for (const match of raw.matchAll(/([A-Z0-9-]+)=("[^"]*"|[^,]*)(?:,|$)/g)) {
-  if (match.index !== consumed.length || result[match[1]] !== undefined) throw new Error('HLS 属性无效')
-  consumed += match[0]
-  result[match[1]] = match[2].replace(/^"|"$/g, '')
+ if (!raw) return result
+ let start = 0
+ for (;;) {
+  let end = start,
+   quoted = false
+  while (end < raw.length) {
+   if (raw[end] === '"') quoted = !quoted
+   else if (raw[end] === ',' && !quoted) break
+   end++
+  }
+  const part = raw.slice(start, end),
+   equals = part.indexOf('=')
+  if (equals < 1) throw new Error('HLS 属性无效')
+  const key = part.slice(0, equals),
+   value = part.slice(equals + 1)
+  if (!/^[A-Z0-9-]+$/.test(key) || result[key] !== undefined) throw new Error('HLS 属性无效')
+  if (value.startsWith('"')) {
+   if (value.length < 2 || !value.endsWith('"')) throw new Error('HLS 属性格式不支持')
+   result[key] = value.slice(1, -1)
+  } else {
+   if (value.includes('"')) throw new Error('HLS 属性格式不支持')
+   result[key] = value
+  }
+  if (end === raw.length) break
+  start = end + 1
+  if (start === raw.length) break
  }
- if (consumed.length !== raw.length) throw new Error('HLS 属性格式不支持')
  return result
 }
 export function parseHls(text: string, base: string, check: (url: string) => string) {

@@ -14,7 +14,15 @@ export function mediaSort(input: string) {
 export function sortMediaStreams(rows: NativeMediaStream[], input: string, freeFormats = false) {
  const fields = mediaSort(input)
  const codecScore = (codec: string) =>
-  /^av01|av1/.test(codec) ? 4 : /^vp/.test(codec) ? 3 : /^hev|hvc/.test(codec) ? 2 : /^avc|h264/.test(codec) ? 1 : 0
+  /^(?:av01|av1)/.test(codec)
+   ? 4
+   : /^vp/.test(codec)
+     ? 3
+     : /^(?:hev|hvc)/.test(codec)
+       ? 2
+       : /^(?:avc|h264)/.test(codec)
+         ? 1
+         : 0
  return [...rows].sort((a, b) => {
   for (const field of fields) {
    let av: number, bv: number

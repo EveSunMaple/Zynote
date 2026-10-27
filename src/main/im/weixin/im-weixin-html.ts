@@ -1,5 +1,77 @@
 import {Parser} from 'htmlparser2'
 
+export function scriptTokens(value: string) {
+ const raw = tokenize(value)
+ return raw.filter(token => token.trim() && !token.startsWith('//') && !token.startsWith('/*'))
+}
+function tokenize(value: string) {
+ const tokens: string[] = []
+ let index = 0
+ while (index < value.length) {
+  const char = value[index]
+  if (/\s/.test(char)) {
+   const start = index
+   while (index < value.length && /\s/.test(value[index])) index++
+   tokens.push(value.slice(start, index))
+   continue
+  }
+  if (char === '/' && value[index + 1] === '/') {
+   const newline = value.indexOf('\n', index + 2),
+    end = newline < 0 ? value.length : newline + 1
+   tokens.push(value.slice(index, end))
+   index = end
+   continue
+  }
+  if (char === '/' && value[index + 1] === '*') {
+   const close = value.indexOf('*/', index + 2)
+   tokens.push(value.slice(index, close < 0 ? value.length : close + 2))
+   index = close < 0 ? value.length : close + 2
+   continue
+  }
+  if (char === '"' || char === "'") {
+   let cursor = index + 1,
+    closed = false
+   while (cursor < value.length) {
+    if (value[cursor] === '\\') {
+     cursor += 2
+     continue
+    }
+    if (value[cursor] === char) {
+     cursor++
+     closed = true
+     break
+    }
+    cursor++
+   }
+   if (closed) {
+    tokens.push(value.slice(index, cursor))
+    index = cursor
+   } else {
+    tokens.push(char)
+    index++
+   }
+   continue
+  }
+  if (/[A-Za-z_$]/.test(char)) {
+   const start = index
+   index++
+   while (index < value.length && /[\w$]/.test(value[index])) index++
+   tokens.push(value.slice(start, index))
+   continue
+  }
+  if (char >= '0' && char <= '9') {
+   const start = index
+   index++
+   while (index < value.length && value[index] >= '0' && value[index] <= '9') index++
+   tokens.push(value.slice(start, index))
+   continue
+  }
+  tokens.push(char)
+  index++
+ }
+ return tokens
+}
+
 /** Recognizes a small inert official bootstrap shell. No returned script is executed. */
 export function weixinBootstrap(html: string) {
  if (/<!ENTITY/i.test(html) || /<!DOCTYPE\s+html\s+[^>]/i.test(html)) return false
@@ -107,11 +179,7 @@ export function weixinBootstrap(html: string) {
  if (limited || title.trim() !== '微信网页版' || !app || !login || !asset || rets.some(value => value !== '0'))
   return false
  const markers = scripts.flatMap(value => {
-  const tokens = (
-   value.match(
-    /\s+|\/\/[^\n]*(?:\n|$)|\/\*[\s\S]*?\*\/|"(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*'|[A-Za-z_$][\w$]*|[0-9]+|[^\s]/g
-   ) || []
-  ).filter(token => token.trim() && !token.startsWith('//') && !token.startsWith('/*'))
+  const tokens = scriptTokens(value)
   if (!tokens.some(token => ['MMCgi', '"MMCgi"', "'MMCgi'"].includes(token))) return []
   const prefix = ['(', 'function', '(', ')', '{', 'window', '.', 'MMCgi', '=', '{', 'isLogin', ':']
   if (JSON.stringify(tokens.slice(0, prefix.length)) !== JSON.stringify(prefix)) return [false]

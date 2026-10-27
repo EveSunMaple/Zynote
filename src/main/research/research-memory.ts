@@ -1,5 +1,6 @@
 import {createHash} from 'node:crypto'
 import {z} from 'zod'
+import {stripCodeFence} from '@shared/code-fence'
 const candidate = z.object({
  kind: z.enum(['preference', 'progress', 'correction']),
  title: z.string().trim().min(1).max(80),
@@ -19,7 +20,7 @@ export function readResearchAnswer(
  if (allowSuggestions && /^\s*(?:```(?:json)?\s*)?\{/.test(raw)) {
   const result = z
    .object({note: z.string().min(1).max(200000), memory_candidates: z.array(candidate).max(3).default([])})
-   .parse(JSON.parse(raw.replace(/^\s*```(?:json)?\s*|\s*```\s*$/g, '')))
+   .parse(JSON.parse(stripCodeFence(raw, 'json')))
   note = result.note
   candidates = result.memory_candidates.map((value, index) => {
    const original = {question: task.question, note, limitations: task.limitations}[value.basis]

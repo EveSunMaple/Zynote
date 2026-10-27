@@ -70,7 +70,7 @@ func (value *RequestError) Error() string { return value.Message }
 func validCrop(region Region) bool {
 	values := []float64{region.Left, region.Right, region.Top, region.Bottom}
 	for _, value := range values {
-		if value < 0 || value > 1 || value != value || math.IsInf(value, 0) {
+		if value < 0 || value > 1 || math.IsNaN(value) || math.IsInf(value, 0) {
 			return false
 		}
 	}

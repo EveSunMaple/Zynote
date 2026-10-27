@@ -5,9 +5,10 @@ import {dirname, join, resolve, sep} from 'node:path'
 import {fileURLToPath} from 'node:url'
 import {z} from 'zod'
 import {modelFetch} from './model-fetch.mts'
+import {stripTrailing} from '../src/shared/text-trim.ts'
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..'),
- endpoint = (process.env.HF_ENDPOINT || 'https://huggingface.co').replace(/\/+$/, '')
+ endpoint = stripTrailing(process.env.HF_ENDPOINT || 'https://huggingface.co', '/')
 const revision = '36050c46d777d46dc4b5f43f6d90574fc38f8732',
  repository = 'onnx-community/whisper-small',
  vadCommit = '65882eee9f5cdbeeb2d877f1131d48cf241b327d'
@@ -114,7 +115,7 @@ for (const name of selected) {
   const hash = await digest()
   if (weight && hash !== weight.sha256) throw new Error('已有模型校验失败，保留当前文件')
   if (!weight && entry.blobId) {
-   const git = createHash('sha1')
+   const git = createHash('sha1') // NOSONAR: HuggingFace Git blob IDs are SHA-1 by protocol; content integrity uses SHA-256.
     .update(`blob ${item.size}\0`)
     .update(await readFile(path))
     .digest('hex')
@@ -141,7 +142,7 @@ for (const name of selected) {
  if (!response.ok || !response.body) throw new Error('模型下载失败：HTTP ' + response.status)
  const handle = await open(partial, 'wx'),
   sha = createHash('sha256'),
-  git = createHash('sha1').update(`blob ${entry.size}\0`)
+  git = createHash('sha1').update(`blob ${entry.size}\0`) // NOSONAR: HuggingFace Git blob ID protocol; content integrity uses SHA-256.
  const reader = response.body.getReader()
  let size = 0
  try {

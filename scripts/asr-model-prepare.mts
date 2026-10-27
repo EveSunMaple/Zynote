@@ -8,6 +8,7 @@ import {fileURLToPath} from 'node:url'
 import {z} from 'zod'
 import {modelFetch} from './model-fetch.mts'
 
+const compareCodeUnit = (a: string, b: string) => (a < b ? -1 : a > b ? 1 : 0)
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 const repository = 'onnx-community/whisper-small',
  revision = '36050c46d777d46dc4b5f43f6d90574fc38f8732',
@@ -216,7 +217,10 @@ export async function prepareAsrModel(value: unknown) {
     for (const child of await readdir(join(request.offlineDirectory, name))) actual.push('onnx/' + child)
    } else actual.push(name)
   }
-  check(actual.sort().join('|') === [...names].sort().join('|'), 'Offline model file set mismatch')
+  check(
+   actual.sort(compareCodeUnit).join('|') === [...names].sort(compareCodeUnit).join('|'),
+   'Offline model file set mismatch'
+  )
  }
  const temp = await plain(await realpath(tmpdir()), true),
   work = join(temp, 'zynote-asr-model-' + randomUUID()),

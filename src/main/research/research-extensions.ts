@@ -1,6 +1,7 @@
 import {randomUUID} from 'node:crypto'
 import {z} from 'zod'
 import {NativeResearchStore} from '@main/research/research-store'
+import {methodFrontMatter} from '@shared/method-front-matter'
 const op = z.string().regex(/^[a-f0-9]{32}$/),
  name = z
   .string()
@@ -40,7 +41,9 @@ const resources = z
     .max(200)
     .refine(
      value =>
-      !/[\\:\x00]/.test(value) &&
+      !value.includes('\\') &&
+      !value.includes(':') &&
+      !value.includes('\0') &&
       !value.startsWith('/') &&
       value.split('/').every(part => part && part !== '.' && part !== '..'),
      '方法资料路径无效'
@@ -203,10 +206,10 @@ export class NativeResearchExtensions {
  }
  parseMarkdown(input: string) {
   text(12000).parse(input)
-  const match = /^\uFEFF?---\r?\n([\s\S]*?)\r?\n---\r?\n([\s\S]+)$/.exec(input)
-  if (!match) throw new Error('方法文件需包含 name 和 description 的头部及正文')
+  const front = methodFrontMatter(input)
+  if (!front) throw new Error('方法文件需包含 name 和 description 的头部及正文')
   const fields: Record<string, string> = {}
-  for (const line of match[1].split(/\r?\n/)) {
+  for (const line of front.header.split(/\r?\n/)) {
    if (!line.trim()) continue
    const pair = /^(name|description):\s*(.*?)\s*$/.exec(line)
    if (!pair || fields[pair[1]] !== undefined) throw new Error('方法文件头部格式不支持')
@@ -223,7 +226,7 @@ export class NativeResearchExtensions {
   }
   const parsed = skill
    .omit({id: true})
-   .parse({name: fields.name, description: fields.description, body: match[2].trim(), enabled: false})
+   .parse({name: fields.name, description: fields.description, body: front.body.trim(), enabled: false})
   return parsed
  }
 }

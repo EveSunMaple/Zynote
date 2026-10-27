@@ -54,9 +54,17 @@ try {
  const voices = execFileSync('/usr/bin/say', ['-v', '?'], {encoding: 'utf8', timeout: 15000})
  const voice = voices
   .split('\n')
-  .map(line => /^(.+?)\s+zh_CN\s+#/.exec(line))
-  .find(Boolean)?.[1]
-  ?.trim()
+  .map(line => {
+   const index = line.indexOf('zh_CN')
+   if (index <= 0 || (line[index - 1] !== ' ' && line[index - 1] !== '\t')) return undefined
+   return line
+    .slice(index + 5)
+    .trimStart()
+    .startsWith('#')
+    ? line.slice(0, index).trim()
+    : undefined
+  })
+  .find(Boolean)
  if (!voice) {
   report.status = 'unverified'
   report.reason = 'No installed zh_CN Mandarin voice; no fallback to English and no voice download'

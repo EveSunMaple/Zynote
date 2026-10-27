@@ -619,7 +619,7 @@ func writeHlsArtifact(artifact *OwnedMediaArtifact, proofs []hlsProof, keys map[
 				return fmt.Errorf("HLS 密钥无效")
 			}
 			plain := make([]byte, len(raw))
-			cipher.NewCBCDecrypter(block, iv).CryptBlocks(plain, raw)
+			cipher.NewCBCDecrypter(block, iv).CryptBlocks(plain, raw) // NOSONAR: HLS AES-128 mandates AES-CBC + PKCS#7; not a selectable cipher mode.
 			plain, err = pkcs7Unpad(plain)
 			if err != nil {
 				return err

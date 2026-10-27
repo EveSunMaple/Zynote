@@ -9,8 +9,31 @@ export function milliseconds(t: string): number {
  if (!m || +m[2] > 59 || +m[3] > 59) throw new Error(`时间戳不合法：${t}`)
  return (+m[1] * 3600 + +m[2] * 60 + +m[3]) * 1000 + +(m[4] || 0)
 }
+function fencedSrt(raw: string): string {
+ const blocks: string[] = []
+ let offset = 0
+ for (;;) {
+  const start = raw.indexOf('```', offset)
+  if (start < 0) break
+  let cursor = start + 3
+  if (raw.slice(cursor, cursor + 3).toLowerCase() === 'srt') cursor += 3
+  while (cursor < raw.length && (raw[cursor] === ' ' || raw[cursor] === '\t')) cursor++
+  if (raw[cursor] === '\r') cursor++
+  if (raw[cursor] !== '\n') {
+   offset = start + 3
+   continue
+  }
+  cursor++
+  const end = raw.indexOf('```', cursor)
+  if (end < 0) break
+  blocks.push(raw.slice(cursor, end))
+  offset = end + 3
+ }
+ return blocks.join('\n')
+}
+
 export function parseSrt(raw: string): Segment[] {
- const fenced = [...raw.matchAll(/```(?:srt)?\s*\n([\s\S]*?)```/gi)].map(m => m[1]).join('\n')
+ const fenced = fencedSrt(raw)
  const value = (fenced || raw).replace(/\r/g, '').trim()
  if (!value) throw new Error('回复中没有字幕内容')
  const result: Segment[] = []

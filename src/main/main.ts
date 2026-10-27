@@ -50,6 +50,7 @@ import {modelRouter} from '@main/ai/model-router'
 import {Workflows} from '@main/learning/workflows'
 import {type EventPayload, type JobState} from '@shared/types'
 import {parseSrt} from '@shared/srt'
+import {cleanUserAgent} from '@shared/user-agent'
 import {markdown} from '@main/documents/exports'
 import {ensureLibrary, libraryDirectory, folderName, reserveFile} from '@main/library/library'
 import {managedFile} from '@main/library/file-manager'
@@ -439,7 +440,7 @@ async function startApplication() {
  const videoSeriesCache = new Map<string, VideoSeries>()
  const fetchBiliSubtitle = (url: string, signal: AbortSignal) => {
   const ses = biliSession
-  const userAgent = ses.getUserAgent().replace(/\s+(?:Electron|listening-assistant)\/\S+/g, '')
+  const userAgent = cleanUserAgent(ses.getUserAgent())
   return readBiliSubtitles(
    url,
    (target, init) => {

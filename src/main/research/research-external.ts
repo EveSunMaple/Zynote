@@ -3,6 +3,7 @@ import {decodeHTML} from 'entities'
 import {SaxesParser} from 'saxes'
 import {z} from 'zod'
 import {boundedPublicText, publicHttpResponse, publicHttps} from '@main/net/public-http'
+import {htmlToText} from '@shared/html-text'
 export type ExternalEvidence = {
  provider: 'crossref' | 'semantic' | 'arxiv' | 'web'
  title: string
@@ -21,11 +22,7 @@ export function externalEvidenceText(source: ExternalEvidence) {
 }
 type Exchange = typeof publicHttpResponse
 const hash = (value: unknown) => createHash('sha256').update(JSON.stringify(value)).digest('hex')
-function plain(input: string) {
- return decodeHTML(input.replace(/<(script|style)\b[^>]*>[\s\S]*?<\/\1\s*>/gi, ' ').replace(/<[^>]*>/g, ' '))
-  .replace(/\s+/g, ' ')
-  .trim()
-}
+const plain = htmlToText
 function evidence(
  provider: ExternalEvidence['provider'],
  title: string,

@@ -90,7 +90,7 @@ export class BiliResources {
    .join('&')
   return {
    ...signed,
-   w_rid: createHash('md5')
+   w_rid: createHash('md5') // NOSONAR: Bilibili w_rid protocol requires MD5; not a security context.
     .update(encoded + this.signingKey.value)
     .digest('hex')
   }
@@ -130,7 +130,7 @@ export class BiliResources {
    return [
     {
      bvid: row.bvid,
-     title: decodeHTML(row.title.replace(/<[^>]*>/g, '')).slice(0, 300),
+     title: decodeHTML(row.title.replace(/<[^<>]*>/g, '')).slice(0, 300),
      author: (row.author || row.owner?.name || '').slice(0, 100),
      duration: String(row.duration || ''),
      url: `https://www.bilibili.com/video/${row.bvid}/`

@@ -3,7 +3,7 @@ import {useState} from 'react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import type {PracticeSet, PracticeQuestion} from '@shared/types'
-import {questionOptions} from '@shared/practice'
+import {questionOptions, questionStem} from '@shared/practice'
 import {notify} from '@renderer/ui/ToastHost'
 import {StudyIcon} from '@renderer/ui/StudyIcon'
 import {IdentityAvatar} from '@renderer/features/identity/Identity'
@@ -50,7 +50,7 @@ function Question({
  const options = questionOptions(q.stem),
   multiple = /多选|不定项/.test(q.type),
   selected = draft.split(','),
-  stem = options.length ? q.stem.split(/\n\s*A[.、．)）:：]/)[0] : q.stem
+  stem = options.length ? questionStem(q.stem) : q.stem
  async function run(fn: () => Promise<void>) {
   setPending(true)
   try {

@@ -7,6 +7,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"math"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -577,7 +578,7 @@ func parseTextbookImageDecisions(value []byte) ([]textbookImageDecision, error) 
 			return nil, fmt.Errorf("图片划线数据无效")
 		}
 		for _, coordinate := range *row.Rect {
-			if coordinate < 0 || coordinate > 1 || coordinate != coordinate {
+			if coordinate < 0 || coordinate > 1 || math.IsNaN(coordinate) {
 				return nil, fmt.Errorf("图片划线数据无效")
 			}
 		}

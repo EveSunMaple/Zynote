@@ -43,7 +43,7 @@ export async function restoreNativeComponent(root: string, id: string, pack: str
  await noLinks(pack, 'component.json')
  const descriptor = z
   .object({schema: z.literal(1), id: z.string(), productVersion: z.string()})
-  .parse(JSON.parse(await readFile(join(pack, 'component.json'), 'utf8')))
+  .parse(JSON.parse(await readFile(join(pack, 'component.json'), 'utf8'))) // NOSONAR: pack is link-free via noLinks() and descriptor/version identity is checked before payload access; local CLI only.
  if (
   !component ||
   manifest.productVersion !== pkg.version ||

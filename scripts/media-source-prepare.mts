@@ -14,7 +14,7 @@ function check(value: unknown, message: string): asserts value {
 async function plain(path: string, directory: boolean) {
  const target = resolve(path)
  for (let current = target; ; current = dirname(current)) {
-  const item = await lstat(current)
+  const item = await lstat(current) // NOSONAR: plain() is the path guard; it rejects symlinks, hardlinks, non-canonical paths and wrong types before any sink.
   check(!item.isSymbolicLink(), 'Links or junctions are not allowed')
   check(
    current !== target || directory ? item.isDirectory() : item.isFile() && item.nlink === 1,
@@ -109,6 +109,24 @@ async function tar(args: string[]) {
   )
  })
 }
+function verboseListing(line: string) {
+ const fields: string[] = []
+ let index = 0
+ while (fields.length < 8) {
+  while (index < line.length && (line[index] === ' ' || line[index] === '\t')) index++
+  const start = index
+  while (index < line.length && line[index] !== ' ' && line[index] !== '\t') index++
+  if (start === index) return undefined
+  fields.push(line.slice(start, index))
+ }
+ while (index < line.length && (line[index] === ' ' || line[index] === '\t')) index++
+ const name = line.slice(index)
+ if (!name || !/^[-d][rwx-]{9}$/.test(fields[0]) || !/^\d+$/.test(fields[1]) || !/^\d+$/.test(fields[4]))
+  return undefined
+ if (!/^[A-Za-z]{3}$/.test(fields[5]) || !/^\d{1,2}$/.test(fields[6])) return undefined
+ if (!/^(?:\d{4}|\d{1,2}:\d{2})$/.test(fields[7])) return undefined
+ return {directory: fields[0][0] === 'd', size: Number(fields[4]), name}
+}
 export function inspectArchiveListing(namesText: string, verboseText: string, expectedRoot: string) {
  const lines = (text: string) => text.replaceAll('\r\n', '\n').replace(/\n$/, '').split('\n')
  const names = lines(namesText),
@@ -131,13 +149,11 @@ export function inspectArchiveListing(namesText: string, verboseText: string, ex
   const key = name.replace(/\/$/, '')
   check(!entries.has(key), 'Duplicate archive path')
   // Strict BSD tar C-locale listing. Unsupported formats fail before extraction.
-  const match =
-   /^([-d])[rwx-]{9}\s+\d+\s+\S+\s+\S+\s+(\d+)\s+[A-Za-z]{3}\s+\d{1,2}\s+(?:\d{4}|\d{1,2}:\d{2})\s+(.+)$/.exec(
-    details[index]
-   )
-  check(match && match[3] === name, 'Unsupported archive type or verbose listing')
-  const directory = match[1] === 'd',
-   size = Number(match[2])
+  const match = verboseListing(details[index])
+  check(match, 'Unsupported archive type or verbose listing')
+  check(match.name === name, 'Unsupported archive type or verbose listing')
+  const directory = match.directory,
+   size = match.size
   check(
    Number.isSafeInteger(size) && size >= 0 && (directory ? name.endsWith('/') && size === 0 : !name.endsWith('/')),
    'Invalid archive entry size/type'

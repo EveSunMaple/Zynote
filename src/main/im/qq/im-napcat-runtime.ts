@@ -78,9 +78,11 @@ export class NativeNapcatRuntime {
   if (entries.length > 20000) throw new Error('QQ 组件文件数量无效')
   for (const entry of entries) {
    const name = entry.unsafeOriginalName || entry.name,
-    mode = typeof entry.unixPermissions === 'string' ? parseInt(entry.unixPermissions, 8) : entry.unixPermissions || 0
+    mode =
+     typeof entry.unixPermissions === 'string' ? Number.parseInt(entry.unixPermissions, 8) : entry.unixPermissions || 0
    if (
-    /[:\x00]/.test(name) ||
+    name.includes(':') ||
+    name.includes('\0') ||
     name.startsWith('/') ||
     name.includes('\\') ||
     name.split('/').some(part => part === '..') ||

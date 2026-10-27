@@ -19,8 +19,10 @@ var tagPattern = regexp.MustCompile(`<[^>]*>`)
 
 func urlEncode(value string) string { return url.QueryEscape(value) }
 
+// md5Hex implements the Bilibili w_rid signing protocol, which mandates MD5.
+// It is not used for credentials, integrity or password hashing.
 func md5Hex(value string) string {
-	sum := md5.Sum([]byte(value))
+	sum := md5.Sum([]byte(value)) // NOSONAR: Bilibili w_rid protocol requires MD5; not a security context.
 	return hex.EncodeToString(sum[:])
 }
 

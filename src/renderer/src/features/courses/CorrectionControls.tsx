@@ -56,7 +56,7 @@ export function CorrectionControls({
  return (
   <div className="flex flex-col gap-2">
    <div className="flex flex-wrap items-center gap-2">
-    <label className="flex items-center gap-2">
+    <div className="flex items-center gap-2">
      <span className="whitespace-nowrap text-sm">字幕校订策略</span>
      <span className="inline-block w-36 shrink-0">
       <SelectField
@@ -67,7 +67,7 @@ export function CorrectionControls({
        onChange={value => requestMode(value as CorrectionMode)}
       />
      </span>
-    </label>
+    </div>
     <Button
      variant="primary"
      size="sm"

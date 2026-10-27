@@ -307,6 +307,7 @@ func (inv *Invoker) transcribeLecture(
 		), 0, 0,
 	)
 	heartbeat, stopHeartbeat := context.WithCancel(ctx)
+	defer stopHeartbeat()
 	heartbeatDone := make(chan struct{})
 	defer func() {
 		stopHeartbeat()

@@ -33,15 +33,16 @@ export function nativeVttCues(text: string) {
   if (/^(?:WEBVTT|NOTE|STYLE|REGION)(?:\s|$)/.test(lines[0])) continue
   const index = lines.findIndex(line => line.includes('-->'))
   if (index < 0) continue
-  const times = /^(\S+)\s+-->\s+(\S+)(?:\s+.*)?$/.exec(lines[index])
-  if (!times) throw new Error('站点字幕时间戳无效')
+  const line = lines[index],
+   parts = line.trimStart() === line ? line.split(/\s+/) : []
+  if (parts[1] !== '-->' || !parts[2]) throw new Error('站点字幕时间戳无效')
   const content = decodeHTML(
    lines
     .slice(index + 1)
     .join(' ')
-    .replace(/<[^>]*>/g, '')
+    .replace(/<[^<>]*>/g, '')
   ).trim()
-  if (content) cues.push({from: seconds(times[1]), to: seconds(times[2]), content})
+  if (content) cues.push({from: seconds(parts[0]), to: seconds(parts[2]), content})
  }
  return cueSchema.parse({body: cues})
 }

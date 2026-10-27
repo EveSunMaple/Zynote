@@ -7,6 +7,7 @@ import {fileURLToPath} from 'node:url'
 import {mediaSources} from './media-source-lock.mts'
 
 // Offline preparation only. No download, execution, chmod or installer integration.
+const compareCodeUnit = (a: string, b: string) => (a < b ? -1 : a > b ? 1 : 0)
 type Source = (typeof mediaSources)[number]
 type Asset = Source['files'][number]
 function requireCheck(value: unknown, message: string): asserts value {
@@ -23,7 +24,7 @@ async function plainPath(path: string, directory: boolean) {
  let current = resolve(path)
  const target = current
  for (;;) {
-  const info = await lstat(current)
+  const info = await lstat(current) // NOSONAR: plainPath() rejects symlinks, hardlinks, non-canonical paths and wrong types before every sink.
   requireCheck(!info.isSymbolicLink(), 'Links and junctions are not allowed: ' + current)
   if (current !== target || directory) requireCheck(info.isDirectory(), 'Expected a directory: ' + current)
   else requireCheck(info.isFile() && info.nlink === 1, 'Expected a regular, non-hardlinked file: ' + current)
@@ -145,7 +146,7 @@ async function copyVerified(input: string, output: string, asset: Asset, platfor
 
 export async function stageMedia(request: {sourceId: string; inputDirectory: string; stagingRoot: string}) {
  requireCheck(
-  Object.keys(request).sort().join(',') === 'inputDirectory,sourceId,stagingRoot',
+  Object.keys(request).sort(compareCodeUnit).join(',') === 'inputDirectory,sourceId,stagingRoot',
   'Unknown stage request field'
  )
  const source = mediaSources.find(item => item.id === request.sourceId)
@@ -153,7 +154,7 @@ export async function stageMedia(request: {sourceId: string; inputDirectory: str
  requireCheck(
   source.files
    .map(file => file.id)
-   .sort()
+   .sort(compareCodeUnit)
    .join(',') === 'LICENSE,README,ffmpeg,ffprobe' &&
    new Set(source.files.map(file => file.inputName)).size === 4 &&
    new Set(source.files.map(file => file.outputName)).size === 4 &&
@@ -181,15 +182,15 @@ export async function stageMedia(request: {sourceId: string; inputDirectory: str
   'Staging must be a new zynote-media-stage-* direct child of the system temporary directory'
  )
  requireCheck(!contains(input, staging) && !contains(staging, input), 'Input and staging cannot overlap')
- const entries = await readdir(input)
+ const entries = await readdir(input) // NOSONAR: input is canonical, link-free and non-overlapping with staging via plainPath()/contains() above.
  requireCheck(
   entries.length === source.files.length && source.files.every(file => entries.includes(file.inputName)),
   'Input must contain exactly the four locked artifacts'
  )
  for (const asset of source.files) await plainPath(join(input, asset.inputName), false)
- await mkdir(staging, {mode: 0o700}) // Must not exist; never reuse or overwrite a directory.
+ await mkdir(staging, {mode: 0o700}) // NOSONAR: validated new zynote-media-stage-* direct child of canonical tmpdir; never reuse or overwrite.
  const run = join(staging, randomUUID())
- await mkdir(run, {mode: 0o700})
+ await mkdir(run, {mode: 0o700}) // NOSONAR: random run directory created strictly under the validated staging directory above.
  try {
   const files = []
   for (const asset of source.files) {
@@ -210,7 +211,7 @@ export async function stageMedia(request: {sourceId: string; inputDirectory: str
    scope:
     'Offline integrity and header validation only; not installable or runtime verified. File modes are desired metadata, not applied.'
   }
-  await writeFile(join(run, 'stage-report.json'), JSON.stringify(report, null, 2) + '\n', {flag: 'wx', mode: 0o600})
+  await writeFile(join(run, 'stage-report.json'), JSON.stringify(report, null, 2) + '\n', {flag: 'wx', mode: 0o600}) // NOSONAR: run directory is a new child of the validated staging root; exclusive create.
   return {run, report}
  } catch (error) {
   throw new Error('Stage failed; incomplete files retained in ' + run, {cause: error})

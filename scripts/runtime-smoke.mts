@@ -8,6 +8,7 @@ import {dirname, isAbsolute, join, resolve} from 'node:path'
 import {fileURLToPath, pathToFileURL} from 'node:url'
 import {release} from 'node:os'
 
+const compareCodeUnit = (a: string, b: string) => (a < b ? -1 : a > b ? 1 : 0)
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..'),
  require = createRequire(import.meta.url),
  outputIndex = process.argv.indexOf('--output'),
@@ -26,7 +27,8 @@ const commit = execFileSync('git', ['rev-parse', 'HEAD'], {cwd: root, encoding: 
   'scripts/runtime-smoke-electron.mts'
  ]),
  sourceHash = createHash('sha256')
-for (const path of [...files].sort()) sourceHash.update(path + '\0').update(await readFile(join(root, path)))
+for (const path of [...files].sort(compareCodeUnit))
+ sourceHash.update(path + '\0').update(await readFile(join(root, path)))
 const source = {commit, dirty, sha256: sourceHash.digest('hex')}
 const osProductVersion =
  process.platform === 'darwin'

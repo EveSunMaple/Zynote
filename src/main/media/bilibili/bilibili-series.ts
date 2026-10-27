@@ -1,5 +1,6 @@
 import {BrowserWindow, session} from 'electron'
 import {bilibiliUrl} from '@main/media/bilibili/video-policy'
+import {cleanUserAgent} from '@shared/user-agent'
 import type {VideoEpisode, VideoSeries} from '@shared/video-ppt'
 
 export function parseVideoSeries(input: string, value: unknown): VideoSeries {
@@ -33,7 +34,7 @@ export async function readVideoSeries(input: string, signal: AbortSignal): Promi
  const ses = session.fromPartition('bilibili-directory')
  ses.setPermissionRequestHandler((_w, _p, cb) => cb(false))
  signal.throwIfAborted()
- const userAgent = ses.getUserAgent().replace(/\s+(?:Electron|listening-assistant)\/\S+/g, '')
+ const userAgent = cleanUserAgent(ses.getUserAgent())
  // Public part-directory endpoint avoids depending on video-player hydration.
  const videoId = url.pathname.split('/').filter(Boolean).at(-1)!,
   api = new URL('https://api.bilibili.com/x/player/pagelist')

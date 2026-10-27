@@ -225,7 +225,7 @@ export class NativeWeixinReader {
    updates = {...prior}
   if (Object.keys(prior).some(file => !shards.some(path => basename(path) === file)))
    throw new Error('微信已保存游标对应分片缺失')
-  const table = 'Msg_' + createHash('md5').update(peer).digest('hex'),
+  const table = 'Msg_' + createHash('md5').update(peer).digest('hex'), // NOSONAR: WeChat stores local message tables as Msg_<md5(peer)>; SHA-256 would hide history.
    messages: {mid: string; sender: string; ts: number; text: string; kind: string; seq: bigint; local: bigint}[] = []
   let limited = false
   const take = Math.min(50, Math.max(2, Math.floor(200 / Math.max(1, shards.length))))

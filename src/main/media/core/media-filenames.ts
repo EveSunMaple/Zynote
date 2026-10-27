@@ -1,3 +1,4 @@
+import {stripTrailing} from '@shared/text-trim'
 import type {NativeMediaOptions} from '@main/media/core/media-options'
 const utf8 = (value: string, limit: number) => {
  let result = ''
@@ -20,11 +21,13 @@ export function mediaFilename(options: NativeMediaOptions, title: string, identi
   }
  )
  if (!used || rendered.includes('%(')) throw new Error('文件名模板包含未支持的字段，仅支持 title、id、ext 和字节长度')
- let name = rendered
-  .replace(/[\\/<>:"|?*\x00-\x1f]/g, '_')
-  .replace(/\s+/g, ' ')
-  .trim()
-  .replace(/[. ]+$/g, '')
+ let name = stripTrailing(
+  rendered
+   .replace(/[\\/<>:"|?*\x00-\x1f]/g, '_')
+   .replace(/\s+/g, ' ')
+   .trim(),
+  '. '
+ )
  if (options.restrict_filenames) name = name.replace(/[^A-Za-z0-9._-]/g, '_')
  if (/^(CON|PRN|AUX|NUL|COM[1-9]|LPT[1-9])(?:\.|$)/i.test(name)) name = '_' + name
  if (!name || name === '.' || name === '..' || !name.toLowerCase().endsWith('.' + extension))

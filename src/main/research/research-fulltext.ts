@@ -51,10 +51,17 @@ function decodePage(data: Buffer, contentType: string) {
  return iconv.decode(data, declared)
 }
 export function publicPageText(html: string) {
- const title = decodeHTML(/<title\b[^>]*>([\s\S]*?)<\/title>/i.exec(html)?.[1]?.replace(/<[^>]*>/g, '') || '公开网页')
-  .replace(/\s+/g, ' ')
-  .trim()
-  .slice(0, 300)
+ const titleOpen = /<title\b[^<>]*>/i.exec(html),
+  titleStart = titleOpen ? titleOpen.index + titleOpen[0].length : -1,
+  titleClose = titleStart >= 0 ? /<\/title>/i.exec(html.slice(titleStart)) : null,
+  title = decodeHTML(
+   titleClose && titleStart >= 0
+    ? html.slice(titleStart, titleStart + titleClose.index).replace(/<[^<>]*>/g, '')
+    : '公开网页'
+  )
+   .replace(/\s+/g, ' ')
+   .trim()
+   .slice(0, 300)
  const visible = html
   .replace(/<!--([\s\S]*?)-->/g, ' ')
   .replace(/<(script|style|template|noscript|svg|iframe|nav|footer)\b[^>]*>[\s\S]*?<\/\1\s*>/gi, ' ')
@@ -63,7 +70,7 @@ export function publicPageText(html: string) {
   /<body\b[^>]*>([\s\S]*?)<\/body>/i.exec(visible)?.[1] ||
   visible
  const text = decodeHTML(
-  article.replace(/<(?:br|\/p|\/div|\/h[1-6]|\/li|\/section)\b[^>]*>/gi, '\n').replace(/<[^>]*>/g, ' ')
+  article.replace(/<(?:br|\/p|\/div|\/h[1-6]|\/li|\/section)\b[^<>]*>/gi, '\n').replace(/<[^<>]*>/g, ' ')
  )
   .replace(/[ \t\r]+/g, ' ')
   .replace(/\n\s*\n+/g, '\n\n')

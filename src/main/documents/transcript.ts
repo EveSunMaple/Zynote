@@ -12,6 +12,17 @@ export async function readTranscript(path: string) {
  if (parsed.needsOcr || !parsed.text.trim()) throw new Error('原文没有可读取的文字，请导入智云导出的 Word 或文本原文')
  return splitTranscript(parsed.text)
 }
+function transcriptRow(block: string) {
+ let value = block
+ if (value.startsWith('[') || value.startsWith('【')) value = value.slice(1)
+ const time = /^(\d{1,2}:\d{2}(?::\d{2})?)/.exec(value)
+ if (!time) return undefined
+ value = value.slice(time[0].length)
+ if (value.startsWith(']') || value.startsWith('】')) value = value.slice(1)
+ value = value.trimStart()
+ if (value.startsWith(':') || value.startsWith('：')) value = value.slice(1).trimStart()
+ return {stamp: time[1], text: value}
+}
 export function splitTranscript(text: string) {
  let blocks = text
   .split(/\r?\n/)
@@ -21,11 +32,11 @@ export function splitTranscript(text: string) {
  if (heading >= 0) blocks = blocks.slice(heading + 1)
  const rows: {text: string; stamp: number | null}[] = []
  for (const block of blocks) {
-  const match = /^(?:\[|【)?(\d{1,2}:\d{2}(?::\d{2})?)(?:\]|】)?\s*[:：]?\s*(.*)$/.exec(block)
-  const stamp = match
-   ? milliseconds(match[1].split(':').length === 2 ? '00:' + match[1].padStart(5, '0') : match[1].padStart(8, '0'))
+  const row = transcriptRow(block)
+  const stamp = row
+   ? milliseconds(row.stamp.split(':').length === 2 ? '00:' + row.stamp.padStart(5, '0') : row.stamp.padStart(8, '0'))
    : null
-  const value = match ? match[2] : block
+  const value = row ? row.text : block
   if (value) rows.push({text: value, stamp})
   else if (stamp !== null) rows.push({text: '', stamp})
  }

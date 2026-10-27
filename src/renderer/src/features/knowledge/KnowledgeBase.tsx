@@ -48,7 +48,9 @@ export function KnowledgeBase({visible, close}: {visible: boolean; close: () => 
      !value || entry.classification?.[key as keyof NonNullable<KnowledgeEntry['classification']>] === value
    )
  )
- const categories = Array.from(new Set(data.entries.map(entry => entry.folder).filter(Boolean))).sort()
+ const categories = Array.from(new Set(data.entries.map(entry => entry.folder).filter(Boolean))).sort((a, b) =>
+  a.localeCompare(b, 'zh-CN')
+ )
  async function refresh() {
   setData(await invoke<KnowledgeList>('knowledge:list'))
   setVector(await invoke<VectorState>('knowledge:vector-status'))
@@ -417,7 +419,7 @@ export function KnowledgeBase({visible, close}: {visible: boolean; close: () => 
             .filter((value): value is string => typeof value === 'string' && !!value)
           )
          )
-          .sort()
+          .sort((a, b) => a.localeCompare(b, 'zh-CN'))
           .map(value => ({value, label: value}))
         ]}
         onChange={next => {

@@ -245,7 +245,9 @@ export class NativeWeixinWebSession {
   const target = weixinRedirect(redirects[0][1]),
    raw = await this.request(target, signal)
   let login: z.infer<typeof loginSchema>
-  if (/^\s*(?:\ufeff)?\s*(?:<!doctype\s+html|<html)/i.test(raw)) {
+  let head = raw.trimStart()
+  if (head.startsWith('\ufeff')) head = head.slice(1).trimStart()
+  if (/^(?:<!doctype\s+html|<html)/i.test(head)) {
    if (!weixinBootstrap(raw)) throw new Error('微信返回的网页尚不能建立已验证会话')
    const applicable = this.jar.getCookiesSync('https://' + target.hostname + '/cgi-bin/mmwebwx-bin/webwxinit'),
     values = (name: string) => applicable.filter(cookie => cookie.key === name)

@@ -98,7 +98,7 @@ export class NativeBiliDownloadRunner {
    const minimum = Number(tuning['--sleep-interval'] || 0),
     maximum = Number(tuning['--max-sleep-interval'] || minimum)
    if (maximum < minimum) throw new Error('最长等待间隔不能小于最短间隔')
-   await mediaDelay((minimum + (maximum - minimum) * Math.random()) * 1000, signal)
+   await mediaDelay((minimum + (maximum - minimum) * Math.random()) * 1000, signal) // NOSONAR: download jitter only; never used for security decisions.
    if (options.cookie_profile && !this.auth) throw new Error('登录档案存储不可用')
    const scoped = this.auth ? await this.auth.scoped(row.source_url, options, this.fetcher) : this.fetcher
    transport = createMediaTransport(scoped, options)

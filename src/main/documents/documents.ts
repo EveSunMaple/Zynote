@@ -211,10 +211,10 @@ export async function parseDocument(path: string): Promise<{text: string; needsO
    if (!document) throw new Error('Word 原文文件损坏')
    const xml = await document.async('string'),
     text = xml
-     .replace(/<w:br\s*\/?\s*>/g, '\n')
+     .replace(/<w:br[^>]*>/g, '\n')
      .replace(/<\/w:p>/g, '\n\n')
-     .replace(/<[^>]+>/g, '')
-     .replace(/&#x([\da-f]+);/gi, (_m, n) => String.fromCodePoint(parseInt(n, 16)))
+     .replace(/<[^<>]+>/g, '')
+     .replace(/&#x([\da-f]+);/gi, (_m, n) => String.fromCodePoint(Number.parseInt(n, 16)))
      .replace(/&#(\d+);/g, (_m, n) => String.fromCodePoint(Number(n)))
      .replace(/&lt;/g, '<')
      .replace(/&gt;/g, '>')
@@ -354,7 +354,7 @@ export async function parseCourseware(path: string): Promise<CoursewareParseResu
  const presentationRels = (await readBounded(presentationRelsEntry, 5 * 1024 * 1024, 'PPTX 页面关系')).toString('utf8')
  const decode = (value: string) =>
   value
-   .replace(/&#x([\da-f]+);/gi, (_m, n) => String.fromCodePoint(parseInt(n, 16)))
+   .replace(/&#x([\da-f]+);/gi, (_m, n) => String.fromCodePoint(Number.parseInt(n, 16)))
    .replace(/&#(\d+);/g, (_m, n) => String.fromCodePoint(Number(n)))
    .replace(/&lt;/g, '<')
    .replace(/&gt;/g, '>')
@@ -362,22 +362,21 @@ export async function parseCourseware(path: string): Promise<CoursewareParseResu
    .replace(/&apos;/g, "'")
    .replace(/&amp;/g, '&')
  const attr = (xml: string, name: string) => new RegExp(`\\b${name}=["']([^"']+)["']`).exec(xml)?.[1]
- const rels = (xml: string) => Array.from(xml.matchAll(/<Relationship\b[^>]*\/?\s*>/g), m => m[0])
+ const rels = (xml: string) => Array.from(xml.matchAll(/<Relationship\b[^>]*>/g), m => m[0])
  const partTarget = (parent: string, value: string) => {
   const target = decode(value)
   return posix.normalize(target.startsWith('/') ? target.slice(1) : posix.join(parent, target))
  }
  const slideLinks = rels(presentationRels)
- const slideNames = Array.from(
-  presentation.matchAll(/<p:sldId\b[^>]*\br:id=["']([^"']+)["'][^>]*\/?\s*>/g),
-  m => m[1]
- ).map(id => {
-  const rel = slideLinks.find(row => attr(row, 'Id') === id)
-  if (!rel || attr(rel, 'TargetMode') === 'External') throw new Error('PPTX 页面引用无效')
-  const name = partTarget('ppt', attr(rel, 'Target') || '')
-  if (!name.startsWith('ppt/slides/') || name.includes('../')) throw new Error('PPTX 页面路径无效')
-  return name
- })
+ const slideNames = Array.from(presentation.matchAll(/<p:sldId\b[^>]*>/g), m => attr(m[0], 'r:id'))
+  .filter((id): id is string => !!id)
+  .map(id => {
+   const rel = slideLinks.find(row => attr(row, 'Id') === id)
+   if (!rel || attr(rel, 'TargetMode') === 'External') throw new Error('PPTX 页面引用无效')
+   const name = partTarget('ppt', attr(rel, 'Target') || '')
+   if (!name.startsWith('ppt/slides/') || name.includes('../')) throw new Error('PPTX 页面路径无效')
+   return name
+  })
  if (!slideNames.length || slideNames.length > 500) throw new Error('PPTX 页面数须在 1–500 页之间')
  const pages: string[] = [],
   images: {label: string; url: string}[] = [],

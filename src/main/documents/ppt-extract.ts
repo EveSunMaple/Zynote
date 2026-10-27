@@ -3,6 +3,7 @@ import {readFile, stat} from 'node:fs/promises'
 import {extname, posix, basename} from 'node:path'
 import {randomUUID, createHash} from 'node:crypto'
 import JSZip from 'jszip'
+import {stripCodeFence} from '@shared/code-fence'
 import {imagePdf} from '@main/documents/image-pdf'
 import {z} from 'zod'
 import type {Api} from '@main/ai/api'
@@ -18,7 +19,21 @@ const missingPage = (page: number, reason: string): Page => ({
  hash: 'missing-' + page,
  unavailable: reason
 })
-const attr = (xml: string, name: string) => new RegExp(`\\b${name}=["']([^"']*)["']`).exec(xml)?.[1]
+const attr = (xml: string, name: string) => {
+ const token = name + '='
+ let index = xml.indexOf(token)
+ while (index >= 0) {
+  const before = xml[index - 1]
+  if (index === 0 || before === ' ' || before === '\t' || before === '\n' || before === '\r') {
+   const quote = xml[index + token.length]
+   if (quote === '"' || quote === "'") {
+    const end = xml.indexOf(quote, index + token.length + 1)
+    if (end > index) return xml.slice(index + token.length + 1, end)
+   }
+  }
+  index = xml.indexOf(token, index + 1)
+ }
+}
 const relationships = (xml: string) => Array.from(xml.matchAll(/<Relationship\b[^>]*\/?\s*>/g), m => m[0])
 const target = (xml: string, id: string) => {
  const tag = relationships(xml).find(x => attr(x, 'Id') === id)
@@ -106,9 +121,7 @@ export async function readImageDeck(path: string, signal?: AbortSignal): Promise
   presentation = await zip.file('ppt/presentation.xml')?.async('string'),
   rels = await zip.file('ppt/_rels/presentation.xml.rels')?.async('string')
  if (!presentation || !rels) throw new Error('无法读取 PPTX 页面目录')
- const ids = Array.from(presentation.matchAll(/<p:sldId\b[^>]*\/?\s*>/g), m => attr(m[0], 'r:id')).filter(
-  Boolean
- ) as string[]
+ const ids = Array.from(presentation.matchAll(/<p:sldId\b[^>]*>/g), m => attr(m[0], 'r:id')).filter(Boolean) as string[]
  if (!ids.length || ids.length > 500) throw new Error('请选择包含 1–500 页的图片型 PPTX')
  const pages: Page[] = []
  let compressedBytes = 0
@@ -145,7 +158,7 @@ export async function readImageDeck(path: string, signal?: AbortSignal): Promise
   }
   const dimensions = image.getSize()
   if (dimensions.width * dimensions.height > 25000000) throw new Error('单页图片分辨率过大，请降低分辨率')
-  const rect = /<a:srcRect\b[^>]*\/?\s*>/.exec(pic)?.[0]
+  const rect = /<a:srcRect\b[^>]*>/.exec(pic)?.[0]
   if (rect) {
    image = croppedImage(image, {
     left: Number(attr(rect, 'l') || 0) / 100000,
@@ -282,14 +295,7 @@ export class PptExtractor {
    undefined,
    {images}
   )
-  const result = analysisSchema.parse(
-   JSON.parse(
-    raw
-     .replace(/^\s*```(?:json)?\s*/i, '')
-     .replace(/\s*```\s*$/, '')
-     .trim()
-   )
-  )
+  const result = analysisSchema.parse(JSON.parse(stripCodeFence(raw, 'json')))
   if (
    result.length !== unique.length ||
    new Set(result.map(d => d.page)).size !== unique.length ||

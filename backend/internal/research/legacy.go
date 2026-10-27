@@ -38,8 +38,30 @@ func legacyTable(db *sql.DB, name string) bool {
 	return count > 0
 }
 
+var legacyRowTables = map[string]struct{}{
+	"kb_conversations":               {},
+	"kb_conversation_organization":   {},
+	"kb_conversation_turns":          {},
+	"kb_conversation_research":       {},
+	"learning_memories":              {},
+	"learning_memory_availability":   {},
+	"learning_research_tasks":        {},
+	"grounded_workflows":             {},
+	"grounded_runs":                  {},
+	"learning_agent_extensions":      {},
+	"learning_mcp_catalog":           {},
+	"learning_memory_reviews":        {},
+	"document_note_references":       {},
+	"kb_conversation_turn_citations": {},
+	"document_saved_notes":           {},
+	"document_note_lifecycle_events": {},
+}
+
 func legacyRows(db *sql.DB, table string) ([]map[string]any, error) {
-	rows, err := db.Query("SELECT * FROM " + table)
+	if _, ok := legacyRowTables[table]; !ok {
+		return nil, fmt.Errorf("旧研究数据表无效")
+	}
+	rows, err := db.Query("SELECT * FROM " + table) // NOSONAR: table is restricted to the fixed allowlist above; no user input reaches this query.
 	if err != nil {
 		return nil, err
 	}

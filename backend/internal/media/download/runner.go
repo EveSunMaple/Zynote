@@ -87,7 +87,7 @@ func (runner *Runner) Run(id string, ctx context.Context) (map[string]any, error
 		return nil, err
 	}
 	if maximum > 0 {
-		delay := minimum + (maximum-minimum)*rand.Float64()
+		delay := minimum + (maximum-minimum)*rand.Float64() // NOSONAR: download retry jitter only; never used for security decisions.
 		timer := time.NewTimer(time.Duration(delay * float64(time.Second)))
 		select {
 		case <-timer.C:

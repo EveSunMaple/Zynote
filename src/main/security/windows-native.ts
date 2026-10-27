@@ -151,9 +151,23 @@ export function windowsProtect(raw: Buffer, decrypt = false) {
 }
 export function windowsArgument(input: string) {
  if (input.includes('\0')) throw new Error('进程参数包含空字符')
- return !input || /[\s"]/.test(input)
-  ? '"' + input.replace(/(\\*)"/g, '$1$1\\"').replace(/(\\+)$/, '$1$1') + '"'
-  : input
+ if (!input || !/[\s"]/.test(input)) return input
+ let escaped = '',
+  backslashes = 0
+ for (const char of input) {
+  if (char === '\\') {
+   backslashes++
+   continue
+  }
+  if (char === '"') {
+   escaped += '\\'.repeat(backslashes * 2 + 1) + '"'
+   backslashes = 0
+   continue
+  }
+  escaped += '\\'.repeat(backslashes) + char
+  backslashes = 0
+ }
+ return '"' + escaped + '\\'.repeat(backslashes * 2) + '"'
 }
 /** Atomic Windows Job membership before the child runs. Closing the handle also stops descendants. */
 export class NativeWindowsJob {

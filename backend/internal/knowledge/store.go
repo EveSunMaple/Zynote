@@ -525,7 +525,7 @@ func (store *Store) Search(query string, ids []string) (map[string]any, error) {
 			queryArgs = append(queryArgs, term)
 		}
 		queryArgs = append(queryArgs, args...)
-		rows, err := store.db.Query(
+		rows, err := store.db.Query( // NOSONAR: only fixed SQL fragments and '?' placeholders are concatenated; every value is a bound argument.
 			"SELECT evidence_id,source_id,content FROM native_chunks WHERE chunk_index>=0 AND ("+
 				strings.Join(conditions, " OR ")+")"+scope+" LIMIT 500", queryArgs...)
 		if err != nil {
@@ -1031,7 +1031,7 @@ func (store *Store) SemanticSearch(query string, vector []float64, ids []string)
 			}
 		}
 	}
-	rows, err := store.db.Query(
+	rows, err := store.db.Query( // NOSONAR: scope only contains fixed fragments and '?' placeholders; every value is a bound argument.
 		"SELECT v.evidence_id,v.vector,c.source_id FROM native_vectors v JOIN native_chunks c ON c.evidence_id=v.evidence_id"+scope,
 		args...)
 	if err != nil {

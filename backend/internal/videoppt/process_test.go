@@ -1,6 +1,9 @@
 package videoppt
 
-import "testing"
+import (
+	"math"
+	"testing"
+)
 
 func TestStableSlides(t *testing.T) {
 	slides := &stableSlides{}
@@ -29,6 +32,8 @@ func TestValidCrop(t *testing.T) {
 		{Left: 0.5, Right: 0.4, Top: 0.1, Bottom: 0.9},
 		{Left: 0, Right: 1, Top: 0.5, Bottom: 0.55},
 		{Left: -0.1, Right: 1, Top: 0, Bottom: 1},
+		{Left: math.NaN(), Right: 1, Top: 0, Bottom: 1},
+		{Left: 0, Right: math.Inf(1), Top: 0, Bottom: 1},
 	} {
 		if validCrop(region) {
 			t.Fatalf("invalid crop accepted: %+v", region)
