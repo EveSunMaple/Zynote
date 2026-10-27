@@ -39,10 +39,9 @@ export function createCoursesHandler(
   async invoke(action, object) {
    const id = () => z.string().uuid().parse(object.id),
     courseId = () => z.string().uuid().parse(object.courseId)
-   switch (action) {
-    case 'courses':
-     return db.courses()
-    case 'lecture:delete': {
+   const handlers: Record<string, () => unknown> = {
+    courses: () => db.courses(),
+    'lecture:delete': () => {
      if (jobs.size) throw new Error('请等待当前任务完成后再删除课次')
      if (object.confirmed !== true) throw new Error('请先确认删除课次')
      db.lecture(id())
@@ -52,41 +51,39 @@ export function createCoursesHandler(
      })()
      db.db.pragma('wal_checkpoint(FULL)')
      return true
-    }
-    case 'course:delete': {
+    },
+    'course:delete': () => {
      if (jobs.size) throw new Error('请等待当前任务完成后再删除课程')
      if (object.confirmed !== true) throw new Error('请先确认删除课程')
      db.course(id())
      db.db.prepare('DELETE FROM courses WHERE id=?').run(id())
      db.db.pragma('wal_checkpoint(FULL)')
      return true
-    }
-    case 'course:create': {
+    },
+    'course:create': async () => {
      const course = db.createCourse(z.string().min(1).max(200).parse(object.name))
      await ensureLibrary(libraryRoot, [course.name])
      return course
-    }
-    case 'course:detail':
-     return db.detail(id())
-    case 'sessions':
-     return db.sessions()
-    case 'session:create': {
+    },
+    'course:detail': () => db.detail(id()),
+    sessions: () => db.sessions(),
+    'session:create': () => {
      const cid = courseId(),
       lecture = object.lectureId ? db.lecture(idSchema.parse(object.lectureId)) : undefined
      if (lecture && lecture.course_id !== cid) throw new Error('课次不属于当前课程')
      return db.createSession(cid, lecture?.title, lecture?.id)
-    }
-    case 'session:delete': {
+    },
+    'session:delete': () => {
      if (jobs.size) throw new Error('请等待当前任务完成后再删除会话')
      if (object.confirmed !== true) throw new Error('请先确认删除会话')
      return db.deleteSession(courseId(), id())
-    }
-    case 'pick':
-     return pick(
+    },
+    pick: () =>
+     pick(
       z.enum(['transcript', 'document', 'srt', 'courseware']).parse(object.kind),
       object.courseId ? idSchema.parse(object.courseId) : undefined
-     )
-    case 'files:add': {
+     ),
+    'files:add': async () => {
      const course = courseId()
      db.course(course)
      const paths = z.array(z.string()).max(50).parse(object.paths),
@@ -106,16 +103,17 @@ export function createCoursesHandler(
       added.push(file)
      }
      return added
-    }
-    case 'files:remove':
+    },
+    'files:remove': () => {
      db.removeFile(courseId(), id())
      return true
-    case 'questions:split':
-     return job('exam:' + id(), signal => flows.splitExam(courseId(), id(), signal))
-    case 'questions:save':
+    },
+    'questions:split': () => job('exam:' + id(), signal => flows.splitExam(courseId(), id(), signal)),
+    'questions:save': () => {
      db.saveQuestions(courseId(), questionSchema.array().parse(object.questions))
      return true
-    case 'lecture:create': {
+    },
+    'lecture:create': async () => {
      const course = courseId()
      db.course(course)
      const transcriptInput = z.string().min(1).parse(object.transcriptPath),
@@ -136,8 +134,8 @@ export function createCoursesHandler(
       .prepare('UPDATE lectures SET transcript_path=?,transcript_text=?,time_estimated=?,status=? WHERE id=?')
       .run(path, original.text, original.estimated ? 1 : 0, '待校订', lecture.id)
      return db.lecture(lecture.id)
-    }
-    case 'lecture:transcript': {
+    },
+    'lecture:transcript': async () => {
      const lecture = db.lecture(id()),
       source = await resolveSource(z.string().min(1).parse(object.path)),
       original = await readTranscript(source),
@@ -156,8 +154,8 @@ export function createCoursesHandler(
      db.db.prepare('DELETE FROM lecture_notes WHERE lecture_id=?').run(lecture.id)
      db.db.prepare('DELETE FROM practice_sets WHERE lecture_id=?').run(lecture.id)
      return db.lectureDetail(lecture.id)
-    }
-    case 'lecture:courseware': {
+    },
+    'lecture:courseware': async () => {
      const lecture = db.lecture(id()),
       source = await resolveSource(z.string().min(1).parse(object.path)),
       parsed = await parseCourseware(source)
@@ -184,12 +182,12 @@ export function createCoursesHandler(
      db.db.prepare('DELETE FROM lecture_notes WHERE lecture_id=?').run(lecture.id)
      db.db.prepare('DELETE FROM practice_sets WHERE lecture_id=?').run(lecture.id)
      return db.lectureDetail(lecture.id)
-    }
-    case 'lecture:detail':
-     return db.lectureDetail(id())
-    default:
-     throw new Error('未知操作')
+    },
+    'lecture:detail': () => db.lectureDetail(id())
    }
+   const handler = handlers[action]
+   if (!handler) throw new Error('未知操作')
+   return await handler()
   }
  }
 }

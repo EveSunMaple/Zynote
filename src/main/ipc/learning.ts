@@ -41,40 +41,41 @@ export function createLearningHandler(
   async invoke(action, object) {
    const id = () => z.string().uuid().parse(object.id),
     courseId = () => z.string().uuid().parse(object.courseId)
-   switch (action) {
-    case 'subtitles:generate':
-     return job('lecture:' + id(), signal =>
+   const handlers: Record<string, () => unknown> = {
+    'subtitles:generate': () =>
+     job('lecture:' + id(), signal =>
       flows.transcribe(id(), signal, z.enum(['quality', 'balanced', 'text']).default('quality').parse(object.mode))
-     )
-    case 'subtitles:save':
+     ),
+    'subtitles:save': () => {
      db.saveSubtitles(id(), parseSrt(z.string().parse(object.srt)))
      return db.lectureDetail(id())
-    case 'subtitles:import': {
+    },
+    'subtitles:import': async () => {
      const paths = await pick('srt')
      if (paths[0]) db.saveSubtitles(id(), parseSrt(await readFile(paths[0], 'utf8')))
      return db.lectureDetail(id())
-    }
-    case 'notes:generate':
-     return job('lecture:' + id(), async signal => {
+    },
+    'notes:generate': () =>
+     job('lecture:' + id(), async signal => {
       const value = await flows.notes(id(), signal)
       await saveNoteFile(id())
       return value
-     })
-    case 'notes:save': {
+     }),
+    'notes:save': async () => {
      const value = verifyNotes(notesSchema.parse(object.notes), db.lectureDetail(id()).segments)
      db.saveNotes(id(), value)
      await saveNoteFile(id())
      return value
-    }
-    case 'practice:generate':
-     return job('lecture:' + id(), async signal => {
+    },
+    'practice:generate': () =>
+     job('lecture:' + id(), async signal => {
       if (!db.lectureDetail(id()).notes) {
        await flows.notes(id(), signal)
        await saveNoteFile(id())
       }
       return flows.practice(id(), signal, object.withSearch === true)
-     })
-    case 'practice:submit': {
+     }),
+    'practice:submit': () => {
      const detail = db.lectureDetail(id())
      if (!detail.practice) throw new Error('还没有练习')
      const group = z.enum(['past', 'extended', 'generated']).parse(object.group),
@@ -98,9 +99,9 @@ export function createLearningHandler(
      q.attempt = {response, verdict, feedback}
      db.savePractice(id(), detail.practice)
      return detail.practice
-    }
-    case 'practice:answer':
-     return job('lecture:' + id(), async signal => {
+    },
+    'practice:answer': () =>
+     job('lecture:' + id(), async signal => {
       const detail = db.lectureDetail(id())
       if (!detail.practice) throw new Error('还没有练习')
       const group = z.enum(['past', 'extended', 'generated']).parse(object.group),
@@ -115,9 +116,9 @@ export function createLearningHandler(
       )
       db.savePractice(id(), detail.practice)
       return detail.practice
-     })
-    case 'practice:prepare':
-     return job('lecture:' + id(), async signal => {
+     }),
+    'practice:prepare': () =>
+     job('lecture:' + id(), async signal => {
       const detail = db.lectureDetail(id())
       if (!detail.practice) throw new Error('还没有练习')
       for (const group of ['past', 'extended', 'generated'] as const)
@@ -131,8 +132,8 @@ export function createLearningHandler(
         )
       db.savePractice(id(), detail.practice)
       return detail.practice
-     })
-    case 'practice:reset': {
+     }),
+    'practice:reset': () => {
      const detail = db.lectureDetail(id())
      if (!detail.practice) throw new Error('还没有练习')
      const group = z.enum(['past', 'extended', 'generated']).parse(object.group),
@@ -142,9 +143,9 @@ export function createLearningHandler(
      delete q.attempt
      db.savePractice(id(), detail.practice)
      return detail.practice
-    }
-    case 'chat':
-     return job('chat:' + courseId(), async signal => {
+    },
+    chat: () =>
+     job('chat:' + courseId(), async signal => {
       const course = db.course(courseId()),
        lectureId = object.lectureId ? idSchema.parse(object.lectureId) : null,
        lecture = lectureId ? db.lecture(lectureId) : null
@@ -164,9 +165,10 @@ export function createLearningHandler(
       db.message(course.id, lectureId, 'assistant', reply, session.id)
       return reply
      })
-    default:
-     throw new Error('未知操作')
    }
+   const handler = handlers[action]
+   if (!handler) throw new Error('未知操作')
+   return await handler()
   }
  }
 }
