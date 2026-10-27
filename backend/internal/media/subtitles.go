@@ -32,26 +32,28 @@ type DownloadedSubtitle struct {
 	EmbedRelative string
 }
 
-func MatchesSubtitleLanguage(language, patterns string) bool {
-	quote := func(pattern string) string {
-		var builder strings.Builder
-		for _, char := range pattern {
-			switch char {
-			case '.', '+', '?', '^', '$', '{', '}', '(', ')', '[', ']', '|', '\\':
-				builder.WriteByte('\\')
-			}
-			builder.WriteRune(char)
+func quoteSubtitlePattern(pattern string) string {
+	var builder strings.Builder
+	for _, char := range pattern {
+		switch char {
+		case '.', '+', '?', '^', '$', '{', '}', '(', ')', '[', ']', '|', '\\':
+			builder.WriteByte('\\')
 		}
-		return builder.String()
+		builder.WriteRune(char)
 	}
-	match := func(pattern string) bool {
-		value := strings.ReplaceAll(pattern, ".*", "\x00")
-		value = quote(value)
-		value = strings.ReplaceAll(value, "*", ".*")
-		value = strings.ReplaceAll(value, "\x00", ".*")
-		expression, err := regexp.Compile("(?i)^" + value + "$")
-		return err == nil && expression.MatchString(language)
-	}
+	return builder.String()
+}
+
+func matchSubtitlePattern(pattern, language string) bool {
+	value := strings.ReplaceAll(pattern, ".*", "\x00")
+	value = quoteSubtitlePattern(value)
+	value = strings.ReplaceAll(value, "*", ".*")
+	value = strings.ReplaceAll(value, "\x00", ".*")
+	expression, err := regexp.Compile("(?i)^" + value + "$")
+	return err == nil && expression.MatchString(language)
+}
+
+func subtitlePatterns(patterns string) ([]string, []string) {
 	include, exclude := []string{}, []string{}
 	for _, token := range strings.Split(patterns, ",") {
 		if strings.HasPrefix(token, "-") {
@@ -60,22 +62,78 @@ func MatchesSubtitleLanguage(language, patterns string) bool {
 		}
 		include = append(include, token)
 	}
-	matched := false
-	for _, pattern := range include {
-		if match(pattern) {
-			matched = true
+	return include, exclude
+}
+
+func matchesAnySubtitlePattern(patterns []string, language string) bool {
+	for _, pattern := range patterns {
+		if matchSubtitlePattern(pattern, language) {
+			return true
+		}
+	}
+	return false
+}
+
+func MatchesSubtitleLanguage(language, patterns string) bool {
+	include, exclude := subtitlePatterns(patterns)
+	return matchesAnySubtitlePattern(include, language) && !matchesAnySubtitlePattern(exclude, language)
+}
+
+var (
+	vttStampPattern  = regexp.MustCompile(`^(?:(\d{2,}):)?(\d{2}):(\d{2})\.(\d{3})$`)
+	vttHeaderPattern = regexp.MustCompile(`^(?:WEBVTT|NOTE|STYLE|REGION)(?:\s|$)`)
+	vttTimePattern   = regexp.MustCompile(`^(\S+)\s+-->\s+(\S+)(?:\s+.*)?$`)
+	vttBlockPattern  = regexp.MustCompile(`\n\s*\n`)
+)
+
+func vttSeconds(stamp string) (float64, error) {
+	match := vttStampPattern.FindStringSubmatch(stamp)
+	if match == nil {
+		return 0, fmt.Errorf("站点字幕时间戳无效")
+	}
+	hours, _ := strconv.Atoi(defaultString(match[1], "0"))
+	minutes, _ := strconv.Atoi(match[2])
+	secs, _ := strconv.Atoi(match[3])
+	millis, _ := strconv.Atoi(match[4])
+	if minutes > 59 || secs > 59 {
+		return 0, fmt.Errorf("站点字幕时间戳无效")
+	}
+	return float64(hours*3600+minutes*60+secs) + float64(millis)/1000, nil
+}
+
+func vttCueBlock(block string) (SubtitleCue, bool, error) {
+	lines := strings.Split(strings.TrimSpace(block), "\n")
+	if len(lines) == 0 || vttHeaderPattern.MatchString(lines[0]) {
+		return SubtitleCue{}, false, nil
+	}
+	index := -1
+	for position, line := range lines {
+		if strings.Contains(line, "-->") {
+			index = position
 			break
 		}
 	}
-	if !matched {
-		return false
+	if index < 0 {
+		return SubtitleCue{}, false, nil
 	}
-	for _, pattern := range exclude {
-		if match(pattern) {
-			return false
-		}
+	times := vttTimePattern.FindStringSubmatch(lines[index])
+	if times == nil {
+		return SubtitleCue{}, false, fmt.Errorf("站点字幕时间戳无效")
 	}
-	return true
+	from, err := vttSeconds(times[1])
+	if err != nil {
+		return SubtitleCue{}, false, err
+	}
+	to, err := vttSeconds(times[2])
+	if err != nil {
+		return SubtitleCue{}, false, err
+	}
+	content := html.UnescapeString(stripTags(strings.Join(lines[index+1:], " ")))
+	content = strings.TrimSpace(content)
+	if content == "" {
+		return SubtitleCue{}, false, nil
+	}
+	return SubtitleCue{Start: int64(math.Round(from * 1000)), End: int64(math.Round(to * 1000)), Text: content}, true, nil
 }
 
 func NativeVttCues(text string) ([]SubtitleCue, error) {
@@ -83,60 +141,15 @@ func NativeVttCues(text string) ([]SubtitleCue, error) {
 	if !regexp.MustCompile(`^WEBVTT(?:\s|$)`).MatchString(body) {
 		return nil, fmt.Errorf("站点字幕不是有效 WebVTT")
 	}
-	stampPattern := regexp.MustCompile(`^(?:(\d{2,}):)?(\d{2}):(\d{2})\.(\d{3})$`)
-	seconds := func(stamp string) (float64, error) {
-		match := stampPattern.FindStringSubmatch(stamp)
-		if match == nil {
-			return 0, fmt.Errorf("站点字幕时间戳无效")
-		}
-		hours, _ := strconv.Atoi(defaultString(match[1], "0"))
-		minutes, _ := strconv.Atoi(match[2])
-		secs, _ := strconv.Atoi(match[3])
-		millis, _ := strconv.Atoi(match[4])
-		if minutes > 59 || secs > 59 {
-			return 0, fmt.Errorf("站点字幕时间戳无效")
-		}
-		return float64(hours*3600+minutes*60+secs) + float64(millis)/1000, nil
-	}
 	cues := []SubtitleCue{}
-	for _, block := range regexp.MustCompile(`\n\s*\n`).Split(strings.TrimSpace(body), -1) {
-		lines := strings.Split(strings.TrimSpace(block), "\n")
-		if len(lines) == 0 {
-			continue
-		}
-		if regexp.MustCompile(`^(?:WEBVTT|NOTE|STYLE|REGION)(?:\s|$)`).MatchString(lines[0]) {
-			continue
-		}
-		index := -1
-		for position, line := range lines {
-			if strings.Contains(line, "-->") {
-				index = position
-				break
-			}
-		}
-		if index < 0 {
-			continue
-		}
-		times := regexp.MustCompile(`^(\S+)\s+-->\s+(\S+)(?:\s+.*)?$`).FindStringSubmatch(lines[index])
-		if times == nil {
-			return nil, fmt.Errorf("站点字幕时间戳无效")
-		}
-		from, err := seconds(times[1])
+	for _, block := range vttBlockPattern.Split(strings.TrimSpace(body), -1) {
+		cue, ok, err := vttCueBlock(block)
 		if err != nil {
 			return nil, err
 		}
-		to, err := seconds(times[2])
-		if err != nil {
-			return nil, err
+		if ok {
+			cues = append(cues, cue)
 		}
-		content := html.UnescapeString(stripTags(strings.Join(lines[index+1:], " ")))
-		content = strings.TrimSpace(content)
-		if content == "" {
-			continue
-		}
-		cues = append(cues, SubtitleCue{
-			Start: int64(math.Round(from * 1000)), End: int64(math.Round(to * 1000)), Text: content,
-		})
 	}
 	if len(cues) == 0 || len(cues) > 20000 {
 		return nil, fmt.Errorf("站点字幕时间或正文无效")
@@ -177,7 +190,7 @@ func RetimeCues(cues []SubtitleCue, kept []MediaInterval) []SubtitleCue {
 	return output
 }
 
-func DownloadSubtitles(source Source, options NativeMediaOptions, directory string, fetcher AuthFetcher, ctx context.Context, kept []MediaInterval) ([]DownloadedSubtitle, error) {
+func selectSubtitleTracks(source Source, options NativeMediaOptions) []SubtitleTrack {
 	tracks := []SubtitleTrack{}
 	for _, track := range source.SubtitleTracks {
 		if !MatchesSubtitleLanguage(track.Language, options.SubtitleLanguages) {
@@ -188,6 +201,90 @@ func DownloadSubtitles(source Source, options NativeMediaOptions, directory stri
 		}
 		tracks = append(tracks, track)
 	}
+	return tracks
+}
+
+func filterKeptCues(cues []SubtitleCue, kept []MediaInterval) ([]SubtitleCue, error) {
+	if kept == nil {
+		return cues, nil
+	}
+	cues = RetimeCues(cues, kept)
+	filtered := []SubtitleCue{}
+	for _, cue := range cues {
+		if cue.End > cue.Start {
+			filtered = append(filtered, cue)
+		}
+	}
+	if len(filtered) == 0 || len(filtered) > 20000 {
+		return nil, fmt.Errorf("片段移除后的字幕为空或条目过多，请调整分类")
+	}
+	return filtered, nil
+}
+
+func saveSubtitleFiles(directory, language string, selected subtitleFormat, srt string, embedSubtitles bool) (string, string, error) {
+	relative := fmt.Sprintf("subtitle-%s.%s", language, selected.Extension)
+	if err := saveMediaFile(directory, relative, []byte(selected.Text)); err != nil {
+		return "", "", err
+	}
+	embed := ""
+	if embedSubtitles {
+		embed = fmt.Sprintf("embed-%s.srt", language)
+		if err := saveMediaFile(directory, embed, []byte(srt)); err != nil {
+			return "", "", err
+		}
+	}
+	return relative, embed, nil
+}
+
+func downloadSubtitleTrack(ctx context.Context, track SubtitleTrack, headers map[string]string,
+	source Source, options NativeMediaOptions, directory string, fetcher AuthFetcher,
+	kept []MediaInterval, languages map[string]bool) (DownloadedSubtitle, error) {
+	if !subtitleLanguagePattern.MatchString(track.Language) || languages[track.Language] {
+		return DownloadedSubtitle{}, fmt.Errorf("字幕语言编号无效或重复")
+	}
+	languages[track.Language] = true
+	child, cancel := context.WithTimeout(ctx, 30*time.Second)
+	response, err := fetcher(track.URL, headers, child)
+	if err != nil {
+		cancel()
+		return DownloadedSubtitle{}, err
+	}
+	body, readErr := readBoundedBody(response, 4_000_000)
+	cancel()
+	if readErr != nil {
+		return DownloadedSubtitle{}, readErr
+	}
+	cues, err := parseSubtitleCues(track.Format, body)
+	if err != nil {
+		return DownloadedSubtitle{}, err
+	}
+	cues, err = normalizeCues(cues, source.Catalog.Duration)
+	if err != nil {
+		return DownloadedSubtitle{}, err
+	}
+	cues, err = filterKeptCues(cues, kept)
+	if err != nil {
+		return DownloadedSubtitle{}, err
+	}
+	formats, srt, err := subtitleFormats(cues)
+	if err != nil {
+		return DownloadedSubtitle{}, err
+	}
+	format, ok := formats[options.SubtitleFormat]
+	if !ok {
+		return DownloadedSubtitle{}, fmt.Errorf("字幕格式无效")
+	}
+	relative, embed, err := saveSubtitleFiles(directory, track.Language, format, srt, options.EmbedSubtitles)
+	if err != nil {
+		return DownloadedSubtitle{}, err
+	}
+	return DownloadedSubtitle{
+		Relative: relative, Language: track.Language, Automatic: track.Automatic, EmbedRelative: embed,
+	}, nil
+}
+
+func DownloadSubtitles(source Source, options NativeMediaOptions, directory string, fetcher AuthFetcher, ctx context.Context, kept []MediaInterval) ([]DownloadedSubtitle, error) {
+	tracks := selectSubtitleTracks(source, options)
 	if len(tracks) == 0 {
 		return nil, fmt.Errorf("所选语言没有可下载字幕；原资料保留，可使用本地转写")
 	}
@@ -201,110 +298,57 @@ func DownloadSubtitles(source Source, options NativeMediaOptions, directory stri
 		if ctx.Err() != nil {
 			return nil, ctx.Err()
 		}
-		if !subtitleLanguagePattern.MatchString(track.Language) || languages[track.Language] {
-			return nil, fmt.Errorf("字幕语言编号无效或重复")
-		}
-		languages[track.Language] = true
-		child, cancel := context.WithTimeout(ctx, 30*time.Second)
-		response, err := fetcher(track.URL, headers, child)
-		if err != nil {
-			cancel()
-			return nil, err
-		}
-		body, readErr := readBoundedBody(response, 4_000_000)
-		cancel()
-		if readErr != nil {
-			return nil, readErr
-		}
-		cues, err := parseSubtitleCues(track.Format, body)
+		file, err := downloadSubtitleTrack(ctx, track, headers, source, options, directory, fetcher, kept, languages)
 		if err != nil {
 			return nil, err
 		}
-		cues, err = normalizeCues(cues, source.Catalog.Duration)
-		if err != nil {
-			return nil, err
-		}
-		if kept != nil {
-			cues = RetimeCues(cues, kept)
-			filtered := []SubtitleCue{}
-			for _, cue := range cues {
-				if cue.End > cue.Start {
-					filtered = append(filtered, cue)
-				}
-			}
-			cues = filtered
-			if len(cues) == 0 || len(cues) > 20000 {
-				return nil, fmt.Errorf("片段移除后的字幕为空或条目过多，请调整分类")
-			}
-		}
-		formats, srt, err := subtitleFormats(cues)
-		if err != nil {
-			return nil, err
-		}
-		format, ok := formats[options.SubtitleFormat]
-		if !ok {
-			return nil, fmt.Errorf("字幕格式无效")
-		}
-		relative := fmt.Sprintf("subtitle-%s.%s", track.Language, format.Extension)
-		if err := saveMediaFile(directory, relative, []byte(format.Text)); err != nil {
-			return nil, err
-		}
-		embed := ""
-		if options.EmbedSubtitles {
-			embed = fmt.Sprintf("embed-%s.srt", track.Language)
-			if err := saveMediaFile(directory, embed, []byte(srt)); err != nil {
-				return nil, err
-			}
-		}
-		files = append(files, DownloadedSubtitle{
-			Relative: relative, Language: track.Language, Automatic: track.Automatic, EmbedRelative: embed,
-		})
+		files = append(files, file)
 	}
 	return files, nil
 }
 
-func parseSubtitleCues(format string, body []byte) ([]SubtitleCue, error) {
-	if format == "webvtt" {
-		return NativeVttCues(string(body))
+type youtubeJSON3Event struct {
+	StartMs  float64  `json:"tStartMs"`
+	Duration *float64 `json:"dDurationMs"`
+	Segments []struct {
+		UTF8 string `json:"utf8"`
+	} `json:"segs"`
+}
+
+func parseYoutubeJSON3(body []byte) ([]SubtitleCue, error) {
+	var payload struct {
+		Events []youtubeJSON3Event `json:"events"`
 	}
-	if format == "youtube-json3" {
-		var payload struct {
-			Events []struct {
-				StartMs  float64  `json:"tStartMs"`
-				Duration *float64 `json:"dDurationMs"`
-				Segments []struct {
-					UTF8 string `json:"utf8"`
-				} `json:"segs"`
-			} `json:"events"`
-		}
-		if err := json.Unmarshal(body, &payload); err != nil || len(payload.Events) > 20000 {
-			return nil, fmt.Errorf("站点字幕格式无效")
-		}
-		cues := []SubtitleCue{}
-		for _, event := range payload.Events {
-			if event.Duration == nil || *event.Duration <= 0 {
-				continue
-			}
-			text := ""
-			meaningful := false
-			for _, segment := range event.Segments {
-				text += segment.UTF8
-				if strings.TrimSpace(segment.UTF8) != "" {
-					meaningful = true
-				}
-			}
-			if !meaningful {
-				continue
-			}
-			cues = append(cues, SubtitleCue{
-				Start: int64(math.Round(event.StartMs)), End: int64(math.Round(event.StartMs + *event.Duration)), Text: text,
-			})
-		}
-		if len(cues) == 0 {
-			return nil, fmt.Errorf("站点字幕格式无效")
-		}
-		return cues, nil
+	if err := json.Unmarshal(body, &payload); err != nil || len(payload.Events) > 20000 {
+		return nil, fmt.Errorf("站点字幕格式无效")
 	}
+	cues := []SubtitleCue{}
+	for _, event := range payload.Events {
+		if event.Duration == nil || *event.Duration <= 0 {
+			continue
+		}
+		text := ""
+		meaningful := false
+		for _, segment := range event.Segments {
+			text += segment.UTF8
+			if strings.TrimSpace(segment.UTF8) != "" {
+				meaningful = true
+			}
+		}
+		if !meaningful {
+			continue
+		}
+		cues = append(cues, SubtitleCue{
+			Start: int64(math.Round(event.StartMs)), End: int64(math.Round(event.StartMs + *event.Duration)), Text: text,
+		})
+	}
+	if len(cues) == 0 {
+		return nil, fmt.Errorf("站点字幕格式无效")
+	}
+	return cues, nil
+}
+
+func parseBilibiliJSON(body []byte) ([]SubtitleCue, error) {
 	var payload struct {
 		Body []struct {
 			From    float64 `json:"from"`
@@ -322,6 +366,17 @@ func parseSubtitleCues(format string, body []byte) ([]SubtitleCue, error) {
 		})
 	}
 	return cues, nil
+}
+
+func parseSubtitleCues(format string, body []byte) ([]SubtitleCue, error) {
+	switch format {
+	case "webvtt":
+		return NativeVttCues(string(body))
+	case "youtube-json3":
+		return parseYoutubeJSON3(body)
+	default:
+		return parseBilibiliJSON(body)
+	}
 }
 
 func normalizeCues(cues []SubtitleCue, duration *float64) ([]SubtitleCue, error) {
@@ -347,45 +402,48 @@ type subtitleFormat struct {
 	Text      string
 }
 
-func subtitleFormats(cues []SubtitleCue) (map[string]subtitleFormat, string, error) {
-	original, err := json.Marshal(map[string]any{"body": func() []map[string]any {
-		rows := []map[string]any{}
-		for _, cue := range cues {
-			rows = append(rows, map[string]any{
-				"from": float64(cue.Start) / 1000, "to": float64(cue.End) / 1000, "content": cue.Text,
-			})
-		}
-		return rows
-	}()})
+func originalSubtitleJSON(cues []SubtitleCue) (string, error) {
+	rows := []map[string]any{}
+	for _, cue := range cues {
+		rows = append(rows, map[string]any{
+			"from": float64(cue.Start) / 1000, "to": float64(cue.End) / 1000, "content": cue.Text,
+		})
+	}
+	serialized, err := json.Marshal(map[string]any{"body": rows})
 	if err != nil {
-		return nil, "", err
+		return "", err
 	}
-	srt := formatSRT(cues)
-	clock := func(ms int64) string {
-		hours := ms / 3600000
-		minutes := (ms / 60000) % 60
-		seconds := (ms / 1000) % 60
-		return fmt.Sprintf("%02d:%02d:%02d.%03d", hours, minutes, seconds, ms%1000)
-	}
-	assTime := func(ms int64) string {
-		hours := ms / 3600000
-		minutes := (ms / 60000) % 60
-		seconds := (ms / 1000) % 60
-		return fmt.Sprintf("%d:%02d:%02d.%02d", hours, minutes, seconds, (ms%1000)/10)
-	}
-	vtt := "WEBVTT\n\n"
+	return string(serialized), nil
+}
+
+func vttClock(ms int64) string {
+	return fmt.Sprintf("%02d:%02d:%02d.%03d", ms/3600000, (ms/60000)%60, (ms/1000)%60, ms%1000)
+}
+
+func assClock(ms int64) string {
+	return fmt.Sprintf("%d:%02d:%02d.%02d", ms/3600000, (ms/60000)%60, (ms/1000)%60, (ms%1000)/10)
+}
+
+func formatVTT(cues []SubtitleCue) string {
 	blocks := []string{}
 	for _, cue := range cues {
-		blocks = append(blocks, clock(cue.Start)+" --> "+clock(cue.End)+"\n"+strings.ReplaceAll(cue.Text, "-->", "→")+"\n")
+		blocks = append(blocks, vttClock(cue.Start)+" --> "+vttClock(cue.End)+"\n"+strings.ReplaceAll(cue.Text, "-->", "→")+"\n")
 	}
-	vtt += strings.Join(blocks, "\n")
-	lrcLines := []string{}
+	return "WEBVTT\n\n" + strings.Join(blocks, "\n")
+}
+
+func formatLRC(cues []SubtitleCue) string {
+	lines := []string{}
 	for _, cue := range cues {
-		lrcLines = append(lrcLines, fmt.Sprintf("[%02d:%02d.%02d]%s",
+		lines = append(lines, fmt.Sprintf("[%02d:%02d.%02d]%s",
 			cue.Start/60000, (cue.Start/1000)%60, (cue.Start%1000)/10, cue.Text))
 	}
-	ass := "[Script Info]\nScriptType: v4.00+\nPlayResX: 1920\nPlayResY: 1080\n\n[V4+ Styles]\nFormat: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding\nStyle: Default,Microsoft YaHei,44,&H00FFFFFF,&H000000FF,&H00000000,&H00000000,0,0,0,0,100,100,0,0,1,2,0,2,30,30,30,1\n\n[Events]\nFormat: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text\n"
-	assLines := []string{}
+	return strings.Join(lines, "\n")
+}
+
+func formatASS(cues []SubtitleCue) string {
+	const header = "[Script Info]\nScriptType: v4.00+\nPlayResX: 1920\nPlayResY: 1080\n\n[V4+ Styles]\nFormat: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding\nStyle: Default,Microsoft YaHei,44,&H00FFFFFF,&H000000FF,&H00000000,&H00000000,0,0,0,0,100,100,0,0,1,2,0,2,30,30,30,1\n\n[Events]\nFormat: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text\n"
+	lines := []string{}
 	for _, cue := range cues {
 		clean := strings.Map(func(char rune) rune {
 			if char == '{' || char == '}' || char == '\\' {
@@ -393,15 +451,23 @@ func subtitleFormats(cues []SubtitleCue) (map[string]subtitleFormat, string, err
 			}
 			return char
 		}, cue.Text)
-		assLines = append(assLines, fmt.Sprintf("Dialogue: 0,%s,%s,Default,,0,0,0,,%s", assTime(cue.Start), assTime(cue.End), clean))
+		lines = append(lines, fmt.Sprintf("Dialogue: 0,%s,%s,Default,,0,0,0,,%s", assClock(cue.Start), assClock(cue.End), clean))
 	}
-	ass += strings.Join(assLines, "\n")
+	return header + strings.Join(lines, "\n")
+}
+
+func subtitleFormats(cues []SubtitleCue) (map[string]subtitleFormat, string, error) {
+	original, err := originalSubtitleJSON(cues)
+	if err != nil {
+		return nil, "", err
+	}
+	srt := formatSRT(cues)
 	return map[string]subtitleFormat{
-		"original": {Extension: "json", Text: string(original)},
+		"original": {Extension: "json", Text: original},
 		"srt":      {Extension: "srt", Text: srt},
-		"vtt":      {Extension: "vtt", Text: vtt},
-		"lrc":      {Extension: "lrc", Text: strings.Join(lrcLines, "\n")},
-		"ass":      {Extension: "ass", Text: ass},
+		"vtt":      {Extension: "vtt", Text: formatVTT(cues)},
+		"lrc":      {Extension: "lrc", Text: formatLRC(cues)},
+		"ass":      {Extension: "ass", Text: formatASS(cues)},
 	}, srt, nil
 }
 
