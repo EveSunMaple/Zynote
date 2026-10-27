@@ -116,12 +116,8 @@ export class SettingsStore {
   this.requireSecureStorage()
   return safeStorage.decryptString(Buffer.from(value, 'base64'))
  }
- public save(settings: Settings): Settings {
-  if (!(settings.maxMinutes >= 1 && settings.maxMinutes <= 60) || !(settings.maxGB > 0 && settings.maxGB <= 10))
-   throw new Error('视频限制设置不合法')
-  const input =
-    settings.profiles.find(p => p.id === settings.activeProfile) || settings.profiles[0] || defaultProfile(),
-   name = input.name?.trim(),
+ private validateProfile(input: Profile) {
+  const name = input.name?.trim(),
    model = input.model?.trim(),
    visionModel = input.visionModel?.trim() || '',
    baseUrl = input.baseUrl?.trim()
@@ -135,7 +131,6 @@ export class SettingsStore {
   }
   if (!['https:', 'http:'].includes(parsed.protocol) || parsed.username || parsed.password)
    throw new Error('API 地址必须是 HTTP(S)，不能包含密码')
-  endpointIdentity({...input, baseUrl})
   for (const param of Object.values(input.parameters || {})) {
    if (
     (param.temperature !== undefined &&
@@ -145,27 +140,40 @@ export class SettingsStore {
    )
     throw new Error('模型参数超出允许范围')
   }
-  const id = 'qwen',
+  return {name, model, visionModel, baseUrl}
+ }
+ private storedProfile(
+  input: Profile,
+  values: {name: string; model: string; visionModel: string; baseUrl: string},
+  old: StoredProfile | undefined
+ ): StoredProfile {
+  return {
+   id: 'qwen',
+   name: values.name,
+   baseUrl: values.baseUrl.replace(/\/$/, ''),
+   model: values.model,
+   visionModel: values.visionModel,
+   apiFormat: 'chat_completions',
+   provider: 'qwen',
+   parameters: input.parameters || {},
+   models: [...new Set([values.model, values.visionModel, ...(input.models || [])])],
+   encryptedKey: input.apiKey?.trim() ? this.encrypt(input.apiKey.trim()) : old?.encryptedKey
+  }
+ }
+ public save(settings: Settings): Settings {
+  if (!(settings.maxMinutes >= 1 && settings.maxMinutes <= 60) || !(settings.maxGB > 0 && settings.maxGB <= 10))
+   throw new Error('视频限制设置不合法')
+  const input = settings.profiles.find(p => p.id === settings.activeProfile) || settings.profiles[0] || defaultProfile()
+  const values = this.validateProfile(input)
+  const identity = endpointIdentity({...input, baseUrl: values.baseUrl}),
    old = this.value.qwenProfile,
-   identity = endpointIdentity({...input, baseUrl}),
    oldIdentity = old ? endpointIdentity(old) : ''
   if (!input.apiKey?.trim() && old?.encryptedKey && identity !== oldIdentity)
    throw new Error('API 地址已改变。为避免把旧密钥发送到新地址，请重新填写该地址的千问 API Key')
   // Verify retained credentials before writing any other settings.
   if (!input.apiKey?.trim()) this.decrypt(old?.encryptedKey)
   if (settings.searchKey === undefined) this.decrypt(this.value.encryptedSearchKey)
-  const profile: StoredProfile = {
-   id,
-   name,
-   baseUrl: baseUrl.replace(/\/$/, ''),
-   model,
-   visionModel,
-   apiFormat: 'chat_completions',
-   provider: 'qwen',
-   parameters: input.parameters || {},
-   models: [...new Set([model, visionModel, ...(input.models || [])])],
-   encryptedKey: input.apiKey?.trim() ? this.encrypt(input.apiKey.trim()) : old?.encryptedKey
-  }
+  const profile = this.storedProfile(input, values, old)
   let encryptedSearchKey = this.value.encryptedSearchKey
   if (settings.searchKey !== undefined)
    encryptedSearchKey = settings.searchKey ? this.encrypt(settings.searchKey) : undefined

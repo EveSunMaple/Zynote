@@ -140,6 +140,13 @@ export class Zhiyun {
   if (!Array.isArray(data.result.data)) throw new Error('智云课次列表格式异常，请刷新后重试')
   return zhiyunLessons(data.result.data)
  }
+ private exportResult(data: any, lesson: any, kind: 'transcript' | 'ppt') {
+  if (Number(data.code) !== 0 || !data.data?.path_name) return undefined
+  const filename = String(data.data.file_name || lesson.title + (kind === 'ppt' ? '.pptx' : '.docx'))
+  if (!(kind === 'ppt' ? /\.pptx?$/i : /\.(docx|txt|srt)$/i).test(filename))
+   throw new Error('官网返回的文件格式暂不支持')
+  return {url: zhiyunMediaUrl(data.data.path_name), filename}
+ }
  async resource(
   courseId: string,
   subId: string,
@@ -156,21 +163,17 @@ export class Zhiyun {
    signal.throwIfAborted()
    // biome-ignore format: NOSONAR must stay on the await line
    const data = await this.json('/courseapi/v2/export/get-courseware-status', params, signal) // NOSONAR: ordered/limited operation; parallelizing would change atomicity, rate limits, or deterministic progress.
-   if (Number(data.code) === 0 && data.data?.path_name) {
-    const filename = String(data.data.file_name || lesson.title + (kind === 'ppt' ? '.pptx' : '.docx'))
-    if (!(kind === 'ppt' ? /\.pptx?$/i : /\.(docx|txt|srt)$/i).test(filename))
-     throw new Error('官网返回的文件格式暂不支持')
-    return {url: zhiyunMediaUrl(data.data.path_name), filename}
-   }
+   const result = this.exportResult(data, lesson, kind)
+   if (result) return result
    if (![1, 200].includes(Number(data.code))) throw new Error(`本课次暂无可导出的${label}`)
    if (!created) {
     // biome-ignore format: NOSONAR must stay on the await line
-    const result = await this.json( // NOSONAR: ordered/limited operation; parallelizing would change atomicity, rate limits, or deterministic progress.
+    const started = await this.json( // NOSONAR: ordered/limited operation; parallelizing would change atomicity, rate limits, or deterministic progress.
      '/courseapi/v2/export/export-async',
      {sub_id: subId, export_type: 'courseware', type: params.type},
      signal
     )
-    if (Number(result.code) !== 0) throw new Error(`智云课堂未能生成${label}`)
+    if (Number(started.code) !== 0) throw new Error(`智云课堂未能生成${label}`)
     created = true
    }
    this.progress(`智云课堂正在生成${label}…`)

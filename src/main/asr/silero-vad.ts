@@ -2,6 +2,23 @@
 // The model is retained separately from its former Python runtime.
 import {InferenceSession, Tensor} from 'onnxruntime-node'
 export type SpeechRange = {start: number; end: number}
+function smoothSpeechRanges(ranges: SpeechRange[], samples: number) {
+ for (const [index, range] of ranges.entries()) {
+  if (index === 0) range.start = Math.max(0, range.start - 6400)
+  const next = ranges[index + 1]
+  if (next) {
+   const gap = next.start - range.end
+   if (gap < 12800) {
+    range.end += Math.floor(gap / 2)
+    next.start -= Math.floor(gap / 2)
+   } else {
+    range.end = Math.min(samples, range.end + 6400)
+    next.start = Math.max(0, next.start - 6400)
+   }
+  } else range.end = Math.min(samples, range.end + 6400)
+ }
+ return ranges
+}
 export function speechRanges(probabilities: readonly number[], samples: number): SpeechRange[] {
  const ranges: SpeechRange[] = []
  let start: number | undefined, silence: number | undefined
@@ -21,21 +38,7 @@ export function speechRanges(probabilities: readonly number[], samples: number):
   }
  }
  if (start !== undefined && samples > start) ranges.push({start, end: samples})
- for (const [index, range] of ranges.entries()) {
-  if (index === 0) range.start = Math.max(0, range.start - 6400)
-  const next = ranges[index + 1]
-  if (next) {
-   const gap = next.start - range.end
-   if (gap < 12800) {
-    range.end += Math.floor(gap / 2)
-    next.start -= Math.floor(gap / 2)
-   } else {
-    range.end = Math.min(samples, range.end + 6400)
-    next.start = Math.max(0, next.start - 6400)
-   }
-  } else range.end = Math.min(samples, range.end + 6400)
- }
- return ranges
+ return smoothSpeechRanges(ranges, samples)
 }
 export async function detectSpeech(audio: Float32Array, model: string): Promise<SpeechRange[]> {
  const session = await InferenceSession.create(model, {
