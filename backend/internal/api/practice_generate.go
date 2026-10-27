@@ -308,6 +308,251 @@ func (inv *Invoker) handlePracticeGenerate(store contract.StateStore, state *con
 	})
 }
 
+func practiceLoad(state *contract.State, lectureID string) (map[string]any, string, []any, []map[string]any, error) {
+	db, err := openReadOnlyDB(state)
+	if err != nil {
+		return nil, "", nil, nil, err
+	}
+	defer db.Close()
+	detailAny, err := lectureDetailFromDB(db, lectureID)
+	if err != nil {
+		return nil, "", nil, nil, err
+	}
+	detail := detailAny.(map[string]any)
+	lecture, _ := detail["lecture"].(map[string]any)
+	courseName, questions, files, err := practiceCourseInfo(db, textValue(lecture["course_id"]))
+	if err != nil {
+		return nil, "", nil, nil, err
+	}
+	return detail, courseName, questions, files, nil
+}
+
+func (inv *Invoker) practiceNotes(ctx context.Context, store contract.StateStore, state *contract.State, lectureID string, detail map[string]any) (map[string]any, error) {
+	notes, _ := detail["notes"].(map[string]any)
+	if notes != nil {
+		return notes, nil
+	}
+	value, err := inv.generateNotes(ctx, store, state, lectureID)
+	if err != nil {
+		return nil, err
+	}
+	generated, _ := value.(map[string]any)
+	return generated, nil
+}
+
+func practiceCandidates(questions []any, topics []string) []any {
+	candidates := []any{}
+	for _, index := range learning.PracticeKeywordCandidates(questions, topics) {
+		candidates = append(candidates, questions[index])
+	}
+	return candidates
+}
+
+func practiceMatchBatch(ctx context.Context, client *ai.Client, prompt string, points []any, topics []string, batch []any, referenceNotes []string, selectedIDs map[string]bool) ([]any, error) {
+	input := struct {
+		KeyPoints      []any    `json:"keyPoints"`
+		Questions      []any    `json:"questions"`
+		ReferenceNotes []string `json:"referenceNotes"`
+	}{points, batch, referenceNotes}
+	var matches []practiceMatchRow
+	_, err := client.JSON(ctx, prompt, input, func(value []byte) error {
+		parsed, err := parsePracticeMatches(value)
+		if err != nil {
+			return err
+		}
+		matches = parsed
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	selected := []any{}
+	for _, match := range matches {
+		if !practiceTopicExists(topics, match.Topic) {
+			continue
+		}
+		var question map[string]any
+		for _, raw := range batch {
+			candidate, _ := raw.(map[string]any)
+			if candidate != nil && textValue(candidate["id"]) == match.ID {
+				question = candidate
+				break
+			}
+		}
+		if question == nil || selectedIDs[match.ID] {
+			continue
+		}
+		copied := maps.Clone(question)
+		copied["topic"] = match.Topic
+		copied["reason"] = match.Reason
+		selected = append(selected, copied)
+		selectedIDs[match.ID] = true
+	}
+	return selected, nil
+}
+
+func matchPracticeQuestions(ctx context.Context, inv *Invoker, client *ai.Client, prompt, lectureID string, points, candidates []any, topics []string, referenceNotes []string) ([]any, error) {
+	selected := []any{}
+	selectedIDs := map[string]bool{}
+	for start := 0; start < len(candidates); start += 30 {
+		end := start + 30
+		if end > len(candidates) {
+			end = len(candidates)
+		}
+		inv.reportCorrection(
+			lectureID, "历年题",
+			fmt.Sprintf("核对本课相关题 %d/%d", end, len(candidates)), 0, 0,
+		)
+		batch := append([]any{}, candidates[start:end]...)
+		value, err := practiceMatchBatch(ctx, client, prompt, points, topics, batch, referenceNotes, selectedIDs)
+		if err != nil {
+			return nil, err
+		}
+		selected = append(selected, value...)
+	}
+	return selected, nil
+}
+
+func practiceSubtitleLines(segments []any) []string {
+	subtitles := []string{}
+	for _, raw := range segments {
+		segment, _ := raw.(map[string]any)
+		if segment == nil || truthy(segment["uncertain"]) {
+			continue
+		}
+		subtitles = append(subtitles, "["+transcriptClock(numberValue(segment["start"]))+"] "+textValue(segment["text"]))
+	}
+	return subtitles
+}
+
+func practiceSelfEntries(ctx context.Context, client *ai.Client, courseName string, points []any, subtitles []string) ([]any, error) {
+	selfInput := struct {
+		SelfPractice bool   `json:"selfPractice"`
+		Course       string `json:"course"`
+		KeyPoints    []any  `json:"keyPoints"`
+		Subtitles    string `json:"subtitles"`
+	}{true, courseName, points, strings.Join(subtitles, "\n")}
+	var selfRows []practiceSelfRow
+	_, err := client.JSON(ctx, practiceSelfPrompt, selfInput, func(value []byte) error {
+		parsed, err := parsePracticeSelf(value)
+		if err != nil {
+			return err
+		}
+		selfRows = parsed
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	generated := []any{}
+	for _, row := range selfRows {
+		generated = append(generated, map[string]any{
+			"stem": row.Stem, "type": row.Type, "topic": row.Topic, "reason": row.Reason,
+			"answer": row.Answer, "explanation": row.Explanation,
+			"sourceFile": "AI 自测题 · 根据本课字幕生成", "aiAnswer": true,
+		})
+	}
+	return generated, nil
+}
+
+func practiceExcludedStems(selected, extended []any) []string {
+	excluded := []string{}
+	for _, raw := range append(append([]any{}, selected...), extended...) {
+		question, _ := raw.(map[string]any)
+		if question != nil {
+			excluded = append(excluded, textValue(question["stem"]))
+		}
+	}
+	return excluded
+}
+
+func practiceSourceByURL(sources []learning.PracticeSource, url string) *learning.PracticeSource {
+	for index := range sources {
+		if sources[index].URL == url {
+			return &sources[index]
+		}
+	}
+	return nil
+}
+
+func practiceSearchEntries(rows []practiceSearchRow, sources []learning.PracticeSource, past map[string]any, selected, extended []any) []any {
+	result := append([]any{}, extended...)
+	for _, row := range rows {
+		source := practiceSourceByURL(sources, row.SourceURL)
+		stem := learning.NormalizePracticeText(row.Stem)
+		if row.Topic != textValue(past["topic"]) || source == nil ||
+			!strings.Contains(learning.NormalizePracticeText(source.Text), stem) ||
+			practiceHasStem(append(append([]any{}, selected...), extended...), stem) {
+			continue
+		}
+		entry := map[string]any{
+			"stem": row.Stem, "type": row.Type, "topic": row.Topic,
+			"reason": row.Reason, "sourceUrl": row.SourceURL,
+		}
+		if row.Answer != nil && *row.Answer != "" &&
+			strings.Contains(learning.NormalizePracticeText(source.Text), learning.NormalizePracticeText(*row.Answer)) {
+			entry["answer"] = *row.Answer
+		}
+		result = append(result, entry)
+		if len(result) == len(selected) {
+			break
+		}
+	}
+	return result
+}
+
+func extendPractice(ctx context.Context, client *ai.Client, prompt, searchKey, courseName string, past map[string]any, selected, extended []any) ([]any, error) {
+	query := fmt.Sprintf("%s %s %s 练习题", courseName, textValue(past["topic"]), textValue(past["type"]))
+	sources, err := learning.TavilySearch(ctx, nil, searchKey, query, "advanced", 5, 45*time.Second)
+	if err != nil {
+		return nil, err
+	}
+	searchInput := struct {
+		PastQuestion any                       `json:"pastQuestion"`
+		Excluded     []string                  `json:"excluded"`
+		Sources      []learning.PracticeSource `json:"sources"`
+	}{past, practiceExcludedStems(selected, extended), sources}
+	var rows []practiceSearchRow
+	_, err = client.JSON(ctx, prompt, searchInput, func(value []byte) error {
+		parsed, err := parsePracticeSearch(value)
+		if err != nil {
+			return err
+		}
+		rows = parsed
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	return practiceSearchEntries(rows, sources, past, selected, extended), nil
+}
+
+func (inv *Invoker) extendPracticeAnswers(ctx context.Context, client *ai.Client, prompt, searchKey, courseName, lectureID string, selected, extended []any) ([]any, error) {
+	for _, raw := range selected {
+		if len(extended) >= len(selected) {
+			break
+		}
+		past, _ := raw.(map[string]any)
+		if past == nil {
+			continue
+		}
+		inv.reportCorrection(
+			lectureID, "拓展题",
+			fmt.Sprintf("查找有来源的练习 %d/%d", len(extended), len(selected)), 0, 0,
+		)
+		next, err := extendPractice(ctx, client, prompt, searchKey, courseName, past, selected, extended)
+		if err != nil {
+			if ctx.Err() != nil {
+				return nil, ctx.Err()
+			}
+			inv.reportCorrection(lectureID, "拓展题", "部分来源检索失败，将保留真实题目并显示差额", 0, 0)
+			continue
+		}
+		extended = next
+	}
+	return extended, nil
+}
+
 func (inv *Invoker) generatePractice(
 	ctx context.Context,
 	store contract.StateStore,
@@ -315,38 +560,13 @@ func (inv *Invoker) generatePractice(
 	lectureID string,
 	withSearch bool,
 ) (any, error) {
-	load := func() (map[string]any, string, []any, []map[string]any, error) {
-		db, err := openReadOnlyDB(state)
-		if err != nil {
-			return nil, "", nil, nil, err
-		}
-		defer db.Close()
-		detailAny, err := lectureDetailFromDB(db, lectureID)
-		if err != nil {
-			return nil, "", nil, nil, err
-		}
-		detail := detailAny.(map[string]any)
-		lecture, _ := detail["lecture"].(map[string]any)
-		courseName, questions, files, err := practiceCourseInfo(db, textValue(lecture["course_id"]))
-		if err != nil {
-			return nil, "", nil, nil, err
-		}
-		return detail, courseName, questions, files, nil
-	}
-	detail, courseName, questions, files, err := load()
+	detail, courseName, questions, files, err := practiceLoad(state, lectureID)
 	if err != nil {
 		return nil, err
 	}
-	notes, _ := detail["notes"].(map[string]any)
-	if notes == nil {
-		value, err := inv.generateNotes(ctx, store, state, lectureID)
-		if err != nil {
-			return nil, err
-		}
-		generated, _ := value.(map[string]any)
-		if generated != nil {
-			notes = generated
-		}
+	notes, err := inv.practiceNotes(ctx, store, state, lectureID, detail)
+	if err != nil {
+		return nil, err
 	}
 	if _, exists := detail["correction"]; exists {
 		return nil, contract.InputInvalid("请先完成字幕校订")
@@ -375,102 +595,22 @@ func (inv *Invoker) generatePractice(
 		Progress: inv.answerProgress,
 	}
 	points, topics := practiceVerifiedPoints(notes)
-	candidates := []any{}
-	for _, index := range learning.PracticeKeywordCandidates(questions, topics) {
-		candidates = append(candidates, questions[index])
-	}
+	candidates := practiceCandidates(questions, topics)
 	referenceNotes := practiceReferenceNotes(files, topics)
 	matchPrompt, err := config.Prompt(state.DataRoot, state.PromptsRoot, "match")
 	if err != nil {
 		return nil, err
 	}
-	selected := []any{}
-	selectedIDs := map[string]bool{}
-	for start := 0; start < len(candidates); start += 30 {
-		end := start + 30
-		if end > len(candidates) {
-			end = len(candidates)
-		}
-		inv.reportCorrection(
-			lectureID, "历年题",
-			fmt.Sprintf("核对本课相关题 %d/%d", end, len(candidates)), 0, 0,
-		)
-		batch := append([]any{}, candidates[start:end]...)
-		input := struct {
-			KeyPoints      []any    `json:"keyPoints"`
-			Questions      []any    `json:"questions"`
-			ReferenceNotes []string `json:"referenceNotes"`
-		}{points, batch, referenceNotes}
-		var matches []practiceMatchRow
-		_, err := client.JSON(ctx, matchPrompt, input, func(value []byte) error {
-			parsed, err := parsePracticeMatches(value)
-			if err != nil {
-				return err
-			}
-			matches = parsed
-			return nil
-		})
-		if err != nil {
-			return nil, err
-		}
-		for _, match := range matches {
-			if !practiceTopicExists(topics, match.Topic) {
-				continue
-			}
-			var question map[string]any
-			for _, raw := range batch {
-				candidate, _ := raw.(map[string]any)
-				if candidate != nil && textValue(candidate["id"]) == match.ID {
-					question = candidate
-					break
-				}
-			}
-			if question == nil || selectedIDs[match.ID] {
-				continue
-			}
-			copied := maps.Clone(question)
-			copied["topic"] = match.Topic
-			copied["reason"] = match.Reason
-			selected = append(selected, copied)
-			selectedIDs[match.ID] = true
-		}
+	selected, err := matchPracticeQuestions(ctx, inv, client, matchPrompt, lectureID, points, candidates, topics, referenceNotes)
+	if err != nil {
+		return nil, err
 	}
 	inv.reportCorrection(
 		lectureID, "AI 自测题", "根据本课字幕生成 5 道自测题与解析；与历年真题分开显示", 0, 0,
 	)
-	subtitles := []string{}
-	for _, raw := range segments {
-		segment, _ := raw.(map[string]any)
-		if segment == nil || truthy(segment["uncertain"]) {
-			continue
-		}
-		subtitles = append(subtitles, "["+transcriptClock(numberValue(segment["start"]))+"] "+textValue(segment["text"]))
-	}
-	selfInput := struct {
-		SelfPractice bool   `json:"selfPractice"`
-		Course       string `json:"course"`
-		KeyPoints    []any  `json:"keyPoints"`
-		Subtitles    string `json:"subtitles"`
-	}{true, courseName, points, strings.Join(subtitles, "\n")}
-	var selfRows []practiceSelfRow
-	_, err = client.JSON(ctx, practiceSelfPrompt, selfInput, func(value []byte) error {
-		parsed, err := parsePracticeSelf(value)
-		if err != nil {
-			return err
-		}
-		selfRows = parsed
-		return nil
-	})
+	generated, err := practiceSelfEntries(ctx, client, courseName, points, practiceSubtitleLines(segments))
 	if err != nil {
 		return nil, err
-	}
-	generated := []any{}
-	for _, row := range selfRows {
-		generated = append(generated, map[string]any{
-			"stem": row.Stem, "type": row.Type, "topic": row.Topic, "reason": row.Reason,
-			"answer": row.Answer, "explanation": row.Explanation,
-			"sourceFile": "AI 自测题 · 根据本课字幕生成", "aiAnswer": true,
-		})
 	}
 	result := map[string]any{
 		"past": selected, "extended": []any{}, "generated": generated, "shortage": 0,
@@ -499,84 +639,9 @@ func (inv *Invoker) generatePractice(
 	if err != nil {
 		return nil, err
 	}
-	extended := result["extended"].([]any)
-	for _, raw := range selected {
-		if len(extended) >= len(selected) {
-			break
-		}
-		past, _ := raw.(map[string]any)
-		if past == nil {
-			continue
-		}
-		inv.reportCorrection(
-			lectureID, "拓展题",
-			fmt.Sprintf("查找有来源的练习 %d/%d", len(extended), len(selected)), 0, 0,
-		)
-		err := func() error {
-			query := fmt.Sprintf("%s %s %s 练习题", courseName, textValue(past["topic"]), textValue(past["type"]))
-			sources, err := learning.TavilySearch(ctx, nil, searchKey, query, "advanced", 5, 45*time.Second)
-			if err != nil {
-				return err
-			}
-			excluded := []string{}
-			for _, raw := range append(append([]any{}, selected...), extended...) {
-				question, _ := raw.(map[string]any)
-				if question != nil {
-					excluded = append(excluded, textValue(question["stem"]))
-				}
-			}
-			searchInput := struct {
-				PastQuestion any                       `json:"pastQuestion"`
-				Excluded     []string                  `json:"excluded"`
-				Sources      []learning.PracticeSource `json:"sources"`
-			}{past, excluded, sources}
-			var rows []practiceSearchRow
-			_, err = client.JSON(ctx, searchPrompt, searchInput, func(value []byte) error {
-				parsed, err := parsePracticeSearch(value)
-				if err != nil {
-					return err
-				}
-				rows = parsed
-				return nil
-			})
-			if err != nil {
-				return err
-			}
-			for _, row := range rows {
-				var source *learning.PracticeSource
-				for index := range sources {
-					if sources[index].URL == row.SourceURL {
-						source = &sources[index]
-						break
-					}
-				}
-				stem := learning.NormalizePracticeText(row.Stem)
-				if row.Topic != textValue(past["topic"]) || source == nil ||
-					!strings.Contains(learning.NormalizePracticeText(source.Text), stem) ||
-					practiceHasStem(append(append([]any{}, selected...), extended...), stem) {
-					continue
-				}
-				entry := map[string]any{
-					"stem": row.Stem, "type": row.Type, "topic": row.Topic,
-					"reason": row.Reason, "sourceUrl": row.SourceURL,
-				}
-				if row.Answer != nil && *row.Answer != "" &&
-					strings.Contains(learning.NormalizePracticeText(source.Text), learning.NormalizePracticeText(*row.Answer)) {
-					entry["answer"] = *row.Answer
-				}
-				extended = append(extended, entry)
-				if len(extended) == len(selected) {
-					break
-				}
-			}
-			return nil
-		}()
-		if err != nil {
-			if ctx.Err() != nil {
-				return nil, ctx.Err()
-			}
-			inv.reportCorrection(lectureID, "拓展题", "部分来源检索失败，将保留真实题目并显示差额", 0, 0)
-		}
+	extended, err := inv.extendPracticeAnswers(ctx, client, searchPrompt, searchKey, courseName, lectureID, selected, result["extended"].([]any))
+	if err != nil {
+		return nil, err
 	}
 	result["extended"] = extended
 	result["shortage"] = len(selected) - len(extended)
