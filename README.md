@@ -33,6 +33,13 @@ pnpm smoke:go-core # Go core 冒烟（不启动 Electron）
 pnpm build
 ```
 
+## 发布与自动更新
+
+- `pnpm release lite --platform=mac --prepared` 生成安装包、`latest-mac.yml`、blockmap；lite 使用 `latest` 通道。
+- Windows `full` 使用 `full` 通道；portable 目录版不生成更新元数据，也不检查更新。
+- GitHub Actions 的 `release.yml` 默认只上传构建工件；手动勾选 `publish` 后会创建/更新 `v<version>` GitHub Release，并上传安装包与更新元数据。
+- 生产自动更新必须使用 Developer ID 签名并公证；未签名的本地构建只能用于开发验证。
+
 ## 许可
 
 AGPL-3.0-only；第三方归属见 `NOTICE`、`docs/legal/THIRD_PARTY_NOTICES.md`。

@@ -1,4 +1,6 @@
 import {z} from 'zod'
+import type {UpdateStatus} from './update.js'
+import type {VideoBatchItem} from './video-ppt.js'
 export const questionSchema = z.object({
  id: z.string(),
  courseId: z.string(),
@@ -190,8 +192,8 @@ export type EventPayload =
  | {kind: 'chat'; requestId: string; text: string}
  | {kind: 'browser'; url: string}
  | {kind: 'window'; data: {maximized: boolean}}
- | {kind: 'update'; data: import('./update.js').UpdateStatus}
- | {kind: 'video-batch'; items: import('./video-ppt.js').VideoBatchItem[]}
+ | {kind: 'update'; data: UpdateStatus}
+ | {kind: 'video-batch'; items: VideoBatchItem[]}
 export interface Bridge {
  invoke<T = unknown>(action: string, args?: unknown): Promise<T>
  onEvent(callback: (event: EventPayload) => void): () => void
