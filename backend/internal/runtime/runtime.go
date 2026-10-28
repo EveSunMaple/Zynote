@@ -310,6 +310,25 @@ func validateDescriptor(source, id, version string) error {
 	return nil
 }
 
+func secureSource(root, relative string) (string, error) {
+	target, err := contained(root, relative)
+	if err != nil {
+		return "", err
+	}
+	resolvedRoot, err := filepath.EvalSymlinks(root)
+	if err != nil {
+		return "", fmt.Errorf("组件来源无效")
+	}
+	resolvedTarget, err := filepath.EvalSymlinks(target)
+	if err != nil {
+		return "", fmt.Errorf("组件校验失败：%s", relative)
+	}
+	if !strings.HasPrefix(resolvedTarget, resolvedRoot+string(os.PathSeparator)) {
+		return "", fmt.Errorf("组件来源越界")
+	}
+	return resolvedTarget, nil
+}
+
 func copyComponent(source, resourcesRoot, id string, component Component) (any, error) {
 	target, err := contained(resourcesRoot, component.Directory)
 	if err != nil {
@@ -330,7 +349,7 @@ func copyComponent(source, resourcesRoot, id string, component Component) (any, 
 	}()
 	payload := filepath.Join(source, "payload")
 	for _, file := range component.Files {
-		input, err := contained(payload, file.Path)
+		input, err := secureSource(payload, file.Path)
 		if err != nil {
 			return nil, err
 		}
