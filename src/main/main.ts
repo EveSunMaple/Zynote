@@ -212,9 +212,9 @@ async function startApplication() {
   const object = z.record(z.string(), z.unknown()).parse(args || {})
   const validated = z.string().min(1).max(100).parse(action)
   try {
-   await waitForCore(goCore)
    const shellResult = await invokeShellAction(window, paths.libraryRoot, updater, validated, object)
    if (shellResult !== unhandled) return shellResult
+   await waitForCore(goCore)
    return await goCore.call(validated, object)
   } catch (error) {
    let code = 'REQUEST_FAILED'

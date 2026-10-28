@@ -407,6 +407,9 @@ func (inv *Invoker) handleHello(store contract.StateStore, params json.RawMessag
 }
 
 func migrateLibraryPaths(state *contract.State, previousRoot string) error {
+	if err := prepareDatabase(state); err != nil {
+		return err
+	}
 	database := filepath.Join(state.DataRoot, "assistant.db")
 	write, err := storage.OpenWrite(database)
 	if err != nil {

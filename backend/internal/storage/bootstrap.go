@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"errors"
 	"regexp"
+	"strconv"
 )
 
 const textNotNullDefault = "TEXT NOT NULL DEFAULT ''"
@@ -94,7 +95,11 @@ func Bootstrap(db *sql.DB) error {
 			return err
 		}
 	}
-	return tx.Commit()
+	if err := tx.Commit(); err != nil {
+		return err
+	}
+	_, err = db.Exec("PRAGMA user_version = " + strconv.Itoa(SchemaVersion))
+	return err
 }
 
 func addColumnIfMissing(db *sql.DB, table, column string) error {

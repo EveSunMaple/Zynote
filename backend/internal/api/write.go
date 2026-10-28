@@ -19,6 +19,14 @@ func openWriteDB(state *contract.State) (*storage.WriteDB, error) {
 	return write, nil
 }
 
+func prepareDatabase(state *contract.State) error {
+	_, err := storage.Prepare(
+		filepath.Join(state.DataRoot, "assistant.db"),
+		filepath.Join(state.DataRoot, "Backups"),
+	)
+	return err
+}
+
 func handleCourseCreate(store contract.StateStore, state *contract.State, params json.RawMessage) (any, error) {
 	var input struct {
 		Name string `json:"name"`
@@ -88,6 +96,9 @@ func ensureCourseLibrary(root string, courses []string) error {
 }
 
 func handleDBBootstrap(_ contract.StateStore, state *contract.State, _ json.RawMessage) (any, error) {
+	if err := prepareDatabase(state); err != nil {
+		return nil, err
+	}
 	write, err := openWriteDB(state)
 	if err != nil {
 		return nil, err

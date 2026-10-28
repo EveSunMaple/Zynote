@@ -354,6 +354,14 @@ Zynote/
 - [x] `release.yml` 可选 `publish`：下载三平台工件后创建/更新 GitHub Release，上传安装包、更新元数据、checksums；GitHub provider 固定为 `EveSunMaple/Zynote`。
 - [ ] 正式自动更新依赖 Developer ID 签名/公证与已发布 Release；当前本机 Apple Development 签名可打包，但未公证。
 
+### 1.87 数据库迁移保护（2026-10-28）
+
+- [x] `storage.Prepare`：启动写库前执行 `PRAGMA integrity_check`；损坏库拒绝写入。
+- [x] `user_version` 作为 schema 版本；高于当前应用的库明确拒绝启动，避免旧版写坏新库。
+- [x] 旧版本库在 bootstrap 前用 `VACUUM INTO` 备份到 `Data/Backups/assistant-v<旧版本>-<时间>.db`；同版本重复启动不重复备份。
+- [x] `db:bootstrap` 与资料路径迁移共用保护流程；备份后才执行 schema/列迁移。
+- [x] 单元测试覆盖缺失库、旧版本备份、重复备份、未来版本拒绝、损坏库拒绝；实际应用启动验证旧库备份与 `user_version` 升级。
+
 ## 7. 高风险子系统决策
 
 ### 7.1 YouTube / SnapAny
