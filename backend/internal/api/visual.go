@@ -31,7 +31,7 @@ func (inv *Invoker) visualService(state *contract.State) *visual.Service {
 }
 
 func visualConnection(state *contract.State) (string, error) {
-	value, err := config.CurrentConnectionFingerprint(state.DataRoot)
+	value, err := config.CurrentConnectionFingerprint(state.ConfigRoot)
 	if err != nil {
 		return "", err
 	}
@@ -135,7 +135,7 @@ func (inv *Invoker) handleVisualRecognize(store contract.StateStore, state *cont
 		if err != nil {
 			return nil, err
 		}
-		profile, err := config.ActiveProfile(state.DataRoot, store.Reverse())
+		profile, err := config.ActiveProfile(state.ConfigRoot, store.Reverse())
 		if err != nil {
 			return nil, err
 		}

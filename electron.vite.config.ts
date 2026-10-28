@@ -25,17 +25,7 @@ export default defineConfig({
   resolve: {alias: mainAlias},
   plugins: [externalizeDepsPlugin()],
   build: {
-   lib: {
-    entry: {
-     main: resolve('src/main/main.ts'),
-     'asr-worker': resolve('src/main/workers/asr-worker.ts'),
-     'knowledge-worker': resolve('src/main/workers/knowledge-worker.ts'),
-     'media-download-worker': resolve('src/main/workers/media-download-worker.ts'),
-     'research-worker': resolve('src/main/workers/research-worker.ts'),
-     'media-process-guardian': resolve('src/main/workers/media-process-guardian.ts'),
-     'im-weixin-local-worker': resolve('src/main/workers/im-weixin-local-worker.ts')
-    }
-   }
+   lib: {entry: resolve('src/main/main.ts')}
   }
  },
  preload: {

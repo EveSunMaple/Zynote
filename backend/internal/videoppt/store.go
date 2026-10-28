@@ -98,6 +98,8 @@ func (service *Service) location(id string) (string, error) {
 	return directory, nil
 }
 
+func (service *Service) Directory(id string) (string, error) { return service.location(id) }
+
 func (service *Service) Restore(id string) (map[string]any, error) {
 	directory, err := service.location(id)
 	if err != nil {

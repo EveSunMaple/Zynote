@@ -22,7 +22,9 @@ type Pending = {
 export type GoCoreOptions = {
  appVersion: string
  dataRoot: string
+ configRoot: string
  libraryRoot: string
+ previousLibraryRoot: string
  resourcesRoot: string
  promptsRoot: string
  nativePath: string
@@ -93,7 +95,9 @@ export class GoCore {
     electronVersion: process.versions.electron,
     platform: process.platform,
     dataRoot: this.options.dataRoot,
+    configRoot: this.options.configRoot,
     libraryRoot: this.options.libraryRoot,
+    previousLibraryRoot: this.options.previousLibraryRoot,
     resourcesRoot: this.options.resourcesRoot,
     promptsRoot: this.options.promptsRoot,
     nativePath: this.options.nativePath,

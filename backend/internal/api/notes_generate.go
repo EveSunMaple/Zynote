@@ -167,14 +167,14 @@ func (inv *Invoker) generateNotes(
 	lecture, _ := detail["lecture"].(map[string]any)
 	lines := notesTranscriptLines(segmentsRaw)
 	coursewareText, limitations := inv.notesCourseware(lecture, lectureID)
-	prompt, err := config.Prompt(state.DataRoot, state.PromptsRoot, "notes")
+	prompt, err := config.Prompt(state.ConfigRoot, state.PromptsRoot, "notes")
 	if err != nil {
 		return nil, err
 	}
 	if prompt == "" {
 		return nil, contract.Unavailable("笔记提示词未配置")
 	}
-	profile, err := config.ActiveProfile(state.DataRoot, store.Reverse())
+	profile, err := config.ActiveProfile(state.ConfigRoot, store.Reverse())
 	if err != nil {
 		return nil, err
 	}

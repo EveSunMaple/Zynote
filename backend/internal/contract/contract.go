@@ -53,6 +53,7 @@ type State struct {
 	AppVersion      string   `json:"appVersion"`
 	ElectronVersion string   `json:"electronVersion"`
 	DataRoot        string   `json:"dataRoot"`
+	ConfigRoot      string   `json:"configRoot"`
 	LibraryRoot     string   `json:"libraryRoot"`
 	ResourcesRoot   string   `json:"resourcesRoot"`
 	PromptsRoot     string   `json:"promptsRoot"`
@@ -74,24 +75,26 @@ var DefaultCapabilities = []string{
 	"db:bootstrap", "course:delete", "session:delete", "lecture:delete", "lecture:detail",
 	"pdf.text", "pdf.plainText", "pdf.inspect", "pdf.write",
 	"document:parse", "transcript:read", "files:add", "files:remove", "lecture:create", "lecture:transcript", "lecture:courseware", "questions:save",
-	"visual:list", "visual:prepare", "visual:prepare-resume", "visual:recognize", "visual:recover-output", "export", "tools:request", "tools:skill-open", "im:draft", "runtime:install", "runtime:status", "courses", "appearance:image", "identity:avatar", "zhiyun:export", "zhiyun:login", "zhiyun:refresh", "zhiyun:back", "zhiyun:bounds", "subtitle-derived:list", "subtitle-derived:resume", "subtitle-derived:start", "subtitle-sync:list", "subtitle-sync:start", "subtitle-sync:mixed", "subtitle-sync:resume", "subtitle-sync:attach", "video-ppt:pending", "video-ppt:restore", "video-ppt:subtitle-import", "video-ppt:subtitle-save", "video-ppt:subtitle-export", "video-ppt:series", "video-ppt:subtitle", "video-ppt:subtitle-transcribe-local", "video-ppt:resume-subtitle", "video-ppt:source", "video-ppt:extract", "video-ppt:export", "video-ppt:auto", "video-ppt:summary", "video-ppt:notes-export", "video-ppt:batch", "video-ppt:batch-subtitles", "video-ppt:subtitle-transcribe", "ppt-extract:analyze", "ppt-extract:export", "media:options", "media:list", "media:retry", "media:cancel", "media:file",
+	"visual:list", "visual:prepare", "visual:prepare-resume", "visual:recognize", "visual:recover-output", "export", "tools:request", "tools:skill-open", "im:draft", "runtime:install", "runtime:status", "courses", "appearance:image", "identity:avatar", "zhiyun:export", "zhiyun:login", "zhiyun:refresh", "zhiyun:back", "zhiyun:bounds", "subtitle-derived:list", "subtitle-derived:resume", "subtitle-derived:start", "subtitle-sync:list", "subtitle-sync:start", "subtitle-sync:mixed", "subtitle-sync:resume", "subtitle-sync:attach", "video-ppt:pending", "video-ppt:restore", "video-ppt:reveal", "video-ppt:subtitle-import", "video-ppt:subtitle-save", "video-ppt:subtitle-export", "video-ppt:series", "video-ppt:subtitle", "video-ppt:subtitle-transcribe-local", "video-ppt:resume-subtitle", "video-ppt:source", "video-ppt:extract", "video-ppt:export", "video-ppt:auto", "video-ppt:summary", "video-ppt:notes-export", "video-ppt:batch", "video-ppt:batch-subtitles", "video-ppt:subtitle-transcribe", "ppt-extract:analyze", "ppt-extract:export", "media:options", "media:list", "media:retry", "media:cancel", "media:file",
 	"media:auth-import", "media:auth-list", "media:auth-remove",
 	"bili-resources:status", "bili-resources:browse", "bili-resources:qr", "bili-resources:poll",
 	"bili-resources:logout", "bili-resources:folders", "bili-resources:videos", "media:catalog", "media:create", "media:discussion", "media:discussion-import",
 }
 
 type HelloParams struct {
-	Protocol        int    `json:"protocol"`
-	AppVersion      string `json:"appVersion"`
-	ElectronVersion string `json:"electronVersion"`
-	Platform        string `json:"platform"`
-	DataRoot        string `json:"dataRoot"`
-	LibraryRoot     string `json:"libraryRoot"`
-	ResourcesRoot   string `json:"resourcesRoot"`
-	PromptsRoot     string `json:"promptsRoot"`
-	NativePath      string `json:"nativePath"`
-	Portable        bool   `json:"portable"`
-	Packaged        bool   `json:"packaged"`
+	Protocol            int    `json:"protocol"`
+	AppVersion          string `json:"appVersion"`
+	ElectronVersion     string `json:"electronVersion"`
+	Platform            string `json:"platform"`
+	DataRoot            string `json:"dataRoot"`
+	ConfigRoot          string `json:"configRoot"`
+	LibraryRoot         string `json:"libraryRoot"`
+	PreviousLibraryRoot string `json:"previousLibraryRoot"`
+	ResourcesRoot       string `json:"resourcesRoot"`
+	PromptsRoot         string `json:"promptsRoot"`
+	NativePath          string `json:"nativePath"`
+	Portable            bool   `json:"portable"`
+	Packaged            bool   `json:"packaged"`
 }
 
 type StateStore interface {

@@ -1,68 +1,20 @@
 import {GoCore, nativeBinaryPath} from '@main/backend/go-core'
-import {createRoutedDispatch} from '@main/backend/router'
+import {resolveDataPaths} from '@main/backend/portable-data'
 import {createShellServices} from '@main/backend/shell-services'
 import {snapanyDownload} from '@main/media/sources/snapany'
-import {RuntimeComponents} from '@main/app/runtime-components'
 import {diagnostic} from '@main/app/diagnostics'
-import {createKnowledgeHandler} from '@main/ipc/knowledge'
-import {createCoursewareHandler} from '@main/ipc/courseware'
-import {createResourcesHandler} from '@main/ipc/resources'
-import {createResearchHandler} from '@main/ipc/research'
-import {createStudyHandler} from '@main/ipc/study'
-import {createDesktopHandler} from '@main/ipc/desktop'
-import {createCoursesHandler} from '@main/ipc/courses'
-import {createLearningHandler} from '@main/ipc/learning'
-import {createWindowHandler} from '@main/ipc/window'
 import {createMainWindow} from '@main/app/window'
-import {AppearanceStore} from '@main/config/appearance'
-import {KnowledgeBase} from '@main/knowledge/knowledge'
-import {MediaBackend} from '@main/media/core/media'
-import {NativeResearchBackend} from '@main/research/research'
-import {VisualTasks} from '@main/learning/video/visual'
-import {SubtitleSync, subtitleLocator} from '@main/learning/subtitles/subtitle-sync'
-import {SubtitleDerived} from '@main/learning/subtitles/subtitle-derived'
-import {BiliResources} from '@main/media/bilibili/bili-resources'
-import {BiliDiscussion} from '@main/media/bilibili/bili-discussion'
-import {PptExtractor} from '@main/documents/ppt-extract'
-import {TextbookHighlighter} from '@main/learning/study/study'
-import {VideoPpt} from '@main/learning/video/video-ppt'
-import {readBiliSubtitles} from '@main/media/bilibili/bili-subtitles'
-import {transcribeLocalVideo} from '@main/asr/local-asr'
-import {summarizeVideo, summaryMode} from '@main/learning/video/video-summary'
-import type {VideoSeries} from '@shared/video-ppt'
-import {bilibiliUrl} from '@main/media/bilibili/video-policy'
-import {IdentityStore} from '@main/config/identity'
-import {app, BrowserWindow, dialog, ipcMain, net, session} from 'electron'
-import {join, extname, dirname, basename} from 'node:path'
-import {fileURLToPath} from 'node:url'
-import {createHash} from 'node:crypto'
-import {readFile, writeFile, rm} from 'node:fs/promises'
-import {existsSync} from 'node:fs'
-import {z} from 'zod'
-import {Store} from '@main/storage/db'
-import {openPortableLibrary} from '@main/storage/portable-library'
-import {migrateDataLayout, migrateLibraryLayout, relocateStorePaths} from '@main/storage/layout-migration'
-import {searchAnswers} from '@main/learning/practice-answer'
-import {SettingsStore} from '@main/config/settings'
-import {Api} from '@main/ai/api'
-import {modelRouter} from '@main/ai/model-router'
-import {Workflows} from '@main/learning/workflows'
-import {type EventPayload, type JobState} from '@shared/types'
-import {parseSrt} from '@shared/srt'
-import {cleanUserAgent} from '@shared/user-agent'
-import {markdown} from '@main/documents/exports'
-import {ensureLibrary, libraryDirectory, folderName, reserveFile} from '@main/library/library'
-import {managedFile} from '@main/library/file-manager'
-import {Zhiyun} from '@main/zhiyun/zhiyun'
 import {ZhiyunBrowser} from '@main/zhiyun/zhiyun-browser'
-import {verifyGeneratedPdf} from '@main/documents/pdf-ppt-cleanup'
-import type {ApplicationContext} from '@main/app/context'
+import {app, BrowserWindow, dialog, ipcMain, shell} from 'electron'
+import {join, dirname} from 'node:path'
+import {fileURLToPath} from 'node:url'
+import {z} from 'zod'
+
 const mainDir = fileURLToPath(new URL('.', import.meta.url))
-let store: Store | undefined, mainWindow: BrowserWindow | undefined
+let mainWindow: BrowserWindow | undefined
 let shutdownBackends: (() => Promise<void>) | undefined,
  quitting = false
-const jobs = new Map<string, AbortController>()
-let activeJob: JobState | null = null
+
 function showMainWindow() {
  if (mainWindow && !mainWindow.isDestroyed()) {
   if (mainWindow.isMinimized()) mainWindow.restore()
@@ -70,63 +22,101 @@ function showMainWindow() {
   mainWindow.focus()
  }
 }
+
 app.setPath('userData', process.env.LISTENING_ASSISTANT_DATA || join(app.getPath('appData'), 'listening-assistant'))
 if (!app.requestSingleInstanceLock()) app.quit()
-else app.whenReady().then(startApplication).catch(showStartupError) // NOSONAR: startup chain intentionally handles failures before the app event loop continues.
+else app.whenReady().then(startApplication).catch(showStartupError)
+
 function showStartupError(error: unknown) {
  dialog.showErrorBox('Zynote 启动失败', error instanceof Error ? error.message : '未知错误')
  app.quit()
 }
-// biome-ignore format: NOSONAR must stay on the function line
-async function startApplication() { // NOSONAR: transitional TS fallback/UI flow retained for behavior compatibility; decomposition tracked separately to avoid sequencing regressions.
- const root = app.getPath('userData')
- const runtime = new RuntimeComponents(
-  app.isPackaged ? process.resourcesPath : join(app.getAppPath(), 'resources'),
-  app.getVersion()
- )
- diagnostic(root, 'application', 'startup', {code: app.getVersion()})
- const layout = migrateDataLayout(root)
- const legacyLibraryRoot = join(root, '资料')
- const portableLibraryRoot = process.env.LISTENING_ASSISTANT_PORTABLE_TEST
-  ? join(root, 'Library')
-  : join(app.getPath('documents'), '听课助手资料')
- const portable =
-  process.env.LISTENING_ASSISTANT_DATA && !process.env.LISTENING_ASSISTANT_PORTABLE_TEST
-   ? null
-   : await openPortableLibrary(
-      process.env.LISTENING_ASSISTANT_PORTABLE_TEST || (app.isPackaged ? dirname(process.execPath) : app.getAppPath()), // NOSONAR: conditional structure is intentionally compact and behavior-bearing.
-      root,
-      portableLibraryRoot
-     )
- store = portable?.store || new Store(root)
- const db = store,
-  settings = new SettingsStore(root),
-  identity = new IdentityStore(root),
-  appearance = new AppearanceStore(root)
- const libraryRoot = portable?.libraryRoot || join(root, layout.library)
- migrateLibraryLayout(libraryRoot)
- if (!portable && layout.library !== '资料' && existsSync(legacyLibraryRoot))
-  relocateStorePaths(store, legacyLibraryRoot, libraryRoot)
- await ensureLibrary(
-  libraryRoot,
-  db.courses().map(c => c.name)
- )
- const directory = (category: 'PPT' | 'Transcripts' | 'Notes' | 'PastExams', courseId: string) =>
-  libraryDirectory(libraryRoot, category, db.course(courseId).name)
- const saveNoteFile = async (lectureId: string) => {
-  const detail = db.lectureDetail(lectureId)
-  await writeFile(
-   join(
-    await directory('Notes', detail.lecture.course_id),
-    folderName(detail.lecture.title) + '-' + lectureId + '-notes.md'
-   ),
-   markdown(detail, 'notes'),
-   'utf8'
-  )
+
+const unhandled = Symbol('unhandled')
+
+async function invokeShellAction(
+ window: BrowserWindow,
+ libraryRoot: string,
+ action: string,
+ object: Record<string, unknown>
+) {
+ switch (action) {
+  case 'window:minimize':
+   window.minimize()
+   return null
+  case 'window:toggle-maximize':
+   if (window.isMaximized()) window.unmaximize()
+   else window.maximize()
+   return window.isMaximized()
+  case 'window:close':
+   window.close()
+   return null
+  case 'window:is-maximized':
+   return window.isMaximized()
+  case 'external': {
+   const url = z.string().url().parse(object.url)
+   if (!['http:', 'https:'].includes(new URL(url).protocol)) throw new Error('仅支持打开网页链接')
+   await shell.openExternal(url)
+   return true
+  }
+  case 'pick': {
+   const kind = z.enum(['transcript', 'document', 'srt', 'courseware']).parse(object.kind)
+   const filters: Record<string, string[]> = {
+    transcript: ['docx', 'txt', 'md', 'srt'],
+    document: ['pdf', 'docx', 'txt', 'md'],
+    srt: ['srt'],
+    courseware: ['ppt', 'pptx', 'pdf', 'docx', 'txt', 'md']
+   }
+   const picked = await dialog.showOpenDialog(window, {
+    title: kind === 'srt' ? '选择字幕文件' : '选择资料文件',
+    defaultPath: libraryRoot,
+    properties: kind === 'srt' || kind === 'transcript' ? ['openFile'] : ['openFile', 'multiSelections'],
+    filters: [{name: kind === 'transcript' ? '语音识别原文' : '资料', extensions: filters[kind]}]
+   })
+   return picked.canceled ? [] : picked.filePaths
+  }
+  case 'video-ppt:pick': {
+   const picked = await dialog.showOpenDialog(window, {
+    title: '选择已下载的视频',
+    properties: ['openFile'],
+    filters: [{name: '视频', extensions: ['mp4', 'mkv', 'mov', 'webm']}]
+   })
+   return picked.canceled ? null : (picked.filePaths[0] ?? null)
+  }
+  case 'ppt-extract:pick': {
+   const picked = await dialog.showOpenDialog(window, {
+    title: '选择需要截取的 PPT',
+    properties: ['openFile'],
+    filters: [{name: '图片型 PowerPoint', extensions: ['pptx']}]
+   })
+   return picked.canceled ? null : (picked.filePaths[0] ?? null)
+  }
+  default:
+   return unhandled
  }
- db.db
-  .prepare("UPDATE lectures SET status='上次任务中断，可继续校订' WHERE status='预处理中' OR status LIKE '校订中%'")
-  .run()
+}
+
+async function waitForCore(goCore: GoCore) {
+ const deadline = Date.now() + 15000
+ while (goCore.currentStatus !== 'ready') {
+  if (goCore.currentStatus === 'failed' || goCore.currentStatus === 'disposed') throw new Error('Go 后端不可用')
+  if (Date.now() > deadline) throw new Error('Go 后端启动超时')
+  await new Promise(resolve => setTimeout(resolve, 25))
+ }
+}
+
+async function startApplication() {
+ const root = app.getPath('userData'),
+  appDirectory =
+   process.env.LISTENING_ASSISTANT_PORTABLE_TEST || (app.isPackaged ? dirname(process.execPath) : app.getAppPath()),
+  portable = !process.env.LISTENING_ASSISTANT_DATA || !!process.env.LISTENING_ASSISTANT_PORTABLE_TEST
+ diagnostic(root, 'application', 'startup', {code: app.getVersion()})
+ const paths = await resolveDataPaths({
+  root,
+  appDirectory,
+  legacyLibrary: join(app.getPath('documents'), '听课助手资料'),
+  portable
+ })
  const window = createMainWindow({
   mainDir,
   icon: join(app.isPackaged ? process.resourcesPath : join(app.getAppPath(), 'resources'), 'icon.png')
@@ -138,48 +128,14 @@ async function startApplication() { // NOSONAR: transitional TS fallback/UI flow
    window.hide()
   }
  })
- const emit = (e: EventPayload) => {
-  if (
-   activeJob &&
-   e.kind === 'progress' &&
-   (!e.data.lectureId || !activeJob.lectureId || e.data.lectureId === activeJob.lectureId)
-  )
-   activeJob = {...activeJob, progress: e.data}
-  if (!window.isDestroyed()) window.webContents.send('assistant:event', e)
- }
- window.on('maximize', () => emit({kind: 'window', data: {maximized: true}}))
- window.on('unmaximize', () => emit({kind: 'window', data: {maximized: false}}))
- let goCore: GoCore | undefined
- const shellServices = createShellServices(window, libraryRoot)
- if (process.env.ZYNOTE_BACKEND !== 'ts') {
-  try {
-   goCore = new GoCore({
-    appVersion: app.getVersion(),
-    dataRoot: root,
-    libraryRoot,
-    resourcesRoot: app.isPackaged ? process.resourcesPath : join(app.getAppPath(), 'resources'),
-    promptsRoot: app.isPackaged ? process.resourcesPath : join(app.getAppPath(), 'src'),
-    nativePath: nativeBinaryPath(),
-    services: shellServices,
-    portable: !!portable,
-    onEvent: e => {
-     if (!window.isDestroyed()) window.webContents.send('assistant:event', e)
-    },
-    onFailed: reason => {
-     diagnostic(root, 'go-core', 'backend-failed', {code: 'START_FAILED'})
-     console.error('[go-core]', reason)
-    }
-   })
-   goCore.start()
-  } catch (error) {
-   diagnostic(root, 'go-core', 'start-failed', {code: 'START_FAILED'})
-   console.error('[go-core]', error instanceof Error ? error.message : String(error))
-   goCore = undefined
-  }
- }
- const zhiyunSession = session.fromPartition('persist:zhiyun')
+ window.on('maximize', () => window.webContents.send('assistant:event', {kind: 'window', data: {maximized: true}}))
+ window.on('unmaximize', () => window.webContents.send('assistant:event', {kind: 'window', data: {maximized: false}}))
+ const shellServices = createShellServices(window, paths.libraryRoot)
  const zhiyunBrowser = new ZhiyunBrowser(window, message =>
-  emit({kind: 'progress', data: {stage: '智云登录', message, error: true}})
+  window.webContents.send('assistant:event', {
+   kind: 'progress',
+   data: {stage: '智云登录', message, error: true}
+  })
  )
  shellServices['zhiyun.login'] = async () => {
   await zhiyunBrowser.home()
@@ -205,416 +161,48 @@ async function startApplication() { // NOSONAR: transitional TS fallback/UI flow
   zhiyunBrowser.bounds(bounds, z.boolean().parse(params.visible))
   return true
  }
- const zhiyun = new Zhiyun(
-  async (url, init) => {
-   const headers = new Headers(init?.headers)
-   if (new URL(url).origin === 'https://onlineroom.cmc.zju.edu.cn') {
-    // Reuse the website's own session internally; credentials never enter renderer data or logs.
-    const cookie = (await zhiyunSession.cookies.get({url: 'https://onlineroom.cmc.zju.edu.cn'})).find(
-     c => c.name === '_token'
-    )
-    if (cookie) {
-     let value = cookie.value
-     try {
-      value = decodeURIComponent(value)
-     } catch {}
-     const token = /{i:\d+;s:\d+:"_token";i:\d+;s:\d+:"(.+?)";}/.exec(value)?.[1]
-     if (token) headers.set('Authorization', 'Bearer ' + token)
-    }
-   }
-   return zhiyunSession.fetch(url, {...init, headers})
-  },
-  message => emit({kind: 'progress', data: {stage: '智云课堂', message}})
- )
- const api = new Api(settings, net.fetch.bind(net))
- const routed = modelRouter(() => api)
- const testApi =
-  process.env.LISTENING_ASSISTANT_TEST_API === '1' && process.env.LISTENING_ASSISTANT_DATA ? api : undefined
- const knowledge = new KnowledgeBase(
-  app.isPackaged ? process.resourcesPath : join(app.getAppPath(), 'resources'),
-  join(libraryRoot, '知识库数据'),
-  message => emit({kind: 'progress', data: {stage: '知识库', message}})
- )
- const visualConnection = () => settings.connectionFingerprint()
- const toolsBackend = new NativeResearchBackend(
-  join(libraryRoot, '知识库数据'),
-  async (request, signal) => {
-   if (request.connection !== visualConnection()) throw new Error('模型配置已改变，旧研究任务停止')
-   return api.chat(
-    [
-     {role: 'system', content: request.system},
-     {role: 'user', content: request.user}
-    ],
-    undefined,
-    signal
-   )
-  },
-  app.isPackaged ? process.resourcesPath : join(app.getAppPath(), 'resources')
- )
  shellServices['shell.snapanyDownload'] = async params => {
   const url = z.string().min(1).parse(params.url)
   const path = z.string().min(1).max(4096).parse(params.path)
   await snapanyDownload(window, url, path, () => {}, AbortSignal.timeout(30 * 60 * 1000))
   return true
  }
- shellServices['tools.configure'] = async params => {
-  const connection = z.string().min(1).max(200).parse(params.connection)
-  const model = z.string().max(200).parse(params.model)
-  if (!toolsBackend.started) return false
-  await toolsBackend.request('configure', {connection, model})
-  return true
- }
- const subtitleSync = new SubtitleSync(join(libraryRoot, '字幕同步记录'), libraryRoot)
- const subtitleDerived = new SubtitleDerived(join(libraryRoot, '笔记生成记录'), libraryRoot)
- const biliSession = session.fromPartition('persist:zynote-bili-resources')
- biliSession.setPermissionRequestHandler((_contents, _permission, callback) => callback(false))
- const biliFixture =
-  process.env.LISTENING_ASSISTANT_DATA &&
-  /^http:\/\/127\.0\.0\.1:\d+$/.test(process.env.LISTENING_ASSISTANT_BILI_FIXTURE || '')
-   ? process.env.LISTENING_ASSISTANT_BILI_FIXTURE
-   : undefined
- const biliResources = new BiliResources(
-  biliFixture
-   ? (url, init) => {
-      const target = new URL(url)
-      return fetch(biliFixture + target.pathname + target.search, {...init, credentials: 'omit'})
-     }
-   : (biliSession.fetch.bind(biliSession) as typeof fetch)
- )
- const media = new MediaBackend(
-  app.isPackaged ? process.resourcesPath : join(app.getAppPath(), 'resources'),
-  join(libraryRoot, 'MediaDownloads'),
-  biliResources
- )
- const visual = new VisualTasks(join(libraryRoot, '画面识别成果'), media)
- const biliDiscussion = new BiliDiscussion(
-  biliResources,
-  biliFixture
-   ? (url, init) => {
-      const target = new URL(url)
-      return fetch(biliFixture + target.pathname + target.search, {...init, credentials: 'omit'})
-     }
-   : (biliSession.fetch.bind(biliSession) as typeof fetch),
-  join(libraryRoot, 'MediaDownloads')
- )
- const answerDependencies = {
-  search: async (query: string, signal?: AbortSignal) => {
-   let key = ''
-   try {
-    key = settings.searchKey()
-   } catch {}
-   return searchAnswers(query, key, net.fetch.bind(net) as typeof fetch, signal)
+ shellServices['tools.configure'] = async () => true
+ const goCore = new GoCore({
+  appVersion: app.getVersion(),
+  dataRoot: paths.dataRoot,
+  configRoot: root,
+  libraryRoot: paths.libraryRoot,
+  previousLibraryRoot: paths.previousLibraryRoot,
+  resourcesRoot: app.isPackaged ? process.resourcesPath : join(app.getAppPath(), 'resources'),
+  promptsRoot: app.isPackaged ? process.resourcesPath : join(app.getAppPath(), 'src'),
+  nativePath: nativeBinaryPath(),
+  services: shellServices,
+  portable: paths.portable,
+  onEvent: e => {
+   if (!window.isDestroyed()) window.webContents.send('assistant:event', e)
   },
-  json: api.json.bind(api),
-  progress: (message: string) => emit({kind: 'progress', data: {stage: '题目答案', message}})
- }
- const flows = new Workflows(db, settings, api, p => emit({kind: 'progress', data: p}), answerDependencies)
- const highlighter = new TextbookHighlighter(api, (input, url, signal) =>
-  routed.chat(
-   [
-    {role: 'system', content: '识别教材图片的可编辑划线位置，严格返回用户要求的 JSON。'},
-    {role: 'user', content: input}
-   ],
-   undefined,
-   signal,
-   undefined,
-   {images: [{label: '教材原页', url}]}
-  )
- )
- const idSchema = z.string().uuid()
- const pptExtractor = new PptExtractor(routed, message => emit({kind: 'progress', data: {stage: '截取 PPT', message}}))
- const videoProgress = (message: string) => emit({kind: 'progress', data: {stage: '视频提取 PPT', message}})
- const videoPpt = new VideoPpt(join(libraryRoot, '视频提取临时任务'), routed, videoProgress)
- async function saveVideoPdf(
-  videoId: string,
-  selectedCourse: string | undefined,
-  choices: Parameters<VideoPpt['export']>[1],
-  signal: AbortSignal
- ) {
-  videoProgress('正在生成 PDF 并逐页检查图片像素')
-  const result = await videoPpt.export(videoId, choices, signal),
-   path = await reserveFile(
-    await libraryDirectory(libraryRoot, 'PPT', selectedCourse),
-    folderName(result.sourceName.replace(/\.(mp4|mkv|mov|webm)$/i, '')) + '-视频课件.pdf'
-   )
-  try {
-   await writeFile(path, result.buffer)
-   signal.throwIfAborted()
-   verifyGeneratedPdf(await readFile(path), result.kept)
-  } catch (error) {
-   await rm(path, {force: true})
-   throw error
+  onFailed: reason => {
+   diagnostic(root, 'go-core', 'backend-failed', {code: 'START_FAILED'})
+   console.error('[go-core]', reason)
   }
-  let cleaned = false,
-   cleanupWarning = ''
-  try {
-   await videoPpt.cleanup(videoId, path, result.buffer, result.kept)
-   cleaned = true
-  } catch (error) {
-   cleanupWarning = error instanceof Error ? error.message : '清理失败，视频和临时文件已保留'
-  }
-  videoProgress(cleaned ? 'PDF 已保存并检查成功，视频和临时文件已清理' : 'PDF 已保存，临时文件清理需要重试')
-  return {path, kept: result.kept, removed: result.removed, cleaned, cleanupWarning}
- }
- async function saveTranscribedVideo(
-  task: {
-   id: string
-   dir: string
-   video: string
-   name: string
-  },
-  name: string,
-  selectedCourse: string | undefined,
-  signal: AbortSignal,
-  page = 1
- ) {
-  const transcript = await transcribeLocalVideo(task.video, signal, videoProgress)
-  const path = await reserveFile(await libraryDirectory(libraryRoot, 'Transcripts', selectedCourse), name)
-  try {
-   await writeFile(path, transcript.srt, 'utf8')
-   if ((await readFile(path, 'utf8')) !== transcript.srt) throw new Error('保存字幕后校验失败')
-   await videoPpt.markSubtitleSaved(task.id, path)
-  } catch (error) {
-   await rm(path, {force: true})
-   throw error
-  }
-  let cleanupWarning = ''
-  try {
-   await transcript.cleanup()
-   await videoPpt.discardCompleted(task.id)
-  } catch (error) {
-   cleanupWarning = '字幕已保存，但临时视频清理失败：' + (error instanceof Error ? error.message : String(error))
-  }
-  videoProgress(cleanupWarning ? '字幕已保存，临时视频需要手动检查' : '字幕已保存并检查，临时视频已清理')
-  return {
-   title: folderName(basename(task.name, extname(task.name))),
-   page,
-   source: '本地 Whisper 转写',
-   warning: '自动转写可能有错，请核对后作为课堂原文使用。' + cleanupWarning,
-   cleanupWarning,
-   srt: transcript.srt,
-   count: transcript.count,
-   savedPath: path
-  }
- }
- async function job<T>(key: string, fn: (signal: AbortSignal) => Promise<T>): Promise<T> {
-  if (jobs.size) throw new Error('当前已有任务运行，请等待完成或取消')
-  const controller = new AbortController(),
-   lectureId = key.startsWith('lecture:') ? key.slice(8) : undefined
-  let failure: string | undefined
-  activeJob = {key, lectureId}
-  jobs.set(key, controller)
-  try {
-   return await fn(controller.signal)
-  } catch (error) {
-   let message = '任务失败'
-   if (controller.signal.aborted) message = '任务已取消'
-   else if (error instanceof Error) message = error.message
-   failure = message
-   emit({kind: 'progress', data: {lectureId, stage: '任务停止', message, error: true}})
-   throw new Error(message)
-  } finally {
-   jobs.delete(key)
-   if (activeJob?.key === key) activeJob = null
-   emit({kind: 'job', data: {key, lectureId, state: 'finished', ...(failure ? {error: failure} : {})}})
-  }
- }
- const jobState = () => activeJob
- const pick = async (kind: string, course?: string) => {
-  const extensionSets: Record<string, string[]> = {
-   srt: ['srt'],
-   transcript: ['docx', 'txt', 'md', 'srt'],
-   courseware: ['ppt', 'pptx', 'pdf', 'docx', 'txt', 'md']
-  }
-  const categories: Record<string, 'Transcripts' | 'PPT' | 'Notes'> = {transcript: 'Transcripts', courseware: 'PPT'}
-  const extensions = extensionSets[kind] ?? ['pdf', 'docx', 'txt', 'md'],
-   category = categories[kind] ?? 'Notes'
-  const result = await dialog.showOpenDialog(window, {
-   defaultPath: await libraryDirectory(libraryRoot, category, course ? db.course(course).name : undefined),
-   properties: kind === 'srt' || kind === 'transcript' ? ['openFile'] : ['openFile', 'multiSelections'],
-   filters: [{name: kind === 'transcript' ? '语音识别原文' : '资料', extensions}]
-  })
-  return result.canceled ? [] : result.filePaths
- }
- const videoSeriesCache = new Map<string, VideoSeries>()
- const fetchBiliSubtitle = (url: string, signal: AbortSignal) => {
-  const ses = biliSession
-  const userAgent = cleanUserAgent(ses.getUserAgent())
-  return readBiliSubtitles(
-   url,
-   (target, init) => {
-    const headers = new Headers(init?.headers)
-    headers.set('User-Agent', userAgent)
-    if (biliFixture) {
-     const address = new URL(target)
-     return fetch(biliFixture + address.pathname + address.search, {...init, headers, credentials: 'omit'})
-    }
-    return ses.fetch(target, {
-     ...init,
-     headers,
-     credentials: new URL(target).hostname === 'api.bilibili.com' ? 'include' : 'omit'
-    })
-   },
-   signal
-  )
- }
- const saveBiliSubtitle = async (url: string, title: string, srt: string, selectedCourse: string | undefined) => {
-  const parsed = new URL(bilibiliUrl(url))
-  parseSrt(srt)
-  const name =
-   parsed.pathname.split('/').findLast(Boolean) +
-   '-P' +
-   (parsed.searchParams.get('p') || '1') +
-   '-' +
-   folderName(title) +
-   '.srt'
-  const path = await reserveFile(await libraryDirectory(libraryRoot, 'Transcripts', selectedCourse), name)
-  try {
-   await writeFile(path, srt, 'utf8')
-   if ((await readFile(path, 'utf8')) !== srt) throw new Error('字幕保存校验失败')
-  } catch (error) {
-   await rm(path, {force: true})
-   throw error
-  }
-  return path
- }
- const syncDependencies = (selectedCourse: string | undefined) => ({
-  progress: videoProgress,
-  generation: (url: string) => knowledge.generation(url),
-  acquire: async (
-   item: {
-    url: string
-    title: string
-   },
-   signal: AbortSignal
-  ) => {
-   // Sync does not silently download a long video. Missing subtitles remain
-   // retryable; the existing offline-transcription button is a separate choice.
-   const subtitle = await fetchBiliSubtitle(item.url, signal)
-   const digest = createHash('sha256').update(subtitle.srt).digest('hex')
-   const prior = (await subtitleSync.list())
-    .flatMap(task => (task.courseName === selectedCourse ? task.items : []))
-    .find(row => row.url === item.url && row.hash === digest && row.path)
-   if (prior?.path) {
-    try {
-     const path = await managedFile(libraryRoot, prior.path)
-     if ((await readFile(path, 'utf8')) === subtitle.srt) return {path, srt: subtitle.srt}
-    } catch {
-     /* A missing previous output needs a new verified file. */
-    }
-   }
-   return {srt: subtitle.srt, path: await saveBiliSubtitle(item.url, item.title, subtitle.srt, selectedCourse)}
-  },
-  publish: (
-   item: {
-    url: string
-    title: string
-    page: number
-    sourceMethod?: string
-    generation?: string | null
-   },
-   srt: string,
-   category: string,
-   signal: AbortSignal
-  ) =>
-   knowledge.importSubtitle(
-    subtitleLocator(item.url),
-    `P${item.page} · ${item.title}`,
-    srt,
-    category,
-    signal,
-    item.sourceMethod,
-    item.generation
-   )
  })
- const derivedDependencies = {
-  generation: (url: string) => knowledge.generation(url),
-  summarize: (srt: string, mode: z.infer<typeof summaryMode>, signal: AbortSignal) =>
-   summarizeVideo(
-    srt,
-    mode,
-    (prompt, input, active) => api.json(prompt, input, value => value, active),
-    videoProgress,
-    signal
-   ),
-  progress: videoProgress
- }
- const context: ApplicationContext = {
-  runtime,
-  answerDependencies,
-  api,
-  appearance,
-  biliFixture,
-  biliDiscussion,
-  biliResources,
-  biliSession,
-  db,
-  derivedDependencies,
-  directory,
-  emit,
-  fetchBiliSubtitle,
-  flows,
-  highlighter,
-  idSchema,
-  identity,
-  job,
-  jobs,
-  jobState,
-  knowledge,
-  libraryRoot,
-  media,
-  pick,
-  pptExtractor,
-  root,
-  routed,
-  saveBiliSubtitle,
-  saveNoteFile,
-  saveTranscribedVideo,
-  saveVideoPdf,
-  settings,
-  subtitleDerived,
-  subtitleSync,
-  syncDependencies,
-  testApi,
-  toolsBackend,
-  videoPpt,
-  videoProgress,
-  videoSeriesCache,
-  visual,
-  visualConnection,
-  window,
-  zhiyun,
-  zhiyunBrowser
- }
- const handlers = [
-  createKnowledgeHandler(context),
-  createCoursewareHandler(context),
-  createResourcesHandler(context),
-  createResearchHandler(context),
-  createStudyHandler(context),
-  createDesktopHandler(context),
-  createCoursesHandler(context),
-  createLearningHandler(context),
-  createWindowHandler(context)
- ]
- const routedDispatch = createRoutedDispatch(
-  handlers,
-  goCore,
-  root,
-  () => jobs.size,
-  (r, component, event, fields) => diagnostic(r, component, event, fields)
- )
+ goCore.start()
+ await waitForCore(goCore)
+ await goCore.call('db:bootstrap', {})
  ipcMain.handle('assistant:invoke', async (event, action: string, args: unknown) => {
   if (event.sender !== window.webContents || event.senderFrame !== window.webContents.mainFrame)
    throw new Error('拒绝未知页面请求')
   const object = z.record(z.string(), z.unknown()).parse(args || {})
   const validated = z.string().min(1).max(100).parse(action)
   try {
-   return await routedDispatch(validated, object)
+   await waitForCore(goCore)
+   const shellResult = await invokeShellAction(window, paths.libraryRoot, validated, object)
+   if (shellResult !== unhandled) return shellResult
+   return await goCore.call(validated, object)
   } catch (error) {
    let code = 'REQUEST_FAILED'
    if (error instanceof z.ZodError) code = 'INPUT_INVALID'
-   else if (jobs.size) code = 'TASK_FAILED'
    diagnostic(root, 'ipc', 'request-failed', {action: validated, code})
    throw error
   }
@@ -623,14 +211,11 @@ async function startApplication() { // NOSONAR: transitional TS fallback/UI flow
  else await window.loadFile(join(mainDir, '../renderer/index.html'))
  showMainWindow()
  shutdownBackends = async () => {
-  for (const c of jobs.values()) c.abort()
-  knowledge.dispose()
   zhiyunBrowser.dispose()
-  goCore?.dispose()
-  await Promise.allSettled([media.dispose(), toolsBackend.dispose()])
+  goCore.dispose()
  }
- return context
 }
+
 app.on('before-quit', event => {
  if (quitting) return
  quitting = true
@@ -644,6 +229,3 @@ app.on('window-all-closed', () => {
 })
 app.on('second-instance', showMainWindow)
 app.on('activate', showMainWindow)
-app.on('will-quit', () => {
- store?.close()
-})

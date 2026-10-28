@@ -385,7 +385,7 @@ func (inv *Invoker) analyzeTextbook(
 }
 
 func (inv *Invoker) textbookAIClient(state *contract.State, store contract.StateStore) (*ai.Client, error) {
-	profile, err := config.ActiveProfile(state.DataRoot, store.Reverse())
+	profile, err := config.ActiveProfile(state.ConfigRoot, store.Reverse())
 	if err != nil {
 		return nil, err
 	}

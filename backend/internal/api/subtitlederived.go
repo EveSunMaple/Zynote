@@ -25,7 +25,7 @@ func (inv *Invoker) subtitleDerivedDependencies(store contract.StateStore, state
 		if client != nil {
 			return client, nil
 		}
-		profile, err := config.ActiveProfile(state.DataRoot, store.Reverse())
+		profile, err := config.ActiveProfile(state.ConfigRoot, store.Reverse())
 		if err != nil {
 			return nil, err
 		}

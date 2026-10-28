@@ -187,7 +187,7 @@ func TestP0Contract(t *testing.T) { // NOSONAR: end-to-end test intentionally ex
 	if err := json.Unmarshal(state, &hello); err != nil {
 		t.Fatal(err)
 	}
-	if hello.Protocol != 1 || hello.Platform != "darwin" || len(hello.Capabilities) != 152 {
+	if hello.Protocol != 1 || hello.Platform != "darwin" || len(hello.Capabilities) != 153 {
 		t.Fatalf("unexpected hello: %+v", hello)
 	}
 

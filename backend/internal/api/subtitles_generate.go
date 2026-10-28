@@ -208,12 +208,12 @@ func (run *correctionRun) prepareSource() error {
 	run.source = source
 	run.sourceSegments = source.Segments
 	run.inv.reportCorrection(run.lectureID, "准备资料", "准备语音原文与课件，一起交给模型校订", 0, 0)
-	prompt, err := config.Prompt(run.state.DataRoot, run.state.PromptsRoot, "correction")
+	prompt, err := config.Prompt(run.state.ConfigRoot, run.state.PromptsRoot, "correction")
 	if err != nil {
 		return err
 	}
 	run.prompt = prompt
-	profile, err := config.ActiveProfile(run.state.DataRoot, run.store.Reverse())
+	profile, err := config.ActiveProfile(run.state.ConfigRoot, run.store.Reverse())
 	if err != nil {
 		return err
 	}

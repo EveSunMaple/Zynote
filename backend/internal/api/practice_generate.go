@@ -32,7 +32,7 @@ func (inv *Invoker) practiceDependencies(state *contract.State, store contract.S
 	var clientErr error
 	getClient := func() (*ai.Client, error) {
 		clientOnce.Do(func() {
-			profile, err := config.ActiveProfile(state.DataRoot, store.Reverse())
+			profile, err := config.ActiveProfile(state.ConfigRoot, store.Reverse())
 			if err != nil {
 				clientErr = err
 				return
@@ -49,7 +49,7 @@ func (inv *Invoker) practiceDependencies(state *contract.State, store contract.S
 	var keyErr error
 	getKey := func() (string, error) {
 		keyOnce.Do(func() {
-			key, keyErr = config.SearchKey(state.DataRoot, store.Reverse())
+			key, keyErr = config.SearchKey(state.ConfigRoot, store.Reverse())
 		})
 		return key, keyErr
 	}
@@ -578,7 +578,7 @@ func (inv *Invoker) generatePractice(
 	if notes == nil {
 		return nil, contract.InputInvalid("请先生成听课笔记")
 	}
-	profile, err := config.ActiveProfile(state.DataRoot, store.Reverse())
+	profile, err := config.ActiveProfile(state.ConfigRoot, store.Reverse())
 	if err != nil {
 		return nil, err
 	}
@@ -586,7 +586,7 @@ func (inv *Invoker) generatePractice(
 		BaseURL: profile.BaseURL, Model: profile.Model, VisionModel: profile.VisionModel,
 		APIFormat: profile.APIFormat, Key: profile.Key, Parameters: profile.Parameters,
 	})
-	searchKey, _ := config.SearchKey(state.DataRoot, store.Reverse())
+	searchKey, _ := config.SearchKey(state.ConfigRoot, store.Reverse())
 	dependencies := learning.PracticeDependencies{
 		Search: func(ctx context.Context, query string) ([]learning.PracticeSource, error) {
 			return learning.SearchAnswers(ctx, nil, query, searchKey)
@@ -597,7 +597,7 @@ func (inv *Invoker) generatePractice(
 	points, topics := practiceVerifiedPoints(notes)
 	candidates := practiceCandidates(questions, topics)
 	referenceNotes := practiceReferenceNotes(files, topics)
-	matchPrompt, err := config.Prompt(state.DataRoot, state.PromptsRoot, "match")
+	matchPrompt, err := config.Prompt(state.ConfigRoot, state.PromptsRoot, "match")
 	if err != nil {
 		return nil, err
 	}
@@ -635,7 +635,7 @@ func (inv *Invoker) generatePractice(
 		}
 		return result, nil
 	}
-	searchPrompt, err := config.Prompt(state.DataRoot, state.PromptsRoot, "search")
+	searchPrompt, err := config.Prompt(state.ConfigRoot, state.PromptsRoot, "search")
 	if err != nil {
 		return nil, err
 	}

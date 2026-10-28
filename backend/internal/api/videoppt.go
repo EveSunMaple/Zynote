@@ -68,3 +68,24 @@ func (inv *Invoker) handleVideoPptSubtitle(store contract.StateStore, state *con
 		return mediaBilibili.FetchVideoSubtitles(ctx, nil, input.URL)
 	})
 }
+
+func (inv *Invoker) handleVideoPptReveal(store contract.StateStore, state *contract.State, params json.RawMessage) (any, error) {
+	var input struct {
+		ID string `json:"id"`
+	}
+	if json.Unmarshal(params, &input) != nil {
+		return nil, contract.InputInvalid("任务编号无效")
+	}
+	directory, err := videoPptService(state).Directory(input.ID)
+	if err != nil {
+		return nil, err
+	}
+	reverse := store.Reverse()
+	if reverse == nil {
+		return nil, contract.Unavailable("文件管理器不可用")
+	}
+	if _, err := reverse.Call("shell.openPath", map[string]any{"path": directory}, 30000); err != nil {
+		return nil, contract.Unavailable("任务文件夹无法打开")
+	}
+	return true, nil
+}

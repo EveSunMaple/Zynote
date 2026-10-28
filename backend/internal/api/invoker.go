@@ -16,6 +16,7 @@ import (
 	"github.com/EveSunMaple/Zynote/backend/internal/media"
 	"github.com/EveSunMaple/Zynote/backend/internal/media/bilibili"
 	"github.com/EveSunMaple/Zynote/backend/internal/media/download"
+	"github.com/EveSunMaple/Zynote/backend/internal/storage"
 	"github.com/EveSunMaple/Zynote/backend/internal/textbook"
 )
 
@@ -210,6 +211,7 @@ func registerActions(inv *Invoker) map[string]actionFunc {
 		"subtitle-sync:attach":                actionWithState(inv.handleSubtitleSyncAttach),
 		"video-ppt:pending":                   actionWithState(actionStateOnly(inv.handleVideoPptPending)),
 		"video-ppt:restore":                   actionWithState(actionStateParams(inv.handleVideoPptRestore)),
+		"video-ppt:reveal":                    actionWithState(inv.handleVideoPptReveal),
 		"video-ppt:subtitle-import":           actionWithState(inv.handleVideoSubtitleImport),
 		"video-ppt:subtitle-save":             actionWithState(actionStateParams(inv.handleVideoSubtitleSave)),
 		"video-ppt:subtitle-export":           actionWithState(actionStateParams(inv.handleVideoSubtitleExport)),
@@ -351,8 +353,14 @@ func (inv *Invoker) handleHello(store contract.StateStore, params json.RawMessag
 	if input.Platform != contract.CurrentPlatform() {
 		return nil, contract.Unavailable("运行平台不匹配")
 	}
-	if !isAbsPath(input.DataRoot) || !isAbsPath(input.LibraryRoot) || !isAbsPath(input.ResourcesRoot) || !isAbsPath(input.PromptsRoot) {
+	if input.ConfigRoot == "" {
+		input.ConfigRoot = input.DataRoot
+	}
+	if !isAbsPath(input.DataRoot) || !isAbsPath(input.ConfigRoot) || !isAbsPath(input.LibraryRoot) || !isAbsPath(input.ResourcesRoot) || !isAbsPath(input.PromptsRoot) {
 		return nil, contract.InputInvalid("目录无效")
+	}
+	if input.PreviousLibraryRoot != "" && !isAbsPath(input.PreviousLibraryRoot) {
+		return nil, contract.InputInvalid("旧资料目录无效")
 	}
 	if input.NativePath != "" && !isAbsPath(input.NativePath) {
 		return nil, contract.InputInvalid("原生助手路径无效")
@@ -365,6 +373,7 @@ func (inv *Invoker) handleHello(store contract.StateStore, params json.RawMessag
 		AppVersion:      input.AppVersion,
 		ElectronVersion: input.ElectronVersion,
 		DataRoot:        input.DataRoot,
+		ConfigRoot:      input.ConfigRoot,
 		LibraryRoot:     input.LibraryRoot,
 		ResourcesRoot:   input.ResourcesRoot,
 		PromptsRoot:     input.PromptsRoot,
@@ -387,9 +396,35 @@ func (inv *Invoker) handleHello(store contract.StateStore, params json.RawMessag
 	if inv.asr != nil {
 		inv.asr.Configure(input.NativePath, "", "", "", filepath.Join(input.ResourcesRoot, "asr", "onnx-small"))
 	}
+	if input.PreviousLibraryRoot != "" {
+		if err := migrateLibraryPaths(state, input.PreviousLibraryRoot); err != nil {
+			return nil, err
+		}
+	}
 	store.SetState(state)
 	slog.Info("hello accepted", "dataRoot", state.DataRoot)
 	return state, nil
+}
+
+func migrateLibraryPaths(state *contract.State, previousRoot string) error {
+	database := filepath.Join(state.DataRoot, "assistant.db")
+	write, err := storage.OpenWrite(database)
+	if err != nil {
+		return contract.Unavailable("数据库无法打开")
+	}
+	if err := storage.BootstrapInto(write); err != nil {
+		write.Close()
+		return contract.Unavailable("数据库初始化失败")
+	}
+	if err := write.Checkpoint(); err != nil {
+		write.Close()
+		return contract.Unavailable("资料路径迁移失败")
+	}
+	write.Close()
+	if err := storage.RelocateLibraryPaths(database, previousRoot, state.LibraryRoot); err != nil {
+		return contract.Unavailable("资料路径迁移失败")
+	}
+	return nil
 }
 
 func pdfiumFilename() string {

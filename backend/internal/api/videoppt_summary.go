@@ -232,7 +232,7 @@ func (inv *Invoker) handleVideoSummary(store contract.StateStore, state *contrac
 		return nil, err
 	}
 	return inv.runJob("video-summary", func(ctx context.Context) (any, error) {
-		profile, err := config.ActiveProfile(state.DataRoot, store.Reverse())
+		profile, err := config.ActiveProfile(state.ConfigRoot, store.Reverse())
 		if err != nil {
 			return nil, err
 		}

@@ -37,7 +37,7 @@ func (inv *Invoker) handleSettingsModels(store contract.StateStore, state *contr
 	if err := json.Unmarshal(params, &input); err != nil || input.Profile == nil {
 		return nil, contract.InputInvalid("模型配置无效")
 	}
-	profile, err := config.DraftProfile(state.DataRoot, store.Reverse(), input.Profile.draft())
+	profile, err := config.DraftProfile(state.ConfigRoot, store.Reverse(), input.Profile.draft())
 	if err != nil {
 		return nil, err
 	}
@@ -51,7 +51,7 @@ func (inv *Invoker) handleSettingsModels(store contract.StateStore, state *contr
 			return nil, err
 		}
 		if input.Persist {
-			if err := config.CacheModels(state.DataRoot, models); err != nil {
+			if err := config.CacheModels(state.ConfigRoot, models); err != nil {
 				return nil, err
 			}
 		}
@@ -70,7 +70,7 @@ func (inv *Invoker) handleSettingsProbe(store contract.StateStore, state *contra
 	if err := json.Unmarshal(params, &input); err != nil || input.Profile == nil {
 		return nil, contract.InputInvalid("模型配置无效")
 	}
-	profile, err := config.DraftProfile(state.DataRoot, store.Reverse(), input.Profile.draft())
+	profile, err := config.DraftProfile(state.ConfigRoot, store.Reverse(), input.Profile.draft())
 	if err != nil {
 		return nil, err
 	}
@@ -85,7 +85,7 @@ func (inv *Invoker) handleSettingsProbe(store contract.StateStore, state *contra
 }
 
 func (inv *Invoker) handleSettingsTest(store contract.StateStore, state *contract.State, _ json.RawMessage) (any, error) {
-	profile, err := config.ActiveProfile(state.DataRoot, store.Reverse())
+	profile, err := config.ActiveProfile(state.ConfigRoot, store.Reverse())
 	if err != nil {
 		return nil, err
 	}

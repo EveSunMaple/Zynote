@@ -48,15 +48,15 @@ func (inv *Invoker) callNative(state *contract.State, action string, params json
 }
 
 func handleSettingsGet(store contract.StateStore, state *contract.State, _ json.RawMessage) (any, error) {
-	return config.ReadSettings(state.DataRoot, state.PromptsRoot, store.Reverse())
+	return config.ReadSettings(state.ConfigRoot, state.PromptsRoot, store.Reverse())
 }
 
 func handleAppearanceGet(_ contract.StateStore, state *contract.State, _ json.RawMessage) (any, error) {
-	return config.ReadAppearance(state.DataRoot)
+	return config.ReadAppearance(state.ConfigRoot)
 }
 
 func handleIdentityGet(_ contract.StateStore, state *contract.State, _ json.RawMessage) (any, error) {
-	return config.ReadIdentity(state.DataRoot)
+	return config.ReadIdentity(state.ConfigRoot)
 }
 
 func handleDBHealth(_ contract.StateStore, state *contract.State, _ json.RawMessage) (any, error) {

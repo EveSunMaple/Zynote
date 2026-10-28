@@ -28,36 +28,3 @@ export function videoMediaUrl(value: string) {
   return false
  }
 }
-export type Region = {left: number; right: number; top: number; bottom: number}
-export function checkedRegion(c: Region) {
- if (
-  Object.values(c).some(n => !Number.isFinite(n) || n < 0 || n > 1) ||
-  c.right - c.left < 0.1 ||
-  c.bottom - c.top < 0.1
- )
-  throw new Error('请框选有效的 PPT 区域')
- return c
-}
-// Changes are measured on the cropped slide, excluding lecturer/chat/video chrome.
-// Require a stable second sample; record the first instant of the new stable page.
-export class StableSlides {
- private last?: Buffer
- private pending?: {pixels: Buffer; time: number}
- private accepted?: Buffer
- times: number[] = []
- static difference(a: Buffer, b: Buffer) {
-  let sum = 0
-  for (let i = 0; i < a.length; i++) sum += Math.abs(a[i] - b[i])
-  return sum / (a.length * 255)
- }
- push(pixels: Buffer, time: number) {
-  if (!this.last || StableSlides.difference(pixels, this.last) > 0.0018)
-   this.pending = {pixels: Buffer.from(pixels), time}
-  else if (this.pending && (!this.accepted || StableSlides.difference(this.pending.pixels, this.accepted) > 0.003)) {
-   this.times.push(this.pending.time)
-   this.accepted = this.pending.pixels
-   this.pending = undefined
-  }
-  this.last = Buffer.from(pixels)
- }
-}

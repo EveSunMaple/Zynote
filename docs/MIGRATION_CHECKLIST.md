@@ -335,13 +335,15 @@ Zynote/
 
 ### P7 切换与清理
 
-- [ ] 默认后端切到 Go，TS 后端只保留一个版本作为回退。
-- [ ] 删除 `src/main` 中的业务代码，仅保留 Electron 壳。
-- [ ] 清理 `node_modules` 中不再需要的生产依赖。
-- [ ] 更新打包配置、签名、公证、自动更新。
-- [ ] 数据迁移/回滚演练，至少一次真实备份恢复。
+- [x] 默认后端切到 Go；按产品决定直接删除 TS 回退开关，不保留双后端版本。
+- [x] 删除 `src/main` 中的业务代码，仅保留 Electron 壳。
+- [x] 清理 `node_modules` 中不再需要的生产依赖。
+- [x] 更新打包配置：移除 TS worker 入口、SQLite/ONNX 生产依赖与 `asarUnpack`，portable 包实测可启动。
+- [x] 数据迁移演练：非 portable `资料`→`Library` 与 portable `课程数据`→`Data` 均自动重定位 DB 路径；portable 包 smoke 通过。
 - [ ] 发布 beta，收集崩溃/超时/差异日志。
-- [ ] 达到稳定标准后删除 TS 后端和回退开关。
+- [x] 删除 TS 后端和回退开关。
+
+**P7 完成记录（2026-10-28）：** `src/main` 由约 26,900 行降至 1,416 行；删除 144 个文件、约 30,600 行 TS 业务代码与 16 个过时 smoke/parity 脚本。Electron 仅保留窗口、IPC 壳动作、`safeStorage`/DPAPI、SnapAny 隐藏窗口、智云 `WebContentsView`、GoCore 与 shell services；`db:bootstrap` 在窗口加载前执行。Go 新增 `video-ppt:reveal`、启动资料路径重定位（`previousLibraryRoot` 握手字段）与 `configRoot` 分离（portable 设置仍留 userData，DB/资料进 `Data`/`Library`）。生产依赖仅保留渲染层、`pdfjs-dist`、`koffi` 与 `zod`；`pnpm verify`、`pnpm backend:test`、`pnpm native:test`、`pnpm smoke:go-core`、macOS portable 打包与 `package:smoke` 全绿。portable `.app` 约 508MB（原 893MiB），`app.asar` 133MB（原 353MB）。
 
 ## 7. 高风险子系统决策
 

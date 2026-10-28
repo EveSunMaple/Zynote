@@ -28,7 +28,7 @@ func (inv *Invoker) researchEngine(store contract.StateStore, state *contract.St
 	if err != nil {
 		return nil, err
 	}
-	connection, err := config.CurrentConnectionFingerprint(state.DataRoot)
+	connection, err := config.CurrentConnectionFingerprint(state.ConfigRoot)
 	if err != nil {
 		return nil, err
 	}
@@ -61,7 +61,7 @@ func (inv *Invoker) researchEngine(store contract.StateStore, state *contract.St
 		Store: data, Sources: research.NewSources(knowledgeStore, data.RootID), Connection: connection, External: external,
 		MCP: &research.Mcp{Store: data},
 		Model: func(ctx context.Context, system, user string) (string, error) {
-			profile, err := config.ActiveProfile(state.DataRoot, store.Reverse())
+			profile, err := config.ActiveProfile(state.ConfigRoot, store.Reverse())
 			if err != nil {
 				return "", err
 			}
@@ -113,7 +113,7 @@ func (inv *Invoker) imService(state *contract.State, reverse contract.ReverseCal
 			return nil, err
 		}
 		service.Model = func(ctx context.Context, system, user string) (string, error) {
-			profile, err := config.ActiveProfile(state.DataRoot, reverse)
+			profile, err := config.ActiveProfile(state.ConfigRoot, reverse)
 			if err != nil {
 				return "", err
 			}
@@ -223,7 +223,7 @@ func (inv *Invoker) handleToolsRequest(storeState contract.StateStore, state *co
 			return nil, err
 		}
 		value, _ := input.Args["value"].(map[string]any)
-		profile, _ := config.CurrentConnectionFingerprint(state.DataRoot)
+		profile, _ := config.CurrentConnectionFingerprint(state.ConfigRoot)
 		return service.Execute(context.Background(), textValue(input.Args["action"]), value, profile)
 	case "skill-markdown":
 		result, err := research.ParseSkillMarkdown(textValue(input.Args["text"]))

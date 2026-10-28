@@ -101,14 +101,14 @@ func (inv *Invoker) handleQuestionsSplit(store contract.StateStore, state *contr
 	if err != nil {
 		return nil, err
 	}
-	prompt, err := config.Prompt(state.DataRoot, state.PromptsRoot, "past-exam")
+	prompt, err := config.Prompt(state.ConfigRoot, state.PromptsRoot, "past-exam")
 	if err != nil {
 		return nil, err
 	}
 	if prompt == "" {
 		return nil, contract.Unavailable("拆题提示词未配置")
 	}
-	profile, err := config.ActiveProfile(state.DataRoot, store.Reverse())
+	profile, err := config.ActiveProfile(state.ConfigRoot, store.Reverse())
 	if err != nil {
 		return nil, err
 	}

@@ -15,7 +15,7 @@ func (inv *Invoker) handleSettingsSave(store contract.StateStore, state *contrac
 		return nil, contract.InputInvalid("设置参数无效")
 	}
 	result, err := config.SaveSettings(
-		state.DataRoot, state.PromptsRoot, store.Reverse(), input.Settings, inv.jobs.Current() != nil,
+		state.ConfigRoot, state.PromptsRoot, store.Reverse(), input.Settings, inv.jobs.Current() != nil,
 	)
 	if err != nil {
 		return nil, err

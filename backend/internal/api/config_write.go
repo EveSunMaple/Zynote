@@ -38,7 +38,7 @@ func handleAppearanceSave(_ contract.StateStore, state *contract.State, params j
 			return nil, err
 		}
 	}
-	return config.SaveAppearance(state.DataRoot, input.Value, input.CourseID)
+	return config.SaveAppearance(state.ConfigRoot, input.Value, input.CourseID)
 }
 
 func handleAppearanceClear(_ contract.StateStore, state *contract.State, params json.RawMessage) (any, error) {
@@ -51,7 +51,7 @@ func handleAppearanceClear(_ contract.StateStore, state *contract.State, params 
 	if err := ensureCourseExists(state, input.CourseID); err != nil {
 		return nil, err
 	}
-	return config.ClearAppearance(state.DataRoot, input.CourseID)
+	return config.ClearAppearance(state.ConfigRoot, input.CourseID)
 }
 
 func handleIdentitySave(_ contract.StateStore, state *contract.State, params json.RawMessage) (any, error) {
@@ -61,5 +61,5 @@ func handleIdentitySave(_ contract.StateStore, state *contract.State, params jso
 	if err := json.Unmarshal(params, &input); err != nil || len(input.Identity) == 0 {
 		return nil, contract.InputInvalid("身份参数无效")
 	}
-	return config.SaveIdentity(state.DataRoot, input.Identity)
+	return config.SaveIdentity(state.ConfigRoot, input.Identity)
 }

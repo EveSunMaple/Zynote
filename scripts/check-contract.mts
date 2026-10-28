@@ -1,8 +1,7 @@
-import {glob, readFile} from 'node:fs/promises'
+import {readFile} from 'node:fs/promises'
 import {dirname, join, resolve} from 'node:path'
 import {fileURLToPath} from 'node:url'
 
-const compareCodeUnit = (a: string, b: string) => Number(a > b) - Number(a < b)
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 const contract = JSON.parse(await readFile(join(root, 'contract/actions.json'), 'utf8')) as {
  schema: number
@@ -20,31 +19,16 @@ for (const row of contract.actions) {
  names.add(row.action)
 }
 
-const registered = new Set<string>()
-for await (const file of glob(join(root, 'src/main/ipc/*.ts'))) {
- // biome-ignore format: NOSONAR must stay on the await line
- const source = await readFile(file, 'utf8') // NOSONAR: build/fixture script; serial order and bounded resource use are intentional.
- const match = /actions:\s*new Set\(\[(.*?)\]\)/s.exec(source)
- if (!match) continue
- for (const action of match[1].matchAll(/'([^']+)'/g)) registered.add(action[1])
-}
-const missing = [...registered].filter(action => !names.has(action)).sort(compareCodeUnit)
-const extra = [...names].filter(action => !registered.has(action)).sort(compareCodeUnit)
-if (missing.length || extra.length) {
- throw new Error('契约与 TS action 不一致\n未登记：' + missing.join(', ') + '\n多余：' + extra.join(', '))
-}
-
 const goSource = await readFile(join(root, 'backend/internal/contract/contract.go'), 'utf8')
 const capabilitiesMatch = /DefaultCapabilities\s*=\s*\[\]string\{([\s\S]*?)\n\}/.exec(goSource)
 if (!capabilitiesMatch) throw new Error('无法解析 Go capabilities')
 const capabilities = [...capabilitiesMatch[1].matchAll(/"([^"]+)"/g)].map(match => match[1])
 const duplicated = capabilities.filter((action, index) => capabilities.indexOf(action) !== index)
 if (duplicated.length) throw new Error('Go capabilities 重复：' + duplicated.join(', '))
-const internal = capabilities.filter(action => !registered.has(action))
+const internal = capabilities.filter(action => !names.has(action))
 for (const action of capabilities) {
- if (!registered.has(action)) continue
  const row = contract.actions.find(item => item.action === action)
- if (!row) throw new Error('Go capability 不在契约中：' + action)
+ if (!row) continue
  if (row.backend !== 'go') throw new Error('shell action 不应声明为 Go capability：' + action)
 }
 console.log(

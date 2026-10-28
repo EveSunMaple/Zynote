@@ -894,7 +894,7 @@
    "action": "video-ppt:reveal",
    "source": "courseware.ts",
    "phase": 4,
-   "backend": "shell"
+   "backend": "go"
   },
   {
    "action": "ppt-extract:pick",

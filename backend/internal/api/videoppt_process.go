@@ -28,7 +28,7 @@ func videoProcessor(state *contract.State) videoppt.Processor {
 }
 
 func (inv *Invoker) videoChat(store contract.StateStore, state *contract.State) (videoppt.ChatFunc, error) {
-	profile, err := config.ActiveProfile(state.DataRoot, store.Reverse())
+	profile, err := config.ActiveProfile(state.ConfigRoot, store.Reverse())
 	if err != nil {
 		return nil, err
 	}

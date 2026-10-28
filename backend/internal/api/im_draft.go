@@ -31,7 +31,7 @@ func (inv *Invoker) handleImDraft(storeState contract.StateStore, state *contrac
 	if err != nil {
 		return nil, err
 	}
-	profile, _ := config.CurrentConnectionFingerprint(state.DataRoot)
+	profile, _ := config.CurrentConnectionFingerprint(state.ConfigRoot)
 	readInput := map[string]any{}
 	for key, value := range input.Scope {
 		readInput[key] = value
@@ -46,7 +46,7 @@ func (inv *Invoker) handleImDraft(storeState contract.StateStore, state *contrac
 		return nil, contract.InputInvalid("所选会话没有已保存消息，请先同步")
 	}
 	encoded, _ := json.Marshal(messages)
-	currentProfile, err := config.ActiveProfile(state.DataRoot, storeState.Reverse())
+	currentProfile, err := config.ActiveProfile(state.ConfigRoot, storeState.Reverse())
 	if err != nil {
 		return nil, contract.Unavailable("请先连接模型")
 	}

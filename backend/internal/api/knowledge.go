@@ -314,7 +314,7 @@ func (inv *Invoker) handleKnowledgeAsk(store contract.StateStore, state *contrac
 	if err != nil {
 		return nil, err
 	}
-	profile, err := config.ActiveProfile(state.DataRoot, store.Reverse())
+	profile, err := config.ActiveProfile(state.ConfigRoot, store.Reverse())
 	if err != nil {
 		return nil, err
 	}
@@ -380,7 +380,7 @@ func (inv *Invoker) handleKnowledgeClassificationSuggest(store contract.StateSto
 	if err != nil {
 		return nil, err
 	}
-	profile, err := config.ActiveProfile(state.DataRoot, store.Reverse())
+	profile, err := config.ActiveProfile(state.ConfigRoot, store.Reverse())
 	if err != nil {
 		return nil, err
 	}

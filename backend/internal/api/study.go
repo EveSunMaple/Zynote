@@ -179,7 +179,7 @@ func (inv *Invoker) handleStudyParse(store contract.StateStore, state *contract.
 	if err != nil {
 		return nil, err
 	}
-	profile, err := config.ActiveProfile(state.DataRoot, store.Reverse())
+	profile, err := config.ActiveProfile(state.ConfigRoot, store.Reverse())
 	if err != nil {
 		return nil, err
 	}
