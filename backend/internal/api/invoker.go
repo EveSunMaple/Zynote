@@ -356,7 +356,10 @@ func (inv *Invoker) handleHello(store contract.StateStore, params json.RawMessag
 	if input.ConfigRoot == "" {
 		input.ConfigRoot = input.DataRoot
 	}
-	if !isAbsPath(input.DataRoot) || !isAbsPath(input.ConfigRoot) || !isAbsPath(input.LibraryRoot) || !isAbsPath(input.ResourcesRoot) || !isAbsPath(input.PromptsRoot) {
+	if input.AppRoot == "" {
+		input.AppRoot = input.DataRoot
+	}
+	if !isAbsPath(input.DataRoot) || !isAbsPath(input.ConfigRoot) || !isAbsPath(input.AppRoot) || !isAbsPath(input.LibraryRoot) || !isAbsPath(input.ResourcesRoot) || !isAbsPath(input.PromptsRoot) {
 		return nil, contract.InputInvalid("目录无效")
 	}
 	if input.PreviousLibraryRoot != "" && !isAbsPath(input.PreviousLibraryRoot) {
@@ -374,6 +377,7 @@ func (inv *Invoker) handleHello(store contract.StateStore, params json.RawMessag
 		ElectronVersion: input.ElectronVersion,
 		DataRoot:        input.DataRoot,
 		ConfigRoot:      input.ConfigRoot,
+		AppRoot:         input.AppRoot,
 		LibraryRoot:     input.LibraryRoot,
 		ResourcesRoot:   input.ResourcesRoot,
 		PromptsRoot:     input.PromptsRoot,

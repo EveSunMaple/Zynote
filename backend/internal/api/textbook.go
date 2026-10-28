@@ -3,6 +3,8 @@ package api
 import (
 	"context"
 	"encoding/json"
+	"os"
+	"path/filepath"
 
 	"github.com/EveSunMaple/Zynote/backend/internal/config"
 	"github.com/EveSunMaple/Zynote/backend/internal/contract"
@@ -18,14 +20,36 @@ func textbookID(params json.RawMessage) (string, error) {
 	return input.ID, nil
 }
 
+func textbookDirectory(start string) string {
+	current, err := filepath.Abs(start)
+	if err != nil {
+		return ""
+	}
+	for {
+		candidate := filepath.Join(current, "课本")
+		if info, err := os.Stat(candidate); err == nil && info.IsDir() {
+			return candidate
+		}
+		parent := filepath.Dir(current)
+		if parent == current {
+			return ""
+		}
+		current = parent
+	}
+}
+
 func (inv *Invoker) handleTextbookPick(store contract.StateStore, state *contract.State) (any, error) {
 	reverse := store.Reverse()
 	if reverse == nil {
 		return nil, contract.Unavailable("文件选择器不可用")
 	}
-	raw, err := reverse.Call("shell.pickFile", map[string]any{
+	params := map[string]any{
 		"title": "选择原教材 PDF", "extensions": []string{"pdf"},
-	}, 600000)
+	}
+	if directory := textbookDirectory(state.AppRoot); directory != "" {
+		params["defaultPath"] = directory
+	}
+	raw, err := reverse.Call("shell.pickFile", params, 600000)
 	if err != nil {
 		return nil, contract.Unavailable(err.Error())
 	}

@@ -59,7 +59,7 @@ func TestV2Status(t *testing.T) {
 		}},
 	})
 	status := CheckStatus(root, "1.0.0")
-	if status.Validation == "invalid" || status.Components[0].Validation != "missing" {
+	if status.Validation == "invalid" || status.Components[0].Validation != "missing" || !status.Components[0].Installable {
 		t.Fatalf("missing mismatch: %+v", status)
 	}
 	if err := os.MkdirAll(filepath.Join(root, "video"), 0o755); err != nil {
@@ -76,10 +76,48 @@ func TestV2Status(t *testing.T) {
 	if status.Components[0].Validation != "verified" || !status.Components[0].Installed {
 		t.Fatalf("verified mismatch: %+v", status)
 	}
+}
+
+func TestV2Install(t *testing.T) {
+	root := t.TempDir()
+	content := []byte("tool")
+	sum := sha256.Sum256(content)
+	mode := "0644"
 	if targetPlatform() != "win32" {
-		if _, err := Install(root, "1.0.0", "video", t.TempDir()); err == nil {
-			t.Fatal("install must be Windows-only")
-		}
+		mode = "0755"
+	}
+	writeManifest(t, root, map[string]any{
+		"schema": 2, "productVersion": "1.0.0",
+		"target": map[string]any{"platform": targetPlatform(), "arch": targetArch()},
+		"components": []any{map[string]any{
+			"id": "video", "label": "视频组件", "directory": "video", "bytes": int64(len(content)),
+			"target": map[string]any{"platform": targetPlatform(), "arch": targetArch()},
+			"files": []any{map[string]any{
+				"path": "ffmpeg", "size": len(content), "sha256": hex.EncodeToString(sum[:]), "mode": mode,
+			}},
+		}},
+	})
+	source := t.TempDir()
+	descriptor, _ := json.Marshal(map[string]any{"id": "video", "productVersion": "1.0.0"})
+	if err := os.WriteFile(filepath.Join(source, "component.json"), descriptor, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(source, "payload"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(source, "payload", "ffmpeg"), content, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Install(root, "1.0.0", "video", source); err != nil {
+		t.Fatal(err)
+	}
+	status := CheckStatus(root, "1.0.0")
+	if status.Components[0].Validation != "verified" || !status.Components[0].Installed {
+		t.Fatalf("install result mismatch: %+v", status)
+	}
+	installed, err := os.ReadFile(filepath.Join(root, "video", "ffmpeg"))
+	if err != nil || string(installed) != string(content) {
+		t.Fatalf("installed content mismatch: %q (%v)", installed, err)
 	}
 }
 

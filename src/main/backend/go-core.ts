@@ -23,6 +23,7 @@ export type GoCoreOptions = {
  appVersion: string
  dataRoot: string
  configRoot: string
+ appRoot: string
  libraryRoot: string
  previousLibraryRoot: string
  resourcesRoot: string
@@ -96,6 +97,7 @@ export class GoCore {
     platform: process.platform,
     dataRoot: this.options.dataRoot,
     configRoot: this.options.configRoot,
+    appRoot: this.options.appRoot,
     libraryRoot: this.options.libraryRoot,
     previousLibraryRoot: this.options.previousLibraryRoot,
     resourcesRoot: this.options.resourcesRoot,

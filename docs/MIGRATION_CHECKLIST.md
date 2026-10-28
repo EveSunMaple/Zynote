@@ -362,6 +362,13 @@ Zynote/
 - [x] `db:bootstrap` 与资料路径迁移共用保护流程；备份后才执行 schema/列迁移。
 - [x] 单元测试覆盖缺失库、旧版本备份、重复备份、未来版本拒绝、损坏库拒绝；实际应用启动验证旧库备份与 `user_version` 升级。
 
+### 1.88 Runtime v2 与教材目录（2026-10-28）
+
+- [x] `runtime:install` 支持 schema 2 组件包：校验清单目标、组件 ID/目录、文件大小/SHA-256/模式，暂存目录原子发布；macOS/Linux 可按目标安装，不再只限 Windows。v1 安装仍仅 Windows。
+- [x] v2 状态返回 `schema` 与 `installable`；运行组件页在目标兼容且文件缺失时启用安装。
+- [x] `textbook:pick` 恢复从应用目录向上查找 `课本` 目录作为文件选择器默认路径；找不到时不强行设置默认目录。
+- [x] 测试：v2 安装、状态可安装标记、教材目录查找。
+
 ## 7. 高风险子系统决策
 
 ### 7.1 YouTube / SnapAny

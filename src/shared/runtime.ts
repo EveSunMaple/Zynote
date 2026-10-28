@@ -17,6 +17,7 @@ export interface RuntimeManifest {
 }
 export interface RuntimeStatus {
  version: string
+ schema?: number
  validation?: 'legacy' | 'verified' | 'missing' | 'invalid' | 'unsupported_target'
  reason?: string
  components: Array<{

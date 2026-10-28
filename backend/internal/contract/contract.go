@@ -54,6 +54,7 @@ type State struct {
 	ElectronVersion string   `json:"electronVersion"`
 	DataRoot        string   `json:"dataRoot"`
 	ConfigRoot      string   `json:"configRoot"`
+	AppRoot         string   `json:"appRoot"`
 	LibraryRoot     string   `json:"libraryRoot"`
 	ResourcesRoot   string   `json:"resourcesRoot"`
 	PromptsRoot     string   `json:"promptsRoot"`
@@ -88,6 +89,7 @@ type HelloParams struct {
 	Platform            string `json:"platform"`
 	DataRoot            string `json:"dataRoot"`
 	ConfigRoot          string `json:"configRoot"`
+	AppRoot             string `json:"appRoot"`
 	LibraryRoot         string `json:"libraryRoot"`
 	PreviousLibraryRoot string `json:"previousLibraryRoot"`
 	ResourcesRoot       string `json:"resourcesRoot"`

@@ -188,6 +188,7 @@ async function startApplication() {
   appVersion: app.getVersion(),
   dataRoot: paths.dataRoot,
   configRoot: root,
+  appRoot: appDirectory,
   libraryRoot: paths.libraryRoot,
   previousLibraryRoot: paths.previousLibraryRoot,
   resourcesRoot: app.isPackaged ? process.resourcesPath : join(app.getAppPath(), 'resources'),

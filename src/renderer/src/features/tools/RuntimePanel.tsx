@@ -36,7 +36,7 @@ export function RuntimePanel() {
   }
  }, [])
  async function install(id: string) {
-  if (!isWindows) {
+  if (data?.schema !== 2 && !isWindows) {
    notify.warning('运行组件目前仅支持 Windows，无法在当前平台安装。')
    return
   }
@@ -66,7 +66,7 @@ export function RuntimePanel() {
    <h3>运行组件</h3>
    <p>Zynote {data?.version || ''}</p>
    <p className="hint">完整包可离线使用。轻量包可选择同版本组件文件夹安装；不会自动下载或更改你的资料。</p>
-   {platform !== undefined && !isWindows && (
+   {platform !== undefined && !isWindows && data && data.schema !== 2 && (
     <p // NOSONAR: existing element/role semantics are intentional for layout and keyboard behavior.
      className="hint"
      role="status" // NOSONAR: styled live region; native output would change layout and announcement behavior.
@@ -94,7 +94,9 @@ export function RuntimePanel() {
      <Button
       variant="tertiary"
       size="sm"
-      isDisabled={busy || refreshing || c.installed || c.installable === false || platform !== 'win32'}
+      isDisabled={
+       busy || refreshing || c.installed || (data?.schema === 2 ? c.installable === false : platform !== 'win32')
+      }
       onClick={() => void install(c.id)}
      >
       选择组件文件夹安装

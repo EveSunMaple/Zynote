@@ -59,6 +59,7 @@ type StatusComponent struct {
 
 type Status struct {
 	Version    string            `json:"version"`
+	Schema     int               `json:"schema,omitempty"`
 	Validation string            `json:"validation,omitempty"`
 	Reason     string            `json:"reason,omitempty"`
 	Components []StatusComponent `json:"components"`
@@ -194,7 +195,7 @@ func legacyComponentInstalled(resourcesRoot string, component Component) bool {
 }
 
 func legacyStatus(resourcesRoot, version string, manifest Manifest) Status {
-	status := Status{Version: version, Validation: "legacy", Components: []StatusComponent{}}
+	status := Status{Version: version, Schema: 1, Validation: "legacy", Components: []StatusComponent{}}
 	for _, component := range manifest.Components {
 		status.Components = append(status.Components, StatusComponent{
 			ID: component.ID, Label: component.Label, Bytes: component.Bytes,
@@ -235,7 +236,7 @@ func v2ComponentState(resourcesRoot string, component Component, compatible bool
 	if !compatible {
 		return "unsupported_target", "组件目标与当前系统或架构不符"
 	}
-	validation, reason := "verified", "文件完整性与权限已校验；v2 安装尚未开放"
+	validation, reason := "verified", "文件完整性与权限已校验"
 	total := int64(0)
 	paths := map[string]bool{}
 	base, _ := contained(resourcesRoot, component.Directory)
@@ -268,7 +269,7 @@ func statusV2(resourcesRoot, version string, manifest Manifest) Status {
 	ids := map[string]bool{}
 	directories := map[string]bool{}
 	compatible := manifest.Target.Platform == targetPlatform() && manifest.Target.Arch == targetArch()
-	status := Status{Version: version, Components: []StatusComponent{}}
+	status := Status{Version: version, Schema: 2, Components: []StatusComponent{}}
 	for _, component := range manifest.Components {
 		if !validV2Component(component, manifest, ids, directories) {
 			return invalidStatus(version, errRuntimeManifest)
@@ -277,46 +278,26 @@ func statusV2(resourcesRoot, version string, manifest Manifest) Status {
 		status.Components = append(status.Components, StatusComponent{
 			ID: component.ID, Label: component.Label, Bytes: component.Bytes,
 			Installed: validation == "verified", Validation: validation, Reason: reason,
+			Installable: compatible && validation == "missing",
 		})
 	}
 	return status
 }
 
-func Install(resourcesRoot, version, id, source string) (any, error) { // NOSONAR: retained cohesive flow; decomposition tracked separately to avoid behavior regressions.
-	if runtime.GOOS != "windows" || runtime.GOARCH != "amd64" {
-		return nil, fmt.Errorf("运行组件目前仅支持 Windows，无法在当前平台安装")
-	}
-	manifest, err := readManifest(filepath.Join(resourcesRoot, "runtime-manifest.json"))
-	if err != nil {
-		return nil, err
-	}
-	if manifest.Schema != 1 || manifest.ProductVersion != version {
-		return nil, fmt.Errorf("组件清单与应用版本不一致")
-	}
-	var component *Component
+func findComponent(manifest Manifest, id string) *Component {
 	for index := range manifest.Components {
 		if manifest.Components[index].ID == id {
-			component = &manifest.Components[index]
-			break
+			return &manifest.Components[index]
 		}
 	}
-	if component == nil {
-		return nil, fmt.Errorf("未知组件")
-	}
-	if len(component.Files) == 0 {
-		return nil, fmt.Errorf("组件文件清单为空，未安装")
-	}
-	target, err := contained(resourcesRoot, component.Directory)
-	if err != nil {
-		return nil, err
-	}
-	if _, err := os.Lstat(target); err == nil {
-		return nil, fmt.Errorf("组件目录已存在；请使用完整更新包修复，避免覆盖正在使用的文件")
-	}
+	return nil
+}
+
+func validateDescriptor(source, id, version string) error {
 	descriptorPath := filepath.Join(source, "component.json")
 	info, err := os.Lstat(descriptorPath)
 	if err != nil || !info.Mode().IsRegular() || info.Mode()&os.ModeSymlink != 0 {
-		return nil, fmt.Errorf("请选择有效的同版本组件文件夹")
+		return fmt.Errorf("请选择有效的同版本组件文件夹")
 	}
 	var descriptor struct {
 		ID             string `json:"id"`
@@ -324,7 +305,18 @@ func Install(resourcesRoot, version, id, source string) (any, error) { // NOSONA
 	}
 	raw, _ := os.ReadFile(descriptorPath)
 	if json.Unmarshal(raw, &descriptor) != nil || descriptor.ID != id || descriptor.ProductVersion != version {
-		return nil, fmt.Errorf("请选择与当前应用版本一致的组件包")
+		return fmt.Errorf("请选择与当前应用版本一致的组件包")
+	}
+	return nil
+}
+
+func copyComponent(source, resourcesRoot, id string, component Component) (any, error) {
+	target, err := contained(resourcesRoot, component.Directory)
+	if err != nil {
+		return nil, err
+	}
+	if _, err := os.Lstat(target); err == nil {
+		return nil, fmt.Errorf("组件目录已存在；请使用完整更新包修复，避免覆盖正在使用的文件")
 	}
 	stage := filepath.Join(resourcesRoot, ".component-"+newID())
 	if err := os.Mkdir(stage, 0o755); err != nil {
@@ -360,6 +352,15 @@ func Install(resourcesRoot, version, id, source string) (any, error) { // NOSONA
 		if err := copyFile(input, output); err != nil {
 			return nil, fmt.Errorf("组件安装失败")
 		}
+		if runtime.GOOS != "windows" {
+			mode := os.FileMode(0o644)
+			if file.Mode == "0755" {
+				mode = 0o755
+			}
+			if err := os.Chmod(output, mode); err != nil {
+				return nil, fmt.Errorf("组件权限设置失败")
+			}
+		}
 		actual, err = hashFile(output)
 		if err != nil || actual != file.SHA256 {
 			return nil, fmt.Errorf("组件复制校验失败")
@@ -370,6 +371,67 @@ func Install(resourcesRoot, version, id, source string) (any, error) { // NOSONA
 	}
 	published = true
 	return map[string]any{"installed": true, "id": id}, nil
+}
+
+func installV2(resourcesRoot, version, id, source string, manifest Manifest) (any, error) {
+	if manifest.ProductVersion != version || len(manifest.Components) == 0 || len(manifest.Components) > 10 {
+		return nil, fmt.Errorf("组件清单与应用版本不一致")
+	}
+	if manifest.Target.Platform != targetPlatform() || manifest.Target.Arch != targetArch() {
+		return nil, fmt.Errorf("组件目标与当前系统或架构不符")
+	}
+	ids := map[string]bool{}
+	directories := map[string]bool{}
+	for _, item := range manifest.Components {
+		if !validV2Component(item, manifest, ids, directories) {
+			return nil, fmt.Errorf("组件清单格式无效")
+		}
+	}
+	component := findComponent(manifest, id)
+	if component == nil {
+		return nil, fmt.Errorf("未知组件")
+	}
+	if len(component.Files) == 0 {
+		return nil, fmt.Errorf("组件文件清单为空，未安装")
+	}
+	total := int64(0)
+	for _, file := range component.Files {
+		total += file.Size
+	}
+	if total != component.Bytes {
+		return nil, fmt.Errorf("组件文件清单无效")
+	}
+	if err := validateDescriptor(source, id, version); err != nil {
+		return nil, err
+	}
+	return copyComponent(source, resourcesRoot, id, *component)
+}
+
+func Install(resourcesRoot, version, id, source string) (any, error) {
+	manifest, err := readManifest(filepath.Join(resourcesRoot, "runtime-manifest.json"))
+	if err != nil {
+		return nil, err
+	}
+	if manifest.Schema == 2 {
+		return installV2(resourcesRoot, version, id, source, manifest)
+	}
+	if runtime.GOOS != "windows" || runtime.GOARCH != "amd64" {
+		return nil, fmt.Errorf("运行组件目前仅支持 Windows，无法在当前平台安装")
+	}
+	if manifest.Schema != 1 || manifest.ProductVersion != version {
+		return nil, fmt.Errorf("组件清单与应用版本不一致")
+	}
+	component := findComponent(manifest, id)
+	if component == nil {
+		return nil, fmt.Errorf("未知组件")
+	}
+	if len(component.Files) == 0 {
+		return nil, fmt.Errorf("组件文件清单为空，未安装")
+	}
+	if err := validateDescriptor(source, id, version); err != nil {
+		return nil, err
+	}
+	return copyComponent(source, resourcesRoot, id, *component)
 }
 
 func copyFile(input, output string) error {
