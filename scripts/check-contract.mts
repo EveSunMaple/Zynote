@@ -19,6 +19,13 @@ for (const row of contract.actions) {
  names.add(row.action)
 }
 
+const mainSource = await readFile(join(root, 'src/main/main.ts'), 'utf8')
+const shellRegistered = new Set([...mainSource.matchAll(/case '([^']+)':/g)].map(match => match[1]))
+const shellMissing = contract.actions
+ .filter(row => row.backend === 'shell' && !shellRegistered.has(row.action))
+ .map(row => row.action)
+if (shellMissing.length) throw new Error('shell action 未在 Electron 壳登记：' + shellMissing.join(', '))
+
 const goSource = await readFile(join(root, 'backend/internal/contract/contract.go'), 'utf8')
 const capabilitiesMatch = /DefaultCapabilities\s*=\s*\[\]string\{([\s\S]*?)\n\}/.exec(goSource)
 if (!capabilitiesMatch) throw new Error('无法解析 Go capabilities')
