@@ -21,8 +21,10 @@ function releaseNotes(info: UpdateInfo) {
 }
 
 function errorMessage(error: unknown) {
- if (error instanceof Error) return error.message
- return typeof error === 'string' ? error : '检查更新失败'
+ const message = error instanceof Error ? error.message : typeof error === 'string' ? error : ''
+ if (/No published versions/i.test(message)) return '尚未发布可用的更新版本'
+ if (/net::|ENOTFOUND|ECONNREFUSED|ETIMEDOUT/i.test(message)) return '无法连接更新服务，请检查网络后重试'
+ return message || '检查更新失败'
 }
 
 export function createUpdater({onEvent}: {onEvent: (event: EventPayload) => void}) {
