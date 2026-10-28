@@ -30,6 +30,7 @@ pnpm verify        # tsc + biome
 pnpm backend:test  # go test
 pnpm native:test   # cargo test
 pnpm smoke:go-core # Go core 冒烟（不启动 Electron）
+pnpm update:smoke --app <lite app> # 本地更新源检查（macOS lite）
 pnpm build
 ```
 

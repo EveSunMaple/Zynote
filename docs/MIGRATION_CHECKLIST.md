@@ -352,6 +352,7 @@ Zynote/
 - [x] shell 新增 `update:status/check/download/install`，契约 154 actions / shell 12；开发模式与 portable 目录版明确禁用。
 - [x] `release.mts` 按 profile 生成 `latest*.yml` / `full*.yml` 与 blockmap；lite 使用 `latest` 通道，full 使用 `full` 通道，portable 不生成更新元数据。
 - [x] `release.yml` 可选 `publish`：下载三平台工件后创建/更新 GitHub Release，上传安装包、更新元数据、checksums；GitHub provider 固定为 `EveSunMaple/Zynote`。
+- [x] `update:smoke`：本地 HTTP 更新源 + 临时复制应用，验证 `update:check` 能读取 0.0.2 元数据并返回 `available`；release workflow 在 macOS lite 构建后执行。
 - [ ] 正式自动更新依赖 Developer ID 签名/公证与已发布 Release；当前本机 Apple Development 签名可打包，但未公证。
 
 ### 1.87 数据库迁移保护（2026-10-28）

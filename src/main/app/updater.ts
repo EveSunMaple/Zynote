@@ -36,7 +36,7 @@ export function createUpdater({onEvent}: {onEvent: (event: EventPayload) => void
  }
  let checking = false,
   downloading = false
- autoUpdater.autoDownload = true
+ autoUpdater.autoDownload = process.env.ZYNOTE_UPDATE_AUTODOWNLOAD !== '0'
  autoUpdater.autoInstallOnAppQuit = true
  autoUpdater.allowPrerelease = false
  autoUpdater.logger = null

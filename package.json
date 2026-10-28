@@ -28,6 +28,7 @@
   "release:source": "node scripts/source-package.mts",
   "release:checksums": "node scripts/release-checksums.mts",
   "package:smoke": "node scripts/package-smoke.mts",
+  "update:smoke": "node scripts/update-smoke.mts",
   "lint": "biome lint .",
   "format": "biome format --write .",
   "check": "biome check .",
