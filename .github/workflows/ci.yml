@@ -58,3 +58,16 @@ jobs:
         run: pnpm build
       - name: Go core smoke
         run: pnpm smoke:go-core
+  go-test-linux:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: backend/go.mod
+          cache-dependency-path: backend/go.sum
+      - name: Go test and vet
+        run: cd backend && go vet ./... && go test ./...

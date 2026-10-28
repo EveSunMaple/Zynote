@@ -28,7 +28,7 @@ func TestSettingsModelsProbeAndTest(t *testing.T) { // NOSONAR: end-to-end test 
 	f := startCore(t, dataRoot, resourcesRoot)
 	if _, errReply := f.call("core.hello", map[string]any{
 		"protocol": 1, "appVersion": "0.0.1", "electronVersion": "42.11.10",
-		"platform": "darwin", "dataRoot": dataRoot, "libraryRoot": dataRoot,
+		"platform": testPlatform(), "dataRoot": dataRoot, "libraryRoot": dataRoot,
 		"resourcesRoot": resourcesRoot, "promptsRoot": resourcesRoot, "portable": false, "packaged": false,
 	}); errReply != nil {
 		t.Fatalf("hello failed: %+v", errReply)

@@ -8,6 +8,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -143,6 +144,8 @@ func (f *fixture) drain(count int) []wireEnvelope {
 	return replies
 }
 
+func testPlatform() string { return runtime.GOOS }
+
 func writeFixtureFile(t *testing.T, dir, name, content string) {
 	t.Helper()
 	path := filepath.Join(dir, filepath.FromSlash(name))
@@ -173,7 +176,7 @@ func TestP0Contract(t *testing.T) { // NOSONAR: end-to-end test intentionally ex
 
 	state, errReply := f.call("core.hello", map[string]any{
 		"protocol": 1, "appVersion": "0.0.1", "electronVersion": "42.11.10",
-		"platform": "darwin", "dataRoot": dataRoot, "libraryRoot": dataRoot,
+		"platform": testPlatform(), "dataRoot": dataRoot, "libraryRoot": dataRoot,
 		"resourcesRoot": resourcesRoot, "promptsRoot": resourcesRoot, "portable": false,
 	})
 	if errReply != nil {
@@ -187,7 +190,7 @@ func TestP0Contract(t *testing.T) { // NOSONAR: end-to-end test intentionally ex
 	if err := json.Unmarshal(state, &hello); err != nil {
 		t.Fatal(err)
 	}
-	if hello.Protocol != 1 || hello.Platform != "darwin" || len(hello.Capabilities) != 153 {
+	if hello.Protocol != 1 || hello.Platform != testPlatform() || len(hello.Capabilities) != 153 {
 		t.Fatalf("unexpected hello: %+v", hello)
 	}
 

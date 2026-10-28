@@ -43,7 +43,7 @@ func TestHelloBacksUpAndRelocatesLegacyLibrary(t *testing.T) {
 	f := startCore(t, root, t.TempDir())
 	if _, errReply := f.call("core.hello", map[string]any{
 		"protocol": 1, "appVersion": "0.0.1", "electronVersion": "42.11.10",
-		"platform": "darwin", "dataRoot": root, "libraryRoot": library,
+		"platform": testPlatform(), "dataRoot": root, "libraryRoot": library,
 		"previousLibraryRoot": legacy, "resourcesRoot": t.TempDir(), "promptsRoot": t.TempDir(),
 	}); errReply != nil {
 		t.Fatalf("hello failed: %+v", errReply)

@@ -19,7 +19,7 @@ func TestExportSubtitlesNotesPractice(t *testing.T) { // NOSONAR: end-to-end tes
 	f := startCore(t, dataRoot, resourcesRoot)
 	if _, errReply := f.call("core.hello", map[string]any{
 		"protocol": 1, "appVersion": "0.0.1", "electronVersion": "42.11.10",
-		"platform": "darwin", "dataRoot": dataRoot, "libraryRoot": libraryRoot,
+		"platform": testPlatform(), "dataRoot": dataRoot, "libraryRoot": libraryRoot,
 		"resourcesRoot": resourcesRoot, "promptsRoot": resourcesRoot, "portable": false, "packaged": false,
 	}); errReply != nil {
 		t.Fatalf("hello failed: %+v", errReply)
