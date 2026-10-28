@@ -39,6 +39,12 @@ try {
   }
  }
  if (!options || typeof options !== 'object') throw new Error('packaged Go core did not answer media:options')
+ const update = (await page.evaluate(() =>
+  (
+   window as typeof window & {assistant: {invoke: (action: string, args?: unknown) => Promise<unknown>}}
+  ).assistant.invoke('update:status')
+ )) as {currentVersion?: string; phase?: string}
+ if (update?.currentVersion !== info.version || !update.phase) throw new Error('packaged update status mismatch')
  console.log(JSON.stringify({status: 'passed', version: info.version, platform: info.platform, goCore: true}))
 } finally {
  await application?.close().catch(() => {})

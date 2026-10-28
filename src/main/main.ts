@@ -1,6 +1,7 @@
 import {GoCore, nativeBinaryPath} from '@main/backend/go-core'
 import {resolveDataPaths} from '@main/backend/portable-data'
 import {createShellServices} from '@main/backend/shell-services'
+import {createUpdater, type Updater} from '@main/app/updater'
 import {snapanyDownload} from '@main/media/sources/snapany'
 import {diagnostic} from '@main/app/diagnostics'
 import {createMainWindow} from '@main/app/window'
@@ -28,6 +29,7 @@ if (!app.requestSingleInstanceLock()) app.quit()
 else app.whenReady().then(startApplication).catch(showStartupError)
 
 function showStartupError(error: unknown) {
+ console.error('[startup]', error)
  dialog.showErrorBox('Zynote 启动失败', error instanceof Error ? error.message : '未知错误')
  app.quit()
 }
@@ -37,10 +39,19 @@ const unhandled = Symbol('unhandled')
 async function invokeShellAction(
  window: BrowserWindow,
  libraryRoot: string,
+ updater: Updater,
  action: string,
  object: Record<string, unknown>
 ) {
  switch (action) {
+  case 'update:status':
+   return updater.status()
+  case 'update:check':
+   return updater.check()
+  case 'update:download':
+   return updater.download()
+  case 'update:install':
+   return updater.install()
   case 'window:minimize':
    window.minimize()
    return null
@@ -130,6 +141,11 @@ async function startApplication() {
  })
  window.on('maximize', () => window.webContents.send('assistant:event', {kind: 'window', data: {maximized: true}}))
  window.on('unmaximize', () => window.webContents.send('assistant:event', {kind: 'window', data: {maximized: false}}))
+ const updater = createUpdater({
+  onEvent: event => {
+   if (!window.isDestroyed()) window.webContents.send('assistant:event', event)
+  }
+ })
  const shellServices = createShellServices(window, paths.libraryRoot)
  const zhiyunBrowser = new ZhiyunBrowser(window, message =>
   window.webContents.send('assistant:event', {
@@ -197,7 +213,7 @@ async function startApplication() {
   const validated = z.string().min(1).max(100).parse(action)
   try {
    await waitForCore(goCore)
-   const shellResult = await invokeShellAction(window, paths.libraryRoot, validated, object)
+   const shellResult = await invokeShellAction(window, paths.libraryRoot, updater, validated, object)
    if (shellResult !== unhandled) return shellResult
    return await goCore.call(validated, object)
   } catch (error) {
@@ -211,6 +227,7 @@ async function startApplication() {
  else await window.loadFile(join(mainDir, '../renderer/index.html'))
  showMainWindow()
  shutdownBackends = async () => {
+  updater.dispose()
   zhiyunBrowser.dispose()
   goCore.dispose()
  }

@@ -7,6 +7,7 @@ import {
  MessagesSquare,
  MonitorPlay,
  Palette,
+ RefreshCw,
  ScrollText,
  Search,
  Sparkles,
@@ -22,6 +23,7 @@ import {CommunicationsPanel} from '@renderer/features/communications/Communicati
 import {LearningMethodsPanel} from '@renderer/features/tools/LearningMethods'
 import {McpToolsPanel} from '@renderer/features/tools/McpTools'
 import {RuntimePanel} from '@renderer/features/tools/Runtime'
+import {UpdatePanel} from '@renderer/features/settings/Update'
 import {AppearanceEditor} from '@renderer/features/appearance/Appearance'
 import {IdentityEditor} from '@renderer/features/identity/Identity'
 import {BiliAccountPanel} from '@renderer/features/bilibili/BiliAccount'
@@ -42,13 +44,14 @@ const sections: {id: SettingsSection; name: string; description: string; icon: t
  {id: 'mcp', name: 'MCP 工具', description: '外部 MCP 服务连接与工具授权', icon: Blocks},
  {id: 'zhiyun', name: '智云课堂', description: '智云课堂账号登录与网页会话', icon: CloudDownload},
  {id: 'bilibili', name: 'B站', description: 'B站账号登录与收藏夹读取', icon: MonitorPlay},
- {id: 'runtime', name: '运行组件', description: '媒体、字幕等组件检查与安装', icon: Cpu}
+ {id: 'runtime', name: '运行组件', description: '媒体、字幕等组件检查与安装', icon: Cpu},
+ {id: 'update', name: '应用更新', description: '检查并安装新版本', icon: RefreshCw}
 ]
 
 const sectionGroups: {title: string; ids: SettingsSection[]}[] = [
  {title: '助手与外观', ids: ['appearance', 'identity', 'qwen', 'methods', 'prompts']},
  {title: '外部连接', ids: ['search', 'communications', 'mcp', 'zhiyun', 'bilibili']},
- {title: '系统', ids: ['runtime']}
+ {title: '系统', ids: ['runtime', 'update']}
 ]
 
 const promptNames: Record<string, string> = {
@@ -229,6 +232,7 @@ export function SettingsHub({
    {section === 'methods' && <LearningMethodsPanel />}
    {section === 'mcp' && <McpToolsPanel />}
    {section === 'runtime' && <RuntimePanel />}
+   {section === 'update' && <UpdatePanel />}
    {section === 'zhiyun' && (
     <div className="panel-section">
      <Card className="knowledge-card">

@@ -1490,6 +1490,20 @@
 .card.knowledge-card > * + * {
  margin-top: 14px;
 }
+.update-progress {
+ width: 100%;
+ height: 8px;
+ accent-color: var(--blue);
+}
+.update-release-notes {
+ max-height: 220px;
+ margin: 6px 0 0;
+ overflow: auto;
+ color: var(--muted);
+ font-size: 13px;
+ line-height: 1.6;
+ white-space: pre-wrap;
+}
 /* 知识库「内容分类与标签」：HeroUI Disclosure 的标题与内容节奏。 */
 .knowledge-classification-trigger {
  display: flex;

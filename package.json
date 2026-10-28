@@ -39,6 +39,7 @@
   "@heroui/react": "^3.2.6",
   "@heroui/styles": "^3.2.6",
   "@internationalized/date": "3.12.4",
+  "electron-updater": "^6.8.11",
   "koffi": "3.3.3",
   "lucide-react": "^1.58.0",
   "pdfjs-dist": "^6.3.289",
@@ -51,17 +52,17 @@
  "devDependencies": {
   "@biomejs/biome": "^2.5.15",
   "@electron/notarize": "^3.1.2",
+  "@huggingface/transformers": "4.3.1",
   "@tailwindcss/vite": "4.3.3",
   "@types/node": "^24.10.0",
   "@types/react": "^19.2.0",
   "@types/react-dom": "^19.2.0",
-  "@huggingface/transformers": "4.3.1",
   "@vitejs/plugin-react": "^5.1.0",
   "electron": "42.11.10",
   "electron-builder": "^26.0.12",
   "electron-vite": "^4.0.1",
-  "jszip": "^3.10.2",
   "esbuild": "0.25.12",
+  "jszip": "^3.10.2",
   "pdf-lib": "^1.17.1",
   "playwright": "^1.63.0",
   "tailwindcss": "4.3.3",
@@ -199,6 +200,12 @@
    "category": "Education",
    "maintainer": "Zynote contributors"
   },
-  "npmRebuild": true
+  "npmRebuild": true,
+  "publish": {
+   "provider": "github",
+   "owner": "EveSunMaple",
+   "repo": "Zynote",
+   "releaseType": "release"
+  }
  }
 }

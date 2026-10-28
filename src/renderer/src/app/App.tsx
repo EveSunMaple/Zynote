@@ -280,6 +280,19 @@ export default function App() { // NOSONAR: transitional TS fallback/UI flow ret
     }
     return
    }
+   if (e.kind === 'update') {
+    if (e.data.phase === 'downloaded')
+     notify.success('新版本已下载，重启后安装', {
+      title: '应用更新',
+      timeout: 15000,
+      key: 'update-downloaded',
+      action: {
+       label: '重启并安装',
+       onPress: () => void invoke('update:install').catch(reason => notify.error(reason, {title: '安装更新失败'}))
+      }
+     })
+    return
+   }
    if (e.kind === 'chat' && e.requestId === request.current) setChatText(t => t + e.text)
   })
   void invoke<JobState | null>('job:current')

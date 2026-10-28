@@ -11,6 +11,11 @@ on:
         options:
           - lite
           - portable
+      publish:
+        description: Publish installers and update metadata as a GitHub Release
+        required: false
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -69,7 +74,9 @@ jobs:
       - name: Checksums
         if: inputs.profile != 'portable'
         run: pnpm release:checksums release/${{ inputs.profile }} ${{ matrix.platform }}
-      - uses: actions/upload-artifact@v4
+      - name: Upload installers
+        if: inputs.profile != 'portable'
+        uses: actions/upload-artifact@v4
         with:
           name: zynote-${{ inputs.profile }}-${{ matrix.artifact }}
           path: |
@@ -80,4 +87,40 @@ jobs:
             release/${{ inputs.profile }}/*.deb
             release/${{ inputs.profile }}/SHA256SUMS-*.txt
             release/${{ inputs.profile }}/release-info.json
+            release/${{ inputs.profile }}/latest*.yml
+            release/${{ inputs.profile }}/full*.yml
+            release/${{ inputs.profile }}/*.blockmap
           if-no-files-found: error
+      - name: Upload portable app
+        if: inputs.profile == 'portable'
+        uses: actions/upload-artifact@v4
+        with:
+          name: zynote-portable-${{ matrix.artifact }}
+          path: release/portable/${{ matrix.artifact }}/**
+          if-no-files-found: error
+
+  publish:
+    needs: build
+    if: inputs.publish && inputs.profile != 'portable'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - name: Read release tag
+        id: release
+        run: echo "tag=v$(node -p "require('./package.json').version")" >> "$GITHUB_OUTPUT"
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+      - name: Publish GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.release.outputs.tag }}
+        run: |
+          gh release view "$TAG" >/dev/null 2>&1 || gh release create "$TAG" --title "Zynote $TAG" --notes "Zynote $TAG"
+          find artifacts -type f \( -name '*.dmg' -o -name '*.zip' -o -name '*.exe' -o -name '*.AppImage' -o -name '*.deb' -o -name 'latest*.yml' -o -name 'full*.yml' -o -name '*.blockmap' -o -name 'release-info.json' -o -name 'SHA256SUMS-*.txt' \) -print0 | xargs -0 gh release upload "$TAG" --clobber

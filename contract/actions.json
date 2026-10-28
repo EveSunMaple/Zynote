@@ -1,6 +1,6 @@
 {
  "schema": 1,
- "total": 150,
+ "total": 154,
  "actions": [
   {
    "action": "runtime:install",
@@ -35,6 +35,30 @@
   {
    "action": "window:toggle-maximize",
    "source": "window.ts",
+   "phase": 0,
+   "backend": "shell"
+  },
+  {
+   "action": "update:status",
+   "source": "update.ts",
+   "phase": 0,
+   "backend": "shell"
+  },
+  {
+   "action": "update:check",
+   "source": "update.ts",
+   "phase": 0,
+   "backend": "shell"
+  },
+  {
+   "action": "update:download",
+   "source": "update.ts",
+   "phase": 0,
+   "backend": "shell"
+  },
+  {
+   "action": "update:install",
+   "source": "update.ts",
    "phase": 0,
    "backend": "shell"
   },

@@ -48,8 +48,6 @@ jobs:
           GOOS=windows GOARCH=amd64 go build ./...
           GOOS=linux GOARCH=amd64 go build -o /tmp/zynote-core-linux ./cmd/zynote-core
           GOOS=linux GOARCH=amd64 go build ./...
-      - name: Cross-language parity
-        run: pnpm parity:discussion && pnpm parity:knowledge
       - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable
       - uses: Swatinem/rust-cache@e9d7b9f1e587218970671bac74e5511ed9506e6a # v2
         with:

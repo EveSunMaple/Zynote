@@ -142,10 +142,21 @@ if (profile === 'components') {
   directories: {output},
   extraResources: resources,
   artifactName: 'Zynote-' + pkg.version + '-' + profile + '-${arch}.${ext}',
-  publish: null
+  publish:
+   profile === 'portable'
+    ? null
+    : [
+       {
+        provider: 'github',
+        owner: 'EveSunMaple',
+        repo: 'Zynote',
+        releaseType: 'release',
+        channel: profile === 'full' ? 'full' : 'latest'
+       }
+      ]
  }
  await writeFile(configPath, JSON.stringify(config))
- await build({targets: platform.createTarget(targets), config: configPath})
+ await build({targets: platform.createTarget(targets), config: configPath, publish: 'never'})
  const files = await readdir(output)
  await writeFile(
   join(output, 'release-info.json'),
@@ -156,7 +167,9 @@ if (profile === 'components') {
     profile,
     platform: active,
     optionalComponents: [...skipped],
-    artifacts: files.filter(file => /\.(?:exe|dmg|zip|AppImage|deb)$/.test(file))
+    artifacts: files.filter(
+     file => /\.(?:exe|dmg|zip|AppImage|deb)$/.test(file) || /^(?:latest|full).*\.yml$/.test(file)
+    )
    },
    null,
    2

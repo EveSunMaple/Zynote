@@ -19,7 +19,7 @@
 
 > 下面较早章节保留为历史记录；其中未勾选项不代表当前仍未完成。以本节和 1.69–1.84 为准。
 
-- 契约 150 actions / shell 9；Go capabilities 152（含 11 internal）；非 shell action 已全部进入 Go 路由。
+- 契约 154 actions / shell 12；Go capabilities 153（含 11 internal）；非 shell action 已全部进入 Go 路由。
 - macOS 全量走 Go；Windows 除 `tools:request` 的 `im` 子动作外均走 Go（媒体/视频已切）。
 - 已迁：研究/外部检索/MCP/工作流/IM（QQ 手工、微信 Web/iLink、自动化、清理）、证据包、runtime、教材/视觉/智云/知识/聊天/媒体/视频、课程内部动作。
 - 剩余迁移阻塞：Windows 本机微信读取、NapCat 内置后台（SQLCipher + Windows 内存扫描/Job Object）；方案与实机清单见 `docs/tmp/WINDOWS_IM_HANDOFF.md`，待 Windows 实机。
@@ -343,7 +343,16 @@ Zynote/
 - [ ] 发布 beta，收集崩溃/超时/差异日志。
 - [x] 删除 TS 后端和回退开关。
 
-**P7 完成记录（2026-10-28）：** `src/main` 由约 26,900 行降至 1,416 行；删除 144 个文件、约 30,600 行 TS 业务代码与 16 个过时 smoke/parity 脚本。Electron 仅保留窗口、IPC 壳动作、`safeStorage`/DPAPI、SnapAny 隐藏窗口、智云 `WebContentsView`、GoCore 与 shell services；`db:bootstrap` 在窗口加载前执行。Go 新增 `video-ppt:reveal`、启动资料路径重定位（`previousLibraryRoot` 握手字段）与 `configRoot` 分离（portable 设置仍留 userData，DB/资料进 `Data`/`Library`）。生产依赖仅保留渲染层、`pdfjs-dist`、`koffi` 与 `zod`；`pnpm verify`、`pnpm backend:test`、`pnpm native:test`、`pnpm smoke:go-core`、macOS portable 打包与 `package:smoke` 全绿。portable `.app` 约 508MB（原 893MiB），`app.asar` 133MB（原 353MB）。
+**P7 完成记录（2026-10-28）：** `src/main` 由约 26,900 行降至 1,416 行；删除 144 个文件、约 30,600 行 TS 业务代码与 16 个过时 smoke/parity 脚本。Electron 仅保留窗口、IPC 壳动作、`safeStorage`/DPAPI、SnapAny 隐藏窗口、智云 `WebContentsView`、GoCore 与 shell services；`db:bootstrap` 在窗口加载前执行。Go 新增 `video-ppt:reveal`、启动资料路径重定位（`previousLibraryRoot` 握手字段）与 `configRoot` 分离（portable 设置仍留 userData，DB/资料进 `Data`/`Library`）。生产依赖仅保留渲染层、`pdfjs-dist`、`koffi`、`zod` 与 `electron-updater`；`pnpm verify`、`pnpm backend:test`、`pnpm native:test`、`pnpm smoke:go-core`、macOS portable 打包与 `package:smoke` 全绿。portable `.app` 约 508MB（原 893MiB），`app.asar` 133MB（原 353MB）。
+
+### 1.86 自动更新（2026-10-28）
+
+- [x] 接入 `electron-updater`：打包版启动 20 秒后静默检查、每 6 小时复查；发现新版本后后台下载，下载完成提示重启安装。
+- [x] 新增设置「应用更新」：当前版本、状态、下载进度、更新说明、检查/重启安装按钮；下载完成同时发送通知。
+- [x] shell 新增 `update:status/check/download/install`，契约 154 actions / shell 12；开发模式与 portable 目录版明确禁用。
+- [x] `release.mts` 按 profile 生成 `latest*.yml` / `full*.yml` 与 blockmap；lite 使用 `latest` 通道，full 使用 `full` 通道，portable 不生成更新元数据。
+- [x] `release.yml` 可选 `publish`：下载三平台工件后创建/更新 GitHub Release，上传安装包、更新元数据、checksums；GitHub provider 固定为 `EveSunMaple/Zynote`。
+- [ ] 正式自动更新依赖 Developer ID 签名/公证与已发布 Release；当前本机 Apple Development 签名可打包，但未公证。
 
 ## 7. 高风险子系统决策
 

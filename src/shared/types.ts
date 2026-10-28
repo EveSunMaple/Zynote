@@ -190,6 +190,7 @@ export type EventPayload =
  | {kind: 'chat'; requestId: string; text: string}
  | {kind: 'browser'; url: string}
  | {kind: 'window'; data: {maximized: boolean}}
+ | {kind: 'update'; data: import('./update.js').UpdateStatus}
  | {kind: 'video-batch'; items: import('./video-ppt.js').VideoBatchItem[]}
 export interface Bridge {
  invoke<T = unknown>(action: string, args?: unknown): Promise<T>

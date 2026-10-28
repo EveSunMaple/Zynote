@@ -14,6 +14,7 @@ export type SettingsSection =
  | 'zhiyun'
  | 'bilibili'
  | 'runtime'
+ | 'update'
 
 type SettingsNavigation = {
  open: (section: SettingsSection) => void
