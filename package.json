@@ -29,6 +29,8 @@
   "release:checksums": "node scripts/release-checksums.mts",
   "package:smoke": "node scripts/package-smoke.mts",
   "update:smoke": "node scripts/update-smoke.mts",
+  "e2e:packaged": "node scripts/packaged-e2e.mts",
+  "perf:smoke": "node scripts/perf-smoke.mts",
   "lint": "biome lint .",
   "format": "biome format --write .",
   "check": "biome check .",

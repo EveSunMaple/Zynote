@@ -31,6 +31,8 @@ pnpm backend:test  # go test
 pnpm native:test   # cargo test
 pnpm smoke:go-core # Go core 冒烟（不启动 Electron）
 pnpm update:smoke --app <lite app> # 本地更新源检查（macOS lite）
+pnpm e2e:packaged --app <app>     # 打包版核心 IPC/DB E2E
+pnpm perf:smoke --app <app>       # 冷启动/进程内存基线
 pnpm build
 ```
 

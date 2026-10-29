@@ -370,6 +370,12 @@ Zynote/
 - [x] `textbook:pick` 恢复从应用目录向上查找 `课本` 目录作为文件选择器默认路径；找不到时不强行设置默认目录。
 - [x] 测试：v2 安装、状态可安装标记、教材目录查找、来源符号链接越界拒绝。
 
+### 1.89 非 Windows 验收（2026-10-28）
+
+- [x] `e2e:packaged`：打包版真实 IPC/DB 流程（app:info、db:health、课程创建/详情/删除、settings/appearance/identity、runtime/update 状态）。
+- [x] `perf:smoke`：冷启动到窗口可用时间与 Electron 进程内存基线（本机 lite：约 1.2s、443MB，仅作回归参考）。
+- [x] release workflow 在打包冒烟后执行 `e2e:packaged`；macOS lite 额外执行 `update:smoke`。
+
 ## 7. 高风险子系统决策
 
 ### 7.1 YouTube / SnapAny
