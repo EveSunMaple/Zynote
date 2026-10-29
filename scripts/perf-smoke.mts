@@ -8,6 +8,8 @@ if (appIndex < 0 || !process.argv[appIndex + 1])
  throw new Error('Usage: node scripts/perf-smoke.mts --app <packaged executable>')
 const executablePath = resolve(process.argv[appIndex + 1])
 const dataRoot = mkdtempSync(join(tmpdir(), 'zynote-perf-'))
+const maxStartupMs = Number(process.env.ZYNOTE_PERF_MAX_START_MS || 5000)
+const maxMemoryMB = Number(process.env.ZYNOTE_PERF_MAX_MEMORY_MB || 800)
 let application: ElectronApplication | undefined
 try {
  const started = performance.now()

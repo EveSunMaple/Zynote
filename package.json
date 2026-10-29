@@ -31,6 +31,7 @@
   "update:smoke": "node scripts/update-smoke.mts",
   "e2e:packaged": "node scripts/packaged-e2e.mts",
   "perf:smoke": "node scripts/perf-smoke.mts",
+  "migration:drill": "node scripts/migration-drill.mts",
   "lint": "biome lint .",
   "format": "biome format --write .",
   "check": "biome check .",

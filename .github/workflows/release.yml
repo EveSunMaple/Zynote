@@ -76,6 +76,9 @@ jobs:
         run: pnpm update:smoke --app "release/${{ inputs.profile }}/${{ matrix.app }}"
       - name: Packaged core E2E
         run: pnpm e2e:packaged --app "release/${{ inputs.profile }}/${{ matrix.app }}"
+      - name: Migration and rollback drill
+        if: matrix.platform == 'mac'
+        run: pnpm migration:drill --app "release/${{ inputs.profile }}/${{ matrix.app }}"
       - name: Checksums
         if: inputs.profile != 'portable'
         run: pnpm release:checksums release/${{ inputs.profile }} ${{ matrix.platform }}

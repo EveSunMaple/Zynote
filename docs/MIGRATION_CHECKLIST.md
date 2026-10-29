@@ -374,7 +374,9 @@ Zynote/
 
 - [x] `e2e:packaged`：打包版真实 IPC/DB 流程（app:info、db:health、课程创建/详情/删除、settings/appearance/identity、runtime/update 状态）。
 - [x] `perf:smoke`：冷启动到窗口可用时间与 Electron 进程内存基线（本机 lite：约 1.2s、443MB，仅作回归参考）。
-- [x] release workflow 在打包冒烟后执行 `e2e:packaged`；macOS lite 额外执行 `update:smoke`。
+- [x] `migration:drill`：打包版旧库备份、`user_version` 升级、资料路径重定位、备份库回读（保留旧版本与旧路径）。
+- [x] `perf:smoke` 支持启动/内存阈值（默认 5s/800MB），超限失败。
+- [x] release workflow 在打包冒烟后执行 `e2e:packaged`；macOS 执行 `migration:drill`，lite 额外执行 `update:smoke`。
 
 ## 7. 高风险子系统决策
 
