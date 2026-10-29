@@ -1,8 +1,8 @@
 # Windows IM 交接文档
 
-更新：2026-10-28  
+更新：2026-10-29  
 适用仓库：`EveSunMaple/Zynote`，默认分支 `main`。  
-当前状态：P7 已完成，Go 是唯一后端；`src/main` 不再有 TypeScript IM 回退。Windows 的 `weixin_local` 和 NapCat 内置后台仍标记不可用，是唯一剩余功能性迁移缺口。
+当前状态：P7 已完成，Go 是唯一后端；`src/main` 不再有 TypeScript IM 回退。自动更新、Runtime v2 安装、数据库备份/回滚、打包 E2E 已完成。Windows 的 `weixin_local` 和 NapCat 内置后台仍标记不可用，是唯一剩余功能性迁移缺口。交接基线为 2026-10-29 的 `main`。
 
 ## 1. 目标
 
@@ -20,8 +20,8 @@
 
 1. 仓库根 `AGENTS.md`。
 2. 本文件第 5 节验收矩阵。
-3. 旧版交接草稿 `docs/tmp/WINDOWS_IM_HANDOFF.md`（如存在，只作历史参考；以本文件为准）。
-4. `docs/MIGRATION_CHECKLIST.md` 的 P7、Windows IM、发布相关章节。
+3. `docs/MIGRATION_CHECKLIST.md` 的 P7、Windows IM、发布相关章节。
+4. `docs/RELEASE.md` 的 Windows 打包与签名说明。
 
 ## 3. 代码位置
 
@@ -53,6 +53,22 @@ Rust：
 - 确认 Windows MSVC 工具链：CMake、Perl、NASM、OpenSSL/SQLCipher 构建依赖。
 - 用固定 SQLCipher fixture 和伪造 memory reader 做纯逻辑测试；不提交真实账号数据。
 
+### W1.1 `wechat.*` 协议约定
+
+Go 通过 `backend/internal/helper/native.go` 向 Rust 发单行 JSON，参数/结果按以下最小字段实现：
+
+| 方法 | 请求 | 结果 |
+| --- | --- | --- |
+| `wechat.processes` | `{}` | `{processes:[{pid,created,label}],coverage}` |
+| `wechat.probe` | `{pid,created?}` | `{probe_id,account,capabilities,expires_in}` |
+| `wechat.confirm` | `{probe_id,account}` | `{account,session,capabilities}` |
+| `wechat.verify` | `{session}` | `{verified:true}` |
+| `wechat.directory` | `{session}` | `{peers,coverage}` |
+| `wechat.receive` | `{session,peer}` | `{messages,session,coverage}` |
+| `wechat.invalidate` | `{reader_id?}` | `{invalidated:true}` |
+
+`session` 保持 `{reader_id,cursors}`，不得把解密数据库/密钥写入 session、日志或返回值。所有失败返回明确的错误字符串，不返回半成品 session。
+
 ### W2 微信本机只读
 
 - 进程枚举：Toolhelp32/QueryFullProcessImageName/GetProcessTimes。
@@ -65,7 +81,8 @@ Rust：
 
 - `WeixinLocal` 接口，Windows 实现 + 非 Windows stub。
 - `availability()` 仅在 Windows x64 且 native helper 就绪时启用。
-- 接入 `personal-processes/probe/confirm`、`sync`、`directory`；`send` 继续明确拒绝。
+- 接入 `tools:request` 的 `im` 子动作：`personal-processes`、`personal-probe`、`personal-confirm`、`sync`、`directory`；`send` 继续明确拒绝。
+- 现有 `im` 动作还包括 `status`、`change`、`model`、`libraries`、`saved-directory`、`read`、`send-status`、`cleanup`、`start`、`inspect`、`cancel`、`confirm`、`qr`、`rules`、`runs`、`reply-jobs`；Windows 实现只替换平台相关的 `personal-*` 与 `sync/directory` 路径。
 - 旧 `im-connections.sqlite3` 连接/消息/加密 session 兼容测试。
 - `im:draft` 已由 Go 实现，复用。
 
@@ -127,7 +144,7 @@ pnpm package:smoke --app release/lite/win-unpacked/Zynote.exe
 pnpm e2e:packaged --app release/lite/win-unpacked/Zynote.exe
 ```
 
-缺少 SQLCipher/OpenSSL/CMake/Perl/NASM 时先安装原生构建依赖；不要交叉编译后声称已通过 Windows 实机验收。
+Windows 构建还需要 Visual Studio Build Tools、Windows SDK、CMake、Perl、NASM、OpenSSL/SQLCipher 构建依赖。缺少时先安装并复现构建；不要交叉编译后声称已通过 Windows 实机验收。
 
 ## 8. 可复制提示词
 
@@ -139,7 +156,7 @@ pnpm e2e:packaged --app release/lite/win-unpacked/Zynote.exe
 任务：按 handoff 的 W1-W5 顺序实现：
 1. Rust --mode wechat：进程枚举、账号目录识别、内存密钥扫描、SQLCipher 只读、session 兼容、预算和路径/文件身份校验。
 2. Go WeixinLocal：availability、personal-processes/probe/confirm、sync/directory；send 明确拒绝；旧 im-connections.sqlite3 和 session 兼容。
-3. NapCat 托管：zip SHA-256 校验、安全解包、owner 凭据、端口、webhook 配置、node.exe、Job Object、登录/重启/退出清理。
+3. NapCat 托管：zip SHA-256 校验、安全解包、owner 凭据、端口、WebUI 配置、node.exe、Job Object、登录/重启/退出清理。
 4. Windows 实机验收：旧数据可读、账号切换拒绝、崩溃无残留、日志无敏感信息、能力矩阵正确。
 5. 通过后更新 capability/status，跑全量测试、Windows 打包和 packaged smoke。
 
