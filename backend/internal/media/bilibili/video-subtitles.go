@@ -175,7 +175,7 @@ func trustedSubtitleAddress(value string) (string, error) {
 	parsed, err := url.Parse(value)
 	if err != nil || parsed.Scheme != "https" || parsed.User != nil ||
 		(parsed.Port() != "" && parsed.Port() != "443") ||
-		(!strings.HasSuffix(parsed.Hostname(), "hdslb.com") && !strings.HasSuffix(parsed.Hostname(), "bilibili.com")) {
+		(!hostMatches(parsed.Hostname(), "hdslb.com") && !hostMatches(parsed.Hostname(), "bilibili.com")) {
 		return "", contract.Unavailable("字幕地址不受信任")
 	}
 	return parsed.String(), nil

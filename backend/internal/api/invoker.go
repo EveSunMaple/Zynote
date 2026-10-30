@@ -200,6 +200,7 @@ func registerActions(inv *Invoker) map[string]actionFunc {
 		"transcript:read":                     actionWithState(actionStateParams(inv.handleTranscriptRead)),
 		"files:add":                           actionWithState(actionStateParams(inv.handleFilesAdd)),
 		"files:remove":                        actionWithState(actionStateParams(inv.handleFilesRemove)),
+		"bili-resources:open-page":            actionWithState(inv.handleBiliOpen),
 		"bili-resources:status":               actionWithState(inv.handleBiliStatus),
 		"bili-resources:browse":               actionWithState(inv.handleBiliBrowse),
 		"bili-resources:qr":                   actionWithState(inv.handleBiliQR),

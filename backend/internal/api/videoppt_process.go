@@ -82,7 +82,7 @@ func (inv *Invoker) handleVideoPptSource(store contract.StateStore, state *contr
 				return nil, videoPptError(err)
 			}
 			inv.videoProgress("正在下载视频")
-			if err := inv.downloadBiliVideo(store, ctx, normalized, task.Path); err != nil {
+			if err := inv.downloadBiliVideo(ctx, store, state, normalized, task.Path); err != nil {
 				return nil, err
 			}
 		}
@@ -207,7 +207,7 @@ func (inv *Invoker) handleVideoPptAuto(store contract.StateStore, state *contrac
 				return nil, videoPptError(err)
 			}
 			inv.videoProgress("正在下载视频")
-			if err := inv.downloadBiliVideo(store, ctx, normalized, task.Path); err != nil {
+			if err := inv.downloadBiliVideo(ctx, store, state, normalized, task.Path); err != nil {
 				return nil, err
 			}
 		}

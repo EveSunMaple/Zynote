@@ -64,6 +64,54 @@ export function VideoPpt({
    cleanupWarning: string
   } | null>(null)
  const working = useRef(false)
+ useEffect(
+  () =>
+   window.assistant.onEvent(event => {
+    if (event.kind !== 'bili-import') return
+    if (working.current) {
+     notify.error('当前视频任务仍在处理，请完成后重新导入')
+     return
+    }
+    setUrl(event.url)
+    setSubtitle(null)
+    setSummary(null)
+    setSeries(null)
+    select(event.mode)
+    if (event.mode === 'videoPpt') return
+    void run(async () => {
+     let acquired: BiliSubtitle
+     try {
+      acquired = await invoke<BiliSubtitle>('video-ppt:subtitle', {url: event.url})
+     } catch (reason) {
+      const message = reason instanceof Error ? reason.message : String(reason)
+      if (!message.includes('没有站内字幕') && !message.includes('没有可用字幕')) {
+       select('videoSubtitles')
+       throw reason
+      }
+      setProgress('没有站内字幕，正在下载并使用本地模型转写')
+      acquired = await invoke<BiliSubtitle>('video-ppt:subtitle-transcribe', {
+       url: event.url,
+       courseId: courseId || undefined
+      })
+     }
+     setSubtitle(acquired)
+     if (event.mode === 'videoNotes') {
+      setSummary(
+       await invoke<VideoNoteResult>('video-ppt:summary', {
+        mode: 'detailed',
+        srt: acquired.srt,
+        title: acquired.title,
+        courseId: courseId || undefined
+       })
+      )
+      setSummaryMode('detailed')
+      notify.success('视频摘要已生成并保存')
+     }
+    })
+   }),
+  [courseId, select]
+ )
+
  const [series, setSeries] = useState<VideoSeries | null>(null),
   [selected, setSelected] = useState<number[]>([]),
   [batch, setBatch] = useState<VideoBatchItem[]>([]),

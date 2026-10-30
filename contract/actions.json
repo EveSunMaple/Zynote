@@ -1,6 +1,6 @@
 {
  "schema": 1,
- "total": 157,
+ "total": 158,
  "actions": [
   {
    "action": "runtime:install",
@@ -943,6 +943,12 @@
    "source": "courseware.ts",
    "phase": 4,
    "backend": "shell"
+  },
+  {
+   "action": "bili-resources:open-page",
+   "source": "bili.go",
+   "phase": 6,
+   "backend": "go"
   }
  ]
 }

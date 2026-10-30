@@ -2,35 +2,94 @@ package api
 
 import (
 	"context"
+	"fmt"
+	"io"
 	"net/url"
 	"os"
 	"strings"
 
 	"github.com/EveSunMaple/Zynote/backend/internal/contract"
+	"github.com/EveSunMaple/Zynote/backend/internal/media"
 	"github.com/EveSunMaple/Zynote/backend/internal/media/bilibili"
+	"github.com/EveSunMaple/Zynote/backend/internal/media/download"
 )
 
-func (inv *Invoker) downloadBiliVideo(store contract.StateStore, ctx context.Context, videoURL, destination string) error {
+// Video learning uses the same authenticated catalog, transfer and verified mux
+// as native downloads. SnapAny is no longer part of this path.
+func (inv *Invoker) downloadBiliVideo(ctx context.Context, store contract.StateStore, state *contract.State, videoURL, destination string) error {
 	if err := ctx.Err(); err != nil {
 		return err
 	}
-	reverse := store.Reverse()
-	if reverse == nil {
-		return contract.Unavailable("视频下载组件不可用")
+	resources, err := inv.biliResourcesFor(state, store.Reverse())
+	if err != nil {
+		return err
 	}
-	if _, err := reverse.Call("shell.snapanyDownload", map[string]any{
-		"url": videoURL, "path": destination,
-	}, 30*60*1000); err != nil {
-		return contract.Unavailable(err.Error())
+	reader := bilibili.NewCatalogReader(resources)
+	options, err := media.MediaOptions(map[string]any{"container": "mp4"})
+	if err != nil {
+		return err
 	}
-	if ctx.Err() != nil {
-		return ctx.Err()
+	raw, err := reader.Read(videoURL, false, options)
+	if err != nil {
+		return err
 	}
-	info, err := os.Stat(destination)
-	if err != nil || !info.Mode().IsRegular() || info.Size() == 0 {
+	source, ok := raw.(media.Source)
+	if !ok {
+		return contract.Unavailable("视频目录不可用")
+	}
+	service, err := inv.mediaServiceFor(state, store.Reverse())
+	if err != nil {
+		return err
+	}
+	job, err := service.Jobs.Create(source.Identity, source.Catalog.URL, source.Catalog.Title, options, nil)
+	if err != nil {
+		return err
+	}
+	runner := download.Runner{Jobs: service.Jobs, Auth: service.Auth, Catalog: reader,
+		Mux: &media.NativeMediaMux{Resources: state.ResourcesRoot, AllowSystemFallback: !state.Packaged || os.Getenv("ZYNOTE_SYSTEM_MEDIA") == "1", Platform: contract.CurrentPlatform()},
+		Progress: func(_ string, done int64, total *int64) {
+			inv.videoProgress(fmt.Sprintf("正在下载视频：%d MB", done/(1024*1024)))
+		}}
+	result, err := runner.Run(job.ID, ctx)
+	if err != nil {
+		return err
+	}
+	output, _ := result["output"].(map[string]any)
+	path, _ := output["path"].(string)
+	return copyLearningVideo(ctx, path, destination)
+}
+
+func copyLearningVideo(ctx context.Context, source, destination string) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	input, err := os.Open(source)
+	if err != nil {
 		return contract.Unavailable("视频下载未完成")
 	}
-	return nil
+	defer input.Close()
+	output, err := os.OpenFile(destination, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0600)
+	if err != nil {
+		return err
+	}
+	_, copyErr := io.Copy(output, &cancelVideoReader{ctx: ctx, reader: input})
+	closeErr := output.Close()
+	if copyErr != nil {
+		return copyErr
+	}
+	return closeErr
+}
+
+type cancelVideoReader struct {
+	ctx    context.Context
+	reader io.Reader
+}
+
+func (r *cancelVideoReader) Read(p []byte) (int, error) {
+	if err := r.ctx.Err(); err != nil {
+		return 0, err
+	}
+	return r.reader.Read(p)
 }
 
 func biliVideoParts(normalized string) (string, string, error) {

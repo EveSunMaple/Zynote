@@ -51,7 +51,7 @@ func (inv *Invoker) transcribeEpisode(ctx context.Context, store contract.StateS
 	if err != nil {
 		return "", err
 	}
-	if err := inv.downloadBiliVideo(store, ctx, episode.URL, task.Path); err != nil {
+	if err := inv.downloadBiliVideo(ctx, store, state, episode.URL, task.Path); err != nil {
 		return "", err
 	}
 	result, err := inv.transcribeVideoTask(ctx, state, task)
@@ -63,7 +63,7 @@ func (inv *Invoker) transcribeEpisode(ctx context.Context, store contract.StateS
 
 func (inv *Invoker) batchSubtitleItem(ctx context.Context, store contract.StateStore, state *contract.State, episode mediaBilibili.VideoEpisode, courseName string) map[string]any {
 	item := map[string]any{"page": episode.Page, "title": episode.Title}
-	subtitle, err := mediaBilibili.FetchVideoSubtitles(ctx, nil, episode.URL)
+	subtitle, err := inv.fetchVideoSubtitles(ctx, store, state, episode.URL)
 	if err == nil {
 		path, saveErr := saveVideoSubtitleFile(state, episode.URL, episode.Title, subtitle.SRT, courseName)
 		if saveErr != nil {
@@ -101,7 +101,7 @@ func (inv *Invoker) handleVideoBatchSubtitles(store contract.StateStore, state *
 		return nil, err
 	}
 	return inv.runJob("video-subtitles", func(ctx context.Context) (any, error) {
-		series, err := mediaBilibili.FetchVideoSeries(ctx, nil, input.URL)
+		series, err := inv.fetchVideoSeries(ctx, store, state, input.URL)
 		if err != nil {
 			return nil, err
 		}
@@ -126,7 +126,7 @@ func (inv *Invoker) processBatchEpisode(ctx context.Context, store contract.Stat
 	if err != nil {
 		return err
 	}
-	if err := inv.downloadBiliVideo(store, ctx, episode.URL, task.Path); err != nil {
+	if err := inv.downloadBiliVideo(ctx, store, state, episode.URL, task.Path); err != nil {
 		return err
 	}
 	chat, err := inv.videoChat(store, state)
@@ -185,7 +185,7 @@ func (inv *Invoker) handleVideoBatch(store contract.StateStore, state *contract.
 		return nil, err
 	}
 	return inv.runJob("video-batch", func(ctx context.Context) (any, error) {
-		series, err := mediaBilibili.FetchVideoSeries(ctx, nil, input.URL)
+		series, err := inv.fetchVideoSeries(ctx, store, state, input.URL)
 		if err != nil {
 			return nil, err
 		}
