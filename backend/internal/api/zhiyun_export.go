@@ -1,13 +1,17 @@
 package api
 
 import (
+	"archive/zip"
+	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"image"
 	// Register the JPEG decoder for image.Decode.
 	_ "image/jpeg"
 	// Register the PNG decoder for image.Decode.
 	_ "image/png"
+	"io"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -20,8 +24,12 @@ import (
 	"github.com/EveSunMaple/Zynote/backend/internal/library"
 	"github.com/EveSunMaple/Zynote/backend/internal/pptextract"
 	"github.com/EveSunMaple/Zynote/backend/internal/storage"
-	"github.com/EveSunMaple/Zynote/backend/internal/videoppt"
 	"github.com/EveSunMaple/Zynote/backend/internal/zhiyun"
+)
+
+const (
+	maxZhiyunTranscriptBytes = 128 << 20
+	maxZhiyunPPTBytes        = 512 << 20
 )
 
 var zhiyunFilenameInvalid = regexp.MustCompile(`[<>:"/\\|?*\x00-\x1f]`)
@@ -99,14 +107,75 @@ func sanitizeZhiyunFilename(value string) string {
 	return name
 }
 
-func zhiyunFallbackError(err error) bool {
-	message := err.Error()
-	for _, marker := range []string{"暂无可导出", "未能生成PPT", "PPT生成超时", "文件格式暂不支持"} {
-		if strings.Contains(message, marker) {
-			return true
+func readFileSignature(path string) ([]byte, error) {
+	file, err := os.Open(path)
+	if err != nil {
+		return nil, err
+	}
+	defer file.Close()
+	buffer := make([]byte, 12)
+	count, err := io.ReadFull(file, buffer)
+	if err != nil && err != io.ErrUnexpectedEOF && err != io.EOF {
+		return nil, err
+	}
+	return buffer[:count], nil
+}
+
+func zipSignature(value []byte) bool {
+	return bytes.HasPrefix(value, []byte{'P', 'K', 3, 4})
+}
+
+func oleSignature(value []byte) bool {
+	return bytes.HasPrefix(value, []byte{0xD0, 0xCF, 0x11, 0xE0, 0xA1, 0xB1, 0x1A, 0xE1})
+}
+
+func validateOfficeArchive(path, kind string) error {
+	reader, err := zip.OpenReader(path)
+	if err != nil {
+		return fmt.Errorf("下载文件不是有效的 Office 文档")
+	}
+	defer reader.Close()
+	required := "ppt/presentation.xml"
+	if kind == "transcript" {
+		required = "word/document.xml"
+	}
+	for _, file := range reader.File {
+		if file.Name == required {
+			return nil
 		}
 	}
-	return false
+	if kind == "ppt" {
+		return fmt.Errorf("智云返回的压缩包不是 PPTX")
+	}
+	return fmt.Errorf("智云返回的压缩包不是 DOCX")
+}
+
+func validateZhiyunDownload(path, kind, filename string) error {
+	signature, err := readFileSignature(path)
+	if err != nil {
+		return fmt.Errorf("下载文件无法读取")
+	}
+	lower := strings.ToLower(filename)
+	if kind == "ppt" {
+		if zipSignature(signature) {
+			return validateOfficeArchive(path, kind)
+		}
+		if oleSignature(signature) {
+			return nil
+		}
+		return fmt.Errorf("智云返回的不是 PPT 文件（可能是视频或网页），已停止处理")
+	}
+	if strings.HasSuffix(lower, ".docx") {
+		if zipSignature(signature) {
+			return validateOfficeArchive(path, kind)
+		}
+		return fmt.Errorf("智云返回的不是 Word 原文文件（可能是视频或网页），已停止处理")
+	}
+	lowerSignature := bytes.ToLower(signature)
+	if bytes.Contains(lowerSignature, []byte("<html")) || bytes.Contains(lowerSignature, []byte("ftyp")) {
+		return fmt.Errorf("智云返回的不是语音识别原文文件（可能是视频或网页），已停止处理")
+	}
+	return nil
 }
 
 type zhiyunExportInput struct {
@@ -115,6 +184,7 @@ type zhiyunExportInput struct {
 	SubID         string `json:"subId"`
 	CourseName    string `json:"courseName"`
 	LocalCourseID string `json:"localCourseId"`
+	Title         string `json:"title"`
 }
 
 func parseZhiyunExportInput(params json.RawMessage) (zhiyunExportInput, error) {
@@ -183,43 +253,39 @@ func zhiyunLectureMeta(state *contract.State, courseID string, input zhiyunExpor
 	return title, planned
 }
 
-func (inv *Invoker) persistZhiyunCourseware(write *storage.WriteDB, lectureID, path string) error {
-	parsed, err := documents.ParseCourseware(inv.native, path)
-	if err != nil {
-		return err
-	}
-	serialized, err := courseware.SerializeSourceCache(path, parsed.Text, "local", parsed.NeedsOcr, parsed.Omissions)
-	if err != nil {
-		return err
-	}
-	_, err = write.SetLectureCourseware(lectureID, path, serialized)
-	return err
-}
-
-func (inv *Invoker) exportZhiyunTranscript(ctx context.Context, client *zhiyun.Client, write *storage.WriteDB, // NOSONAR: action contract groups related parameters; changing the signature would break the protocol.
-	state *contract.State, input zhiyunExportInput, lesson *zhiyun.Lesson, lectureID, courseID, courseName string) (any, error) {
+func (inv *Invoker) exportZhiyunTranscript(ctx context.Context, client *zhiyun.Client, // NOSONAR: action contract groups related parameters; changing the signature would break the protocol.
+	state *contract.State, input zhiyunExportInput, lectureID, courseID, courseName string) (any, error) {
 	directory, err := library.CourseDirectory(state.LibraryRoot, "Transcripts", courseName)
-	if err != nil {
-		return nil, err
-	}
-	path, err := library.ReserveFile(directory, sanitizeZhiyunFilename(lesson.Title)+".docx")
 	if err != nil {
 		return nil, err
 	}
 	resource, err := client.Resource(ctx, input.CourseID, input.SubID, "transcript")
 	if err != nil {
+		return nil, contract.Unavailable(err.Error())
+	}
+	path, err := library.ReserveFile(directory, sanitizeZhiyunFilename(resource.Filename))
+	if err != nil {
+		return nil, err
+	}
+	if err := client.DownloadLimited(ctx, resource.URL, path, maxZhiyunTranscriptBytes); err != nil {
 		_ = os.Remove(path)
 		return nil, contract.Unavailable(err.Error())
 	}
-	if err := client.Download(ctx, resource.URL, path); err != nil {
+	if err := validateZhiyunDownload(path, "transcript", resource.Filename); err != nil {
 		_ = os.Remove(path)
-		return nil, contract.Unavailable(err.Error())
+		return nil, contract.InputInvalid(err.Error())
 	}
 	transcript, err := documents.ReadTranscript(inv.native, path)
 	if err != nil {
 		_ = os.Remove(path)
 		return nil, err
 	}
+	write, err := openWriteDB(state)
+	if err != nil {
+		_ = os.Remove(path)
+		return nil, err
+	}
+	defer write.Close()
 	if _, err := write.SetLectureTranscript(lectureID, path, transcript.Text, boolToInt(transcript.Estimated)); err != nil {
 		_ = os.Remove(path)
 		return nil, err
@@ -228,118 +294,87 @@ func (inv *Invoker) exportZhiyunTranscript(ctx context.Context, client *zhiyun.C
 	return map[string]any{"path": path, "lectureId": lectureID, "courseId": courseID}, nil
 }
 
-func (inv *Invoker) tryZhiyunPPT(write *storage.WriteDB, lectureID, downloaded, courseID string) (any, bool, error) {
-	fallback := strings.ToLower(filepath.Ext(downloaded)) == ".pptx" && zhiyunDeckAllBlack(downloaded)
-	if fallback {
-		return nil, false, nil
-	}
+func (inv *Invoker) saveZhiyunPPT(state *contract.State, lectureID, downloaded, courseID string) (any, error) {
+	text := ""
+	needsOcr := false
+	omissions := []string{}
+	warning := ""
 	parsed, err := documents.ParseCourseware(inv.native, downloaded)
-	if err != nil || strings.TrimSpace(parsed.Text) == "" {
-		return nil, false, nil
+	if err != nil {
+		needsOcr = true
+		warning = "PPT 已下载，但无法提取文字：" + err.Error()
+		omissions = append(omissions, "课件文字未能提取，请直接打开原文件")
+	} else {
+		text = parsed.Text
+		needsOcr = parsed.NeedsOcr
+		omissions = append(omissions, parsed.Omissions...)
+		if strings.TrimSpace(text) == "" {
+			needsOcr = true
+			warning = "PPT 已下载，但未提取到文字；可能需要 OCR 或直接查看原文件"
+			omissions = append(omissions, "课件文字为空，请直接打开原文件")
+		} else if strings.HasSuffix(strings.ToLower(filepath.Ext(downloaded)), ".pptx") && zhiyunDeckAllBlack(downloaded) {
+			needsOcr = true
+			warning = "PPT 已下载，但页面渲染为全黑或纯图片，暂未提取文字"
+			omissions = append(omissions, "课件页面为全黑或纯图片，请直接打开原文件")
+		}
 	}
-	serialized, err := courseware.SerializeSourceCache(downloaded, parsed.Text, "local", parsed.NeedsOcr, parsed.Omissions)
+	serialized, err := courseware.SerializeSourceCache(downloaded, text, "local", needsOcr, omissions)
 	if err != nil {
 		_ = os.Remove(downloaded)
-		return nil, false, err
+		return nil, err
 	}
+	write, err := openWriteDB(state)
+	if err != nil {
+		return nil, err
+	}
+	defer write.Close()
 	if _, err := write.SetLectureCourseware(lectureID, downloaded, serialized); err != nil {
-		return nil, false, err
-	}
-	_ = write.DeleteCorrectionCheckpoint(lectureID)
-	return map[string]any{"path": downloaded, "lectureId": lectureID, "courseId": courseID}, true, nil
-}
-
-func videoChoices(pages []videoppt.Page) []videoppt.Choice {
-	choices := make([]videoppt.Choice, 0, len(pages))
-	for _, page := range pages {
-		choices = append(choices, videoppt.Choice{Page: page.Page, Keep: page.Keep, Crop: page.Crop})
-	}
-	return choices
-}
-
-func (inv *Invoker) exportZhiyunFromVideo(ctx context.Context, store contract.StateStore, state *contract.State, // NOSONAR: action contract groups related parameters; changing the signature would break the protocol.
-	client *zhiyun.Client, write *storage.WriteDB, input zhiyunExportInput, title, lectureID, courseID, downloaded, pptDirectory string) (any, error) {
-	videoURL, _ := client.LessonVideoURL(ctx, input.CourseID, input.SubID)
-	if videoURL == "" {
-		return nil, contract.InputInvalid("PPT 提取失败，且本课次暂无录像；已下载文件保留")
-	}
-	inv.videoProgress("智云课件无法读取或全黑，正在改用课程录像；全黑页未裁剪")
-	task, err := videoPptService(state).CreateBlankTask(title, nil)
-	if err != nil {
-		return nil, videoPptError(err)
-	}
-	if err := client.Download(ctx, videoURL, task.Path); err != nil {
-		return nil, contract.Unavailable(err.Error())
-	}
-	chat, err := inv.videoChat(store, state)
-	if err != nil {
-		return nil, err
-	}
-	prepared, err := videoProcessor(state).Prepare(ctx, task, chat, inv.videoProgress)
-	if err != nil {
-		return nil, videoPptError(err)
-	}
-	if prepared.Source.Warning != "" {
-		return nil, contract.InputInvalid(prepared.Source.Warning + " 视频已保留，可在视频提取页继续检查")
-	}
-	review, err := videoProcessor(state).Extract(ctx, task, prepared.Source.Crop, defaultVideoPrompt, chat, inv.videoProgress)
-	if err != nil {
-		return nil, videoPptError(err)
-	}
-	if review.Warning != "" {
-		return nil, contract.InputInvalid(review.Warning + " 视频已保留，可继续检查")
-	}
-	result, _, err := videoProcessor(state).Export(ctx, task, videoChoices(review.Pages), pptDirectory)
-	if err != nil {
-		return nil, videoPptError(err)
-	}
-	if err := inv.persistZhiyunCourseware(write, lectureID, result.Path); err != nil {
 		return nil, err
 	}
 	_ = write.DeleteCorrectionCheckpoint(lectureID)
-	if downloaded != "" {
-		_ = os.Remove(downloaded)
-	}
-	if err := videoPptService(state).DiscardCompleted(task.ID); err != nil {
-		inv.videoProgress("PDF 已保存，临时文件清理失败：" + err.Error())
-	}
-	return map[string]any{"path": result.Path, "lectureId": lectureID, "courseId": courseID, "fromVideo": true}, nil
+	return map[string]any{
+		"path": downloaded, "lectureId": lectureID, "courseId": courseID, "warning": warning,
+	}, nil
 }
 
-func (inv *Invoker) exportZhiyunPPT(ctx context.Context, store contract.StateStore, state *contract.State, // NOSONAR: action contract groups related parameters; changing the signature would break the protocol.
-	client *zhiyun.Client, write *storage.WriteDB, input zhiyunExportInput, title, lectureID, courseID, courseName string) (any, error) {
+func (inv *Invoker) exportZhiyunPPT(ctx context.Context, state *contract.State, // NOSONAR: action contract groups related parameters; changing the signature would break the protocol.
+	client *zhiyun.Client, input zhiyunExportInput, lectureID, courseID, courseName string) (any, error) {
+	// Never substitute a course video for a PPT.  The user asked for the PPT
+	// resource, and silently downloading a multi-gigabyte video made the task
+	// center report a failure for a file nobody requested.
 	pptDirectory, err := library.CourseDirectory(state.LibraryRoot, "PPT", courseName)
 	if err != nil {
 		return nil, err
 	}
-	resource, resourceErr := client.Resource(ctx, input.CourseID, input.SubID, "ppt")
-	downloaded := ""
-	if resourceErr == nil {
-		downloaded, err = library.ReserveFile(pptDirectory, sanitizeZhiyunFilename(resource.Filename))
-		if err != nil {
-			return nil, err
-		}
-		if err := client.Download(ctx, resource.URL, downloaded); err != nil {
-			_ = os.Remove(downloaded)
-			return nil, contract.Unavailable(err.Error())
-		}
-		if exported, ok, err := inv.tryZhiyunPPT(write, lectureID, downloaded, courseID); err != nil {
-			return nil, err
-		} else if ok {
-			return exported, nil
-		}
-	} else if !zhiyunFallbackError(resourceErr) {
-		return nil, contract.Unavailable(resourceErr.Error())
+	resource, err := client.Resource(ctx, input.CourseID, input.SubID, "ppt")
+	if err != nil {
+		return nil, contract.Unavailable(err.Error())
 	}
-	return inv.exportZhiyunFromVideo(ctx, store, state, client, write, input, title, lectureID, courseID, downloaded, pptDirectory)
+	downloaded, err := library.ReserveFile(pptDirectory, sanitizeZhiyunFilename(resource.Filename))
+	if err != nil {
+		return nil, err
+	}
+	if err := client.DownloadLimited(ctx, resource.URL, downloaded, maxZhiyunPPTBytes); err != nil {
+		_ = os.Remove(downloaded)
+		return nil, contract.Unavailable(err.Error())
+	}
+	if err := validateZhiyunDownload(downloaded, "ppt", resource.Filename); err != nil {
+		_ = os.Remove(downloaded)
+		return nil, contract.InputInvalid(err.Error())
+	}
+	return inv.saveZhiyunPPT(state, lectureID, downloaded, courseID)
 }
 
-func (inv *Invoker) exportZhiyun(ctx context.Context, store contract.StateStore, state *contract.State, input zhiyunExportInput) (any, error) {
+func (inv *Invoker) exportZhiyun(ctx context.Context, store contract.StateStore, state *contract.State, input zhiyunExportInput, // NOSONAR: action contract groups related parameters; changing the signature would break the protocol.
+	progress func(string), ready func(courseID, lectureID string)) (any, error) {
 	client, err := inv.zhiyunClient(store)
 	if err != nil {
 		return nil, err
 	}
 	client.Progress = func(message string) {
+		if progress != nil {
+			progress(message)
+		}
 		inv.emit(map[string]any{"kind": "progress", "data": map[string]any{
 			"stage": "智云课堂", "message": message,
 		}})
@@ -356,26 +391,36 @@ func (inv *Invoker) exportZhiyun(ctx context.Context, store contract.StateStore,
 	if err != nil {
 		return nil, err
 	}
-	defer write.Close()
 	course, err := ensureZhiyunCourse(write, input)
 	if err != nil {
+		write.Close()
 		return nil, err
 	}
 	courseID := storage.ToStringValue(course["id"])
 	courseName := storage.ToStringValue(course["name"])
 	if err := ensureCourseLibrary(state.LibraryRoot, []string{courseName}); err != nil {
+		write.Close()
 		return nil, err
 	}
 	title, planned := zhiyunLectureMeta(state, courseID, input, lesson.Title)
 	lecture, err := inv.findOrCreateZhiyunLecture(write, courseID, title, planned)
 	if err != nil {
+		write.Close()
 		return nil, err
 	}
 	lectureID := storage.ToStringValue(lecture["id"])
-	if input.Kind == "transcript" {
-		return inv.exportZhiyunTranscript(ctx, client, write, state, input, lesson, lectureID, courseID, courseName)
+	// Release the write connection before the long download.  Keeping it open
+	// would block every other database write while a large file is fetched.
+	if err := write.Close(); err != nil {
+		return nil, err
 	}
-	return inv.exportZhiyunPPT(ctx, store, state, client, write, input, title, lectureID, courseID, courseName)
+	if ready != nil {
+		ready(courseID, lectureID)
+	}
+	if input.Kind == "transcript" {
+		return inv.exportZhiyunTranscript(ctx, client, state, input, lectureID, courseID, courseName)
+	}
+	return inv.exportZhiyunPPT(ctx, state, client, input, lectureID, courseID, courseName)
 }
 
 func (inv *Invoker) handleZhiyunExport(store contract.StateStore, state *contract.State, params json.RawMessage) (any, error) {
@@ -383,7 +428,5 @@ func (inv *Invoker) handleZhiyunExport(store contract.StateStore, state *contrac
 	if err != nil {
 		return nil, err
 	}
-	return inv.runJob("zhiyun", func(ctx context.Context) (any, error) {
-		return inv.exportZhiyun(ctx, store, state, input)
-	})
+	return inv.startZhiyunTask(store, state, input, zhiyunTaskTitle(input))
 }

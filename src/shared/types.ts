@@ -62,6 +62,25 @@ export interface ZhiyunLesson {
  videoAvailable: boolean
  videoUrl?: string
 }
+export type ZhiyunTaskState = 'queued' | 'running' | 'cancelling' | 'completed' | 'failed' | 'cancelled' | 'interrupted'
+export interface ZhiyunTask {
+ id: string
+ kind: 'transcript' | 'ppt'
+ title: string
+ courseId: string
+ subId: string
+ courseName: string
+ localCourseId?: string
+ state: ZhiyunTaskState
+ stage: string
+ error?: string
+ warning?: string
+ outputPath?: string
+ lectureId?: string
+ resultCourseId?: string
+ createdAt: string
+ updatedAt: string
+}
 export interface CourseFile {
  id: string
  course_id: string
@@ -194,6 +213,7 @@ export type EventPayload =
  | {kind: 'window'; data: {maximized: boolean}}
  | {kind: 'update'; data: UpdateStatus}
  | {kind: 'video-batch'; items: VideoBatchItem[]}
+ | {kind: 'zhiyun-task'; data: ZhiyunTask}
 export interface Bridge {
  invoke<T = unknown>(action: string, args?: unknown): Promise<T>
  onEvent(callback: (event: EventPayload) => void): () => void

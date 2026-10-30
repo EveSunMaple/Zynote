@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"path"
 	"regexp"
 	"strconv"
 	"strings"
@@ -63,20 +64,35 @@ type Lesson struct {
 }
 
 func stringValue(value any) string {
-	if text, ok := value.(string); ok {
-		return text
+	switch typed := value.(type) {
+	case string:
+		return typed
+	case float64:
+		return strconv.FormatInt(int64(typed), 10)
+	case int:
+		return strconv.Itoa(typed)
+	case json.Number:
+		return typed.String()
+	default:
+		return ""
 	}
-	if number, ok := value.(float64); ok {
-		return strconv.FormatInt(int64(number), 10)
-	}
-	return ""
 }
 
 func numberValue(value any) float64 {
-	if number, ok := value.(float64); ok {
+	switch typed := value.(type) {
+	case float64:
+		return typed
+	case int:
+		return float64(typed)
+	case string:
+		number, _ := strconv.ParseFloat(strings.TrimSpace(typed), 64)
 		return number
+	case json.Number:
+		number, _ := typed.Float64()
+		return number
+	default:
+		return 0
 	}
-	return 0
 }
 
 func buildTarget(base, path string, params map[string]string) string {
@@ -460,6 +476,18 @@ func resourceFilename(lesson *Lesson, kind string) string {
 	return filename + ".docx"
 }
 
+var videoResourceExtensions = map[string]bool{
+	".mp4": true, ".m3u8": true, ".flv": true, ".webm": true, ".mov": true, ".mkv": true, ".m4v": true,
+}
+
+func resourceURLExtension(value string) string {
+	parsed, err := url.Parse(value)
+	if err != nil {
+		return ""
+	}
+	return strings.ToLower(path.Ext(parsed.Path))
+}
+
 func resourceFromStatus(data map[string]any, lesson *Lesson, kind, base string) (Resource, bool, error) {
 	if int(numberValue(data["code"])) != 0 {
 		return Resource{}, false, nil
@@ -476,7 +504,27 @@ func resourceFromStatus(data map[string]any, lesson *Lesson, kind, base string) 
 	if err != nil {
 		return Resource{}, false, err
 	}
+	if videoResourceExtensions[resourceURLExtension(checked)] {
+		label, _ := resourceLabel(kind)
+		return Resource{}, false, fmt.Errorf("智云返回的是视频文件，不是%s", label)
+	}
 	return Resource{URL: checked, Filename: filename}, true, nil
+}
+
+func serverDetail(data map[string]any) string {
+	for _, key := range []string{"message", "msg"} {
+		if value := stringValue(data[key]); value != "" {
+			return value
+		}
+	}
+	if result, ok := data["data"].(map[string]any); ok {
+		for _, key := range []string{"message", "msg"} {
+			if value := stringValue(result[key]); value != "" {
+				return value
+			}
+		}
+	}
+	return ""
 }
 
 func (client *Client) startCoursewareExport(ctx context.Context, subID, exportType, label string) error {
@@ -486,14 +534,24 @@ func (client *Client) startCoursewareExport(ctx context.Context, subID, exportTy
 	if err != nil {
 		return err
 	}
-	if int(numberValue(result["code"])) != 0 {
-		return fmt.Errorf("智云课堂未能生成%s", label)
+	// The site uses 0 for "started", and has also returned 1/200 for
+	// "already queued" on older deployments. Treat all three as accepted and
+	// let the status poller decide whether a file appears.
+	code := int(numberValue(result["code"]))
+	if code != 0 && code != 1 && code != 200 {
+		detail := serverDetail(result)
+		if detail != "" {
+			return fmt.Errorf("智云课堂未能生成%s（服务返回 %d：%s）", label, code, detail)
+		}
+		return fmt.Errorf("智云课堂未能生成%s（服务返回 %d）", label, code)
 	}
 	return nil
 }
 
+var resourcePollInterval = 10 * time.Second
+
 func waitResource(ctx context.Context) error {
-	timer := time.NewTimer(10 * time.Second)
+	timer := time.NewTimer(resourcePollInterval)
 	defer timer.Stop()
 	select {
 	case <-timer.C:
@@ -514,6 +572,8 @@ func (client *Client) Resource(ctx context.Context, courseID, subID, kind string
 	}
 	label, exportType := resourceLabel(kind)
 	created := false
+	startAttempted := false
+	var startErr error
 	for attempt := 0; attempt < 60; attempt++ {
 		if err := ctx.Err(); err != nil {
 			return Resource{}, err
@@ -532,14 +592,28 @@ func (client *Client) Resource(ctx context.Context, courseID, subID, kind string
 			return resource, nil
 		}
 		code := int(numberValue(data["code"]))
-		if code != 1 && code != 200 {
-			return Resource{}, fmt.Errorf("本课次暂无可导出的%s", label)
+		// 0 without a path means the export has not produced a file yet on some
+		// deployments. 1/200 mean "still generating". Only other codes are
+		// genuine "nothing to export" responses.
+		if code != 0 && code != 1 && code != 200 {
+			return Resource{}, fmt.Errorf("本课次暂无可导出的%s（服务返回 %d）", label, code)
 		}
-		if !created {
+		if !created && !startAttempted {
+			startAttempted = true
 			if err := client.startCoursewareExport(ctx, subID, exportType, label); err != nil {
-				return Resource{}, err
+				if code == 0 {
+					return Resource{}, err
+				}
+				// The site sometimes rejects the start call even though a
+				// generation job was already queued. Keep polling for a while
+				// before surfacing the error.
+				startErr = err
+			} else {
+				created = true
 			}
-			created = true
+		}
+		if startErr != nil && attempt >= 11 {
+			return Resource{}, startErr
 		}
 		if client.Progress != nil {
 			client.Progress(fmt.Sprintf("智云课堂正在生成%s…", label))
@@ -547,6 +621,9 @@ func (client *Client) Resource(ctx context.Context, courseID, subID, kind string
 		if err := waitResource(ctx); err != nil {
 			return Resource{}, err
 		}
+	}
+	if startErr != nil {
+		return Resource{}, startErr
 	}
 	return Resource{}, fmt.Errorf("%s生成超时，请稍后再试", label)
 }
@@ -571,27 +648,44 @@ func openResourceDownload(ctx context.Context, client *Client, checked string) (
 		response.Body.Close()
 		return nil, fmt.Errorf("资源返回了登录页，请先登录智云课堂")
 	}
+	if strings.Contains(contentType, "video/") {
+		response.Body.Close()
+		return nil, fmt.Errorf("智云返回的是视频文件，不是可导出的文档")
+	}
 	return response, nil
 }
 
-func writeResourceBody(response *http.Response, partial string, progress func(string)) error { // NOSONAR: retained cohesive flow; decomposition tracked separately to avoid behavior regressions.
+func writeResourceBody(ctx context.Context, response *http.Response, partial string, progress func(string), maxBytes int64) error { // NOSONAR: retained cohesive flow; decomposition tracked separately to avoid behavior regressions.
+	total := response.ContentLength
+	if maxBytes > 0 && total > maxBytes {
+		return fmt.Errorf("资源大小为 %.1f MB，超过允许的 %.0f MB，已停止下载", float64(total)/1048576, float64(maxBytes)/1048576)
+	}
 	file, err := os.OpenFile(partial, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o644)
 	if err != nil {
 		return fmt.Errorf("资源下载失败")
 	}
-	total := response.ContentLength
 	written := int64(0)
 	buffer := make([]byte, 256*1024)
 	last := time.Time{}
 	for {
+		if ctxErr := ctx.Err(); ctxErr != nil {
+			file.Close()
+			_ = os.Remove(partial)
+			return ctxErr
+		}
 		read, readErr := response.Body.Read(buffer)
 		if read > 0 {
+			written += int64(read)
+			if maxBytes > 0 && written > maxBytes {
+				file.Close()
+				_ = os.Remove(partial)
+				return fmt.Errorf("资源大小超过允许的 %.0f MB，已停止下载", float64(maxBytes)/1048576)
+			}
 			if _, writeErr := file.Write(buffer[:read]); writeErr != nil {
 				file.Close()
 				_ = os.Remove(partial)
 				return fmt.Errorf("资源下载失败")
 			}
-			written += int64(read)
 			if progress != nil && time.Since(last) > 500*time.Millisecond {
 				last = time.Now()
 				message := fmt.Sprintf("已下载 %.1f MB", float64(written)/1048576)
@@ -622,6 +716,11 @@ func writeResourceBody(response *http.Response, partial string, progress func(st
 }
 
 func (client *Client) Download(ctx context.Context, value, destination string) error {
+	return client.DownloadLimited(ctx, value, destination, 0)
+}
+
+// DownloadLimited downloads a resource and refuses files larger than maxBytes.
+func (client *Client) DownloadLimited(ctx context.Context, value, destination string, maxBytes int64) error {
 	checked, err := mediaURL(client.Base, value)
 	if err != nil {
 		return err
@@ -632,7 +731,7 @@ func (client *Client) Download(ctx context.Context, value, destination string) e
 		return err
 	}
 	defer response.Body.Close()
-	if err := writeResourceBody(response, partial, client.Progress); err != nil {
+	if err := writeResourceBody(ctx, response, partial, client.Progress, maxBytes); err != nil {
 		return err
 	}
 	if err := os.Rename(partial, destination); err != nil {

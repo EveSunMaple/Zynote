@@ -289,6 +289,16 @@ export default function App() { // NOSONAR: transitional TS fallback/UI flow ret
     }
     return
    }
+   if (e.kind === 'zhiyun-task') {
+    if (['completed', 'failed', 'cancelled', 'interrupted'].includes(e.data.state)) {
+     void reloadCourses().catch(() => {})
+     if (e.data.resultCourseId === current.current.courseId) {
+      void reloadCourse().catch(() => {})
+      if (e.data.lectureId) void reloadLecture(e.data.lectureId).catch(() => {})
+     }
+    }
+    return
+   }
    if (e.kind === 'update') {
     if (e.data.phase === 'downloaded')
      notify.success('新版本已下载，重启后安装', {

@@ -42,7 +42,25 @@ func (inv *Invoker) runJob(key string, run func(context.Context) (any, error)) (
 	return result, err
 }
 
-func (inv *Invoker) handleCancel(_ contract.StateStore, _ *contract.State, _ json.RawMessage) (any, error) {
+func (inv *Invoker) handleCancel(_ contract.StateStore, state *contract.State, _ json.RawMessage) (any, error) {
+	if state != nil {
+		tasks := inv.zhiyunTaskStore(state)
+		if rows, err := tasks.List(); err == nil {
+			for _, task := range rows {
+				if task.State != zhiyunTaskQueued && task.State != zhiyunTaskRunning && task.State != zhiyunTaskCancelling {
+					continue
+				}
+				updated, err := tasks.Update(task.ID, func(value *zhiyunTask) {
+					value.State = zhiyunTaskCancelled
+					value.Stage = "已取消"
+					value.Error = ""
+				})
+				if err == nil {
+					inv.emitZhiyunTask(updated)
+				}
+			}
+		}
+	}
 	inv.jobs.CancelAll()
 	return true, nil
 }

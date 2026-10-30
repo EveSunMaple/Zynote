@@ -1,6 +1,6 @@
 {
  "schema": 1,
- "total": 154,
+ "total": 157,
  "actions": [
   {
    "action": "runtime:install",
@@ -562,6 +562,24 @@
   },
   {
    "action": "zhiyun:lessons",
+   "source": "desktop.ts",
+   "phase": 4,
+   "backend": "go"
+  },
+  {
+   "action": "zhiyun:task-cancel",
+   "source": "desktop.ts",
+   "phase": 4,
+   "backend": "go"
+  },
+  {
+   "action": "zhiyun:task-retry",
+   "source": "desktop.ts",
+   "phase": 4,
+   "backend": "go"
+  },
+  {
+   "action": "zhiyun:tasks",
    "source": "desktop.ts",
    "phase": 4,
    "backend": "go"

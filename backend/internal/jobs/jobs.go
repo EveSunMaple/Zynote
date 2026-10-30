@@ -2,10 +2,14 @@ package jobs
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"sync"
 	"time"
 )
+
+// ErrCancelled is returned when the user cancels the active job.
+var ErrCancelled = errors.New("任务已取消")
 
 type Registry struct {
 	mu      sync.Mutex
@@ -44,7 +48,7 @@ func (registry *Registry) Run(key, lectureID string, run func(context.Context) (
 	}()
 	result, err := run(ctx)
 	if ctx.Err() != nil {
-		return nil, fmt.Errorf("任务已取消")
+		return nil, ErrCancelled
 	}
 	return result, err
 }
@@ -58,6 +62,18 @@ func (registry *Registry) CancelAll() bool {
 		cancelled = true
 	}
 	return cancelled
+}
+
+// Cancel stops one active job by key.
+func (registry *Registry) Cancel(key string) bool {
+	registry.mu.Lock()
+	defer registry.mu.Unlock()
+	cancel, ok := registry.active[key]
+	if !ok {
+		return false
+	}
+	cancel()
+	return true
 }
 
 func (registry *Registry) Current() any {

@@ -30,6 +30,9 @@ func TestRunIsExclusiveAndCancellable(t *testing.T) {
 	if err := <-done; err == nil || err.Error() != "任务已取消" {
 		t.Fatalf("cancel mismatch: %v", err)
 	}
+	if registry.Cancel("chat:1") {
+		t.Fatal("cancelling a finished job should report false")
+	}
 	if registry.Current() != nil {
 		t.Fatal("current job should be cleared")
 	}

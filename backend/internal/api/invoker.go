@@ -49,6 +49,9 @@ type Invoker struct {
 	im            *im.Service
 	imRoot        string
 	imMu          sync.Mutex
+	zhiyunTaskMu  sync.Mutex
+	zhiyunTasks   *zhiyunTaskStore
+	zhiyunTaskDir string
 }
 
 func NewInvoker() *Invoker {
@@ -263,6 +266,9 @@ func registerActions(inv *Invoker) map[string]actionFunc {
 		"appearance:image":                    actionWithState(inv.imagePickAction("background")),
 		"identity:avatar":                     actionWithState(inv.imagePickAction("avatar")),
 		"zhiyun:export":                       actionWithState(inv.handleZhiyunExport),
+		"zhiyun:tasks":                        actionWithState(actionStateOnly(inv.handleZhiyunTasks)),
+		"zhiyun:task-cancel":                  actionWithState(actionStateParams(inv.handleZhiyunTaskCancel)),
+		"zhiyun:task-retry":                   actionWithState(inv.handleZhiyunTaskRetry),
 		"zhiyun:login":                        inv.zhiyunControlAction,
 		"zhiyun:refresh":                      inv.zhiyunControlAction,
 		"zhiyun:back":                         inv.zhiyunControlAction,

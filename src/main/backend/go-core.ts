@@ -8,8 +8,59 @@ import type {ShellService} from '@main/backend/shell-service'
 
 const HELLO_TIMEOUT_MS = 8000
 const CALL_TIMEOUT_MS = 10000
+const SLOW_CALL_TIMEOUT_MS = 90 * 1000
+const LONG_CALL_TIMEOUT_MS = 30 * 60 * 1000
 const MAX_RESTARTS = 3
 const STDERR_TAIL_LIMIT = 8000
+// These actions wait for real media/transcription work.  A 10s IPC timeout
+// used to reject them while the Go backend kept running, which made the task
+// center report a failure even though the download completed.
+const LONG_RUNNING_ACTIONS = new Set([
+ 'chat',
+ 'settings:probe',
+ 'settings:test',
+ 'knowledge:ask',
+ 'knowledge:organize',
+ 'knowledge:rebuild',
+ 'notes:generate',
+ 'practice:generate',
+ 'practice:prepare',
+ 'questions:split',
+ 'study:parse',
+ 'subtitlederived:start',
+ 'subtitlederived:resume',
+ 'subtitlesync:attach',
+ 'subtitlesync:mixed',
+ 'subtitlesync:resume',
+ 'subtitlesync:start',
+ 'subtitles:generate',
+ 'textbook:analyze',
+ 'textbook:analyze-images',
+ 'textbook:ppt-ocr',
+ 'video-ppt:auto',
+ 'video-ppt:batch',
+ 'video-ppt:batch-subtitles',
+ 'video-ppt:export',
+ 'video-ppt:extract',
+ 'video-ppt:notes-export',
+ 'video-ppt:resume-subtitle',
+ 'video-ppt:series',
+ 'video-ppt:source',
+ 'video-ppt:subtitle',
+ 'video-ppt:subtitle-transcribe',
+ 'video-ppt:subtitle-transcribe-local',
+ 'video-ppt:summary',
+ 'visual:prepare',
+ 'visual:recognize',
+ 'ppt-extract:analyze',
+ 'ppt-extract:export'
+])
+const SLOW_ACTIONS = new Set(['zhiyun:search', 'zhiyun:lessons', 'settings:models', 'tools:request'])
+function callTimeout(action: string) {
+ if (LONG_RUNNING_ACTIONS.has(action)) return LONG_CALL_TIMEOUT_MS
+ if (SLOW_ACTIONS.has(action)) return SLOW_CALL_TIMEOUT_MS
+ return CALL_TIMEOUT_MS
+}
 
 export type GoCoreStatus = 'starting' | 'ready' | 'restarting' | 'failed' | 'disposed'
 
@@ -117,7 +168,7 @@ export class GoCore {
    const timer = setTimeout(() => {
     this.pending.delete(id)
     reject(new Error('Go 后端请求超时'))
-   }, CALL_TIMEOUT_MS)
+   }, callTimeout(action))
    this.pending.set(id, {resolve, reject, timer})
    this.send({jsonrpc: '2.0', id, method: action, params})
   })
