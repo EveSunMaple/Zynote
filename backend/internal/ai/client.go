@@ -593,6 +593,102 @@ func stripJSONFence(value string) string {
 	return strings.TrimSpace(trimmed)
 }
 
+func isHexDigit(value byte) bool {
+	return value >= '0' && value <= '9' || value >= 'a' && value <= 'f' || value >= 'A' && value <= 'F'
+}
+
+// repairJSONEscapes doubles LaTeX backslashes inside JSON strings. Models often
+// return `\frac` or `\cdot` without JSON-escaping them; `\f` is a valid JSON
+// escape and silently becomes a form feed, while `\c` makes the document
+// invalid. Math delimiters ($...$/$$...$$ or \(...\)/\[...\]) identify the
+// regions where a backslash is LaTeX rather than a JSON escape.
+func repairJSONEscapes(data []byte) []byte {
+	var out bytes.Buffer
+	inString := false
+	mathMode := false
+	displayMath := false
+	for index := 0; index < len(data); index++ {
+		char := data[index]
+		if !inString {
+			out.WriteByte(char)
+			if char == '"' {
+				inString = true
+			}
+			continue
+		}
+		if char == '"' {
+			out.WriteByte(char)
+			inString = false
+			continue
+		}
+		if char == '\\' {
+			if index+1 >= len(data) {
+				out.WriteByte(char)
+				continue
+			}
+			next := data[index+1]
+			if next == '\\' || next == '/' || next == '"' {
+				out.WriteByte(char)
+				out.WriteByte(next)
+				index++
+				continue
+			}
+			if next == 'u' && index+5 < len(data) &&
+				isHexDigit(data[index+2]) && isHexDigit(data[index+3]) &&
+				isHexDigit(data[index+4]) && isHexDigit(data[index+5]) {
+				out.WriteByte(char)
+				out.WriteByte(next)
+				index++
+				continue
+			}
+			if mathMode || (next != 'b' && next != 'f' && next != 'n' && next != 'r' && next != 't') {
+				out.WriteString(`\\`)
+				out.WriteByte(next)
+				index++
+				if next == '(' || next == '[' {
+					mathMode = true
+					displayMath = next == '['
+				} else if next == ')' || next == ']' {
+					mathMode = false
+					displayMath = false
+				}
+				continue
+			}
+			out.WriteByte(char)
+			out.WriteByte(next)
+			index++
+			continue
+		}
+		if char == '$' {
+			if !mathMode {
+				mathMode = true
+				out.WriteByte(char)
+				if index+1 < len(data) && data[index+1] == '$' {
+					displayMath = true
+					out.WriteByte('$')
+					index++
+				}
+				continue
+			}
+			if displayMath && index+1 < len(data) && data[index+1] == '$' {
+				mathMode = false
+				displayMath = false
+				out.WriteByte(char)
+				out.WriteByte('$')
+				index++
+				continue
+			}
+			if !displayMath {
+				mathMode = false
+				out.WriteByte(char)
+				continue
+			}
+		}
+		out.WriteByte(char)
+	}
+	return out.Bytes()
+}
+
 type JSONOptions struct {
 	Images  []Image
 	OnRetry func()
@@ -633,7 +729,7 @@ func (client *Client) JSONWithOptions(
 		if err != nil {
 			return nil, err
 		}
-		clean := []byte(stripJSONFence(reply))
+		clean := repairJSONEscapes([]byte(stripJSONFence(reply)))
 		if err := validate(clean); err != nil {
 			lastErr = err
 			if ctx.Err() != nil {

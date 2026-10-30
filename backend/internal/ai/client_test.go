@@ -2,6 +2,7 @@ package ai
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -75,5 +76,25 @@ func TestChatJSONAndModels(t *testing.T) {
 	if _, err := missing.Chat(context.Background(), []Message{{Role: "user", Content: "hi"}}, nil); err == nil ||
 		!strings.Contains(err.Error(), "文本模型") {
 		t.Fatalf("model selection mismatch: %v", err)
+	}
+}
+
+func TestRepairJSONEscapes(t *testing.T) {
+	raw := `[{"stem":"$\frac{dy}{dx}$\nA. $\frac{du}{dx}$","note":"C:\Users\eve","theta":"$\theta$","unicode":"\u4e2d"}]`
+	var parsed []struct {
+		Stem    string `json:"stem"`
+		Note    string `json:"note"`
+		Theta   string `json:"theta"`
+		Unicode string `json:"unicode"`
+	}
+	if err := json.Unmarshal(repairJSONEscapes([]byte(raw)), &parsed); err != nil {
+		t.Fatal(err)
+	}
+	if len(parsed) != 1 ||
+		parsed[0].Stem != "$\\frac{dy}{dx}$\nA. $\\frac{du}{dx}$" ||
+		parsed[0].Note != `C:\Users\eve` ||
+		parsed[0].Theta != `$\theta$` ||
+		parsed[0].Unicode != "中" {
+		t.Fatalf("unexpected repair: %+v", parsed)
 	}
 }

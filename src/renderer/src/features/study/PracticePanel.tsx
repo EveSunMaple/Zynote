@@ -1,11 +1,10 @@
 import {Button, Checkbox, Input} from '@heroui/react'
 import {useState} from 'react'
-import ReactMarkdown from 'react-markdown'
-import remarkGfm from 'remark-gfm'
 import type {PracticeSet, PracticeQuestion} from '@shared/types'
 import {questionOptions, questionStem} from '@shared/practice'
 import {notify} from '@renderer/ui/ToastHost'
 import {StudyIcon} from '@renderer/ui/StudyIcon'
+import {MathMarkdown} from '@renderer/ui/MathMarkdown'
 import {IdentityAvatar} from '@renderer/features/identity/Identity'
 const groupLabels: Record<Group, string> = {
  past: '历年真题',
@@ -81,7 +80,7 @@ function Question({
     <strong>{q.topic}</strong>
     <small>{q.type}</small>
    </div>
-   <p className="question-stem">{stem}</p>
+   <MathMarkdown className="question-stem">{stem}</MathMarkdown>
    {group !== 'generated' && (
     <small className="question-source">
      {q.sourceFile || '有来源的练习题'}
@@ -113,7 +112,9 @@ function Question({
            <Checkbox.Indicator />
           </Checkbox.Control>
           <span className="option-letter">{o.key}</span>
-          <span>{o.text}</span>
+          <span className="option-text">
+           <MathMarkdown inline>{o.text}</MathMarkdown>
+          </span>
          </Checkbox.Content>
         </Checkbox>
        ) : (
@@ -127,7 +128,9 @@ function Question({
           onChange={() => setDraft(o.key)}
          />
          <span className="option-letter">{o.key}</span>
-         <span>{o.text}</span>
+         <span className="option-text">
+          <MathMarkdown inline>{o.text}</MathMarkdown>
+         </span>
         </label>
        )
       )}
@@ -214,7 +217,7 @@ function Question({
    {(!options.length || showAnswer) && (
     <div className="practice-short-answer">
      <strong>参考答案</strong>
-     <p>{q.answer || '参考答案尚未准备，请点击“补全已有答案与详解”'}</p>
+     <MathMarkdown>{q.answer || '参考答案尚未准备，请点击“补全已有答案与详解”'}</MathMarkdown>
      {origin && <small>{origin}</small>}
     </div>
    )}
@@ -227,15 +230,10 @@ function Question({
       <strong>答案详解</strong>
       {origin && <small>{origin}</small>}
      </div>
-     {q.answer && (
-      <p>
-       <strong>参考答案：</strong>
-       {q.answer}
-      </p>
-     )}
-     <ReactMarkdown remarkPlugins={[remarkGfm]}>
+     {q.answer && <MathMarkdown>{`**参考答案：** ${q.answer}`}</MathMarkdown>}
+     <MathMarkdown>
       {q.explanation || '这道题尚未保存详解。需要时请点击上方“补全已有答案与详解”，完成后再查看。'}
-     </ReactMarkdown>
+     </MathMarkdown>
      <small>{q.searchStatus} · 详解由 AI 辅助整理</small>
      {q.answerSourceUrl && (
       <a

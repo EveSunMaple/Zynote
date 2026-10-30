@@ -1221,16 +1221,16 @@ a {
 }
 .answer-options {
  display: grid;
- grid-template-columns: repeat(2, minmax(0, 1fr));
+ grid-template-columns: 1fr;
  gap: 10px;
  margin: 18px 0;
 }
 .answer-option {
  display: flex;
- align-items: center;
+ align-items: flex-start;
  gap: 10px;
  margin: 0;
- padding: 14px;
+ padding: 12px 14px;
  border: 1px solid var(--line);
  border-radius: 12px;
  cursor: pointer;
@@ -1243,12 +1243,33 @@ a {
 }
 .answer-option > input {
  width: 15px;
+ margin-top: 4px;
  accent-color: var(--blue);
  flex: none;
 }
 .option-letter {
- font-weight: 600;
+ flex: none;
+ min-width: 1.2em;
+ font-weight: 700;
  color: var(--blue);
+}
+.option-text {
+ min-width: 0;
+ white-space: pre-wrap;
+}
+.option-text p,
+.question-stem p {
+ margin: 0;
+}
+.question-stem .katex-display,
+.option-text .katex-display,
+.practice-explanation .katex-display {
+ margin: 0.55em 0;
+ overflow-x: auto;
+ overflow-y: hidden;
+}
+.option-text .katex-display {
+ margin: 0;
 }
 .practice-actions {
  display: flex;
@@ -1307,11 +1328,6 @@ a {
 }
 .interactive-practice .question-stem {
  line-height: 1.8;
-}
-@media (max-width: 1200px) {
- .answer-options {
-  grid-template-columns: 1fr;
- }
 }
 .practice-short-answer {
  padding: 16px 18px;
