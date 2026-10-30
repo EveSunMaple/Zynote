@@ -194,6 +194,11 @@ export default function App() { // NOSONAR: transitional TS fallback/UI flow ret
   operation = useRef(false),
   activeJob = useRef('')
  current.current = {courseId, lectureId, sessionId}
+ async function reloadCourses() {
+  const result = await invoke<Course[]>('courses')
+  setCourses(result)
+  return result
+ }
  async function reloadCourse(id = current.current.courseId) {
   const result = await invoke<Detail>('course:detail', {id})
   if (current.current.courseId === id) {
@@ -203,7 +208,7 @@ export default function App() { // NOSONAR: transitional TS fallback/UI flow ret
   return result
  }
  async function zhiyunImported(id: string, cid: string) {
-  setCourses(await invoke<Course[]>('courses'))
+  await reloadCourses()
   if (cid === courseId) {
    await reloadCourse()
    setLectureId(id)
@@ -277,6 +282,7 @@ export default function App() { // NOSONAR: transitional TS fallback/UI flow ret
     operation.current = false
     setBusy(false)
     if (e.data.error) notify.error(e.data.error, {title: '任务停止'})
+    void reloadCourses().catch(() => {})
     if (e.data.lectureId) {
      void reloadLecture(e.data.lectureId).catch(() => {})
      void reloadCourse().catch(() => {})
@@ -320,6 +326,14 @@ export default function App() { // NOSONAR: transitional TS fallback/UI flow ret
    disposed = true
    unsubscribe()
   }
+ }, [])
+ useEffect(() => {
+  if (modal === null) void reloadCourses().catch(() => {})
+ }, [modal])
+ useEffect(() => {
+  const refresh = () => void reloadCourses().catch(() => {})
+  window.addEventListener('focus', refresh)
+  return () => window.removeEventListener('focus', refresh)
  }, [])
  useEffect(() => {
   const media = window.matchMedia('(prefers-color-scheme: dark)')
@@ -692,8 +706,7 @@ export default function App() { // NOSONAR: transitional TS fallback/UI flow ret
         const ok = await task(async () => {
          try {
           await invoke('course:delete', {id, confirmed: true})
-          const remaining = await invoke<Course[]>('courses')
-          setCourses(remaining)
+          const remaining = await reloadCourses()
           setSessions(v => v.filter(s => s.course_id !== id))
           if (id === courseId) {
            setCourseId(remaining[0]?.id || '')
@@ -1150,20 +1163,22 @@ export default function App() { // NOSONAR: transitional TS fallback/UI flow ret
                   </Button>
                  ))}
                </div>
-               <Checkbox
-                className="practice-options"
-                isSelected={withSearch}
-                isDisabled={busy}
-                onChange={setWithSearch}
-               >
-                <Checkbox.Content>
-                 <Checkbox.Control>
-                  <Checkbox.Indicator />
-                 </Checkbox.Control>
-                 搜索有来源的拓展题（较慢，需配置搜索服务）
-                </Checkbox.Content>
-               </Checkbox>
-               <SettingsLink section="search">配置搜索服务</SettingsLink>
+               <div className="practice-search-row">
+                <Checkbox
+                 className="practice-options"
+                 isSelected={withSearch}
+                 isDisabled={busy}
+                 onChange={setWithSearch}
+                >
+                 <Checkbox.Content>
+                  <Checkbox.Control>
+                   <Checkbox.Indicator />
+                  </Checkbox.Control>
+                  搜索有来源的拓展题（较慢，需配置搜索服务）
+                 </Checkbox.Content>
+                </Checkbox>
+                <SettingsLink section="search">配置搜索服务</SettingsLink>
+               </div>
                {lecture.practice ? (
                 <PracticePanel
                  key={lectureId}
@@ -1537,7 +1552,7 @@ export default function App() { // NOSONAR: transitional TS fallback/UI flow ret
        busy={busy}
        close={() => setModal(null)}
        changed={async () => {
-        setCourses(await invoke<Course[]>('courses'))
+        await reloadCourses()
         if (courseId) await reloadCourse()
         if (lectureId) await reloadLecture()
        }}
@@ -1550,7 +1565,7 @@ export default function App() { // NOSONAR: transitional TS fallback/UI flow ret
        create={(name, senior, exams) =>
         task(async () => {
          const c = await invoke<Course>('course:create', {name})
-         setCourses(await invoke<Course[]>('courses'))
+         await reloadCourses()
          setCourseId(c.id)
          if (senior.length) await invoke('files:add', {courseId: c.id, kind: 'senior_notes', paths: senior})
          if (exams.length) await invoke('files:add', {courseId: c.id, kind: 'past_exam', paths: exams})

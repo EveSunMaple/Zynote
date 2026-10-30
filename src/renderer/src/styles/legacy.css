@@ -951,6 +951,11 @@ a {
  z-index: 40;
  background: transparent;
  border: 0;
+ cursor: default;
+}
+.picker-dismiss:hover,
+.picker-dismiss:focus {
+ background: transparent;
 }
 .lecture-popover {
  position: absolute;
@@ -1077,6 +1082,17 @@ a {
  margin: 12px 0;
  color: #8a8e98;
  font-size: 12px;
+}
+.practice-search-row {
+ display: flex;
+ align-items: center;
+ flex-wrap: wrap;
+ gap: 8px;
+ margin: 12px 0;
+}
+.practice-search-row .practice-options {
+ flex: 0 1 auto;
+ margin: 0;
 }
 .listening-buddy {
  display: block;
