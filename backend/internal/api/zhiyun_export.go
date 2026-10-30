@@ -6,14 +6,8 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"image"
-	// Register the JPEG decoder for image.Decode.
-	_ "image/jpeg"
-	// Register the PNG decoder for image.Decode.
-	_ "image/png"
 	"io"
 	"os"
-	"path/filepath"
 	"regexp"
 	"strings"
 
@@ -22,7 +16,6 @@ import (
 	"github.com/EveSunMaple/Zynote/backend/internal/courseware"
 	"github.com/EveSunMaple/Zynote/backend/internal/documents"
 	"github.com/EveSunMaple/Zynote/backend/internal/library"
-	"github.com/EveSunMaple/Zynote/backend/internal/pptextract"
 	"github.com/EveSunMaple/Zynote/backend/internal/storage"
 	"github.com/EveSunMaple/Zynote/backend/internal/zhiyun"
 )
@@ -47,56 +40,6 @@ func (inv *Invoker) findOrCreateZhiyunLecture(
 		return lecture, nil
 	}
 	return write.CreateLecture(courseID, title, "", "", "", "")
-}
-
-var zhiyunDeckFallbackPattern = regexp.MustCompile(`纯图片型|编辑对象|旧版 PPT|分辨率|200 MB|500 页|多张图片`)
-
-func scanVisiblePixels(value image.Image) bool {
-	bounds := value.Bounds()
-	for y := bounds.Min.Y; y < bounds.Max.Y; y++ {
-		for x := bounds.Min.X; x < bounds.Max.X; x++ {
-			red, green, blue, _ := value.At(x, y).RGBA()
-			if red>>8 >= 42 || green>>8 >= 42 || blue>>8 >= 42 {
-				return true
-			}
-		}
-	}
-	return false
-}
-
-func pageHasVisiblePixels(path string) (bool, bool) {
-	file, err := os.Open(path)
-	if err != nil {
-		return false, false
-	}
-	imageValue, _, decodeErr := image.Decode(file)
-	_ = file.Close()
-	if decodeErr != nil {
-		return false, false
-	}
-	return scanVisiblePixels(imageValue), true
-}
-
-func zhiyunDeckAllBlack(path string) bool {
-	directory, err := os.MkdirTemp("", "zynote-zhiyun-deck-*")
-	if err != nil {
-		return true
-	}
-	defer os.RemoveAll(directory)
-	deck, err := pptextract.ReadDeck(path, directory)
-	if err != nil {
-		return !zhiyunDeckFallbackPattern.MatchString(err.Error())
-	}
-	for _, page := range deck.Pages {
-		if page.Unavailable != "" {
-			continue
-		}
-		visible, ok := pageHasVisiblePixels(page.ImagePath)
-		if ok && visible {
-			return false
-		}
-	}
-	return true
 }
 
 func sanitizeZhiyunFilename(value string) string {
@@ -253,14 +196,71 @@ func zhiyunLectureMeta(state *contract.State, courseID string, input zhiyunExpor
 	return title, planned
 }
 
+func formatTranscriptText(segments []zhiyun.TranscriptSegment) string {
+	var builder strings.Builder
+	for _, segment := range segments {
+		minutes := segment.Start / 60
+		seconds := segment.Start % 60
+		builder.WriteString(fmt.Sprintf("[%02d:%02d] %s\n", minutes, seconds, segment.Text))
+	}
+	return builder.String()
+}
+
+func (inv *Invoker) saveZhiyunTranscriptText(state *contract.State, lectureID, courseID, courseName, title string,
+	segments []zhiyun.TranscriptSegment) (any, error) {
+	directory, err := library.CourseDirectory(state.LibraryRoot, "Transcripts", courseName)
+	if err != nil {
+		return nil, err
+	}
+	text := formatTranscriptText(segments)
+	if strings.TrimSpace(text) == "" {
+		return nil, contract.InputInvalid("该课次暂无语音识别原文")
+	}
+	path, err := library.ReserveFile(directory, sanitizeZhiyunFilename(title)+".txt")
+	if err != nil {
+		return nil, err
+	}
+	if err := os.WriteFile(path, []byte(text), 0o644); err != nil {
+		return nil, contract.Unavailable("语音识别原文写入失败")
+	}
+	write, err := openWriteDB(state)
+	if err != nil {
+		_ = os.Remove(path)
+		return nil, err
+	}
+	defer write.Close()
+	if _, err := write.SetLectureTranscript(lectureID, path, text, 0); err != nil {
+		_ = os.Remove(path)
+		return nil, err
+	}
+	_ = write.DeleteCorrectionCheckpoint(lectureID)
+	return map[string]any{
+		"path": path, "lectureId": lectureID, "courseId": courseID,
+		"warning": "已根据智云课堂的语音识别记录生成文本原文（.txt）",
+	}, nil
+}
+
 func (inv *Invoker) exportZhiyunTranscript(ctx context.Context, client *zhiyun.Client, // NOSONAR: action contract groups related parameters; changing the signature would break the protocol.
-	state *contract.State, input zhiyunExportInput, lectureID, courseID, courseName string) (any, error) {
+	state *contract.State, input zhiyunExportInput, lesson *zhiyun.Lesson, lectureID, courseID, courseName string) (any, error) {
+	if client.Progress != nil {
+		client.Progress("正在读取课堂语音识别记录…")
+	}
+	segments, transcriptErr := client.Transcript(ctx, input.SubID)
+	if transcriptErr == nil && len(segments) > 0 {
+		return inv.saveZhiyunTranscriptText(state, lectureID, courseID, courseName, lesson.Title, segments)
+	}
+	if client.Progress != nil {
+		client.Progress("课堂语音识别记录不可用，尝试导出 Word 原文…")
+	}
 	directory, err := library.CourseDirectory(state.LibraryRoot, "Transcripts", courseName)
 	if err != nil {
 		return nil, err
 	}
 	resource, err := client.Resource(ctx, input.CourseID, input.SubID, "transcript")
 	if err != nil {
+		if transcriptErr != nil {
+			return nil, contract.Unavailable(transcriptErr.Error())
+		}
 		return nil, contract.Unavailable(err.Error())
 	}
 	path, err := library.ReserveFile(directory, sanitizeZhiyunFilename(resource.Filename))
@@ -274,6 +274,9 @@ func (inv *Invoker) exportZhiyunTranscript(ctx context.Context, client *zhiyun.C
 	if err := validateZhiyunDownload(path, "transcript", resource.Filename); err != nil {
 		_ = os.Remove(path)
 		return nil, contract.InputInvalid(err.Error())
+	}
+	if client.Progress != nil {
+		client.Progress("正在解析语音识别原文…")
 	}
 	transcript, err := documents.ReadTranscript(inv.native, path)
 	if err != nil {
@@ -312,10 +315,6 @@ func (inv *Invoker) saveZhiyunPPT(state *contract.State, lectureID, downloaded, 
 			needsOcr = true
 			warning = "PPT 已下载，但未提取到文字；可能需要 OCR 或直接查看原文件"
 			omissions = append(omissions, "课件文字为空，请直接打开原文件")
-		} else if strings.HasSuffix(strings.ToLower(filepath.Ext(downloaded)), ".pptx") && zhiyunDeckAllBlack(downloaded) {
-			needsOcr = true
-			warning = "PPT 已下载，但页面渲染为全黑或纯图片，暂未提取文字"
-			omissions = append(omissions, "课件页面为全黑或纯图片，请直接打开原文件")
 		}
 	}
 	serialized, err := courseware.SerializeSourceCache(downloaded, text, "local", needsOcr, omissions)
@@ -361,6 +360,9 @@ func (inv *Invoker) exportZhiyunPPT(ctx context.Context, state *contract.State, 
 	if err := validateZhiyunDownload(downloaded, "ppt", resource.Filename); err != nil {
 		_ = os.Remove(downloaded)
 		return nil, contract.InputInvalid(err.Error())
+	}
+	if client.Progress != nil {
+		client.Progress("正在解析 PPT…")
 	}
 	return inv.saveZhiyunPPT(state, lectureID, downloaded, courseID)
 }
@@ -418,7 +420,7 @@ func (inv *Invoker) exportZhiyun(ctx context.Context, store contract.StateStore,
 		ready(courseID, lectureID)
 	}
 	if input.Kind == "transcript" {
-		return inv.exportZhiyunTranscript(ctx, client, state, input, lectureID, courseID, courseName)
+		return inv.exportZhiyunTranscript(ctx, client, state, input, lesson, lectureID, courseID, courseName)
 	}
 	return inv.exportZhiyunPPT(ctx, state, client, input, lectureID, courseID, courseName)
 }

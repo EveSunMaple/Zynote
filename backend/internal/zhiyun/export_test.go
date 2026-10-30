@@ -61,6 +61,62 @@ func TestResourceAndDownload(t *testing.T) {
 	}
 }
 
+func TestTranscriptReadsReplayAsr(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		if request.URL.Path != "/courseapi/v3/web-socket/search-trans-result" {
+			http.NotFound(writer, request)
+			return
+		}
+		if request.URL.Query().Get("sub_id") != "123" || request.URL.Query().Get("format") != "json" {
+			t.Errorf("transcript query mismatch: %s", request.URL.RawQuery)
+		}
+		fmt.Fprint(writer, `{"code":0,"msg":"ok","list":[{"trans_type":"ainew","all_content":[
+			{"BeginSec":5,"EndSec":10,"Text":"第一句"},
+			{"BeginSec":10,"EndSec":15,"Text":"第二句"}
+		]}]}`)
+	}))
+	defer server.Close()
+	client := New(server.URL, Session{})
+	client.HTTP = &http.Client{Transport: rewriteTransport{target: server.Listener.Addr().String()}}
+	segments, err := client.Transcript(context.Background(), "123")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(segments) != 2 || segments[0].Start != 5 || segments[0].Text != "第一句" || segments[1].End != 15 {
+		t.Fatalf("transcript mismatch: %+v", segments)
+	}
+}
+
+func TestResourceFailsFastForPermissionError(t *testing.T) {
+	statusCalls := 0
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		switch request.URL.Path {
+		case "/courseapi/v2/course/catalogue":
+			fmt.Fprint(writer, `{"success":true,"result":{"code":200,"data":[{"sub_id":"1","title":"第一讲","content":{}}]}}`)
+		case "/courseapi/v2/export/get-courseware-status":
+			statusCalls++
+			fmt.Fprint(writer, `{"code":1,"msg":"未找到下载记录","data":[]}`)
+		case "/courseapi/v2/export/export-async":
+			fmt.Fprint(writer, `{"code":1004,"msg":"无权导出该章节"}`)
+		default:
+			http.NotFound(writer, request)
+		}
+	}))
+	defer server.Close()
+	previous := resourcePollInterval
+	resourcePollInterval = time.Millisecond
+	defer func() { resourcePollInterval = previous }()
+	client := New(server.URL, Session{})
+	client.HTTP = &http.Client{Transport: rewriteTransport{target: server.Listener.Addr().String()}}
+	if _, err := client.Resource(context.Background(), "99", "1", "transcript"); err == nil ||
+		!strings.Contains(err.Error(), "1004") {
+		t.Fatalf("permission error mismatch: %v", err)
+	}
+	if statusCalls != 1 {
+		t.Fatalf("permission error should fail fast, status calls=%d", statusCalls)
+	}
+}
+
 func TestResourceWaitsForPendingExport(t *testing.T) {
 	statusCalls := 0
 	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {

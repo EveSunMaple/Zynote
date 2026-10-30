@@ -384,6 +384,60 @@ func (client *Client) Lessons(ctx context.Context, courseID string) ([]Lesson, e
 	return lessons, nil
 }
 
+type TranscriptSegment struct {
+	Start int
+	End   int
+	Text  string
+}
+
+// Transcript reads the ASR transcript the replay page shows under
+// "语音识别".  Unlike the Word export it is available to students even when
+// the chapter does not grant courseware export permission.
+func (client *Client) Transcript(ctx context.Context, subID string) ([]TranscriptSegment, error) {
+	data, err := client.request(ctx, "/courseapi/v3/web-socket/search-trans-result", map[string]string{
+		"sub_id": subID, "format": "json",
+	})
+	if err != nil {
+		return nil, err
+	}
+	code := int(numberValue(data["code"]))
+	if code != 0 {
+		return nil, fmt.Errorf("智云课堂没有可用的语音识别原文（服务返回 %d）", code)
+	}
+	list, _ := data["list"].([]any)
+	for _, item := range list {
+		row, _ := item.(map[string]any)
+		if row == nil {
+			continue
+		}
+		content, _ := row["all_content"].([]any)
+		segments := make([]TranscriptSegment, 0, len(content))
+		for _, entry := range content {
+			value, _ := entry.(map[string]any)
+			if value == nil {
+				continue
+			}
+			text := strings.Join(strings.Fields(stringValue(value["Text"])), " ")
+			if text == "" {
+				continue
+			}
+			start := int(numberValue(value["BeginSec"]))
+			end := int(numberValue(value["EndSec"]))
+			if start < 0 {
+				start = 0
+			}
+			if end < start {
+				end = start
+			}
+			segments = append(segments, TranscriptSegment{Start: start, End: end, Text: text})
+		}
+		if len(segments) > 0 {
+			return segments, nil
+		}
+	}
+	return nil, fmt.Errorf("该课次暂无语音识别原文")
+}
+
 func mediaURL(base, value string) (string, error) {
 	parsed, err := url.Parse(value)
 	if err != nil {
@@ -538,6 +592,12 @@ func (client *Client) startCoursewareExport(ctx context.Context, subID, exportTy
 	// "already queued" on older deployments. Treat all three as accepted and
 	// let the status poller decide whether a file appears.
 	code := int(numberValue(result["code"]))
+	if code == 1004 {
+		// 1004 is returned for chapters whose export has not been generated
+		// yet.  The server text says “无权导出”, which reads like a permission
+		// problem and sends users to the wrong place.
+		return fmt.Errorf("该课次暂未生成可导出的%s（服务返回 1004），请稍后再试", label)
+	}
 	if code != 0 && code != 1 && code != 200 {
 		detail := serverDetail(result)
 		if detail != "" {
@@ -559,6 +619,16 @@ func waitResource(ctx context.Context) error {
 	case <-ctx.Done():
 		return ctx.Err()
 	}
+}
+
+func permanentExportError(err error) bool {
+	message := err.Error()
+	for _, marker := range []string{"1004", "无权导出", "请先登录", "暂无可导出", "文件格式暂不支持"} {
+		if strings.Contains(message, marker) {
+			return true
+		}
+	}
+	return false
 }
 
 func (client *Client) Resource(ctx context.Context, courseID, subID, kind string) (Resource, error) {
@@ -601,7 +671,7 @@ func (client *Client) Resource(ctx context.Context, courseID, subID, kind string
 		if !created && !startAttempted {
 			startAttempted = true
 			if err := client.startCoursewareExport(ctx, subID, exportType, label); err != nil {
-				if code == 0 {
+				if code == 0 || permanentExportError(err) {
 					return Resource{}, err
 				}
 				// The site sometimes rejects the start call even though a
@@ -739,7 +809,7 @@ func (client *Client) DownloadLimited(ctx context.Context, value, destination st
 		return fmt.Errorf("资源下载失败")
 	}
 	if client.Progress != nil {
-		client.Progress("导出完成")
+		client.Progress("文件已下载，正在解析并写入课次…")
 	}
 	return nil
 }

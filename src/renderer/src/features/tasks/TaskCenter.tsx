@@ -339,6 +339,16 @@ export function TaskCenter({ // NOSONAR: transitional TS fallback/UI flow retain
   if (visible) void load().catch(reason => notify.error(reason, {title: '读取任务失败'}))
  }, [visible])
  useEffect(() => {
+  if (!visible) return
+  return window.assistant.onEvent(event => {
+   if (
+    event.kind === 'zhiyun-task' &&
+    ['completed', 'failed', 'cancelled', 'interrupted'].includes(event.data.state)
+   )
+    void load().catch(() => {})
+  })
+ }, [visible])
+ useEffect(() => {
   const activeSync = syncTasks.some(task => task.items.some(item => item.status === '等待处理'))
   const activeDerived = derivedTasks.some(task => task.items.some(item => item.status === '等待处理'))
   if (

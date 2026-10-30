@@ -59,7 +59,11 @@ export function ZhiyunImporter({
      notify.error(e, {title: '刷新课程失败'})
     }
    }
-   if (next.warning) notify.warning(next.warning, {description: next.outputPath, timeout: 12000})
+   if (next.warning)
+    notify.success(next.kind === 'transcript' ? '语音识别原文已生成' : 'PPT 已导出并关联课次', {
+     description: next.outputPath ? `${next.warning} · ${next.outputPath}` : next.warning,
+     timeout: 12000
+    })
    else notify.success('智云资源已导出并关联课次', {description: next.outputPath, timeout: 6000})
    setProgress('')
    return
