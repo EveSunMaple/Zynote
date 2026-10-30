@@ -173,6 +173,20 @@ func TestP2bLectureDetail(t *testing.T) {
 	); err != nil {
 		t.Fatal(err)
 	}
+	_, errReply = f.call("lecture:detail", map[string]any{"id": lectureID})
+	if errReply != nil {
+		t.Fatalf("lecture:detail without subtitles failed: %+v", errReply)
+	}
+	var emptyDetail map[string]any
+	if err = json.Unmarshal(f.lastResult, &emptyDetail); err != nil {
+		t.Fatal(err)
+	}
+	if emptyDetail["segments"] == nil {
+		t.Fatalf("empty segments must be an array, got null: %v", emptyDetail)
+	}
+	if values, ok := emptyDetail["segments"].([]any); !ok || len(values) != 0 {
+		t.Fatalf("empty segments mismatch: %v", emptyDetail["segments"])
+	}
 	segments := `[{"start":0,"end":3000,"text":"第一句"},{"start":3000,"end":6000,"text":"第二句"}]`
 	if _, err = db.Exec(
 		"INSERT INTO subtitles(lecture_id,srt_text,segments_json) VALUES(?,?,?)",

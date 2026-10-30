@@ -58,7 +58,7 @@ func lectureDetailFromDB(db *sql.DB, lectureID string) (any, error) {
 	if err != nil {
 		return nil, contract.Unavailable("字幕读取失败")
 	}
-	var segments []any
+	segments := []any{}
 	srt := ""
 	if checkpoint != nil {
 		if err := json.Unmarshal([]byte(storage.ToStringValue(checkpoint["segments_json"])), &segments); err != nil {

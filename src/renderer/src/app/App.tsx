@@ -215,6 +215,9 @@ export default function App() { // NOSONAR: transitional TS fallback/UI flow ret
  }
  async function reloadLecture(id = lectureId) {
   const result = await invoke<LectureDetail>('lecture:detail', {id})
+  // Older data/backends may serialize empty subtitle arrays as null.
+  if (!Array.isArray(result.segments)) result.segments = []
+  if (typeof result.srt !== 'string') result.srt = ''
   if (current.current.lectureId === id) setLecture(result)
   return result
  }
@@ -346,6 +349,8 @@ export default function App() { // NOSONAR: transitional TS fallback/UI flow ret
    void invoke<Detail>('course:detail', {id: courseId})
     .then(d => {
      if (current.current.courseId === courseId) {
+      for (const key of ['sessions', 'files', 'questions', 'lectures', 'messages'] as const)
+       if (!Array.isArray(d[key])) d[key] = []
       setDetail(d)
       setSessions(v => [...v.filter(s => s.course_id !== courseId), ...d.sessions])
       setSessionId(selectedSessions.current[courseId] || d.sessions[0]?.id || '')

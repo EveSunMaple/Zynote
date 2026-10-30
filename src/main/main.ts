@@ -7,6 +7,7 @@ import {diagnostic} from '@main/app/diagnostics'
 import {createMainWindow} from '@main/app/window'
 import {ZhiyunBrowser} from '@main/zhiyun/zhiyun-browser'
 import {app, BrowserWindow, dialog, ipcMain, shell} from 'electron'
+import {existsSync} from 'node:fs'
 import {join, dirname} from 'node:path'
 import {fileURLToPath} from 'node:url'
 import {z} from 'zod'
@@ -120,7 +121,10 @@ async function startApplication() {
  const root = app.getPath('userData'),
   appDirectory =
    process.env.LISTENING_ASSISTANT_PORTABLE_TEST || (app.isPackaged ? dirname(process.execPath) : app.getAppPath()),
-  portable = !process.env.LISTENING_ASSISTANT_DATA || !!process.env.LISTENING_ASSISTANT_PORTABLE_TEST
+  portable =
+   !!process.env.LISTENING_ASSISTANT_PORTABLE_TEST ||
+   process.env.LISTENING_ASSISTANT_PORTABLE === '1' ||
+   existsSync(join(appDirectory, 'portable.flag'))
  diagnostic(root, 'application', 'startup', {code: app.getVersion()})
  const paths = await resolveDataPaths({
   root,

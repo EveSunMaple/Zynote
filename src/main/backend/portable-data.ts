@@ -36,6 +36,26 @@ async function copyLegacyDatabase(source: string, target: string) {
  }
 }
 
+async function migratePortableLayout(root: string, appDirectory: string) {
+ const sourceData = join(appDirectory, 'Data'),
+  targetDatabase = join(root, 'assistant.db'),
+  sourceDatabase = join(sourceData, 'assistant.db')
+ if ((await exists(targetDatabase)) || !(await exists(sourceDatabase))) return
+ await mkdir(root, {recursive: true})
+ await copyLegacyDatabase(sourceDatabase, targetDatabase)
+ for (const name of ['library-location.json'] as const) {
+  const source = join(sourceData, name),
+   target = join(root, name)
+  if ((await exists(source)) && !(await exists(target))) await cp(source, target, {force: false})
+ }
+ for (const name of ['Backups', 'Library'] as const) {
+  const source = join(name === 'Library' ? appDirectory : sourceData, name),
+   target = join(root, name)
+  if ((await exists(source)) && !(await exists(target)))
+   await cp(source, target, {recursive: true, force: false, errorOnExist: false})
+ }
+}
+
 export async function resolveDataPaths({
  root,
  appDirectory,
@@ -48,6 +68,7 @@ export async function resolveDataPaths({
  portable: boolean
 }) {
  if (!portable) {
+  if (appDirectory !== root) await migratePortableLayout(root, appDirectory)
   const legacyLayout = join(root, '资料'),
    hadLegacyLayout = existsSync(legacyLayout)
   renameLayout(root)
