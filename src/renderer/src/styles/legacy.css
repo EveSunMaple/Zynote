@@ -365,6 +365,17 @@ label > select {
  width: 100%;
  margin-top: 8px;
 }
+/* Select triggers show the chosen label only; descriptions belong in the
+   dropdown.  HeroUI otherwise clones the option description into the trigger,
+   which overflows narrow fields and overlaps adjacent buttons. */
+.select__value small {
+ display: none;
+}
+.select__value {
+ min-width: 0;
+ overflow: hidden;
+ text-overflow: ellipsis;
+}
 h1,
 h2,
 h3,

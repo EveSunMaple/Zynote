@@ -50,11 +50,11 @@ export function CorrectionControls({
  else if (hasCheckpoint) label = '继续校订字幕'
  else if (hasSegments) label = '重新校订字幕'
  return (
-  <div className="flex flex-col gap-2">
-   <div className="flex flex-wrap items-center gap-2">
-    <div className="flex items-center gap-2">
+  <div className="flex min-w-0 flex-col gap-2">
+   <div className="flex min-w-0 flex-wrap items-center gap-2">
+    <div className="flex min-w-0 items-center gap-2">
      <span className="whitespace-nowrap text-sm">字幕校订策略</span>
-     <span className="inline-block w-36 shrink-0">
+     <span className="inline-block w-40 min-w-0">
       <SelectField
        label="字幕校订策略"
        value={mode}

@@ -3,6 +3,7 @@ package documents
 import (
 	"fmt"
 	"regexp"
+	"strconv"
 	"strings"
 )
 
@@ -12,7 +13,7 @@ type transcriptRow struct {
 }
 
 var voiceHeadingPattern = regexp.MustCompile(`^\d+\.\s*语音识别$`)
-var blockStampPattern = regexp.MustCompile(`^(?:\[|【)?(\d{1,2}:\d{2}(?::\d{2})?)(?:\]|】)?\s*[:：]?\s*(.*)$`)
+var blockStampPattern = regexp.MustCompile(`^(?:\[|【)?(\d{1,3}:\d{2}(?::\d{2})?)(?:\]|】)?\s*[:：]?\s*(.*)$`)
 
 type SplitResult struct {
 	Text      string    `json:"text"`
@@ -37,11 +38,16 @@ func transcriptBlocks(text string) []string {
 
 func transcriptStamp(raw string) (int64, error) {
 	if strings.Count(raw, ":") == 1 {
-		padded := raw
-		if len(padded) < 5 {
-			padded = strings.Repeat("0", 5-len(padded)) + padded
+		parts := strings.SplitN(raw, ":", 2)
+		minutes, minutesErr := strconv.ParseInt(parts[0], 10, 64)
+		seconds, secondsErr := strconv.ParseInt(parts[1], 10, 64)
+		if minutesErr != nil || secondsErr != nil {
+			return 0, fmt.Errorf("时间戳不合法：%s", raw)
 		}
-		return milliseconds("00:" + padded)
+		// MM:SS rows may legitimately exceed 59 minutes (e.g. [60:02]).
+		// Roll the value into seconds instead of building "00:60:02", which
+		// the strict HH:MM:SS parser rejects.
+		return (minutes*60 + seconds) * 1000, nil
 	}
 	padded := raw
 	if len(padded) < 8 {

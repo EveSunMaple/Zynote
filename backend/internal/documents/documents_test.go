@@ -84,6 +84,18 @@ func TestSplitTranscript(t *testing.T) {
 	}
 }
 
+func TestSplitTranscriptLongMinutes(t *testing.T) {
+	for _, input := range []string{"[60:02] 一小时后的句子", "[01:00:02] 一小时后的句子"} {
+		result, err := SplitTranscript(input)
+		if err != nil {
+			t.Fatalf("%s: %v", input, err)
+		}
+		if len(result.Segments) != 1 || result.Segments[0].Start != 3602000 {
+			t.Fatalf("%s: %+v", input, result.Segments)
+		}
+	}
+}
+
 func writeDocxZip(t *testing.T, xml string) []byte {
 	t.Helper()
 	var buffer bytes.Buffer

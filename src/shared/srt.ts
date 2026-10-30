@@ -6,8 +6,10 @@ export function time(ms: number, millis = true): string {
 }
 export function milliseconds(t: string): number {
  const m = /^(\d{2,}):(\d{2}):(\d{2})(?:[,.](\d{3}))?$/.exec(t.trim())
- if (!m || +m[2] > 59 || +m[3] > 59) throw new Error(`时间戳不合法：${t}`)
- return (+m[1] * 3600 + +m[2] * 60 + +m[3]) * 1000 + +(m[4] || 0)
+ if (!m) throw new Error(`时间戳不合法：${t}`)
+ // Models occasionally emit 00:60:02 instead of 01:00:02. Treat overflow
+ // minutes/seconds as a carry instead of breaking playback and note jumps.
+ return ((+m[1] * 60 + +m[2]) * 60 + +m[3]) * 1000 + +(m[4] || 0)
 }
 function fencedSrt(raw: string): string {
  const blocks: string[] = []

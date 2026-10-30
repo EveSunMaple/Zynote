@@ -285,7 +285,10 @@ func correctionOutputBudget(profile config.RuntimeProfile, mode learning.Correct
 	if mode != learning.CorrectionText && imageCount > 0 {
 		models = append(models, profile.VisionModel)
 	}
-	budget := 8192
+	// Keep batches small enough that the JSON array (text + reason for every
+	// row) is not truncated by the model's output limit.  A truncated batch
+	// fails validation as “缺少原文或次序变化” and blocks the checkpoint.
+	budget := 4096
 	for _, model := range models {
 		parameters, ok := profile.Parameters[model]
 		if ok && parameters.MaxTokens != nil && *parameters.MaxTokens < budget {
@@ -448,6 +451,17 @@ func (run *correctionRun) retryBatch(ctx context.Context, callErr error, attempt
 func (run *correctionRun) runBatch(ctx context.Context, batch learning.CorrectionBatch, index int) ([]learning.CorrectedSegment, error) {
 	correctionContext := run.contexts[index]
 	batchImages := correctionContext.Images
+	// OCR-only vision models (qwen-vl-ocr) cannot reliably follow the required
+	// JSON correction schema.  Keep the courseware text but use the main text
+	// model so the batch can actually be corrected.
+	if len(batchImages) > 0 && strings.Contains(strings.ToLower(strings.TrimSpace(run.profile.VisionModel)), "ocr") {
+		batchImages = nil
+		run.inv.reportCorrection(
+			run.lectureID, "校订字幕",
+			"视觉模型 "+strings.TrimSpace(run.profile.VisionModel)+" 是 OCR 专用模型，本批改用文本模型且不发送图片",
+			index+1, len(run.batches),
+		)
+	}
 	model := run.profile.Model
 	if len(batchImages) > 0 {
 		model = strings.TrimSpace(run.profile.VisionModel)
@@ -462,6 +476,10 @@ func (run *correctionRun) runBatch(ctx context.Context, batch learning.Correctio
 		run.activeMu.Unlock()
 	}()
 	input, requestImages := correctionRequestFor(run, batch, index, batchImages)
+	if len(batchImages) == 0 && len(correctionContext.Images) > 0 {
+		input.CoursewareLimitations = append(input.CoursewareLimitations,
+			"视觉模型为 OCR 专用，本批未发送图片，仅依据课件文字与原文校订。")
+	}
 	for attempt := 0; attempt < 3; attempt++ {
 		if err := ctx.Err(); err != nil {
 			return nil, err
