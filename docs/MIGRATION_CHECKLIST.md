@@ -20,9 +20,10 @@
 > 下面较早章节保留为历史记录；其中未勾选项不代表当前仍未完成。以本节和 1.69–1.84 为准。
 
 - 契约 154 actions / shell 12；Go capabilities 153（含 11 internal）；非 shell action 已全部进入 Go 路由。
-- macOS 全量走 Go；Windows 除 `tools:request` 的 `im` 子动作外均走 Go（媒体/视频已切）。
-- 已迁：研究/外部检索/MCP/工作流/IM（QQ 手工、微信 Web/iLink、自动化、清理）、证据包、runtime、教材/视觉/智云/知识/聊天/媒体/视频、课程内部动作。
-- 剩余迁移阻塞：Windows 本机微信读取、NapCat 内置后台（SQLCipher + Windows 内存扫描/Job Object）；方案与实机清单见 `docs/tmp/WINDOWS_IM_HANDOFF.md`，待 Windows 实机。
+- macOS 全量走 Go；Windows 全部 action 已进入 Go 路由（含 `tools:request` 的 `im` 子动作）。
+- 已迁：研究/外部检索/MCP/工作流/IM（QQ 手工、QQ/NapCat 内置后台、微信本机只读/Web/iLink、自动化、清理）、证据包、runtime、教材/视觉/智云/知识/聊天/媒体/视频、课程内部动作。
+- Windows IM：`weixin_local` 由 Rust `--mode wechat` 负责进程/账号/密钥/SQLCipher 只读，Go 负责 availability、probe/confirm、sync/directory 与只读拒绝；NapCat 由 Go 托管固定版本 `node.exe`、Job Object、owner 凭据与 WebUI 配置；实机清单见 `docs/WINDOWS_IM_HANDOFF.md`。
+- Windows IM 实机（2026-10-30）：微信 4.1.15.13 完成进程/密钥/绑定/目录/消息读取；NapCat 4.18.37 完成解包/WebUI/退出清理/重启。QQ 扫码登录后的目录/历史/发送仍需真实 QQ 账号验收。
 - 发布阻塞：`resources/video` 缺失、runtime manifest 为空、macOS 全量组件与公证/签名未定；见 `docs/tmp/RELEASE_HANDOFF.md`。
 - 门禁：`pnpm verify`、`pnpm backend:test`、`pnpm native:test`、`pnpm smoke:go-core`、`pnpm runtime:smoke`、`pnpm build`；CI 已有 macOS + 交叉编译，release workflow 为手动。
 

@@ -11,6 +11,7 @@ import (
 
 func fakeTool(t *testing.T, resources, name, script string) string {
 	t.Helper()
+	skipWithoutPosixShell(t)
 	directory := filepath.Join(resources, "video")
 	if err := os.MkdirAll(directory, 0o755); err != nil {
 		t.Fatal(err)
@@ -66,6 +67,7 @@ func TestMediaExecutableResolution(t *testing.T) {
 }
 
 func TestMediaExecutableOutsideResources(t *testing.T) {
+	skipWithoutPosixShell(t)
 	root := resolvedTemp(t)
 	resources := filepath.Join(root, "resources")
 	if err := os.MkdirAll(filepath.Join(resources, "video"), 0o755); err != nil {

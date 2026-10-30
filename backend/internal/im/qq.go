@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"net/url"
 	"regexp"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -352,6 +353,7 @@ type QqLogin struct {
 	Onebot     QqConfig
 	Managed    bool
 	Credential string
+	configured bool
 }
 
 func NewQqLogin(webuiURL, token string, onebot QqConfig, managed bool) (*QqLogin, error) {
@@ -425,9 +427,60 @@ func (login *QqLogin) Poll(ctx context.Context) (map[string]any, error) {
 	return map[string]any{"state": state, "qr": qr}, nil
 }
 
+func (login *QqLogin) configureOneBot(ctx context.Context) error {
+	if login.configured {
+		return nil
+	}
+	raw, err := login.action(ctx, "OB11Config/GetConfig", map[string]any{}, true)
+	if err != nil {
+		return err
+	}
+	value, _ := raw.(map[string]any)
+	network, _ := value["network"].(map[string]any)
+	servers, _ := network["httpServers"].([]any)
+	owned := []map[string]any{}
+	for _, item := range servers {
+		server, _ := item.(map[string]any)
+		if text(server["name"]) != "zynote-native-http" {
+			continue
+		}
+		owned = append(owned, server)
+	}
+	if len(owned) > 1 {
+		return fmt.Errorf("QQ 消息接口存在重名配置，未覆盖")
+	}
+	parsed, err := url.Parse(login.Onebot.URL)
+	if err != nil || parsed.Port() == "" {
+		return fmt.Errorf("QQ 消息接口地址无效")
+	}
+	kept := []any{}
+	for _, item := range servers {
+		server, _ := item.(map[string]any)
+		if text(server["name"]) != "zynote-native-http" {
+			kept = append(kept, item)
+		}
+	}
+	port, _ := strconv.Atoi(parsed.Port())
+	kept = append(kept, map[string]any{
+		"name": "zynote-native-http", "enable": true, "host": "127.0.0.1", "port": port,
+		"enableCors": false, "enableWebsocket": false, "messagePostFormat": "array",
+		"token": login.Onebot.Token, "debug": false,
+	})
+	network["httpServers"] = kept
+	value["network"] = network
+	encoded, _ := json.Marshal(value)
+	if _, err := login.action(ctx, "OB11Config/SetConfig", map[string]any{"config": string(encoded)}, true); err != nil {
+		return err
+	}
+	login.configured = true
+	return nil
+}
+
 func (login *QqLogin) Verify(ctx context.Context) (map[string]any, error) {
 	if login.Managed {
-		return nil, fmt.Errorf("内置 QQ 后台暂未在 Go 后端启用")
+		if err := login.configureOneBot(ctx); err != nil {
+			return nil, err
+		}
 	}
 	deadline := time.Now().Add(20 * time.Second)
 	var account string

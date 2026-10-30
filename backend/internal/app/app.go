@@ -51,6 +51,10 @@ func (a *App) SetAsrNative(native *helper.Native) {
 	a.invoker.SetAsrNative(native)
 }
 
+func (a *App) SetWechatNative(native *helper.Native) {
+	a.invoker.SetWechatNative(native)
+}
+
 func (a *App) State() *contract.State {
 	a.mu.Lock()
 	defer a.mu.Unlock()
@@ -81,6 +85,10 @@ func (a *App) Notify(method string, params any) error {
 
 func (a *App) Invoke(action string, params json.RawMessage) (any, error) {
 	return a.invoker.Invoke(a, action, params)
+}
+
+func (a *App) Close() {
+	a.invoker.Close()
 }
 
 func (a *App) LogHello(state *contract.State) {

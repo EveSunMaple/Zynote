@@ -123,6 +123,11 @@ if (profile === 'components') {
     return false
    }
   }
+  if (!existsSync(join(root, entry.from))) {
+   if (entry.to) skipped.add(entry.to)
+   console.warn('缺少资源目录，已跳过：' + entry.from)
+   return false
+  }
   return true
  })
  let targets: string[]

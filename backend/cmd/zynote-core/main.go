@@ -26,6 +26,9 @@ func main() {
 	asr := helper.NewNative("asr")
 	core.SetAsrNative(asr)
 	defer asr.Dispose()
+	wechat := helper.NewNative("wechat")
+	core.SetWechatNative(wechat)
+	defer wechat.Dispose()
 	if err := server.Serve(context.Background(), os.Stdin, os.Stdout); err != nil {
 		os.Exit(1)
 	}

@@ -24,6 +24,8 @@ pnpm release lite --platform=linux --prepared
 
 `scripts/release.mts` 会校验更新元数据版本、安装包路径，以及 portable 不含更新元数据。
 
+Windows 的 lite/full 包在 `resources/knowledge/vendor/NapCat.Shell.Windows.Node.zip` 存在时会把它放入 `resources/knowledge/vendor/`。固定版本为 NapCat `4.18.37`，SHA-256 为 `05c79761361321f6af4358aef92f80a7f8e319b6459c260ebf9a159615e96fe4`；缺失时该资源会被跳过，内置 QQ 能力在运行时显示不可用。
+
 ## 3. 签名与公证
 
 GitHub Actions 的 `release.yml` 使用以下 secrets：

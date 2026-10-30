@@ -81,9 +81,10 @@ func startCore(t *testing.T, dataRoot, resourcesRoot string) *fixture {
 		_ = server.Serve(context.Background(), serverInR, serverOutW)
 	}()
 	t.Cleanup(func() {
-		embed.Dispose()
 		_ = serverInW.Close()
 		_ = serverOutW.Close()
+		core.Close()
+		embed.Dispose()
 	})
 	return &fixture{t: t, inWrite: serverInW, outRead: bufio.NewReader(serverOutR)}
 }
@@ -144,7 +145,12 @@ func (f *fixture) drain(count int) []wireEnvelope {
 	return replies
 }
 
-func testPlatform() string { return runtime.GOOS }
+func testPlatform() string {
+	if runtime.GOOS == "windows" {
+		return "win32"
+	}
+	return runtime.GOOS
+}
 
 func writeFixtureFile(t *testing.T, dir, name, content string) {
 	t.Helper()
@@ -201,7 +207,7 @@ func TestP0Contract(t *testing.T) { // NOSONAR: end-to-end test intentionally ex
 	if err := json.Unmarshal(f.lastResult, &info); err != nil {
 		t.Fatal(err)
 	}
-	if info["version"] != "0.0.1" || info["platform"] != "darwin" {
+	if info["version"] != "0.0.1" || info["platform"] != testPlatform() {
 		t.Fatalf("unexpected app:info: %v", info)
 	}
 

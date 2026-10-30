@@ -31,6 +31,7 @@ type Invoker struct {
 	youtube       *helper.Native
 	embed         *helper.Native
 	asr           *helper.Native
+	wechat        *helper.Native
 	media         *media.MediaService
 	mediaRoot     string
 	bili          *bilibili.Resources
@@ -98,8 +99,28 @@ func (inv *Invoker) SetAsrNative(native *helper.Native) {
 	inv.asr = native
 }
 
+func (inv *Invoker) SetWechatNative(native *helper.Native) {
+	inv.wechat = native
+}
+
 func (inv *Invoker) SetNotifier(notifier contract.Notifier) {
 	inv.notifier = notifier
+}
+
+// Close releases cached database-backed services before the process or test exits.
+func (inv *Invoker) Close() {
+	inv.mediaMu.Lock()
+	imService := inv.im
+	knowledgeStore := inv.knowledge
+	inv.im = nil
+	inv.knowledge = nil
+	inv.mediaMu.Unlock()
+	if imService != nil {
+		_ = imService.Close()
+	}
+	if knowledgeStore != nil {
+		_ = knowledgeStore.Close()
+	}
 }
 
 func requireState(fn handlerFunc) handlerFunc {
@@ -399,6 +420,9 @@ func (inv *Invoker) handleHello(store contract.StateStore, params json.RawMessag
 	}
 	if inv.asr != nil {
 		inv.asr.Configure(input.NativePath, "", "", "", filepath.Join(input.ResourcesRoot, "asr", "onnx-small"))
+	}
+	if inv.wechat != nil {
+		inv.wechat.Configure(input.NativePath, "", "", "", "")
 	}
 	if input.PreviousLibraryRoot != "" {
 		if err := migrateLibraryPaths(state, input.PreviousLibraryRoot); err != nil {

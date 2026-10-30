@@ -6,6 +6,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -31,6 +32,9 @@ func resolvedTemp(t *testing.T) string {
 
 func fakeTool(t *testing.T, resources, name, script string) {
 	t.Helper()
+	if runtime.GOOS == "windows" {
+		t.Skip("fixture uses a POSIX shell script")
+	}
 	directory := filepath.Join(resources, "video")
 	if err := os.MkdirAll(directory, 0o755); err != nil {
 		t.Fatal(err)

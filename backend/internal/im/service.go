@@ -5,12 +5,15 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
 
 	qrcode "github.com/skip2/go-qrcode"
 
+	"github.com/EveSunMaple/Zynote/backend/internal/helper"
 	"github.com/EveSunMaple/Zynote/backend/internal/research"
 )
 
@@ -38,6 +41,8 @@ type Service struct {
 	Model      func(ctx context.Context, system, user string) (string, error)
 	Knowledge  *Knowledge
 	automation *Automation
+	weixin     *WeixinLocal
+	napcat     *NapcatRuntime
 }
 
 type Knowledge struct {
@@ -50,7 +55,11 @@ func NewService(root, resources string, crypt Crypt) (*Service, error) {
 	if err != nil {
 		return nil, err
 	}
-	service := &Service{Store: store, Root: root, Resources: resources, logins: map[string]*Login{}, syncing: map[string]bool{}}
+	service := &Service{
+		Store: store, Root: root, Resources: resources, logins: map[string]*Login{}, syncing: map[string]bool{},
+		weixin: NewWeixinLocal(nil),
+		napcat: NewNapcatRuntime(resources, filepath.Join(root, "runtime-components", "napcat"), crypt),
+	}
 	automation, err := NewAutomation(service)
 	if err != nil {
 		store.Close()
@@ -58,6 +67,11 @@ func NewService(root, resources string, crypt Crypt) (*Service, error) {
 	}
 	service.automation = automation
 	return service, nil
+}
+
+// SetWeixinNative installs the shared Rust helper used by the Windows local reader.
+func (service *Service) SetWeixinNative(native *helper.Native) {
+	service.weixin.SetNative(native)
 }
 
 func (service *Service) serviceModelProfile() string {
@@ -69,34 +83,47 @@ func (service *Service) serviceModelProfile() string {
 
 func (service *Service) Close() error {
 	service.mu.Lock()
-	defer service.mu.Unlock()
 	service.automation.PauseAll()
-	service.automation.Wait(3 * time.Second)
+	automation := service.automation
+	logins := make([]*Login, 0, len(service.logins))
 	for _, login := range service.logins {
+		logins = append(logins, login)
+	}
+	service.mu.Unlock()
+	automation.Wait(3 * time.Second)
+	for _, login := range logins {
 		login.Cancel()
 	}
+	service.weixin.Close()
+	service.napcat.Close()
 	return service.Store.Close()
 }
 
-func availability(platform string, fields map[string]string) (bool, string) {
+func (service *Service) availability(platform string, fields map[string]string) (bool, string) {
 	if platform == "weixin_local" {
-		return false, "本机微信读取尚未完成 Go 原生适配；仍可查看已保存消息。"
+		if !weixinSupported() {
+			return false, "本机微信读取暂仅支持 Windows x64；仍可查看已保存消息。"
+		}
+		if !service.weixin.Available() {
+			return false, "本机微信读取助手未就绪；仍可查看已保存消息。"
+		}
+		return true, ""
 	}
 	if platform == "qq_napcat" && fields["mode"] != "manual" {
-		return false, "内置 QQ 后台尚未完成 Go 原生适配；手工连接已有 QQ 服务不受此限制。"
+		return service.napcat.Availability()
 	}
 	return true, ""
 }
 
-func requireAvailable(row Connection) error {
-	if available, reason := availability(row.Platform, row.Fields); !available {
+func (service *Service) requireAvailable(row Connection) error {
+	if available, reason := service.availability(row.Platform, row.Fields); !available {
 		return fmt.Errorf("%s", reason)
 	}
 	return nil
 }
 
-func connectionStatus(row Connection) map[string]any {
-	available, reason := availability(row.Platform, row.Fields)
+func (service *Service) connectionStatus(row Connection) map[string]any {
+	available, reason := service.availability(row.Platform, row.Fields)
 	encoded, _ := json.Marshal(row)
 	value := map[string]any{}
 	_ = json.Unmarshal(encoded, &value)
@@ -112,10 +139,10 @@ func (service *Service) statusValue() (any, error) {
 	connections := listing["connections"].([]Connection)
 	values := []map[string]any{}
 	for _, row := range connections {
-		values = append(values, connectionStatus(row))
+		values = append(values, service.connectionStatus(row))
 	}
-	managedAvailable, managedReason := availability("qq_napcat", map[string]string{"mode": "managed"})
-	localAvailable, localReason := availability("weixin_local", map[string]string{})
+	managedAvailable, managedReason := service.availability("qq_napcat", map[string]string{"mode": "managed"})
+	localAvailable, localReason := service.availability("weixin_local", map[string]string{})
 	return map[string]any{
 		"revision": listing["revision"], "connections": values,
 		"platforms": map[string]any{
@@ -124,19 +151,27 @@ func (service *Service) statusValue() (any, error) {
 			"weixin_web":   map[string]any{"label": "微信 Web · 实验", "available": true, "reason": ""},
 			"weixin_ilink": map[string]any{"label": "微信 Bot · iLink", "available": true, "reason": ""},
 		},
-		"qq_component": map[string]any{"available": false, "state": "unavailable"},
+		"qq_component": service.napcat.Status(),
 	}, nil
 }
 
 func (service *Service) changeValue(input map[string]any) (any, error) {
 	platform := text(input["platform"])
 	fields := stringMap(input["fields"])
-	if action, _ := input["action"].(string); action == "create" {
-		if available, reason := availability(platform, fields); !available {
+	action := text(input["action"])
+	if action == "create" {
+		if available, reason := service.availability(platform, fields); !available {
 			return nil, fmt.Errorf("%s", reason)
 		}
 	}
-	return service.Store.Change(input)
+	result, err := service.Store.Change(input)
+	if err != nil {
+		return nil, err
+	}
+	if action == "delete" {
+		service.weixin.InvalidateConnection(context.Background(), text(input["id"]))
+	}
+	return result, nil
 }
 
 func (service *Service) librariesValue() (any, error) {
@@ -147,8 +182,92 @@ func (service *Service) librariesValue() (any, error) {
 	return map[string]any{"libraries": libraries}, nil
 }
 
-func unsupportedPersonalAction(context.Context, *Service, map[string]any) (any, error) {
-	return nil, fmt.Errorf("本机微信读取暂仅支持 Windows x64")
+func (service *Service) personalProcesses(ctx context.Context) (any, error) {
+	if !service.weixin.Available() {
+		return nil, fmt.Errorf("本机微信读取助手未就绪")
+	}
+	return service.weixin.Processes(ctx)
+}
+
+func (service *Service) personalProbe(ctx context.Context, input map[string]any) (any, error) {
+	if !service.weixin.Available() {
+		return nil, fmt.Errorf("本机微信读取助手未就绪")
+	}
+	connectionID := text(input["connection_id"])
+	revision := text(input["revision"])
+	pid := int(number(input["pid"]))
+	created := number(input["created"])
+	if !idPattern.MatchString(connectionID) || !idPattern.MatchString(revision) || pid <= 0 || created <= 0 {
+		return nil, fmt.Errorf("本机微信核验参数无效")
+	}
+	row, err := service.Store.Capture(connectionID, revision)
+	if err != nil {
+		return nil, err
+	}
+	if row.Platform != "weixin_local" {
+		return nil, fmt.Errorf("请先选择本机微信连接")
+	}
+	result, err := service.weixin.Probe(ctx, connectionID, revision, pid, created)
+	if err != nil {
+		return nil, err
+	}
+	if _, err := service.Store.Capture(connectionID, revision); err != nil {
+		return nil, err
+	}
+	return result, nil
+}
+
+func (service *Service) personalConfirm(ctx context.Context, input map[string]any) (any, error) {
+	if !service.weixin.Available() {
+		return nil, fmt.Errorf("本机微信读取助手未就绪")
+	}
+	connectionID := text(input["connection_id"])
+	revision := text(input["revision"])
+	probeID := text(input["probe_id"])
+	account := text(input["account"])
+	confirmed, _ := input["user_confirmed"].(bool)
+	if !idPattern.MatchString(connectionID) || !idPattern.MatchString(revision) ||
+		!idPattern.MatchString(probeID) || account == "" || len([]rune(account)) > 200 || !confirmed {
+		return nil, fmt.Errorf("本机微信绑定参数无效")
+	}
+	row, err := service.Store.Capture(connectionID, revision)
+	if err != nil {
+		return nil, err
+	}
+	if row.Platform != "weixin_local" {
+		return nil, fmt.Errorf("当前连接不是本机微信")
+	}
+	probe, err := service.weixin.ProbeFor(connectionID, revision, probeID, account)
+	if err != nil {
+		return nil, err
+	}
+	result, err := service.weixin.Confirm(ctx, probeID, account, nil)
+	if err != nil {
+		return nil, err
+	}
+	session := result["session"]
+	readerID := sessionReaderID(session)
+	if readerID == "" {
+		return nil, fmt.Errorf("本机微信会话无效")
+	}
+	_, err = service.Store.Bind(connectionID, revision, account, session, result["capabilities"], func() error {
+		if _, err := service.weixin.ProbeFor(connectionID, revision, probeID, probe.Account); err != nil {
+			return err
+		}
+		_, err := service.weixin.Verify(ctx, session, account)
+		return err
+	})
+	if err != nil {
+		service.weixin.Invalidate(ctx, readerID)
+		service.weixin.ReleaseProbe(probeID)
+		return nil, err
+	}
+	old := service.weixin.Bind(connectionID, readerID)
+	service.weixin.ReleaseProbe(probeID)
+	if old != "" && old != readerID {
+		service.weixin.Invalidate(ctx, old)
+	}
+	return map[string]any{"account": account, "session": session, "capabilities": result["capabilities"]}, nil
 }
 
 func loginDispatch(ctx context.Context, service *Service, action string, input map[string]any) (any, error) {
@@ -204,9 +323,15 @@ var imActions = map[string]func(context.Context, *Service, map[string]any) (any,
 	"send": func(ctx context.Context, service *Service, input map[string]any) (any, error) {
 		return service.scopeAction(ctx, "send", input)
 	},
-	"personal-processes": unsupportedPersonalAction,
-	"personal-probe":     unsupportedPersonalAction,
-	"personal-confirm":   unsupportedPersonalAction,
+	"personal-processes": func(ctx context.Context, service *Service, _ map[string]any) (any, error) {
+		return service.personalProcesses(ctx)
+	},
+	"personal-probe": func(ctx context.Context, service *Service, input map[string]any) (any, error) {
+		return service.personalProbe(ctx, input)
+	},
+	"personal-confirm": func(ctx context.Context, service *Service, input map[string]any) (any, error) {
+		return service.personalConfirm(ctx, input)
+	},
 	"rules": func(_ context.Context, service *Service, input map[string]any) (any, error) {
 		return service.automation.Rules(input)
 	},
@@ -232,7 +357,7 @@ func (service *Service) Execute(ctx context.Context, action string, input map[st
 		return handler(ctx, service, input)
 	}
 	if strings.HasPrefix(action, "personal-") {
-		return unsupportedPersonalAction(ctx, service, input)
+		return nil, fmt.Errorf("本机微信操作无效：%s", action)
 	}
 	return nil, fmt.Errorf("此通讯操作尚未完成原生适配：%s", action)
 }
@@ -401,24 +526,41 @@ func (service *Service) startILink(loginCtx context.Context, login *Login, cance
 }
 
 func (service *Service) startQq(ctx context.Context, loginCtx context.Context, login *Login, cancel context.CancelFunc, row Connection) (any, error) {
-	privateRow, err := service.Store.PrivateState(row.ID, row.Revision)
+	managed := row.Fields["mode"] != "manual"
+	webuiURL, webuiToken := row.Fields["webui_url"], ""
+	onebotValue := map[string]any{"url": row.Fields["onebot_url"], "token": ""}
+	if managed {
+		component, err := service.napcat.ensure(ctx)
+		if err != nil {
+			cancel()
+			login.Projection["state"] = "failed"
+			login.Projection["detail"] = map[string]any{"message": err.Error()}
+			service.persist(login)
+			return nil, err
+		}
+		webuiURL = "http://127.0.0.1:" + strconv.Itoa(component.WebUIPort)
+		webuiToken = component.WebUIToken
+		onebotValue = map[string]any{
+			"url": "http://127.0.0.1:" + strconv.Itoa(component.OneBotPort), "token": component.OneBotToken,
+		}
+	} else {
+		privateRow, err := service.Store.PrivateState(row.ID, row.Revision)
+		if err != nil {
+			cancel()
+			return nil, err
+		}
+		webuiToken = privateRow.Secrets["webui_token"]
+		onebotValue["token"] = privateRow.Secrets["onebot_token"]
+	}
+	if row.Account != "" {
+		onebotValue["account"] = row.Account
+	}
+	onebot, err := parseQqConfig(onebotValue)
 	if err != nil {
 		cancel()
 		return nil, err
 	}
-	if row.Fields["mode"] != "manual" {
-		cancel()
-		login.Projection["state"] = "failed"
-		login.Projection["detail"] = map[string]any{"message": "内置 QQ 后台暂仅支持 Windows x64。"}
-		service.persist(login)
-		return nil, fmt.Errorf("内置 QQ 后台暂仅支持 Windows x64")
-	}
-	onebot, err := parseQqConfig(map[string]any{"url": row.Fields["onebot_url"], "token": privateRow.Secrets["onebot_token"]})
-	if err != nil {
-		cancel()
-		return nil, err
-	}
-	adapter, err := NewQqLogin(row.Fields["webui_url"], privateRow.Secrets["webui_token"], onebot, false)
+	adapter, err := NewQqLogin(webuiURL, webuiToken, onebot, managed)
 	if err != nil {
 		cancel()
 		return nil, err
@@ -448,7 +590,7 @@ func (service *Service) Start(ctx context.Context, input map[string]any) (any, e
 	if err != nil {
 		return nil, err
 	}
-	if err := requireAvailable(row); err != nil {
+	if err := service.requireAvailable(row); err != nil {
 		return nil, err
 	}
 	if saved, ok, err := service.existingStart(op, row.ID); err != nil || ok {
@@ -560,7 +702,7 @@ func (service *Service) loginAction(ctx context.Context, action string, input ma
 		if err != nil {
 			return nil, err
 		}
-		if err := requireAvailable(row); err != nil {
+		if err := service.requireAvailable(row); err != nil {
 			return nil, err
 		}
 	}
@@ -675,6 +817,18 @@ func (service *Service) syncWeixinWeb(ctx context.Context, scope Scope, private 
 	return service.Store.SaveSessionAndMessages(scope, updates.Session, updates.Messages, private.Snapshot, nil)
 }
 
+func (service *Service) syncWeixinLocal(ctx context.Context, scope Scope, private PrivateConnection) (any, error) {
+	result, err := service.weixin.Receive(ctx, private.Session, scope.Account, scope.Peer)
+	if err != nil {
+		return nil, err
+	}
+	messages, err := resultMessages(result)
+	if err != nil {
+		return nil, err
+	}
+	return service.Store.SaveSessionAndMessages(scope, result["session"], messages, private.Snapshot, nil)
+}
+
 func (service *Service) syncQq(ctx context.Context, scope Scope, private PrivateConnection) (any, error) {
 	session, err := NewQqSession(private.Session)
 	if err != nil {
@@ -715,6 +869,8 @@ func (service *Service) Sync(ctx context.Context, scope Scope) (any, error) {
 		return nil, err
 	}
 	switch row.Platform {
+	case "weixin_local":
+		return service.syncWeixinLocal(ctx, scope, private)
 	case "weixin_ilink":
 		return service.syncILink(ctx, scope, private)
 	case "weixin_web":
@@ -845,6 +1001,8 @@ func (service *Service) directoryScope(ctx context.Context, scope Scope, private
 		return nil, err
 	}
 	switch platform {
+	case "weixin_local":
+		return service.weixin.Directory(ctx, private.Session, scope.Account)
 	case "weixin_ilink":
 		return directoryILink(ctx, private)
 	case "weixin_web":
@@ -860,17 +1018,32 @@ func (service *Service) scopeAction(ctx context.Context, action string, input ma
 	if err != nil {
 		return nil, err
 	}
-	if err := requireAvailable(row); err != nil {
+	if err := service.requireAvailable(row); err != nil {
 		return nil, err
 	}
 	if row.Platform == "weixin_local" {
 		if action == "send" {
 			return nil, fmt.Errorf("本机个人微信仅支持只读和草稿")
 		}
-		return nil, fmt.Errorf("本机微信读取暂仅支持 Windows x64")
+		private, err := service.Store.PrivateState(scope.ConnectionID, scope.Revision)
+		if err != nil {
+			return nil, err
+		}
+		switch action {
+		case "sync":
+			return service.Sync(ctx, scope)
+		case "directory":
+			return service.directoryScope(ctx, scope, private, row.Platform)
+		}
+		return nil, fmt.Errorf("此通讯操作尚未完成原生适配：%s", action)
 	}
 	if row.Platform != "qq_napcat" && row.Platform != "weixin_ilink" && row.Platform != "weixin_web" {
 		return nil, fmt.Errorf("此平台的原生通讯会话仍在迁移")
+	}
+	if row.Platform == "qq_napcat" && row.Fields["mode"] != "manual" {
+		if _, err := service.napcat.ensure(ctx); err != nil {
+			return nil, err
+		}
 	}
 	private, err := service.Store.PrivateState(scope.ConnectionID, scope.Revision)
 	if err != nil {

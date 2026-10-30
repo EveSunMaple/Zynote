@@ -15,3 +15,11 @@ ort = "2.0.0-rc.15"
 tokenizers = { version = "0.21.4", default-features = false, features = ["fancy-regex"] }
 docling-asr = "2.51.0"
 docling-onnx = "2.51.0"
+
+[target.'cfg(windows)'.dependencies]
+hmac = "0.12"
+md-5 = "0.10"
+pbkdf2 = "0.12"
+rusqlite = {version = "0.37", features = ["bundled-sqlcipher-vendored-openssl"]}
+sha2 = "0.10"
+zstd = "0.13"

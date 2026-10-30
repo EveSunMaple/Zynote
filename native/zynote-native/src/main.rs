@@ -6,6 +6,7 @@ mod annotations;
 mod asr;
 mod embed;
 mod pdf;
+mod wechat;
 mod youtube;
 
 #[derive(Debug, Clone)]
@@ -124,6 +125,11 @@ fn main() {
         },
         _ => None,
     };
+    let wechat_service = if matches!(mode, Mode::Wechat) {
+        Some(wechat::WechatService::new())
+    } else {
+        None
+    };
     let stdin = std::io::stdin();
     let stdout = std::io::stdout();
     let mut out = stdout.lock();
@@ -157,6 +163,7 @@ fn main() {
             &youtube_service,
             &embed_service,
             &asr_service,
+            &wechat_service,
             &envelope.method,
             &envelope.params,
         );
@@ -171,6 +178,9 @@ fn main() {
             break;
         }
     }
+    if let Some(service) = &wechat_service {
+        service.shutdown();
+    }
 }
 
 fn dispatch(
@@ -179,6 +189,7 @@ fn dispatch(
     youtube: &Option<youtube::YoutubeService>,
     embed: &Option<embed::EmbedService>,
     asr: &Option<asr::AsrService>,
+    wechat_service: &Option<wechat::WechatService>,
     method: &str,
     params: &Value,
 ) -> Result<Value, String> {
@@ -189,6 +200,10 @@ fn dispatch(
             "pid": std::process::id()
         })),
         (_, "ping") => Ok(json!({"pong": true})),
+        (Mode::Wechat, method) if method.starts_with("wechat.") => wechat_service
+            .as_ref()
+            .ok_or("wechat service not ready")?
+            .dispatch(method, params),
         (Mode::Pdf, "pdf.text") => {
             let path = params
                 .get("path")

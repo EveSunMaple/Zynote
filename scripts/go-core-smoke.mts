@@ -35,7 +35,11 @@ await writeFile(
  JSON.stringify({userName: '连酱', assistantName: '梅酱', userAvatar: '', assistantAvatar: '', persona: ''})
 )
 
-const child = spawn(join(projectRoot, 'backend', 'bin', 'zynote-core'), [], {stdio: ['pipe', 'pipe', 'pipe']})
+const executable = process.platform === 'win32' ? '.exe' : ''
+const platform = process.platform === 'win32' ? 'win32' : process.platform
+const child = spawn(join(projectRoot, 'backend', 'bin', 'zynote-core' + executable), [], {
+ stdio: ['pipe', 'pipe', 'pipe']
+})
 child.stderr.on('data', chunk => console.error('[core-stderr]', String(chunk).trim()))
 const buffer: string[] = []
 let pendingIndex = 0
@@ -107,16 +111,16 @@ const hello = (await call('core.hello', {
  protocol: 1,
  appVersion: '0.0.1',
  electronVersion: 'smoke',
- platform: 'darwin',
+ platform,
  dataRoot,
  libraryRoot: dataRoot,
  resourcesRoot,
  promptsRoot: projectRoot,
- nativePath: join(projectRoot, 'native', 'target', 'release', 'zynote-native'),
+ nativePath: join(projectRoot, 'native', 'target', 'release', 'zynote-native' + executable),
  portable: false
 })) as HelloResult
 check('hello protocol', hello.protocol === 1)
-check('hello platform', hello.platform === 'darwin')
+check('hello platform', hello.platform === platform)
 check('hello capabilities', hello.capabilities.length === 153)
 
 const bootstrap = (await call('db:bootstrap')) as {ok: boolean}
@@ -144,8 +148,11 @@ const smokeFont = await smokePdf.embedFont(SmokeFonts.Helvetica)
 const smokePage = smokePdf.addPage([300, 200])
 smokePage.drawText('bridge smoke with plenty of extractable content', {x: 40, y: 120, size: 14, font: smokeFont})
 await writeFile(join(dataRoot, 'smoke.pdf'), await smokePdf.save())
-const nativePath = join(projectRoot, 'native', 'target', 'release', 'zynote-native')
-if (fs.existsSync(nativePath)) {
+const nativePath = join(projectRoot, 'native', 'target', 'release', 'zynote-native' + executable)
+const pdfiumName =
+ process.platform === 'win32' ? 'pdfium.dll' : process.platform === 'darwin' ? 'libpdfium.dylib' : 'libpdfium.so'
+const pdfiumPath = join(resourcesRoot, 'pdfium', pdfiumName)
+if (fs.existsSync(nativePath) && fs.existsSync(pdfiumPath)) {
  try {
   const pdfResult = (await call('pdf.text', {path: join(dataRoot, 'smoke.pdf')})) as {
    numPages: number
@@ -165,7 +172,7 @@ if (fs.existsSync(nativePath)) {
   needsOcr: boolean
  }
  check('document parse pdf', plain.text.includes('bridge smoke') && !plain.needsOcr)
-} else console.log('skip bridge pdf.text (native binary missing)')
+} else console.log('skip bridge pdf.text (native binary or pdfium missing)')
 
 await writeFile(
  join(dataRoot, 'smoke.srt'),
@@ -218,7 +225,7 @@ check('files remove detail', detailClean.files.length === 0)
 
 const info = (await call('app:info')) as InfoResult
 check('app:info version', info.version === '0.0.1')
-check('app:info platform', info.platform === 'darwin')
+check('app:info platform', info.platform === platform)
 
 const settings = (await call('settings:get')) as SettingsResult
 check('settings theme', settings.theme === 'dark')

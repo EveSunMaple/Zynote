@@ -45,6 +45,12 @@ try {
  await invoke('identity:get')
  const runtime = await invoke<{components: unknown[]}>('runtime:status')
  check(Array.isArray(runtime.components), 'runtime:status mismatch')
+ const im = await invoke<{platforms: {weixin_local: {available: boolean}; qq_napcat: {available: boolean}}}>(
+  'tools:request',
+  {action: 'im', args: {action: 'status', value: {}}}
+ )
+ check(im.platforms.weixin_local.available === (process.platform === 'win32'), 'weixin_local capability mismatch')
+ check(im.platforms.qq_napcat.available === (process.platform === 'win32'), 'qq_napcat capability mismatch')
  const update = await invoke<{phase: string}>('update:status')
  check(typeof update.phase === 'string', 'update:status mismatch')
  check(await invoke<boolean>('course:delete', {id: course.id, confirmed: true}), 'course:delete failed')

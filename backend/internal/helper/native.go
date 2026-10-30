@@ -59,6 +59,18 @@ func (n *Native) Configure(binaryPath, pdfiumPath, cacheDir, embedModel, asrMode
 	n.asrModel = asrModel
 }
 
+// Ready reports whether a native helper binary has been configured and still exists.
+func (n *Native) Ready() bool {
+	n.mu.Lock()
+	path := n.binaryPath
+	n.mu.Unlock()
+	if path == "" {
+		return false
+	}
+	info, err := os.Stat(path)
+	return err == nil && info.Mode().IsRegular()
+}
+
 func (n *Native) ensure() error {
 	n.mu.Lock()
 	defer n.mu.Unlock()

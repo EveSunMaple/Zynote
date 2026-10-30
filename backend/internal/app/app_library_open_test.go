@@ -1,6 +1,7 @@
 package app_test
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
@@ -30,8 +31,9 @@ func TestLibraryOpenActions(t *testing.T) {
 	if errReply != nil {
 		t.Fatalf("library:open failed: %+v", errReply)
 	}
-	if strings.TrimSpace(string(raw)) != `"`+libraryRoot+`"` {
-		t.Fatalf("library root mismatch: %s", raw)
+	var openedRoot string
+	if err := json.Unmarshal(raw, &openedRoot); err != nil || openedRoot != libraryRoot {
+		t.Fatalf("library root mismatch: %s %v", raw, err)
 	}
 	if _, errReply := f.call("library:open-file", map[string]any{"path": path}); errReply != nil {
 		t.Fatalf("library:open-file failed: %+v", errReply)

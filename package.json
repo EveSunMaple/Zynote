@@ -103,7 +103,11 @@
      "zynote-core",
      "zynote-core.exe",
      "zynote-native",
-     "zynote-native.exe"
+     "zynote-native.exe",
+     "msvcp140.dll",
+     "msvcp140_1.dll",
+     "vcruntime140.dll",
+     "vcruntime140_1.dll"
     ]
    },
    {
@@ -120,8 +124,14 @@
     "to": "knowledge",
     "filter": [
      "onnx-bge/**",
-     "vendor/NapCat.Shell.Windows.Node.zip",
      "BiliSum-LICENSE"
+    ]
+   },
+   {
+    "from": "resources/knowledge/vendor",
+    "to": "knowledge/vendor",
+    "filter": [
+     "NapCat.Shell.Windows.Node.zip"
     ]
    },
    {

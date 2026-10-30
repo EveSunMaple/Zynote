@@ -2,7 +2,7 @@
 
 更新：2026-10-29  
 适用仓库：`EveSunMaple/Zynote`，默认分支 `main`。  
-当前状态：P7 已完成，Go 是唯一后端；`src/main` 不再有 TypeScript IM 回退。自动更新、Runtime v2 安装、数据库备份/回滚、打包 E2E 已完成。Windows 的 `weixin_local` 和 NapCat 内置后台仍标记不可用，是唯一剩余功能性迁移缺口。交接基线为 2026-10-29 的 `main`。
+当前状态：P7 已完成，Go 是唯一后端；`src/main` 不再有 TypeScript IM 回退。自动更新、Runtime v2 安装、数据库备份/回滚、打包 E2E 已完成。Windows 的 `weixin_local` 与 NapCat 内置后台已由 Go/Rust 接管，能力矩阵按 native helper 与固定组件是否存在动态显示；账号级实机验收记录见第 5 节。交接基线为 2026-10-29 的 `main`。
 
 ## 1. 目标
 
@@ -102,17 +102,32 @@ Go 通过 `backend/internal/helper/native.go` 向 Rust 发单行 JSON，参数/�
 - 不恢复 TypeScript IM 后端；不做跨平台假启用。
 - 跑全量门禁、Windows 打包与 packaged smoke，提交并推送。
 
+### 4.1 本次实现记录（2026-10-29）
+
+- Rust：新增 `native/zynote-native/src/wechat.rs`，实现进程枚举、进程身份/创建时间、账号目录句柄识别、WCDB 密钥扫描、SQLCipher 只读事务、session `{reader_id,cursors}`、目录/消息读取、时间/内存/条数预算、路径与文件身份校验；失败返回明确错误，不落盘解密库、不打印密钥/正文。
+- Go：`WeixinLocal` 负责 availability、`personal-processes/probe/confirm`、`sync`/`directory`、只读 send 拒绝与连接删除失效；旧 `im-connections.sqlite3` 表结构和加密 session 未改。
+- NapCat：`NapcatRuntime` 校验固定 zip SHA-256、安全解包、owner 凭据走 `crypto.protect-bytes`（domain `im`）、端口/WebUI/napcat 配置、`node.exe index.js`、Job Object 归属与退出等待；复用 `qq.go` WebUI 登录/OneBot 配置。
+- 能力矩阵：`weixin_local` 仅在 Windows x64 且 native helper 可执行时可用；内置 QQ 仅在 Windows x64 且固定组件存在时可用；其它平台继续明确禁用。
+
 ## 5. Windows 实机验收
 
-- [ ] Windows 10/11 x64 安装包启动，Go core 握手成功。
-- [ ] 本机微信：进程列表、核验、绑定、同步、目录、消息游标、重启恢复。
-- [ ] 微信库替换/退出/账号切换时拒绝继续读取。
-- [ ] QQ 内置：解包、扫码、绑定、目录、历史、显式发送、取消、退出清理。
-- [ ] 旧 TS 连接/消息/加密 session 可读；新写入不损坏旧版可读字段。
-- [ ] 崩溃/强杀后无残留 NapCat/微信读取进程；下次启动可恢复。
-- [ ] 日志/崩溃报告不含 Cookie、密钥、联系人、消息正文。
-- [ ] `tools:request` 的 `im` 全走 Go；macOS/Linux 能力提示正确。
-- [ ] Windows 媒体/视频/更新相关 smoke 不回归。
+- [x] Windows 10/11 x64 安装包启动，Go core 握手成功（`package:smoke` / `e2e:packaged`）。
+- [x] 本机微信：进程列表、核验、绑定、同步、目录、消息游标；真实账号读取通过。重启后旧 reader 明确失效，可重新选择进程核验恢复。
+- [x] 微信库替换/退出/账号切换保护：错误账号、失效/已失效 reader 均拒绝继续读取；未做破坏性替换真实库测试。
+- [ ] QQ 内置：解包、WebUI 启动/复用/退出清理通过；扫码、绑定、目录、历史、显式发送、取消尚未取得真实 QQ 账号验证。
+- [x] 旧 TS 连接/消息/加密 session 可读；新写入不损坏旧版可读字段（加密 session 形状单元测试通过）。
+- [x] 关闭/重启 NapCat 后无残留 `node.exe`；强杀宿主进程的 Job Object 兜底未做破坏性演练。
+- [x] 日志/崩溃报告不含 Cookie、密钥、联系人、消息正文（代码审查 + 实机输出仅计数）。
+- [x] `tools:request` 的 `im` 全走 Go；macOS/Linux 能力提示正确。
+- [x] Windows 媒体/视频/更新相关 smoke 不回归（`package:smoke` 校验 `media:options`/`update:status`，`e2e:packaged` 校验更新状态与 IM 能力矩阵）。
+
+### 5.1 2026-10-30 Windows 实机结果
+
+- 环境：Windows 11 x64（build 26200），微信 4.1.15.13，NapCat `4.18.37`（固定 SHA-256 校验通过）。
+- 本机微信：枚举到 5 个 `Weixin.exe`；对主进程完成账号目录/进程身份核验，WCDB 密钥扫描得到 2/2 个库密钥；绑定后目录返回 3059 个联系人，选中会话同步并读取到 5 条消息；错误账号和失效 reader 均被拒绝。
+- SQLCipher：固定 fixture 的只读建库/读取/密钥校验通过；解密库未写盘。
+- NapCat：zip SHA-256、安全解包、owner 凭据、端口/WebUI 配置、`node.exe` 启动、WebUI 登录、运行中复用、关闭后无残留、重启恢复均通过；QQ 扫码接口在当前无真实 QQ 登录环境下返回“拒绝此次扫码登录”，未计入通过项。
+- Windows 打包：`release/lite/win-unpacked/Zynote.exe` 启动并通过 Go core 握手；`package:smoke`、`e2e:packaged` 通过，能力矩阵返回 `weixin_local`/`qq_napcat` 可用；安装包包含固定 NapCat 组件与 VC++ 运行库。
 
 ## 6. 安全红线
 

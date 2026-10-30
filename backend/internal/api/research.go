@@ -112,6 +112,7 @@ func (inv *Invoker) imService(state *contract.State, reverse contract.ReverseCal
 		if err != nil {
 			return nil, err
 		}
+		service.SetWeixinNative(inv.wechat)
 		service.Model = func(ctx context.Context, system, user string) (string, error) {
 			profile, err := config.ActiveProfile(state.ConfigRoot, reverse)
 			if err != nil {
@@ -330,7 +331,7 @@ func (inv *Invoker) handleToolsRequest(storeState contract.StateStore, state *co
 			"tasks": tasks, "workflows": workflows,
 			"migration": map[string]any{
 				"runtimeLanguage": "go", "legacyRuntimeRequired": false,
-				"externalAcceptance": "研究引擎、外部检索、MCP、工作流与 IM 已迁移；Windows 本机微信/NapCat 后台尚未适配",
+				"externalAcceptance": "研究引擎、外部检索、MCP、工作流与 IM 已迁移；Windows 本机微信与 NapCat 后台由 Go/Rust 提供",
 			},
 			"runtime": map[string]any{"dependencies": []any{}},
 		}, nil
