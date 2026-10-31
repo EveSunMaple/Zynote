@@ -86,3 +86,66 @@ func TestSubtitleResumeRejectsInvalidIdentityBeforeQueue(t *testing.T) {
 		}
 	}
 }
+
+func TestRemoteSubtitleQueuedCancellationRetainsIntentWithoutDownload(t *testing.T) {
+	inv := NewInvoker()
+	root, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	state := &contract.State{LibraryRoot: root}
+	entered, release, finished := make(chan struct{}), make(chan struct{}), make(chan struct{})
+	go func() {
+		defer close(finished)
+		_, _ = inv.jobs.Run("existing", "", func(context.Context) (any, error) { close(entered); <-release; return nil, nil })
+	}()
+	<-entered
+	defer func() { close(release); <-finished }()
+	done := make(chan error, 1)
+	// A nil store must never be reached while this request waits in the queue.
+	go func() {
+		_, err := inv.handleVideoSubtitleTranscribe(nil, state, json.RawMessage(`{"url":"https://www.bilibili.com/video/BV1xx411c7mD/?p=2"}`))
+		done <- err
+	}()
+	deadline := time.Now().Add(5 * time.Second)
+	var id string
+	for {
+		select {
+		case err := <-done:
+			t.Fatalf("request rejected before queue: %v", err)
+		default:
+		}
+		value, err := inv.handleVideoPptPending(state)
+		if err != nil {
+			t.Fatal(err)
+		}
+		rows := value.([]videoppt.Pending)
+		if len(rows) == 1 && rows[0].QueueState == "queued" {
+			id = rows[0].ID
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("remote task never queued")
+		}
+		time.Sleep(time.Millisecond)
+	}
+	inv.jobs.CancelAll()
+	select {
+	case err := <-done:
+		if err == nil {
+			t.Fatal("cancel succeeded")
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("cancel stuck")
+	}
+	meta, directory, err := videoPptService(state).SubtitleTask(id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if meta.URL != "https://www.bilibili.com/video/BV1xx411c7mD/?p=2" || meta.Page != 2 {
+		t.Fatalf("lost source intent: %+v", meta)
+	}
+	if _, err := os.Stat(filepath.Join(directory, "video.mp4")); !os.IsNotExist(err) {
+		t.Fatalf("download ran: %v", err)
+	}
+}

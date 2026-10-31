@@ -11,7 +11,6 @@ import (
 	"image"
 	"image/jpeg"
 	"image/png"
-	"io"
 	"math"
 	"os"
 	"path/filepath"
@@ -69,27 +68,12 @@ func (processor Processor) CreateTask(source string) (CreatedTask, error) {
 		return CreatedTask{}, requestError("任务目录不可创建")
 	}
 	video := filepath.Join(directory, "video.mp4")
-	input, err := os.Open(absolute)
-	if err != nil {
-		_ = os.RemoveAll(directory)
-		return CreatedTask{}, requestError(errSourceUnavailable)
-	}
-	output, err := os.OpenFile(video, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o644)
-	if err != nil {
-		input.Close()
-		_ = os.RemoveAll(directory)
-		return CreatedTask{}, requestError("视频复制失败")
-	}
-	_, copyErr := io.Copy(output, input)
-	input.Close()
-	output.Close()
-	if copyErr != nil {
+	if err := CopyVideo(context.Background(), absolute, video); err != nil {
 		_ = os.RemoveAll(directory)
 		return CreatedTask{}, requestError("视频复制失败")
 	}
 	record := map[string]any{"id": id, "name": filepath.Base(absolute)}
-	encoded, _ := json.Marshal(record)
-	if err := os.WriteFile(filepath.Join(directory, "task.json"), encoded, 0o644); err != nil {
+	if err := saveTaskJSON(filepath.Join(directory, "task.json"), record); err != nil {
 		_ = os.RemoveAll(directory)
 		return CreatedTask{}, requestError(errTaskRecordWrite)
 	}

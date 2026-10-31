@@ -14,9 +14,10 @@ const (
 )
 
 const (
-	StatusWaiting = "等待识别"
-	StatusDone    = "已完成"
-	StatusFailed  = "失败"
+	StatusWaiting    = "等待识别"
+	StatusDone       = "已完成"
+	StatusFailed     = "失败"
+	StatusDispatched = "结果未知"
 )
 
 var idPattern = regexp.MustCompile(`^[a-f0-9]{32}$`)
@@ -125,8 +126,20 @@ func (service *Service) save(task Task) error {
 		return badRequest(errTaskSaveFailed)
 	}
 	path := filepath.Join(service.Root, task.ID+".json")
-	temporary := path + ".tmp"
-	if err := os.WriteFile(temporary, encoded, 0o644); err != nil {
+	file, err := os.CreateTemp(service.Root, ".visual-task-*")
+	if err != nil {
+		return badRequest(errTaskSaveFailed)
+	}
+	temporary := file.Name()
+	defer os.Remove(temporary)
+	defer file.Close()
+	if _, err := file.Write(encoded); err != nil {
+		return badRequest(errTaskSaveFailed)
+	}
+	if err := file.Sync(); err != nil {
+		return badRequest(errTaskSaveFailed)
+	}
+	if err := file.Close(); err != nil {
 		return badRequest(errTaskSaveFailed)
 	}
 	if err := os.Rename(temporary, path); err != nil {

@@ -178,18 +178,31 @@ func (service *Service) failVisualFrame(task *Task, frame *Frame, message string
 
 func (service *Service) recognizeFrame(ctx context.Context, task *Task, index int, recognize RecognizeFunc, progress func(string)) error {
 	frame := &task.Frames[index]
+	if frame.Status == StatusDispatched {
+		return badRequest("画面识别请求的结果未知，不能重复调用；请保留任务并核对服务端结果")
+	}
 	if progress != nil {
 		progress("识别画面 " + itoa(index+1) + "/" + itoa(len(task.Frames)))
 	}
 	if hash, err := fileDigest(frame.Path); err != nil || hash != frame.Hash {
 		return service.failVisualFrame(task, frame, "所选画面已改变")
 	}
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	frame.Status = StatusDispatched
+	frame.Error = "识别请求已发出，尚未保存确认结果"
+	if err := service.save(*task); err != nil {
+		return err
+	}
 	text, err := recognize(ctx, *frame)
 	if err != nil {
 		if ctx.Err() != nil {
 			return ctx.Err()
 		}
-		return service.failVisualFrame(task, frame, err.Error())
+		// Even a transport error can follow provider acceptance. Keep the synced
+		// dispatch record; explicit resume must not silently charge again.
+		return err
 	}
 	if ctx.Err() != nil {
 		return ctx.Err()

@@ -5,8 +5,8 @@
 `jobs.Registry.RunQueued` is a reusable bounded FIFO scheduler sharing the
 existing global exclusive worker. The first integration is
 `subtitle-derived:start/resume`, local video transcription, and persisted
-subtitle resume, and remote subtitle acquisition/transcription. Other job entry
-points still return BUSY.
+subtitle resume, remote subtitle acquisition/transcription, and PPT
+source/auto/extract/export. Other job entry points still return BUSY.
 There are at most 16 queue participants, including the running queued task.
 Normal jobs and queued jobs cannot execute simultaneously. Cancellation applies
 to both waiting participants and the active job.
@@ -49,9 +49,44 @@ download and ASR share the same exclusive worker. A queued cancellation retains
 the source record. Recovery of missing/incomplete downloaded video still requires
 reacquisition; this queue change does not assert partial-download reconciliation.
 
+New remote, local subtitle and PPT video copies use same-directory staging,
+file sync and close before atomic no-overwrite hard-link publication. Failed or
+cancelled copies do not expose `video.mp4`; normal error exits remove staging.
+A process kill may leave a hidden `.video-copy-*` staging file, which resume
+does not treat as video. Filesystems without hard links fail closed. Directory
+power-loss durability and concurrent mutation of the source are not guaranteed.
+Already-existing legacy `video.mp4` files have no completeness proof; this
+change preserves them and does not certify or repair historical partial copies.
+
+PPT task inputs are persisted before admission. All stages of a task retain the
+same `video-ppt:<task-id>` queue key, and content-addressed input records preserve
+explicit crop/prompt revisions. Source/auto starts currently generate a fresh
+identity per request; stable operationId binding and pre-source recovery UI are
+still pending. A queued remote cancellation retains its source URL and stage
+intent, but the existing restore view still needs source.json and cannot yet
+resume that early task.
+
+PPT source/extract model calls save synced, content-addressed dispatched/prepared
+journals bound to the exact prompt/images and a non-secret provider/model/options
+fingerprint. Prepared requests reuse their own response; explicit changed crops
+can make a new revision, but any unresolved dispatch of the stage blocks all
+revisions. Existing manual fallback warnings still surface model errors; those
+warnings do not authorize replay. PDF export persists the selected destination
+and expected digest before synced atomic no-overwrite publication. Retrying the
+same export reuses that destination, while changed/deleted/user-modified outputs
+are never silently overwritten. This protects publication before task cleanup;
+a completed task removed by cleanup has no general archived operation receipt.
+
+Visual recognition also saves a synced per-frame unknown marker before provider
+invocation. Provider errors/cancellation after dispatch remain unknown and cannot
+be resumed into another call. Already-saved frame responses can recover output
+without recognition. The subprocess-kill regression uses a simulated provider;
+it does not call a paid model. Visual entries still use BUSY rather than FIFO.
+
 ## Model checkpoint policy
 
-Before invoking the model, the domain synchronously persists `dispatched`.
+For batch course-note generation, before invoking the model the domain
+synchronously persists `dispatched`.
 When a response arrives, it persists `prepared` and the result before export.
 An interrupted `dispatched` item without a prepared response stays unknown and
 cannot be automatically retried. Prepared results and verified outputs resume

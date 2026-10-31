@@ -1,10 +1,10 @@
 package videoppt
 
 import (
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
-	"io"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -43,21 +43,7 @@ type CreatedTask struct {
 }
 
 func copyFile(source, destination string) error {
-	input, err := os.Open(source)
-	if err != nil {
-		return err
-	}
-	defer input.Close()
-	output, err := os.OpenFile(destination, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o644)
-	if err != nil {
-		return err
-	}
-	if _, err := io.Copy(output, input); err != nil {
-		output.Close()
-		_ = os.Remove(destination)
-		return err
-	}
-	return output.Close()
+	return CopyVideo(context.Background(), source, destination)
 }
 
 func (service *Service) CreateSubtitleTask(source, outputName, courseName string, page int) (CreatedTask, error) {
@@ -83,13 +69,7 @@ func (service *Service) CreateSubtitleTask(source, outputName, courseName string
 		ID: id, Name: filepath.Base(absolute), Kind: "subtitle",
 		OutputName: outputName, CourseName: courseName, Page: page,
 	}
-	encoded, _ := json.Marshal(task)
-	temporary := filepath.Join(directory, "task.json.tmp")
-	if err := os.WriteFile(temporary, encoded, 0o644); err != nil {
-		_ = os.RemoveAll(directory)
-		return CreatedTask{}, requestError(errTaskRecordWrite)
-	}
-	if err := os.Rename(temporary, filepath.Join(directory, taskFileName)); err != nil {
+	if err := saveTaskJSON(filepath.Join(directory, taskFileName), task); err != nil {
 		_ = os.RemoveAll(directory)
 		return CreatedTask{}, requestError(errTaskRecordWrite)
 	}
@@ -225,8 +205,7 @@ func (service *Service) CreateBlankTask(name string, meta map[string]any) (Creat
 	for key, value := range meta {
 		record[key] = value
 	}
-	encoded, _ := json.Marshal(record)
-	if err := os.WriteFile(filepath.Join(directory, taskFileName), encoded, 0o644); err != nil {
+	if err := saveTaskJSON(filepath.Join(directory, taskFileName), record); err != nil {
 		_ = os.RemoveAll(directory)
 		return CreatedTask{}, requestError(errTaskRecordWrite)
 	}

@@ -3,7 +3,6 @@ package api
 import (
 	"context"
 	"fmt"
-	"io"
 	"net/url"
 	"os"
 	"strings"
@@ -12,6 +11,7 @@ import (
 	"github.com/EveSunMaple/Zynote/backend/internal/media"
 	"github.com/EveSunMaple/Zynote/backend/internal/media/bilibili"
 	"github.com/EveSunMaple/Zynote/backend/internal/media/download"
+	"github.com/EveSunMaple/Zynote/backend/internal/videoppt"
 )
 
 // Video learning uses the same authenticated catalog, transfer and verified mux
@@ -60,36 +60,7 @@ func (inv *Invoker) downloadBiliVideo(ctx context.Context, store contract.StateS
 }
 
 func copyLearningVideo(ctx context.Context, source, destination string) error {
-	if err := ctx.Err(); err != nil {
-		return err
-	}
-	input, err := os.Open(source)
-	if err != nil {
-		return contract.Unavailable("视频下载未完成")
-	}
-	defer input.Close()
-	output, err := os.OpenFile(destination, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0600)
-	if err != nil {
-		return err
-	}
-	_, copyErr := io.Copy(output, &cancelVideoReader{ctx: ctx, reader: input})
-	closeErr := output.Close()
-	if copyErr != nil {
-		return copyErr
-	}
-	return closeErr
-}
-
-type cancelVideoReader struct {
-	ctx    context.Context
-	reader io.Reader
-}
-
-func (r *cancelVideoReader) Read(p []byte) (int, error) {
-	if err := r.ctx.Err(); err != nil {
-		return 0, err
-	}
-	return r.reader.Read(p)
+	return videoppt.CopyVideo(ctx, source, destination)
 }
 
 func biliVideoParts(normalized string) (string, string, error) {
