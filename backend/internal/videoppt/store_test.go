@@ -43,6 +43,9 @@ func TestPendingAndRestore(t *testing.T) {
 	if !ok || len(review.Pages) != 1 || review.Pages[0].Page != 1 {
 		t.Fatalf("restore mismatch: %+v", restored)
 	}
+	if review.CandidateEvidence != nil {
+		t.Fatal("legacy task fabricated candidate evidence")
+	}
 	sourceValue, ok := restored["source"].(Source)
 	if !ok || sourceValue.Name != "第一讲" || sourceValue.Width != 1280 {
 		t.Fatalf("source mismatch: %+v", restored)

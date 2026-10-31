@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"github.com/EveSunMaple/Zynote/backend/internal/contract"
+	"github.com/EveSunMaple/Zynote/backend/internal/framecandidate"
 )
 
 const (
@@ -50,10 +51,12 @@ type Page struct {
 }
 
 type Review struct {
-	ID         string `json:"id"`
-	SourceName string `json:"sourceName"`
-	Warning    string `json:"warning,omitempty"`
-	Pages      []Page `json:"pages"`
+	ScanCrop          *Region                   `json:"scanCrop,omitempty"`
+	CandidateEvidence *framecandidate.Reference `json:"candidateEvidence,omitempty"`
+	ID                string                    `json:"id"`
+	SourceName        string                    `json:"sourceName"`
+	Warning           string                    `json:"warning,omitempty"`
+	Pages             []Page                    `json:"pages"`
 }
 
 type Pending struct {
@@ -132,6 +135,31 @@ func (service *Service) Restore(id string) (map[string]any, error) {
 	}
 	result := map[string]any{"source": source, "review": nil}
 	if review != nil {
+		if review.CandidateEvidence != nil {
+			if review.ScanCrop == nil || !validCrop(*review.ScanCrop) {
+				return nil, requestError("候选证据缺少本次扫描区域")
+			}
+			x, y, w, h, err := extractCropRect(source, *review.ScanCrop)
+			if err != nil {
+				return nil, err
+			}
+			hash, err := VideoDigest(filepath.Join(directory, videoFileName))
+			if err != nil {
+				return nil, err
+			}
+			expected := review.CandidateEvidence.Binding
+			expected.SourceHash = hash
+			expected.Sampler = "ppt-stable-gray-v1"
+			expected.Policy = "stable-initial"
+			expected.Region = [4]int{x, y, w, h}
+			expected.Cap = 0
+			expected.StepMs = 1000
+			expected.GrayWidth, expected.GrayHeight = 160, 90
+			expected.DurationMs = int64(math.Round(source.Duration * 1000))
+			if _, err := framecandidate.Read(service.Root, id, *review.CandidateEvidence, expected); err != nil {
+				return nil, err
+			}
+		}
 		result["review"] = review
 	}
 	return result, nil

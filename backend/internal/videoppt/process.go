@@ -273,6 +273,7 @@ func decodePNG(path string) (image.Image, error) {
 }
 
 type stableSlides struct {
+	Samples     []framecandidate.Sample
 	last        []byte
 	pending     []byte
 	pendingTime float64
@@ -294,6 +295,7 @@ func (slides *stableSlides) push(pixels []byte, at float64) error {
 			return err
 		}
 		if slides.accepted == nil || accepted.NormalizedChange > 0.003 {
+			slides.Samples = append(slides.Samples, framecandidate.Sample{SampleTimeMs: int64(math.Round(slides.pendingTime * 1000)), TimeMs: int64(math.Round(slides.pendingTime * 1000)), Reason: "stable-initial", GrayHash: framecandidate.GrayHash(slides.pending), Metrics: &accepted})
 			slides.Times = append(slides.Times, slides.pendingTime)
 			slides.accepted = append([]byte(nil), slides.pending...)
 			slides.pending = nil
@@ -594,6 +596,10 @@ func (processor Processor) Extract(
 	if !validCrop(crop) {
 		return Review{}, requestError("请框选有效的 PPT 区域")
 	}
+	sourceHash, err := VideoDigest(task.Path)
+	if err != nil {
+		return Review{}, err
+	}
 	source, err := extractSource(task)
 	if err != nil {
 		return Review{}, err
@@ -616,6 +622,17 @@ func (processor Processor) Extract(
 	if err := writeFramesJSON(task, frames); err != nil {
 		return Review{}, err
 	}
+	if after, err := VideoDigest(task.Path); err != nil || after != sourceHash {
+		return Review{}, requestError("扫描期间视频已改变，未发布候选证据")
+	}
+	samples := append([]framecandidate.Sample(nil), detector.Samples...)
+	for index := range samples {
+		samples[index].TimeMs = int64(math.Round(math.Max(0, math.Min(detector.Times[index]+0.5, source.Duration-0.1)) * 1000))
+	}
+	evidence, err := framecandidate.Publish(processor.Root, task.ID, framecandidate.Binding{SourceHash: sourceHash, Sampler: "ppt-stable-gray-v1", Policy: "stable-initial", Region: [4]int{x, y, w, h}, StepMs: 1000, GrayWidth: 160, GrayHeight: 90, DurationMs: int64(math.Round(source.Duration * 1000))}, samples)
+	if err != nil {
+		return Review{}, err
+	}
 	previews, err := framePreviews(frames)
 	if err != nil {
 		return Review{}, err
@@ -628,6 +645,9 @@ func (processor Processor) Extract(
 	if err != nil {
 		return Review{}, err
 	}
+	review.CandidateEvidence = evidence
+	scanCrop := crop
+	review.ScanCrop = &scanCrop
 	encoded, _ := json.Marshal(review)
 	if err := os.WriteFile(filepath.Join(task.Dir, "review.json"), encoded, 0o644); err != nil {
 		return Review{}, requestError(errTaskRecordWrite)

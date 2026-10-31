@@ -29,6 +29,19 @@ func TestMain(m *testing.M) {
 			}
 		}
 		switch mode {
+		case "producer":
+			if strings.Contains(strings.Join(os.Args, " "), "rawvideo") {
+				for _, value := range []byte{40, 40, 80, 80} {
+					pixels := make([]byte, 576)
+					for index := range pixels {
+						pixels[index] = value
+					}
+					_, _ = os.Stdout.Write(pixels)
+				}
+			} else {
+				_ = os.WriteFile(os.Args[len(os.Args)-1], []byte("controlled frame bytes"), 0600)
+			}
+			os.Exit(0)
 		case "scan-fail":
 			_, _ = os.Stdout.Write(make([]byte, 576))
 			os.Exit(7)
@@ -96,6 +109,9 @@ func TestCaptureRejectsFailedOrIncompleteBalancedScan(t *testing.T) {
 			}
 			if _, err := os.Stat(filepath.Join(service.FramesRoot, "native-visual", id, "source.json")); !os.IsNotExist(err) {
 				t.Fatal("failed scan published source manifest")
+			}
+			if files, _ := filepath.Glob(filepath.Join(service.Root, ".candidates", "*.json")); len(files) != 0 {
+				t.Fatal("failed scan published selection evidence")
 			}
 		})
 	}

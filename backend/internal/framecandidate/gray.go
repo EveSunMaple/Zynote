@@ -5,9 +5,9 @@ package framecandidate
 import "fmt"
 
 type GrayMetrics struct {
-	MeanLight        float64
-	MeanChange       float64
-	NormalizedChange float64
+	MeanLight        float64 `json:"meanLight"`
+	MeanChange       float64 `json:"meanChange"`
+	NormalizedChange float64 `json:"normalizedChange"`
 }
 
 func MeasureGray(pixels, previous []byte) (GrayMetrics, error) {

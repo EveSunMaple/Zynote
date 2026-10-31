@@ -101,6 +101,9 @@ func (service *Service) Prepare(ctx context.Context, id, connection string) (Tas
 		return Task{}, badRequest("任务没有待提取记录")
 	}
 	if len(task.Frames) > 0 {
+		if err := service.checkVisualSource(&task); err != nil {
+			return Task{}, err
+		}
 		return task, nil
 	}
 	hash, err := fileDigest(task.Source)
@@ -141,6 +144,7 @@ func (service *Service) Prepare(ctx context.Context, id, connection string) (Tas
 		task.Frames = append(task.Frames, frame)
 	}
 	task.Duration = captured.Duration
+	task.CandidateEvidence = captured.CandidateEvidence
 	task.Gaps = captured.Gaps
 	task.Preparation.Status = "已提取"
 	task.Preparation.Error = ""
@@ -156,6 +160,9 @@ func (service *Service) checkVisualSource(task *Task) error {
 	hash, err := fileDigest(task.Source)
 	if err != nil || hash != task.SourceHash {
 		return badRequest("源文件已经改变，请新建画面识别任务")
+	}
+	if err := service.verifyCandidateEvidence(task); err != nil {
+		return err
 	}
 	return nil
 }

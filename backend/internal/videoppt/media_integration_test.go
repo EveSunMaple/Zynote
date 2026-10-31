@@ -2,6 +2,7 @@ package videoppt
 
 import (
 	"context"
+	"encoding/json"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -63,5 +64,51 @@ func TestMediaStableSlideScan(t *testing.T) {
 	}
 	if len(detector.Times) != 2 || detector.Times[0] != 0 || detector.Times[1] != 3 {
 		t.Fatalf("slide timeline: %v", detector.Times)
+	}
+	processor.Root = t.TempDir()
+	processor.Root, err = filepath.EvalSymlinks(processor.Root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	task, err := processor.CreateTask(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	prepared, err := processor.Prepare(ctx, task, nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	review, err := processor.Extract(ctx, task, prepared.Source.Crop, "", nil, nil)
+	if err != nil || review.CandidateEvidence == nil || len(review.Pages) != 2 || review.Pages[0].Time != 0.5 || review.Pages[1].Time != 3.5 {
+		t.Fatalf("producer changed candidates %+v %v", review, err)
+	}
+	service := New(processor.Root)
+	if _, err := service.Restore(task.ID); err != nil {
+		t.Fatal(err)
+	}
+	original := review.CandidateEvidence
+	swapped := *original
+	swapped.Binding.Region[0]++
+	review.CandidateEvidence = &swapped
+	encoded, _ := json.Marshal(review)
+	if err := os.WriteFile(filepath.Join(task.Dir, "review.json"), encoded, 0600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := service.Restore(task.ID); err == nil {
+		t.Fatal("same task different scan-region evidence accepted")
+	}
+	review.CandidateEvidence = original
+	encoded, _ = json.Marshal(review)
+	if err := os.WriteFile(filepath.Join(task.Dir, "review.json"), encoded, 0600); err != nil {
+		t.Fatal(err)
+	}
+	file, err := os.OpenFile(task.Path, os.O_APPEND|os.O_WRONLY, 0600)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, _ = file.WriteString("changed-source")
+	_ = file.Close()
+	if _, err := service.Restore(task.ID); err == nil {
+		t.Fatal("restore accepted changed source candidate evidence")
 	}
 }

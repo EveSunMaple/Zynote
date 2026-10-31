@@ -2,6 +2,7 @@ package visual
 
 import (
 	"encoding/json"
+	"github.com/EveSunMaple/Zynote/backend/internal/framecandidate"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -48,29 +49,31 @@ type Preparation struct {
 }
 
 type Task struct {
-	ID             string       `json:"id"`
-	Source         string       `json:"source"`
-	SourceHash     string       `json:"sourceHash"`
-	Duration       float64      `json:"duration"`
-	Frames         []Frame      `json:"frames"`
-	Gaps           []any        `json:"gaps"`
-	Connection     string       `json:"connection"`
-	Output         string       `json:"output,omitempty"`
-	OutputHash     string       `json:"outputHash,omitempty"`
-	OutputJournal  *Journal     `json:"outputJournal,omitempty"`
-	OutputPending  bool         `json:"outputPending,omitempty"`
-	OutputRecovery string       `json:"outputRecovery,omitempty"`
-	Cleaned        bool         `json:"cleaned,omitempty"`
-	Preparation    *Preparation `json:"preparation,omitempty"`
+	CandidateEvidence *framecandidate.Reference `json:"candidateEvidence,omitempty"`
+	ID                string                    `json:"id"`
+	Source            string                    `json:"source"`
+	SourceHash        string                    `json:"sourceHash"`
+	Duration          float64                   `json:"duration"`
+	Frames            []Frame                   `json:"frames"`
+	Gaps              []any                     `json:"gaps"`
+	Connection        string                    `json:"connection"`
+	Output            string                    `json:"output,omitempty"`
+	OutputHash        string                    `json:"outputHash,omitempty"`
+	OutputJournal     *Journal                  `json:"outputJournal,omitempty"`
+	OutputPending     bool                      `json:"outputPending,omitempty"`
+	OutputRecovery    string                    `json:"outputRecovery,omitempty"`
+	Cleaned           bool                      `json:"cleaned,omitempty"`
+	Preparation       *Preparation              `json:"preparation,omitempty"`
 }
 
 type Capture struct {
-	ID         string  `json:"id"`
-	Source     string  `json:"source"`
-	SourceHash string  `json:"sourceHash"`
-	Duration   float64 `json:"duration"`
-	Frames     []Frame `json:"frames"`
-	Gaps       []any   `json:"gaps"`
+	CandidateEvidence *framecandidate.Reference `json:"candidateEvidence,omitempty"`
+	ID                string                    `json:"id"`
+	Source            string                    `json:"source"`
+	SourceHash        string                    `json:"sourceHash"`
+	Duration          float64                   `json:"duration"`
+	Frames            []Frame                   `json:"frames"`
+	Gaps              []any                     `json:"gaps"`
 }
 
 func OutputRecoveryReason(task Task, currentHash string, hasOutput, hasLegacyOutput bool) string {

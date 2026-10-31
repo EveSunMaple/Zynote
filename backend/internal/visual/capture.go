@@ -65,11 +65,12 @@ func (service *Service) command(ctx context.Context, tool string, args []string,
 }
 
 type balanceBin struct {
-	time  float64
-	score float64
+	time   float64
+	score  float64
+	Sample *framecandidate.Sample
 }
 
-func (service *Service) balancedTimes(ctx context.Context, source string, duration float64, times []float64) ([]float64, error) {
+func (service *Service) balancedSelection(ctx context.Context, source string, duration float64, times []float64) ([]float64, []framecandidate.Sample, error) {
 	bins := make([]balanceBin, len(times))
 	for index, value := range times {
 		bins[index] = balanceBin{time: value, score: -1}
@@ -104,23 +105,36 @@ func (service *Service) balancedTimes(ctx context.Context, source string, durati
 			if metrics.MeanLight > 4 && score > bins[binIndex].score {
 				bins[binIndex].time = math.Max(0, time)
 				bins[binIndex].score = score
+				bins[binIndex].Sample = &framecandidate.Sample{TimeMs: int64(math.Round(math.Max(0, time) * 1000)), SampleTimeMs: int64(math.Round(math.Max(0, time) * 1000)), Reason: "balanced-change", GrayHash: framecandidate.GrayHash(pixels), Metrics: &metrics}
 			}
 			previous = pixels
 		}
 	})
 	if err != nil {
-		return nil, fmt.Errorf("画面候选扫描失败，未发布成果: %w", err)
+		return nil, nil, fmt.Errorf("画面候选扫描失败，未发布成果: %w", err)
 	}
 	if scanErr != nil {
-		return nil, scanErr
+		return nil, nil, scanErr
 	}
 	if index == 0 || len(pending) != 0 {
-		return nil, fmt.Errorf("画面候选扫描返回不完整，未发布成果")
+		return nil, nil, fmt.Errorf("画面候选扫描返回不完整，未发布成果")
 	}
 	for index := range times {
 		times[index] = bins[index].time
 	}
-	return times, nil
+	samples := make([]framecandidate.Sample, len(times))
+	for index, at := range times {
+		samples[index] = framecandidate.Sample{TimeMs: int64(math.Round(at * 1000)), SampleTimeMs: int64(math.Round(at * 1000)), Reason: "coverage-fallback"}
+		if bins[index].Sample != nil {
+			samples[index] = *bins[index].Sample
+		}
+	}
+	return times, samples, nil
+}
+
+func (service *Service) balancedTimes(ctx context.Context, source string, duration float64, times []float64) ([]float64, error) {
+	selected, _, err := service.balancedSelection(ctx, source, duration, times)
+	return selected, err
 }
 
 func (service *Service) probeVideoDuration(ctx context.Context, source string) (float64, error) {
@@ -241,6 +255,7 @@ func (service *Service) Capture(ctx context.Context, request CaptureRequest) (Ca
 	}
 	extension := strings.ToLower(filepath.Ext(source))
 	frames := []Frame{}
+	var samples []framecandidate.Sample
 	duration := 0.0
 	imageSource := extension == ".png" || extension == ".jpg" || extension == ".jpeg" || extension == ".webp"
 	if imageSource {
@@ -250,7 +265,7 @@ func (service *Service) Capture(ctx context.Context, request CaptureRequest) (Ca
 		if err == nil {
 			times := coverageTimes(duration, request.Cap)
 			if request.Policy == "balanced" {
-				times, err = service.balancedTimes(ctx, source, duration, times)
+				times, samples, err = service.balancedSelection(ctx, source, duration, times)
 			}
 			if err == nil {
 				frames, err = service.captureVideoFrames(ctx, source, directory, times)
@@ -266,7 +281,21 @@ func (service *Service) Capture(ctx context.Context, request CaptureRequest) (Ca
 	if after, err := fileDigest(source); err != nil || after != hash {
 		return Capture{}, badRequest("提取期间源文件改变，请重新选择")
 	}
-	result := Capture{ID: request.ID, Source: source, SourceHash: hash, Duration: duration, Frames: frames, Gaps: []any{}}
+	if samples == nil {
+		for _, frame := range frames {
+			reason := "coverage"
+			if imageSource {
+				reason = "image"
+			}
+			samples = append(samples, framecandidate.Sample{TimeMs: int64(math.Round(frame.Time * 1000)), SampleTimeMs: int64(math.Round(frame.Time * 1000)), Reason: reason})
+		}
+	}
+	binding := visualCandidateBinding(hash, source, request.Cap, request.Policy, duration)
+	evidence, err := framecandidate.Publish(service.Root, request.ID, binding, samples)
+	if err != nil {
+		return Capture{}, err
+	}
+	result := Capture{ID: request.ID, Source: source, SourceHash: hash, Duration: duration, Frames: frames, Gaps: []any{}, CandidateEvidence: evidence}
 	encoded, _ := json.MarshalIndent(result, "", "  ")
 	if err := os.WriteFile(filepath.Join(directory, "source.json"), encoded, 0o644); err != nil {
 		return Capture{}, badRequest(errFramesDirInvalid)
