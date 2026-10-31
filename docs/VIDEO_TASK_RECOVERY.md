@@ -51,7 +51,7 @@ not assumed successful. No reconciliation UI is added by this change.
   covers FIFO order, capacity, cancellation, duplicate admission, identity
   binding, domain BUSY errors, and queue ownership after reconstruction.
 - `TestKilledProcessDoesNotReplayGeneration` launches a separate process through
-  the actual queue, kills it at dispatched and prepared checkpoints, then
+  the actual queue, kills it at queued, dispatched and prepared checkpoints, then
   explicitly resumes the same task. Its model response is simulated.
 - `ZYNOTE_ASR_TEST=1 go test ./internal/asr -run TestRecordedSpeechPipeline -v`
   requires absolute `ZYNOTE_TEST_VIDEO`, `ZYNOTE_TEST_MODEL`, and
@@ -96,3 +96,11 @@ no further summarizer invocation. The domain requires a Bilibili locator, so
 this test explicitly uses a synthetic locator as a domain fixture; it does not
 validate Bilibili acquisition or claim the MIT recording came from that URL.
 The real content source and license are recorded separately in the report.
+
+Expanded 12-minute acceptance exposed a real failure at VAD offset 673.904s:
+a 0.832s speech range produced a model end timestamp of 2.0s in its padded
+decoding window. Valid cue ends are now bounded to actual audio duration;
+invalid starts, reversed/nonfinite spans, or spans beyond a full padded window
+remain errors. The original 0.832s recording passed a real native regression
+with a cue bounded to 0.000–0.832s. Full 12-minute rerun is recorded separately;
+the short regression alone does not establish that longer acceptance passed.

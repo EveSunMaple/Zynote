@@ -27,7 +27,29 @@ func TestCrashWorker(t *testing.T) {
 	}
 	checks := 0
 	id := os.Getenv("ZYNOTE_CRASH_ID")
-	_, err := jobs.NewRegistry().RunQueued(context.Background(), filepath.Join(service.Root, "queue"), id, "notes", func(ctx context.Context) (any, error) {
+	registry := jobs.NewRegistry()
+	root := filepath.Join(service.Root, "queue")
+	if checkpoint == "queued" {
+		entered := make(chan struct{})
+		go func() {
+			_, _ = registry.Run("existing", "", func(context.Context) (any, error) {
+				close(entered)
+				for {
+					time.Sleep(time.Second)
+				}
+			})
+		}()
+		<-entered
+		go func() {
+			for {
+				if record, err := registry.QueueRecord(root, id); err == nil && record.State == "queued" {
+					block()
+				}
+				time.Sleep(time.Millisecond)
+			}
+		}()
+	}
+	_, err := registry.RunQueued(context.Background(), root, id, "notes", func(ctx context.Context) (any, error) {
 		return service.Run(ctx, id, Dependencies{Generation: func(context.Context, string) (string, error) {
 			checks++
 			if checkpoint == "prepared" && checks == 2 {
@@ -47,7 +69,7 @@ func TestCrashWorker(t *testing.T) {
 }
 
 func TestKilledProcessDoesNotReplayGeneration(t *testing.T) {
-	for _, checkpoint := range []string{"dispatched", "prepared"} {
+	for _, checkpoint := range []string{"queued", "dispatched", "prepared"} {
 		t.Run(checkpoint, func(t *testing.T) { killedProcessCheckpoint(t, checkpoint) })
 	}
 }
@@ -97,6 +119,9 @@ func killedProcessCheckpoint(t *testing.T, checkpoint string) {
 	}
 	value, err := registry.RunQueued(context.Background(), root, task.ID, "notes", func(ctx context.Context) (any, error) {
 		return restarted.Run(ctx, task.ID, Dependencies{Summarize: func(context.Context, string, string) (string, []Point, error) {
+			if checkpoint == "queued" {
+				return "# Resumed queued task", nil, nil
+			}
 			t.Fatal("killed model request replayed")
 			return "", nil, nil
 		}})
@@ -106,10 +131,12 @@ func killedProcessCheckpoint(t *testing.T, checkpoint string) {
 	}
 	result := value.(Task)
 	expectedStatus := "\u5931\u8d25"
-	if checkpoint == "prepared" {
+	expectedGeneration := checkpoint
+	if checkpoint == "prepared" || checkpoint == "queued" {
 		expectedStatus = "\u5df2\u5b8c\u6210"
+		expectedGeneration = "prepared"
 	}
-	if result.Items[0].GenerationState != checkpoint || result.Items[0].Status != expectedStatus {
+	if result.Items[0].GenerationState != expectedGeneration || result.Items[0].Status != expectedStatus {
 		t.Fatalf("unexpected recovery: %+v", result)
 	}
 }
