@@ -25,7 +25,10 @@ func JSONRecipePolicy() contract.JSONGenerationPolicy {
 // with Chat. Only the non-secret effective model parameters are retained.
 // Non-streaming and Responses store=false are fixed transport policies.
 func (client *Client) TextRequestConfiguration() (contract.RequestedGenerationConfig, error) {
-	profile := client.Profile
+	return textRequestConfiguration(client.Profile)
+}
+
+func textRequestConfiguration(profile Profile) (contract.RequestedGenerationConfig, error) {
 	model, err := chatModel(profile, false)
 	if err != nil {
 		return contract.RequestedGenerationConfig{}, err

@@ -49,14 +49,15 @@ type Prepared struct {
 }
 
 type Item struct {
-	Source          Source      `json:"source"`
-	Mode            string      `json:"mode"`
-	Status          string      `json:"status"`
-	Error           string      `json:"error,omitempty"`
-	Outputs         []Output    `json:"outputs,omitempty"`
-	Prepared        *Prepared   `json:"prepared,omitempty"`
-	GenerationState string      `json:"generationState,omitempty"`
-	Recipe          *ItemRecipe `json:"recipe,omitempty"`
+	Source          Source              `json:"source"`
+	Mode            string              `json:"mode"`
+	Status          string              `json:"status"`
+	Error           string              `json:"error,omitempty"`
+	Outputs         []Output            `json:"outputs,omitempty"`
+	Prepared        *Prepared           `json:"prepared,omitempty"`
+	GenerationState string              `json:"generationState,omitempty"`
+	Recipe          *ItemRecipe         `json:"recipe,omitempty"`
+	AttemptEvidence *AttemptEvidenceRef `json:"attemptEvidence,omitempty"`
 }
 
 type Task struct {
@@ -396,11 +397,15 @@ func (service *Service) ensurePrepared(ctx context.Context, task *Task, item *It
 	if err := service.bindRecipe(ctx, task, dependencies); err != nil {
 		return err
 	}
+	observedContext, err := service.observationContext(ctx, task, item, srt)
+	if err != nil {
+		return err
+	}
 	item.GenerationState = "dispatched"
 	if err := service.save(*task); err != nil {
 		return err
 	}
-	markdown, points, err := dependencies.Summarize(ctx, srt, item.Mode)
+	markdown, points, err := dependencies.Summarize(observedContext, srt, item.Mode)
 	if err != nil {
 		return err
 	}
@@ -560,6 +565,18 @@ func (service *Service) Run(ctx context.Context, id string, dependencies Depende
 			}
 			item.Status = "失败"
 			item.Error = err.Error()
+			if contract.IsObservationFailure(err) {
+				if saveErr := service.save(task); saveErr != nil {
+					return task, saveErr
+				}
+				return task, err
+			}
+			if item.GenerationState != "" && item.Prepared == nil && len(item.Outputs) == 0 {
+				if saveErr := service.save(task); saveErr != nil {
+					return task, saveErr
+				}
+				return task, nil
+			}
 		}
 		if err := service.save(task); err != nil {
 			return Task{}, err

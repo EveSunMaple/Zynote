@@ -102,6 +102,9 @@ func (inv *Invoker) handleSubtitleDerivedList(state *contract.State) (any, error
 			tasks[index].QueueState = record.State
 		}
 	}
+	for index := range tasks {
+		tasks[index] = projectSubtitleTask(tasks[index])
+	}
 	return tasks, nil
 }
 
@@ -110,6 +113,9 @@ func (inv *Invoker) runDerivedQueued(store contract.StateStore, state *contract.
 	result, err := inv.jobs.RunQueued(context.Background(), filepath.Join(state.LibraryRoot, "TaskQueue"), id, key, func(ctx context.Context) (any, error) {
 		return subtitleDerivedService(state).Run(ctx, id, inv.subtitleDerivedDependencies(store, state))
 	})
+	if task, ok := result.(subtitlederived.Task); ok {
+		result = projectSubtitleTask(task)
+	}
 	return inv.finishJob(key, "", result, err)
 }
 
@@ -241,4 +247,15 @@ func resolveSubtitleRecipes(client *ai.Client, modes []string) (contract.Request
 		recipes[mode] = recipe
 	}
 	return configuration, recipes, nil
+}
+
+// projectSubtitleTask omits newly added detailed recipes from every API boundary.
+// The durable task remains untouched; pre-existing response fields retain shape.
+func projectSubtitleTask(task subtitlederived.Task) subtitlederived.Task {
+	task.Recipe = nil
+	task.Items = append([]subtitlederived.Item(nil), task.Items...)
+	for index := range task.Items {
+		task.Items[index].Recipe = nil
+	}
+	return task
 }

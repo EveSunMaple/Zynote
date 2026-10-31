@@ -203,7 +203,22 @@ func summarizeVideoText(
 			Cues []summaryCue `json:"cues"`
 		}{mode, summaryCues(part, startIndex)}
 		var points []videoNotePoint
-		_, err := client.JSON(ctx, summaryPrompt(mode, maxPoints), inputValue, func(value []byte) error {
+		chunkContext := ctx
+		if metadata, observer := contract.GenerationObservationFrom(ctx); observer != nil {
+			metadata.ChunkIndex = index
+			metadata.ChunkCount = len(chunks)
+			metadata.CueIDs = make([]int, len(inputValue.Cues))
+			for i, cue := range inputValue.Cues {
+				metadata.CueIDs[i] = cue.Cue
+			}
+			inputHash, err := ai.JSONInputSHA256(inputValue)
+			if err != nil {
+				return summaryResult{}, err
+			}
+			metadata.InputSHA256 = inputHash
+			chunkContext = contract.WithGenerationObservation(ctx, metadata, observer)
+		}
+		_, err := client.JSON(chunkContext, summaryPrompt(mode, maxPoints), inputValue, func(value []byte) error {
 			parsed, err := parseSummaryPoints(value, maxPoints, heading)
 			if err != nil {
 				return err

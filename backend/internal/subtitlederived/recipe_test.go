@@ -2,7 +2,6 @@ package subtitlederived
 
 import (
 	"context"
-	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -37,7 +36,7 @@ func TestRecipeFreezesEveryPendingModeBeforeFirstDispatch(t *testing.T) {
 					t.Fatal("recipes not fully durable before dispatch", disk, err)
 				}
 				cancel()
-				return "", nil, fmt.Errorf("controlled unknown response")
+				return "# First mode received", nil, nil
 			}}
 			_, _ = service.Run(ctx, task.ID, dependencies)
 			cancel()

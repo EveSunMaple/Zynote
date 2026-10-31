@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/EveSunMaple/Zynote/backend/internal/config"
+	"github.com/EveSunMaple/Zynote/backend/internal/contract"
 )
 
 type FileInput struct {
@@ -379,7 +380,19 @@ func (client *Client) Chat(ctx context.Context, messages []Message, onText func(
 	if profile.Key != "" {
 		request.Header.Set("Authorization", "Bearer "+profile.Key)
 	}
-	response, err := client.HTTP.Do(request)
+	event, observer, err := observationForRequest(ctx, profile, endpoint, body, encoded, messages, onText)
+	if err != nil {
+		return "", contract.ObservationFailure(err)
+	}
+	if observer != nil {
+		if err := ctx.Err(); err != nil {
+			return "", contract.ObservationFailure(err)
+		}
+		if err := observer(ctx, event); err != nil {
+			return "", contract.ObservationFailure(err)
+		}
+	}
+	response, err := observedHTTPClient(client.HTTP, observer).Do(request)
 	if err != nil {
 		if ctx.Err() != nil {
 			return "", fmt.Errorf("任务已取消")
@@ -387,13 +400,35 @@ func (client *Client) Chat(ctx context.Context, messages []Message, onText func(
 		return "", &RetryableError{Message: "API 连接失败，请检查网络或服务地址"}
 	}
 	defer response.Body.Close()
+	if observer != nil {
+		event.State = "http-response-received"
+		event.HTTPStatus = response.StatusCode
+		if err := observer(ctx, event); err != nil {
+			return "", contract.ObservationFailure(err)
+		}
+	}
+
 	if response.StatusCode < 200 || response.StatusCode >= 300 {
 		return "", requestError(response, nativeFile, hasFile)
 	}
 	if onText != nil && response.Body != nil {
 		return readSSE(response.Body, onText)
 	}
-	return decodeChatResponse(response, responses)
+	reply, err := decodeChatResponse(response, responses)
+	if err != nil {
+		return "", err
+	}
+	if observer != nil {
+		event.State = "response-decoded"
+		event.DecodedTextSHA256 = recipeDigest(reply)
+		if err := observer(ctx, event); err != nil {
+			return "", contract.ObservationFailure(err)
+		}
+		if facts, _ := ctx.Value(generationRequestFactsKey{}).(*contract.GenerationAttemptEvidence); facts != nil {
+			*facts = event
+		}
+	}
+	return reply, nil
 }
 
 func (client *Client) Models(ctx context.Context) ([]string, error) {
@@ -709,6 +744,9 @@ func (client *Client) JSONWithOptions(
 	if err != nil {
 		return nil, err
 	}
+	if err := observationInput(ctx, encoded); err != nil {
+		return nil, contract.ObservationFailure(err)
+	}
 	feedback := ""
 	var lastErr error
 	for attempt := 0; attempt < jsonMaxAttempts; attempt++ {
@@ -722,7 +760,11 @@ func (client *Client) JSONWithOptions(
 			}
 			content = parts
 		}
-		reply, err := client.Chat(ctx, []Message{
+		attemptContext := observedJSONAttempt(ctx, attempt, feedback)
+		if _, observer := contract.GenerationObservationFrom(attemptContext); observer != nil {
+			attemptContext = context.WithValue(attemptContext, generationRequestFactsKey{}, &contract.GenerationAttemptEvidence{})
+		}
+		reply, err := client.Chat(attemptContext, []Message{
 			{Role: "system", Content: prompt},
 			{Role: "user", Content: content},
 		}, nil)
@@ -730,7 +772,11 @@ func (client *Client) JSONWithOptions(
 			return nil, err
 		}
 		clean := repairJSONEscapes([]byte(stripJSONFence(reply)))
-		if err := validate(clean); err != nil {
+		validationErr := validate(clean)
+		if err := emitFormatResult(attemptContext, validationErr == nil); err != nil {
+			return nil, contract.ObservationFailure(err)
+		}
+		if err := validationErr; err != nil {
 			lastErr = err
 			if ctx.Err() != nil {
 				return nil, ctx.Err()
