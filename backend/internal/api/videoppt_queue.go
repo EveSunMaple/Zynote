@@ -2,6 +2,7 @@ package api
 
 import (
 	"context"
+	"os"
 	"path/filepath"
 
 	"github.com/EveSunMaple/Zynote/backend/internal/contract"
@@ -9,30 +10,103 @@ import (
 	"github.com/EveSunMaple/Zynote/backend/internal/videoppt"
 )
 
-func (inv *Invoker) createQueuedVideoTask(state *contract.State, path, videoURL, stage, prompt, courseName string) (videoppt.CreatedTask, string, error) {
+func (inv *Invoker) createQueuedVideoTask(state *contract.State, path, videoURL, stage, prompt, courseName string, operationIDs ...string) (videoppt.CreatedTask, string, error) {
 	var task videoppt.CreatedTask
-	var err error
-	normalized := ""
-	if path != "" {
-		task, err = videoProcessor(state).CreateTask(path)
-	} else {
-		videoID, page, _, nameErr := biliTaskName(videoURL, "")
-		if nameErr != nil {
-			return task, "", nameErr
+	id := ""
+	if len(operationIDs) > 0 {
+		id = operationIDs[0]
+	}
+	if path == "" && videoURL == "" && id != "" {
+		operation, err := videoPptService(state).Operation(id)
+		if err != nil {
+			return task, "", videoPptError(err)
 		}
-		normalized, err = mediaBilibili.VideoURL(videoURL)
+		if operation.Stage != stage {
+			return task, "", contract.InputInvalid("任务阶段不一致")
+		}
+		task, err = videoPptService(state).CreateOperationTask(id, "", operation)
+		return task, operation.URL, err
+	}
+	operation := videoppt.VideoOperation{Version: 1, Stage: stage, Prompt: prompt, CourseName: courseName}
+	name := ""
+	if path != "" {
+		absolute, err := filepath.Abs(path)
 		if err != nil {
 			return task, "", err
 		}
-		task, err = videoPptService(state).CreateBlankTask(videoID+"-P"+page, map[string]any{"url": normalized})
+		info, err := os.Lstat(absolute)
+		if err != nil || !info.Mode().IsRegular() || info.Mode()&os.ModeSymlink != 0 {
+			return task, "", contract.InputInvalid("所选源文件不可用")
+		}
+		hash, err := videoppt.VideoDigest(absolute)
+		if err != nil {
+			return task, "", err
+		}
+		operation.Path = absolute
+		operation.SourceHash = hash
+		name = filepath.Base(absolute)
+	} else {
+		videoID, page, _, err := biliTaskName(videoURL, "")
+		if err != nil {
+			return task, "", err
+		}
+		normalized, err := mediaBilibili.VideoURL(videoURL)
+		if err != nil {
+			return task, "", err
+		}
+		operation.URL = normalized
+		name = videoID + "-P" + page
 	}
+	task, err := videoPptService(state).CreateOperationTask(id, name, operation)
 	if err != nil {
+		return task, "", err
+	}
+	if err := videoppt.PersistStageInput(task, stage, operation); err != nil {
 		return task, "", videoPptError(err)
 	}
-	if err := videoppt.PersistStageInput(task, stage, map[string]any{"url": normalized, "prompt": prompt, "courseName": courseName}); err != nil {
-		return task, "", videoPptError(err)
+	return task, operation.URL, nil
+}
+
+func (inv *Invoker) ensureQueuedVideo(ctx context.Context, store contract.StateStore, state *contract.State, task videoppt.CreatedTask) error {
+	operation, err := videoPptService(state).Operation(task.ID)
+	if err != nil {
+		return videoPptError(err)
 	}
-	return task, normalized, nil
+	if _, err := os.Stat(task.Path); err == nil {
+		if err := videoppt.VerifyVideoReady(task); err != nil {
+			// Only local legacy-in-flight copies have an independent source hash.
+			if operation.Path == "" {
+				return err
+			}
+			hash, hashErr := videoppt.VideoDigest(task.Path)
+			if hashErr != nil || hash != operation.SourceHash {
+				return err
+			}
+			return videoppt.MarkVideoReady(task)
+		}
+		return nil
+	} else if !os.IsNotExist(err) {
+		return err
+	}
+	if operation.Path != "" {
+		hash, err := videoppt.VideoDigest(operation.Path)
+		if err != nil || hash != operation.SourceHash {
+			return contract.InputInvalid("原视频已改变，已保留任务，请重新选择来源")
+		}
+		if err := videoppt.CopyVideoReady(ctx, operation.Path, task.Path); err != nil {
+			return err
+		}
+		copied, err := videoppt.VideoDigest(task.Path)
+		if err != nil || copied != operation.SourceHash {
+			return contract.InputInvalid("视频副本与来源不一致，已保留任务")
+		}
+	} else {
+		inv.videoProgress("正在下载视频")
+		if err := inv.downloadBiliVideo(ctx, store, state, operation.URL, task.Path); err != nil {
+			return err
+		}
+	}
+	return videoppt.VerifyVideoReady(task)
 }
 
 func (inv *Invoker) runVideoPptQueued(state *contract.State, task videoppt.CreatedTask, stage string, input any, run func(context.Context) (any, error)) (any, error) {
@@ -44,4 +118,57 @@ func (inv *Invoker) runVideoPptQueued(state *contract.State, task videoppt.Creat
 	key := "video-ppt:" + task.ID
 	result, err := inv.jobs.RunQueued(context.Background(), filepath.Join(state.LibraryRoot, "TaskQueue"), task.ID, key, run)
 	return inv.finishJob(key, "", result, err)
+}
+
+func (inv *Invoker) prepareQueuedVideo(ctx context.Context, store contract.StateStore, state *contract.State, task videoppt.CreatedTask) (videoppt.PreparedTask, error) {
+	if err := inv.ensureQueuedVideo(ctx, store, state, task); err != nil {
+		return videoppt.PreparedTask{}, err
+	}
+	chat, err := inv.videoChatConfigured(store, state, &task, "source")
+	if err != nil {
+		return videoppt.PreparedTask{}, err
+	}
+	prepared, err := videoProcessor(state).Prepare(ctx, task, chat, inv.videoProgress)
+	if err != nil {
+		return videoppt.PreparedTask{}, videoPptError(err)
+	}
+	return prepared, nil
+}
+
+func queuedVideoTask(state *contract.State, id string) (videoppt.CreatedTask, error) {
+	service := videoPptService(state)
+	task, err := service.VideoTask(id)
+	if err != nil {
+		return task, err
+	}
+	if _, err := service.Operation(id); err == nil {
+		if err := videoppt.VerifyVideoReady(task); err != nil {
+			return task, err
+		}
+	} else if !os.IsNotExist(err) {
+		return task, err
+	}
+	return task, nil
+}
+
+func finishVideoPptExport(state *contract.State, task videoppt.CreatedTask, result videoppt.ExportResult) (any, error) {
+	service := videoPptService(state)
+	receipt := map[string]any{"path": result.Path, "kept": result.Kept, "removed": result.Removed, "cleaned": false, "cleanupWarning": "已恢复已保存成果；临时文件清理状态请核对任务记录"}
+	if err := service.CompleteOperation(task, receipt, result.Path); err != nil {
+		return nil, videoPptError(err)
+	}
+	warning := ""
+	if err := service.DiscardCompleted(task.ID); err != nil {
+		warning = err.Error()
+	}
+	receipt["cleaned"] = warning == ""
+	receipt["cleanupWarning"] = warning
+	// A completion receipt exists only for bound operations. Legacy tasks retain
+	// their old successful export semantics without creating a new identity.
+	if _, err := service.Operation(task.ID); err == nil {
+		if err := service.CompleteOperation(task, receipt, result.Path); err != nil {
+			receipt["cleanupWarning"] = "成果已保存，但完成记录更新失败：" + err.Error()
+		}
+	}
+	return receipt, nil
 }

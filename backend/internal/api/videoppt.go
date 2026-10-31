@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"os"
 	"path/filepath"
 
 	"github.com/EveSunMaple/Zynote/backend/internal/contract"
@@ -30,6 +31,9 @@ func (inv *Invoker) handleVideoPptPending(state *contract.State) (any, error) {
 	for index := range result {
 		if record, err := inv.jobs.QueueRecord(filepath.Join(state.LibraryRoot, "TaskQueue"), result[index].ID); err == nil {
 			result[index].QueueState = record.State
+			if record.State == "completed" && result[index].Kind != "subtitle" {
+				result[index].QueueState = "review"
+			}
 		}
 	}
 	return result, nil
@@ -44,6 +48,12 @@ func (inv *Invoker) handleVideoPptRestore(state *contract.State, params json.Raw
 	}
 	result, err := videoPptService(state).Restore(input.ID)
 	if err != nil {
+		if os.IsNotExist(err) {
+			operation, operationErr := videoPptService(state).Operation(input.ID)
+			if operationErr == nil {
+				return map[string]any{"resume": map[string]any{"action": "video-ppt:" + operation.Stage, "operationId": input.ID}}, nil
+			}
+		}
 		return nil, videoPptError(err)
 	}
 	return result, nil

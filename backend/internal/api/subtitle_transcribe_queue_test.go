@@ -1,15 +1,12 @@
 package api
 
 import (
-	"context"
 	"encoding/json"
 	"os"
 	"path/filepath"
 	"testing"
-	"time"
 
 	"github.com/EveSunMaple/Zynote/backend/internal/contract"
-	"github.com/EveSunMaple/Zynote/backend/internal/videoppt"
 )
 
 func TestSubtitleResumePersistsQueueAndCancelsWithoutASR(t *testing.T) {
@@ -27,48 +24,15 @@ func TestSubtitleResumePersistsQueueAndCancelsWithoutASR(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	entered, release, finished := make(chan struct{}), make(chan struct{}), make(chan struct{})
-	go func() {
-		defer close(finished)
-		_, _ = inv.jobs.Run("existing", "", func(context.Context) (any, error) { close(entered); <-release; return nil, nil })
-	}()
-	<-entered
-	defer func() { close(release); <-finished }()
+	holdQueueWorker(t, inv)
 	params, _ := json.Marshal(map[string]string{"id": task.ID})
 	done := make(chan error, 1)
 	go func() { _, err := inv.handleVideoResumeSubtitle(state, params); done <- err }()
-	deadline := time.Now().Add(5 * time.Second)
-	for {
-		select {
-		case err := <-done:
-			t.Fatalf("resume rejected before queue: %v", err)
-		default:
-		}
-		if record, err := inv.jobs.QueueRecord(filepath.Join(state.LibraryRoot, "TaskQueue"), task.ID); err == nil && record.State == "queued" {
-			break
-		}
-		if time.Now().After(deadline) {
-			t.Fatal("subtitle never queued")
-		}
-		time.Sleep(time.Millisecond)
+	row := waitVideoQueued(t, inv, state, done)
+	if row.ID != task.ID {
+		t.Fatal("wrong queued task")
 	}
-	value, err := inv.handleVideoPptPending(state)
-	if err != nil {
-		t.Fatal(err)
-	}
-	rows := value.([]videoppt.Pending)
-	if len(rows) != 1 || rows[0].QueueState != "queued" {
-		t.Fatalf("missing queue projection: %+v", rows)
-	}
-	inv.jobs.CancelAll()
-	select {
-	case err := <-done:
-		if err == nil {
-			t.Fatal("cancelled subtitle succeeded")
-		}
-	case <-time.After(5 * time.Second):
-		t.Fatal("cancel stuck")
-	}
+	cancelQueuedCall(t, inv, done)
 	if _, _, err := videoPptService(state).SubtitleTask(task.ID); err != nil {
 		t.Fatal("cancel lost recovery input", err)
 	}
@@ -94,50 +58,15 @@ func TestRemoteSubtitleQueuedCancellationRetainsIntentWithoutDownload(t *testing
 		t.Fatal(err)
 	}
 	state := &contract.State{LibraryRoot: root}
-	entered, release, finished := make(chan struct{}), make(chan struct{}), make(chan struct{})
-	go func() {
-		defer close(finished)
-		_, _ = inv.jobs.Run("existing", "", func(context.Context) (any, error) { close(entered); <-release; return nil, nil })
-	}()
-	<-entered
-	defer func() { close(release); <-finished }()
+	holdQueueWorker(t, inv)
 	done := make(chan error, 1)
 	// A nil store must never be reached while this request waits in the queue.
 	go func() {
 		_, err := inv.handleVideoSubtitleTranscribe(nil, state, json.RawMessage(`{"url":"https://www.bilibili.com/video/BV1xx411c7mD/?p=2"}`))
 		done <- err
 	}()
-	deadline := time.Now().Add(5 * time.Second)
-	var id string
-	for {
-		select {
-		case err := <-done:
-			t.Fatalf("request rejected before queue: %v", err)
-		default:
-		}
-		value, err := inv.handleVideoPptPending(state)
-		if err != nil {
-			t.Fatal(err)
-		}
-		rows := value.([]videoppt.Pending)
-		if len(rows) == 1 && rows[0].QueueState == "queued" {
-			id = rows[0].ID
-			break
-		}
-		if time.Now().After(deadline) {
-			t.Fatal("remote task never queued")
-		}
-		time.Sleep(time.Millisecond)
-	}
-	inv.jobs.CancelAll()
-	select {
-	case err := <-done:
-		if err == nil {
-			t.Fatal("cancel succeeded")
-		}
-	case <-time.After(5 * time.Second):
-		t.Fatal("cancel stuck")
-	}
+	id := waitVideoQueued(t, inv, state, done).ID
+	cancelQueuedCall(t, inv, done)
 	meta, directory, err := videoPptService(state).SubtitleTask(id)
 	if err != nil {
 		t.Fatal(err)

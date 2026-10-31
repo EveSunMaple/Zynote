@@ -17,6 +17,7 @@ import {
  type VideoSeries,
  type VideoBatchItem
 } from '@shared/video-ppt'
+import {retainVideoOperation, type VideoOperationDraft, type VideoStartInput} from '@shared/video-ppt-operation'
 import type {SubtitleSyncTask} from '@shared/subtitle-sync'
 type BiliSubtitle = {
  title: string
@@ -64,6 +65,14 @@ export function VideoPpt({
    cleanupWarning: string
   } | null>(null)
  const working = useRef(false)
+ const pptOperation = useRef<VideoOperationDraft | null>(null)
+ const pptProgressKey = useRef<string | null>(null)
+ async function startPpt<T>(action: 'video-ppt:source' | 'video-ppt:auto', input: VideoStartInput): Promise<T> {
+  const draft = retainVideoOperation(pptOperation.current, action, input, () => crypto.randomUUID())
+  pptOperation.current = draft
+  pptProgressKey.current = `video-ppt:${draft.id}`
+  return invoke<T>(action, {...input, operationId: draft.id})
+ }
  useEffect(
   () =>
    window.assistant.onEvent(event => {
@@ -136,7 +145,8 @@ export function VideoPpt({
  useEffect(
   () =>
    window.assistant.onEvent(e => {
-    if (working.current && e.kind === 'progress') setProgress(e.data.message)
+    if (working.current && e.kind === 'progress' && (!pptProgressKey.current || e.data.key === pptProgressKey.current))
+     setProgress(e.data.message)
     if (working.current && e.kind === 'video-batch') setBatch(e.items)
    }),
   []
@@ -151,15 +161,32 @@ export function VideoPpt({
    notify.error(e)
   } finally {
    working.current = false
+   pptProgressKey.current = null
    setBusy(false)
   }
  }
  useEffect(() => {
   if (!visible || !restoreTaskId) return
   void run(async () => {
-   const restored = await invoke<{source: VideoSource; review: VideoReview | null}>('video-ppt:restore', {
-    id: restoreTaskId
-   })
+   const restored = await invoke<
+    | {source: VideoSource; review: VideoReview | null}
+    | {resume: {action: 'video-ppt:source' | 'video-ppt:auto'; operationId: string}}
+   >('video-ppt:restore', {id: restoreTaskId})
+   if ('resume' in restored) {
+    pptProgressKey.current = `video-ppt:${restored.resume.operationId}`
+    setReview(null)
+    setChecked(false)
+    if (restored.resume.action === 'video-ppt:auto') {
+     setSaved(await invoke(restored.resume.action, {operationId: restored.resume.operationId}))
+     setSource(null)
+    } else {
+     setSource(await invoke<VideoSource>(restored.resume.action, {operationId: restored.resume.operationId}))
+     setSaved(null)
+    }
+    setProgress('已继续未完成的视频任务')
+    onTaskRestored?.()
+    return
+   }
    setSource(restored.source)
    setReview(restored.review)
    setSaved(null)
@@ -169,12 +196,12 @@ export function VideoPpt({
   })
  }, [visible, restoreTaskId])
 
- async function load(args: unknown) {
+ async function load(args: VideoStartInput) {
   setReview(null)
   setSource(null)
   setSaved(null)
   setChecked(false)
-  setSource(await invoke<VideoSource>('video-ppt:source', args))
+  setSource(await startPpt<VideoSource>('video-ppt:source', args))
  }
  async function open(path: string, reveal = false) {
   await run(async () => {
@@ -253,7 +280,7 @@ export function VideoPpt({
            setSource(null)
            setReview(null)
            setSaved(null)
-           setSaved(await invoke('video-ppt:auto', {url, prompt, courseId: courseId || undefined}))
+           setSaved(await startPpt('video-ppt:auto', {url, prompt, courseId: courseId || undefined}))
            notify.success('视频课件已生成')
           })
          }
@@ -271,7 +298,7 @@ export function VideoPpt({
             setSource(null)
             setReview(null)
             setSaved(null)
-            setSaved(await invoke('video-ppt:auto', {path, prompt, courseId: courseId || undefined}))
+            setSaved(await startPpt('video-ppt:auto', {path, prompt, courseId: courseId || undefined}))
             notify.success('视频课件已生成')
            }
           })
@@ -904,6 +931,7 @@ export function VideoPpt({
       onClick={() =>
        void run(async () => {
         setChecked(false)
+        pptProgressKey.current = `video-ppt:${source.id}`
         setReview(await invoke<VideoReview>('video-ppt:extract', {id: source.id, crop: source.crop, prompt}))
        })
       }
@@ -932,6 +960,7 @@ export function VideoPpt({
        isDisabled={busy || !checked || !kept}
        onClick={() =>
         void run(async () => {
+         pptProgressKey.current = `video-ppt:${review.id}`
          setSaved(
           await invoke('video-ppt:export', {
            id: review.id,

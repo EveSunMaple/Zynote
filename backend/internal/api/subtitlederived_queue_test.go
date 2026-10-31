@@ -1,7 +1,6 @@
 package api
 
 import (
-	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -31,13 +30,7 @@ func TestSubtitleDerivedResumeQueuesBehindExistingJob(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	entered, release, finished := make(chan struct{}), make(chan struct{}), make(chan struct{})
-	go func() {
-		defer close(finished)
-		_, _ = inv.jobs.Run("existing", "", func(context.Context) (any, error) { close(entered); <-release; return nil, nil })
-	}()
-	<-entered
-	defer func() { close(release); <-finished }()
+	holdQueueWorker(t, inv)
 	params, _ := json.Marshal(map[string]string{"id": task.ID})
 	result := make(chan error, 1)
 	go func() { _, err := inv.handleSubtitleDerivedResume(nil, state, params); result <- err }()

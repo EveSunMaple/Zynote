@@ -60,7 +60,7 @@ func (inv *Invoker) downloadBiliVideo(ctx context.Context, store contract.StateS
 }
 
 func copyLearningVideo(ctx context.Context, source, destination string) error {
-	return videoppt.CopyVideo(ctx, source, destination)
+	return videoppt.CopyVideoReady(ctx, source, destination)
 }
 
 func biliVideoParts(normalized string) (string, string, error) {

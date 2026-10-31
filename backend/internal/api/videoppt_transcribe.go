@@ -189,6 +189,14 @@ func (inv *Invoker) handleVideoResumeSubtitle(state *contract.State, params json
 		if info, err := os.Stat(video); err != nil || !info.Mode().IsRegular() {
 			return nil, contract.InputInvalid("本地视频副本尚未准备完成，请重新选择原视频")
 		}
+		if _, err := os.Stat(filepath.Join(directory, "video-ready.json")); err == nil {
+			if err := videoppt.VerifyVideoReady(videoppt.CreatedTask{Dir: directory, Path: video}); err != nil {
+				return nil, videoPptError(err)
+			}
+		} else if !os.IsNotExist(err) {
+			return nil, err
+		}
+
 		return inv.transcribeVideoTask(ctx, state, videoppt.CreatedTask{
 			ID: meta.ID, Name: meta.Name, Dir: directory, Path: video,
 		})

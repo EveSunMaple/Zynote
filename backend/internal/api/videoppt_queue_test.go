@@ -6,7 +6,6 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
-	"time"
 
 	"github.com/EveSunMaple/Zynote/backend/internal/contract"
 	"github.com/EveSunMaple/Zynote/backend/internal/videoppt"
@@ -29,6 +28,14 @@ func TestVideoPptStagesShareQueueIdentity(t *testing.T) {
 	if calls != 3 {
 		t.Fatalf("stages lost: %d", calls)
 	}
+	value, err := inv.handleVideoPptPending(state)
+	if err != nil {
+		t.Fatal(err)
+	}
+	rows := value.([]videoppt.Pending)
+	if len(rows) != 1 || rows[0].QueueState != "review" {
+		t.Fatalf("stage completion mislabeled workflow done: %+v", rows)
+	}
 }
 
 func TestVideoPptQueuedCancellationPreservesIntent(t *testing.T) {
@@ -40,15 +47,9 @@ func TestVideoPptQueuedCancellationPreservesIntent(t *testing.T) {
 				t.Fatal(err)
 			}
 			state := &contract.State{LibraryRoot: root}
-			entered, release, finished := make(chan struct{}), make(chan struct{}), make(chan struct{})
-			go func() {
-				defer close(finished)
-				_, _ = inv.jobs.Run("existing", "", func(context.Context) (any, error) { close(entered); <-release; return nil, nil })
-			}()
-			<-entered
-			defer func() { close(release); <-finished }()
+			holdQueueWorker(t, inv)
 			done := make(chan error, 1)
-			params := json.RawMessage(`{"url":"https://www.bilibili.com/video/BV1xx411c7mD/","prompt":"fixture"}`)
+			params := json.RawMessage(`{"url":"https://www.bilibili.com/video/BV1xx411c7mD/","prompt":"fixture","operationId":"aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"}`)
 			go func() {
 				var err error
 				if stage == "source" {
@@ -58,37 +59,8 @@ func TestVideoPptQueuedCancellationPreservesIntent(t *testing.T) {
 				}
 				done <- err
 			}()
-			deadline := time.Now().Add(5 * time.Second)
-			var id string
-			for {
-				select {
-				case err := <-done:
-					t.Fatalf("rejected before queue: %v", err)
-				default:
-				}
-				value, err := inv.handleVideoPptPending(state)
-				if err != nil {
-					t.Fatal(err)
-				}
-				rows := value.([]videoppt.Pending)
-				if len(rows) == 1 && rows[0].QueueState == "queued" {
-					id = rows[0].ID
-					break
-				}
-				if time.Now().After(deadline) {
-					t.Fatal("not queued")
-				}
-				time.Sleep(time.Millisecond)
-			}
-			inv.jobs.CancelAll()
-			select {
-			case err := <-done:
-				if err == nil {
-					t.Fatal("cancel accepted")
-				}
-			case <-time.After(5 * time.Second):
-				t.Fatal("cancel stuck")
-			}
+			id := waitVideoQueued(t, inv, state, done).ID
+			cancelQueuedCall(t, inv, done)
 			directory := filepath.Join(root, "VideoTasks", id)
 			paths, err := filepath.Glob(filepath.Join(directory, "input-"+stage+"-*.json"))
 			if err != nil || len(paths) != 1 {
@@ -105,6 +77,28 @@ func TestVideoPptQueuedCancellationPreservesIntent(t *testing.T) {
 			if _, err := os.Stat(filepath.Join(directory, "video.mp4")); !os.IsNotExist(err) {
 				t.Fatal("queued download ran", err)
 			}
+			restored, err := inv.handleVideoPptRestore(state, json.RawMessage(`{"id":"`+id+`"}`))
+			if err != nil {
+				t.Fatal(err)
+			}
+			plan := restored.(map[string]any)["resume"].(map[string]any)
+			if plan["action"] != "video-ppt:"+stage || plan["operationId"] != id {
+				t.Fatalf("bad resume plan: %+v", plan)
+			}
+			resume := json.RawMessage(`{"operationId":"` + id + `"}`)
+			go func() {
+				var err error
+				if stage == "source" {
+					_, err = inv.handleVideoPptSource(nil, state, resume)
+				} else {
+					_, err = inv.handleVideoPptAuto(nil, state, resume)
+				}
+				done <- err
+			}()
+			if row := waitVideoQueued(t, inv, state, done); row.ID != id {
+				t.Fatal("resume allocated another task")
+			}
+			cancelQueuedCall(t, inv, done)
 		})
 	}
 }

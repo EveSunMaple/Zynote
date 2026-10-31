@@ -68,7 +68,7 @@ func (processor Processor) CreateTask(source string) (CreatedTask, error) {
 		return CreatedTask{}, requestError("任务目录不可创建")
 	}
 	video := filepath.Join(directory, "video.mp4")
-	if err := CopyVideo(context.Background(), absolute, video); err != nil {
+	if err := CopyVideoReady(context.Background(), absolute, video); err != nil {
 		_ = os.RemoveAll(directory)
 		return CreatedTask{}, requestError("视频复制失败")
 	}

@@ -43,7 +43,7 @@ type CreatedTask struct {
 }
 
 func copyFile(source, destination string) error {
-	return CopyVideo(context.Background(), source, destination)
+	return CopyVideoReady(context.Background(), source, destination)
 }
 
 func (service *Service) CreateSubtitleTask(source, outputName, courseName string, page int) (CreatedTask, error) {

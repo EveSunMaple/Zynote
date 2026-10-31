@@ -55,16 +55,20 @@ cancelled copies do not expose `video.mp4`; normal error exits remove staging.
 A process kill may leave a hidden `.video-copy-*` staging file, which resume
 does not treat as video. Filesystems without hard links fail closed. Directory
 power-loss durability and concurrent mutation of the source are not guaranteed.
-Already-existing legacy `video.mp4` files have no completeness proof; this
-change preserves them and does not certify or repair historical partial copies.
+Copies with a readiness record verify the expected digest before reuse. The
+source digest is journaled before publication, allowing recovery after the link
+without adopting arbitrary bytes. Already-existing legacy `video.mp4` files with
+no readiness proof are preserved and remain unverified; this change does not
+certify or repair historical partial subtitle copies.
 
 PPT task inputs are persisted before admission. All stages of a task retain the
 same `video-ppt:<task-id>` queue key, and content-addressed input records preserve
-explicit crop/prompt revisions. Source/auto starts currently generate a fresh
-identity per request; stable operationId binding and pre-source recovery UI are
-still pending. A queued remote cancellation retains its source URL and stage
-intent, but the existing restore view still needs source.json and cannot yet
-resume that early task.
+explicit crop/prompt revisions. Source/auto starts accept operationId and bind it to stage, normalized remote
+URL or local source digest/path, prompt and course. The UI retains that identity
+across same-input retry. An early task without source.json restores a resume
+plan; explicit continuation submits only the operation ID and reconstructs the
+bound inputs. A verified local recovery copy does not recopy a changed original.
+PPT stage completion projects as awaiting review, rather than workflow done.
 
 PPT source/extract model calls save synced, content-addressed dispatched/prepared
 journals bound to the exact prompt/images and a non-secret provider/model/options
@@ -75,7 +79,10 @@ warnings do not authorize replay. PDF export persists the selected destination
 and expected digest before synced atomic no-overwrite publication. Retrying the
 same export reuses that destination, while changed/deleted/user-modified outputs
 are never silently overwritten. This protects publication before task cleanup;
-a completed task removed by cleanup has no general archived operation receipt.
+a synced hash-verified completion receipt survives task cleanup. Auto retries
+return that saved result without model calls. Source-only retry after a later
+manual export instead reports the already-completed output path; it does not
+reconstruct a deleted preview or repeat paid work.
 
 Visual recognition also saves a synced per-frame unknown marker before provider
 invocation. Provider errors/cancellation after dispatch remain unknown and cannot
