@@ -48,6 +48,9 @@ run(
 run('cargo', ['build', '--release', '--manifest-path', join(root, 'native', 'Cargo.toml')], root)
 const native = join(root, 'native', 'target', 'release', 'zynote-native' + extension)
 await copyFile(native, join(output, 'zynote-native' + extension))
+// ONNX Runtime's Windows distribution needs its companion DLL beside the helper.
+const directML = join(dirname(native), 'DirectML.dll')
+if (process.platform === 'win32' && existsSync(directML)) await copyFile(directML, join(output, 'DirectML.dll'))
 await copyWindowsRuntime()
 console.log(
  'backend binaries ready:',
