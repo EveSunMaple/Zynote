@@ -22,7 +22,7 @@ func (store *Store) legacyDatabase() (*sql.DB, error) {
 	if info.Mode()&os.ModeSymlink != 0 || !info.Mode().IsRegular() {
 		return nil, fmt.Errorf("旧研究数据库路径无效")
 	}
-	db, err := sql.Open("sqlite", "file:"+filepath.ToSlash(path)+"?mode=ro")
+	db, err := sql.Open("sqlite", "file:"+filepath.ToSlash(path)+"?mode=ro&_pragma=busy_timeout(5000)")
 	if err != nil {
 		return nil, fmt.Errorf("旧研究数据库不可用")
 	}

@@ -8,6 +8,7 @@ export function diagnostic(
   action?: string
   requestId?: number
   code?: string
+  message?: string
   pid?: number
   keys?: string
  } = {}

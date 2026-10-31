@@ -32,7 +32,9 @@ type BackupReport struct {
 }
 
 func openReadOnly(path string) (*sql.DB, error) {
-	dsn := "file:" + filepath.ToSlash(path) + "?mode=ro"
+	// WAL 数据库在无连接时会清理 -shm/-wal；并发的只读连接需要 busy_timeout
+	// 等待共享内存初始化，避免偶发 SQLITE_BUSY。
+	dsn := "file:" + filepath.ToSlash(path) + "?mode=ro&_pragma=busy_timeout(5000)"
 	db, err := sql.Open("sqlite", dsn)
 	if err != nil {
 		return nil, err

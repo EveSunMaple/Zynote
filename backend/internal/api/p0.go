@@ -76,7 +76,12 @@ func handleDBBackup(store contract.StateStore, state *contract.State, params jso
 }
 
 func openReadOnlyDB(state *contract.State) (*sql.DB, error) {
-	db, err := sql.Open("sqlite", "file:"+filepath.ToSlash(filepath.Join(state.DataRoot, assistantDBFile))+"?mode=ro")
+	// 只读连接也要设置 busy_timeout：WAL 数据库在最后一个连接关闭后会删除
+	// -shm/-wal，多个只读请求同时打开时需要等对方完成共享内存初始化，否则会
+	// 偶发 SQLITE_BUSY（database is locked）。
+	dsn := "file:" + filepath.ToSlash(filepath.Join(state.DataRoot, assistantDBFile)) +
+		"?mode=ro&_pragma=busy_timeout(5000)"
+	db, err := sql.Open("sqlite", dsn)
 	if err != nil {
 		return nil, contract.Unavailable("数据库无法打开")
 	}

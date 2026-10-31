@@ -27,12 +27,24 @@ export function FileManager({
  const [courses, setCourses] = useState<Course[]>([]),
   [course, setCourse] = useState(initialCourse)
  async function load() {
-  const [f, c] = await Promise.all([
-   window.assistant.invoke<LibraryFile[]>('library:list'),
-   window.assistant.invoke<Course[]>('courses')
-  ])
-  setFiles(f)
-  setCourses(c)
+  let lastError: unknown
+  for (let attempt = 0; attempt < 3; attempt++) {
+   const [fileResult, courseResult] = await Promise.allSettled([
+    window.assistant.invoke<LibraryFile[]>('library:list'),
+    window.assistant.invoke<Course[]>('courses')
+   ])
+   if (fileResult.status === 'fulfilled') setFiles(fileResult.value)
+   if (courseResult.status === 'fulfilled') setCourses(courseResult.value)
+   if (fileResult.status === 'fulfilled' && courseResult.status === 'fulfilled') return
+   lastError =
+    fileResult.status === 'rejected'
+     ? fileResult.reason
+     : courseResult.status === 'rejected'
+       ? courseResult.reason
+       : lastError
+   if (attempt < 2) await new Promise(resolve => setTimeout(resolve, 300 * (attempt + 1)))
+  }
+  throw lastError
  }
  useEffect(() => {
   void load().catch(e => notify.error(e, {title: '读取文件失败'}))

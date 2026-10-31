@@ -231,7 +231,12 @@ async function startApplication() {
   } catch (error) {
    let code = 'REQUEST_FAILED'
    if (error instanceof z.ZodError) code = 'INPUT_INVALID'
-   diagnostic(root, 'ipc', 'request-failed', {action: validated, code})
+   const message = error instanceof Error ? error.message : String(error)
+   diagnostic(root, 'ipc', 'request-failed', {
+    action: validated,
+    code,
+    message: message.replace(/\s+/g, ' ').slice(0, 300)
+   })
    throw error
   }
  })

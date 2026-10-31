@@ -71,7 +71,9 @@ const settingsBackLabels: Record<string, string> = {
  tasks: '返回任务中心'
 }
 const practiceFormatLabels: Record<string, string> = {md: 'Markdown', docx: 'Word', pdf: 'PDF'}
-async function startupInvoke<T>(action: string, args?: unknown) {
+// 启动阶段后端可能仍在完成数据库初始化；窗口打开后的只读请求也可能撞上
+// WAL 共享内存初始化。只读请求统一短重试，避免一次偶发失败就清空界面。
+async function retryInvoke<T>(action: string, args?: unknown) {
  let lastError: unknown
  for (let attempt = 0; attempt < 3; attempt++) {
   try {
@@ -140,7 +142,7 @@ export default function App() { // NOSONAR: transitional TS fallback/UI flow ret
    setModal('settings')
    return
   }
-  void startupInvoke<Settings>('settings:get')
+  void retryInvoke<Settings>('settings:get')
    .then(value => {
     setSettings(value)
     setModal('settings')
@@ -154,7 +156,7 @@ export default function App() { // NOSONAR: transitional TS fallback/UI flow ret
    setModal('settings')
    return
   }
-  void startupInvoke<Settings>('settings:get')
+  void retryInvoke<Settings>('settings:get')
    .then(value => {
     setSettings(value)
     setModal('settings')
@@ -228,12 +230,12 @@ export default function App() { // NOSONAR: transitional TS fallback/UI flow ret
   activeJob = useRef('')
  current.current = {courseId, lectureId, sessionId}
  async function reloadCourses() {
-  const result = await invoke<Course[]>('courses')
+  const result = await retryInvoke<Course[]>('courses')
   setCourses(result)
   return result
  }
  async function reloadCourse(id = current.current.courseId) {
-  const result = await invoke<Detail>('course:detail', {id})
+  const result = await retryInvoke<Detail>('course:detail', {id})
   if (current.current.courseId === id) {
    setDetail(result)
    setSessions(v => [...v.filter(s => s.course_id !== id), ...result.sessions])
@@ -252,7 +254,7 @@ export default function App() { // NOSONAR: transitional TS fallback/UI flow ret
   setTab('subtitles')
  }
  async function reloadLecture(id = lectureId) {
-  const result = await invoke<LectureDetail>('lecture:detail', {id})
+  const result = await retryInvoke<LectureDetail>('lecture:detail', {id})
   // Older data/backends may serialize empty subtitle arrays as null.
   if (!Array.isArray(result.segments)) result.segments = []
   if (typeof result.srt !== 'string') result.srt = ''
@@ -280,21 +282,21 @@ export default function App() { // NOSONAR: transitional TS fallback/UI flow ret
   }
  }
  useEffect(() => {
-  void startupInvoke<AppearanceState>('appearance:get')
+  void retryInvoke<AppearanceState>('appearance:get')
    .then(setAppearance)
    .catch(e => notify.error(e, {title: '读取数据失败'}))
  }, [])
  useEffect(() => {
-  void startupInvoke<Identity>('identity:get')
+  void retryInvoke<Identity>('identity:get')
    .then(setIdentity)
    .catch(e => notify.error(e, {title: '读取数据失败'}))
  }, [])
  useEffect(() => {
   let disposed = false
   void Promise.allSettled([
-   startupInvoke<Course[]>('courses'),
-   startupInvoke<Settings>('settings:get'),
-   startupInvoke<ChatSession[]>('sessions')
+   retryInvoke<Course[]>('courses'),
+   retryInvoke<Settings>('settings:get'),
+   retryInvoke<ChatSession[]>('sessions')
   ]).then(([coursesResult, settingsResult, sessionsResult]) => {
    if (disposed) return
    const errors: unknown[] = []
