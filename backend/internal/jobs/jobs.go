@@ -3,6 +3,7 @@ package jobs
 import (
 	"context"
 	"errors"
+	"strings"
 	"sync"
 	"time"
 )
@@ -15,6 +16,7 @@ type Registry struct {
 	mu      sync.Mutex
 	active  map[string]context.CancelFunc
 	current *Snapshot
+	queue   []*queuedCall
 }
 
 type Snapshot struct {
@@ -54,6 +56,9 @@ func (registry *Registry) Report(message string) Progress {
 		progress.Stage = "画面识别"
 	default:
 		progress.Stage = progress.Key
+		if strings.HasPrefix(progress.Key, "subtitle-derived:") {
+			progress.Stage = "视频摘要"
+		}
 	}
 	registry.current.Progress = &progress
 	return progress
@@ -95,6 +100,10 @@ func (registry *Registry) CancelAll() bool {
 	cancelled := false
 	for _, cancel := range registry.active {
 		cancel()
+		cancelled = true
+	}
+	for _, call := range registry.queue {
+		call.cancel()
 		cancelled = true
 	}
 	return cancelled

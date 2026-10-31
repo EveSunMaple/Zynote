@@ -60,13 +60,15 @@ type Task struct {
 	CourseName  string `json:"courseName,omitempty"`
 	Interrupted bool   `json:"interrupted"`
 	Items       []Item `json:"items"`
+	QueueState  string `json:"queueState,omitempty"`
 }
 
 type Dependencies struct {
-	Generation func(ctx context.Context, url string) (string, error)
-	Summarize  func(ctx context.Context, srt, mode string) (string, []Point, error)
-	RenderSVG  func(title string, points []Point) string
-	Progress   func(message string)
+	Generation    func(ctx context.Context, url string) (string, error)
+	ValidateModel func(ctx context.Context) error
+	Summarize     func(ctx context.Context, srt, mode string) (string, []Point, error)
+	RenderSVG     func(title string, points []Point) string
+	Progress      func(message string)
 }
 
 type Service struct {
@@ -278,6 +280,11 @@ func (service *Service) ensurePrepared(ctx context.Context, task *Task, item *It
 	}
 	if item.GenerationState != "" {
 		return fmt.Errorf("上次模型调用结果未知，未自动重试；请先核对服务端记录")
+	}
+	if dependencies.ValidateModel != nil {
+		if err := dependencies.ValidateModel(ctx); err != nil {
+			return err
+		}
 	}
 	item.GenerationState = "dispatched"
 	if err := service.save(*task); err != nil {

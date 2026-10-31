@@ -15,4 +15,5 @@ export type SubtitleDerivedTask = {
  courseName?: string
  items: SubtitleDerivedItem[]
  interrupted: boolean
+ queueState?: 'queued' | 'running' | 'completed' | 'failed' | 'cancelled' | 'interrupted'
 }

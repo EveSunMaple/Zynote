@@ -36,6 +36,10 @@ func (inv *Invoker) subtitleDerivedDependencies(store contract.StateStore, state
 		return client, nil
 	}
 	return subtitlederived.Dependencies{
+		ValidateModel: func(context.Context) error {
+			_, err := getClient()
+			return err
+		},
 		Generation: func(ctx context.Context, url string) (string, error) {
 			if knowledgeStore == nil {
 				return "", nil
@@ -86,7 +90,20 @@ func (inv *Invoker) handleSubtitleDerivedList(state *contract.State) (any, error
 	if err != nil {
 		return nil, contract.Unavailable(err.Error())
 	}
+	for index := range tasks {
+		if record, err := inv.jobs.QueueRecord(filepath.Join(state.LibraryRoot, "TaskQueue"), tasks[index].ID); err == nil {
+			tasks[index].QueueState = record.State
+		}
+	}
 	return tasks, nil
+}
+
+func (inv *Invoker) runDerivedQueued(store contract.StateStore, state *contract.State, id string) (any, error) {
+	key := "subtitle-derived:" + id
+	result, err := inv.jobs.RunQueued(context.Background(), filepath.Join(state.LibraryRoot, "TaskQueue"), id, key, func(ctx context.Context) (any, error) {
+		return subtitleDerivedService(state).Run(ctx, id, inv.subtitleDerivedDependencies(store, state))
+	})
+	return inv.finishJob(key, "", result, err)
 }
 
 func (inv *Invoker) handleSubtitleDerivedResume(store contract.StateStore, state *contract.State, params json.RawMessage) (any, error) {
@@ -96,9 +113,10 @@ func (inv *Invoker) handleSubtitleDerivedResume(store contract.StateStore, state
 	if err := json.Unmarshal(params, &input); err != nil || !config.IsUUID(input.ID) {
 		return nil, contract.InputInvalid("笔记任务标识无效")
 	}
-	return inv.runJob("批量课程笔记", func(ctx context.Context) (any, error) {
-		return subtitleDerivedService(state).Run(ctx, input.ID, inv.subtitleDerivedDependencies(store, state))
-	})
+	if _, err := subtitleDerivedService(state).Read(input.ID); err != nil {
+		return nil, contract.InputInvalid(err.Error())
+	}
+	return inv.runDerivedQueued(store, state, input.ID)
 }
 
 type subtitleDerivedInput struct {
@@ -175,23 +193,21 @@ func (inv *Invoker) handleSubtitleDerivedStart(store contract.StateStore, state 
 	if err != nil {
 		return nil, err
 	}
-	return inv.runJob("批量课程笔记", func(ctx context.Context) (any, error) {
-		syncTask, err := findSubtitleSyncTask(state, input.ID)
-		if err != nil {
-			return nil, err
-		}
-		locators, err := derivedLocators(input.URLs)
-		if err != nil {
-			return nil, err
-		}
-		sources, err := derivedSources(syncTask, locators)
-		if err != nil {
-			return nil, err
-		}
-		task, err := subtitleDerivedService(state).Create(sources, input.Modes, syncTask.CourseName)
-		if err != nil {
-			return nil, contract.InputInvalid(err.Error())
-		}
-		return subtitleDerivedService(state).Run(ctx, task.ID, inv.subtitleDerivedDependencies(store, state))
-	})
+	syncTask, err := findSubtitleSyncTask(state, input.ID)
+	if err != nil {
+		return nil, err
+	}
+	locators, err := derivedLocators(input.URLs)
+	if err != nil {
+		return nil, err
+	}
+	sources, err := derivedSources(syncTask, locators)
+	if err != nil {
+		return nil, err
+	}
+	task, err := subtitleDerivedService(state).Create(sources, input.Modes, syncTask.CourseName)
+	if err != nil {
+		return nil, contract.InputInvalid(err.Error())
+	}
+	return inv.runDerivedQueued(store, state, task.ID)
 }

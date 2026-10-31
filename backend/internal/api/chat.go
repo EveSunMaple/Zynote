@@ -248,6 +248,10 @@ func (inv *Invoker) runJob(key string, run func(context.Context) (any, error)) (
 		lectureID = ""
 	}
 	result, err := inv.jobs.Run(key, lectureID, run)
+	return inv.finishJob(key, lectureID, result, err)
+}
+
+func (inv *Invoker) finishJob(key, lectureID string, result any, err error) (any, error) {
 	if errors.Is(err, jobs.ErrBusy) {
 		return nil, contract.NewError(contract.CodeBusy, err.Error())
 	}
