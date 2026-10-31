@@ -53,3 +53,40 @@ func TestFetchVideoSeriesAndSubtitles(t *testing.T) {
 		t.Fatalf("subtitle mismatch: %+v", subtitle)
 	}
 }
+
+func TestOnlyExplicitEmptySubtitleCatalogIsNoSubtitle(t *testing.T) {
+	for _, mode := range []string{"empty", "login", "rate-limit", "invalid-track", "missing-catalog", "null-catalog"} {
+		t.Run(mode, func(t *testing.T) {
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				switch r.URL.Path {
+				case "/x/player/pagelist":
+					fmt.Fprint(w, `{"code":0,"data":[{"page":1,"part":"lecture","duration":120,"cid":11}]}`)
+				case "/x/player/v2":
+					switch mode {
+					case "empty":
+						fmt.Fprint(w, `{"code":0,"data":{"subtitle":{"subtitles":[]}}}`)
+					case "login":
+						fmt.Fprint(w, `{"code":-101}`)
+					case "missing-catalog":
+						fmt.Fprint(w, `{"code":0,"data":{}}`)
+					case "null-catalog":
+						fmt.Fprint(w, `{"code":0,"data":{"subtitle":{"subtitles":null}}}`)
+					case "rate-limit":
+						w.WriteHeader(http.StatusTooManyRequests)
+					default:
+						fmt.Fprint(w, `{"code":0,"data":{"subtitle":{"subtitles":[{"lan":"zh","subtitle_url":"https://aisubtitle.hdslb.com/track.json"}]}}}`)
+					}
+				default:
+					fmt.Fprint(w, `{"body":[]}`)
+				}
+			}))
+			defer server.Close()
+			t.Setenv("ZYNOTE_BILIBILI_API", server.URL)
+			client := &http.Client{Transport: rewriteTransport{target: strings.TrimPrefix(server.URL, "http://")}}
+			_, err := FetchVideoSubtitles(context.Background(), client, "https://www.bilibili.com/video/BV1234567890/")
+			if err == nil || IsNoSubtitle(err) != (mode == "empty") {
+				t.Fatal(mode, err)
+			}
+		})
+	}
+}

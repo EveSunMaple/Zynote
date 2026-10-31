@@ -75,6 +75,11 @@ func (inv *Invoker) batchSubtitleItem(ctx context.Context, store contract.StateS
 		}
 		return item
 	}
+	if !mediaBilibili.IsNoSubtitle(err) {
+		item["status"] = "失败"
+		item["error"] = err.Error()
+		return item
+	}
 	inv.videoProgress(fmt.Sprintf("P%d 无可用站内字幕，正在下载并离线转写", episode.Page))
 	path, err := inv.transcribeEpisode(ctx, store, state, episode, courseName)
 	if err != nil {

@@ -180,3 +180,31 @@ Against wholly contained official VTT cues, normalized word edit distance was
 164/1912 (8.58%, including boundary differences). This verifies this English
 course excerpt after the repair; full-course/multilingual acceptance remains
 outside the recorded evidence.
+
+
+## Public source projection and subtitle fallback
+
+Bound PPT/subtitle operations project an allowlisted `MediaSource` through
+pending tasks and `job:current`. Bili `resolved` means the catalog supplied the
+matching BVID/CID/page; only a nonempty SHA256 means the current video copy
+passed independent readiness verification. Local sources retain their bound
+absolute path and digest. Signed transfer URLs, headers, cookies and catalog
+payloads never enter this projection. Legacy tasks without an operation omit
+this optional metadata.
+
+Pending projection currently rehashes each ready video, so listing many large
+videos has linear disk I/O cost. This correctness-first slice does not cache
+trust using modification time; queue workers also verify before use. A bounded
+cache and a measured large-video refresh budget remain follow-up work.
+
+Batch subtitle acquisition falls back to video download/ASR only for the typed
+`NO_SUBTITLE` outcome from an explicitly empty subtitle-track array in a
+successful catalog response. Missing/null catalogs, login/rate-limit/network
+failures and invalid/untrusted subtitle tracks remain errors. The renderer
+retains its compatible no-subtitle message handling because the current shell
+bridge carries error messages without structured error codes.
+
+Legacy `video-ppt:batch` and `video-ppt:batch-subtitles` still use their outer
+exclusive worker, and batch PPT model calls lack the new per-operation model
+journal. They must not call the queued single-task entry from inside that worker
+(which would deadlock); safe batch orchestration remains a separate migration.

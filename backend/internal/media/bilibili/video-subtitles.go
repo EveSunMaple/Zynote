@@ -3,6 +3,7 @@ package bilibili
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"math"
@@ -24,6 +25,14 @@ const (
 	errBiliUrlRequired        = "请输入完整的 B 站视频网址"
 	errSubtitleContentInvalid = "字幕内容为空或格式错误"
 )
+
+// IsNoSubtitle is true only after a successful catalog response explicitly
+// reports no tracks. Network, login, rate-limit and track-content errors must
+// never authorize acquiring video or running ASR as a substitute.
+func IsNoSubtitle(err error) bool {
+	var application *contract.AppError
+	return errors.As(err, &application) && application.Code == contract.CodeNoSubtitle
+}
 
 type VideoEpisode struct {
 	Page     int     `json:"page"`
@@ -221,16 +230,16 @@ func fetchSubtitleTracks(ctx context.Context, client *http.Client, parsed *url.U
 		Code int `json:"code"`
 		Data struct {
 			Subtitle struct { // NOSONAR: path is resolved and checked against the configured root.
-				Subtitles []subtitleTrack `json:"subtitles"`
+				Subtitles *[]subtitleTrack `json:"subtitles"`
 			} `json:"subtitle"`
 		} `json:"data"`
 	}
-	if json.Unmarshal(body, &detail) != nil || detail.Code != 0 {
+	if json.Unmarshal(body, &detail) != nil || detail.Code != 0 || detail.Data.Subtitle.Subtitles == nil {
 		return nil, contract.Unavailable("无法读取此分集的字幕目录")
 	}
-	tracks := detail.Data.Subtitle.Subtitles
+	tracks := *detail.Data.Subtitle.Subtitles
 	if len(tracks) == 0 {
-		return nil, contract.InputInvalid("此分集没有站内字幕；可下载视频后在课程字幕功能中转写")
+		return nil, contract.NewError(contract.CodeNoSubtitle, "此分集没有站内字幕；可下载视频后在课程字幕功能中转写")
 	}
 	sort.SliceStable(tracks, func(left, right int) bool {
 		leftCN := subtitleCN.MatchString(tracks[left].Lan)
@@ -357,5 +366,5 @@ func FetchVideoSubtitles(ctx context.Context, client *http.Client, value string)
 	if lastErr != nil {
 		return FetchedSubtitle{}, lastErr
 	}
-	return FetchedSubtitle{}, contract.InputInvalid("此分集没有可用字幕")
+	return FetchedSubtitle{}, contract.NewError(contract.CodeNoSubtitle, "此分集没有可用字幕")
 }

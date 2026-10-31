@@ -9,6 +9,7 @@ const ProtocolVersion = 1
 
 const (
 	CodeInputInvalid = "INPUT_INVALID"
+	CodeNoSubtitle   = "NO_SUBTITLE"
 	CodeNotFound     = "NOT_FOUND"
 	CodeConflict     = "CONFLICT"
 	CodeBusy         = "BUSY"
