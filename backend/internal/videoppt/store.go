@@ -199,6 +199,11 @@ func (service *Service) Pending() ([]Pending, error) {
 		return nil, requestError("视频任务目录不可用")
 	}
 	result := []Pending{}
+	batches, err := service.PendingBatches()
+	if err != nil {
+		return nil, err
+	}
+	result = append(result, batches...)
 	for _, entry := range entries {
 		id := entry.Name()
 		if !taskIDPattern.MatchString(id) {

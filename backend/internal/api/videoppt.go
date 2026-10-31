@@ -16,6 +16,10 @@ func videoPptService(state *contract.State) *videoppt.Service {
 }
 
 func videoPptError(err error) error {
+	var application *contract.AppError
+	if errors.As(err, &application) {
+		return application
+	}
 	var request *videoppt.RequestError
 	if errors.As(err, &request) {
 		return contract.InputInvalid(request.Message)
@@ -29,6 +33,15 @@ func (inv *Invoker) handleVideoPptPending(state *contract.State) (any, error) {
 		return nil, videoPptError(err)
 	}
 	for index := range result {
+		if result[index].Kind == "batch" {
+			result[index].QueueState = "interrupted"
+			inv.videoBatchMu.Lock()
+			if inv.videoBatches[filepath.Join(state.LibraryRoot, result[index].ID)] != nil {
+				result[index].QueueState = "running"
+			}
+			inv.videoBatchMu.Unlock()
+			continue
+		}
 		if source, err := videoPptService(state).MediaSource(result[index].ID); err == nil {
 			result[index].Source = &source
 		} else if !os.IsNotExist(err) && result[index].Error == "" {
@@ -50,6 +63,11 @@ func (inv *Invoker) handleVideoPptRestore(state *contract.State, params json.Raw
 	}
 	if err := json.Unmarshal(params, &input); err != nil || input.ID == "" {
 		return nil, contract.InputInvalid("任务编号无效")
+	}
+	if _, err := videoPptService(state).Batch(input.ID); err == nil {
+		return map[string]any{"resume": map[string]any{"action": "video-ppt:batch", "operationId": input.ID}}, nil
+	} else if !os.IsNotExist(err) {
+		return nil, videoPptError(err)
 	}
 	result, err := videoPptService(state).Restore(input.ID)
 	if err != nil {
@@ -97,7 +115,10 @@ func (inv *Invoker) handleVideoPptReveal(store contract.StateStore, state *contr
 	}
 	directory, err := videoPptService(state).Directory(input.ID)
 	if err != nil {
-		return nil, err
+		if _, batchErr := videoPptService(state).Batch(input.ID); batchErr != nil {
+			return nil, err
+		}
+		directory = filepath.Join(videoPptService(state).Root, ".batches")
 	}
 	reverse := store.Reverse()
 	if reverse == nil {

@@ -276,6 +276,7 @@ func (inv *Invoker) finishJob(key, lectureID string, result any, err error) (any
 }
 
 func (inv *Invoker) handleCancel(_ contract.StateStore, state *contract.State, _ json.RawMessage) (any, error) {
+	inv.cancelVideoBatches()
 	if state != nil {
 		tasks := inv.zhiyunTaskStore(state)
 		if rows, err := tasks.List(); err == nil {

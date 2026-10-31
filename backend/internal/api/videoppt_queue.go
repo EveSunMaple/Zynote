@@ -139,13 +139,17 @@ func (inv *Invoker) projectVideoSource(state *contract.State, id string) {
 }
 
 func (inv *Invoker) runVideoPptQueued(state *contract.State, task videoppt.CreatedTask, stage string, input any, run func(context.Context) (any, error)) (any, error) {
+	return inv.runVideoPptQueuedContext(context.Background(), state, task, stage, input, run)
+}
+
+func (inv *Invoker) runVideoPptQueuedContext(ctx context.Context, state *contract.State, task videoppt.CreatedTask, stage string, input any, run func(context.Context) (any, error)) (any, error) {
 	if input != nil {
 		if err := videoppt.PersistStageInput(task, stage, input); err != nil {
 			return nil, videoPptError(err)
 		}
 	}
 	key := "video-ppt:" + task.ID
-	result, err := inv.jobs.RunQueued(context.Background(), filepath.Join(state.LibraryRoot, "TaskQueue"), task.ID, key, run)
+	result, err := inv.jobs.RunQueued(ctx, filepath.Join(state.LibraryRoot, "TaskQueue"), task.ID, key, run)
 	return inv.finishJob(key, "", result, err)
 }
 

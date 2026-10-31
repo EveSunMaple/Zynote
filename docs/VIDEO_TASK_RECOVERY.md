@@ -204,10 +204,9 @@ failures and invalid/untrusted subtitle tracks remain errors. The renderer
 retains its compatible no-subtitle message handling because the current shell
 bridge carries error messages without structured error codes.
 
-Legacy `video-ppt:batch` and `video-ppt:batch-subtitles` still use their outer
-exclusive worker, and batch PPT model calls lack the new per-operation model
-journal. They must not call the queued single-task entry from inside that worker
-(which would deadlock); safe batch orchestration remains a separate migration.
+`video-ppt:batch-subtitles` still uses its outer exclusive worker and remains a
+separate orchestration migration. It must not call a queued single-task entry
+from inside that worker, which would deadlock.
 
 
 Bilibili resource and raw subtitle readers now share sanitized direct error
@@ -231,3 +230,38 @@ classification or cause an extra request. Content-invalid tracks may still fall
 back to a valid alternative. Cooldown intentionally covers every request on the
 same resource instance, including navigation/passport endpoints; it does not
 clear or refresh login state and does not create a second credential store.
+
+
+## PPT batch orchestration
+
+`video-ppt:batch` now binds optional operationId to normalized URL, ordered pages,
+prompt and course snapshot before network access. Atomic no-overwrite manifest
+publication rejects changed/concurrent bindings. The catalog selection freezes
+under one short queued preparation stage; each episode then enters the existing
+auto task queue independently, with stable derived child IDs and existing model
+journals, video readiness and completion receipts. No parent worker waits for a
+child while holding the global worker. Known completed child outputs are hash
+verified and reused after a crash before parent completion. Unknown child model
+outcomes remain blocked by their stable journals. IDs deduplicate only within
+the same parent batch; an explicitly new parent is not cross-batch deduplication.
+
+An independent parent cancellation context stops subsequent children, including
+cancellation in the gap after one child completes. Unfinished parent manifests
+appear in pending tasks and resume through the existing restore action after
+restart, including parents that failed before catalog selection or had not yet
+created all children. Parent completion is saved only after every child reports
+success. The preparation queue's completed state is not overall completion.
+Batch events carry parent/child identity; renderer updates only its active batch.
+
+Controlled tests cover concurrent immutable binding, read-time manifest identity
+checks, prepared-parent/partly-completed restart, completed child reuse without
+catalog/model access, inter-child cancellation, queued preparation behind a busy
+worker, and stable-child UNKNOWN provider guard. They do not establish real
+protected multi-episode acquisition or paid vision acceptance. UI changes were
+typechecked/built; no manual two-theme inspection was performed this turn.
+
+The single-video `video-ppt:summary` UI path still uses its legacy synchronous
+model path, not the subtitlederived persistent journal. Prior four-mode paid
+acceptance belongs to the subtitlederived domain and does not close that UI
+path. Session-generation protection against responses returning after logout
+also remains follow-up work until separately tested and implemented.

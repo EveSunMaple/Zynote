@@ -71,6 +71,8 @@ export function VideoPpt({
   } | null>(null)
  const working = useRef(false)
  const pptOperation = useRef<VideoOperationDraft | null>(null)
+ const batchOperation = useRef<VideoOperationDraft | null>(null)
+ const activeBatchId = useRef<string | null>(null)
  const activeProgressKey = useRef<string | null>(null)
  async function startPpt<T>(action: 'video-ppt:source' | 'video-ppt:auto', input: VideoStartInput): Promise<T> {
   const draft = retainVideoOperation(pptOperation.current, action, input, () => crypto.randomUUID())
@@ -195,7 +197,10 @@ export function VideoPpt({
      (!activeProgressKey.current || e.data.key === activeProgressKey.current)
     )
      setProgress(e.data.message)
-    if (working.current && e.kind === 'video-batch') setBatch(e.items)
+    if (working.current && e.kind === 'video-batch' && (!e.operationId || e.operationId === activeBatchId.current)) {
+     setBatch(e.items)
+     if (e.taskId) activeProgressKey.current = `video-ppt:${e.taskId}`
+    }
    }),
   []
  )
@@ -210,6 +215,7 @@ export function VideoPpt({
   } finally {
    working.current = false
    activeProgressKey.current = null
+   activeBatchId.current = null
    setBusy(false)
   }
  }
@@ -218,9 +224,20 @@ export function VideoPpt({
   void run(async () => {
    const restored = await invoke<
     | {source: VideoSource; review: VideoReview | null}
-    | {resume: {action: 'video-ppt:source' | 'video-ppt:auto'; operationId: string}}
+    | {resume: {action: 'video-ppt:source' | 'video-ppt:auto' | 'video-ppt:batch'; operationId: string}}
    >('video-ppt:restore', {id: restoreTaskId})
    if ('resume' in restored) {
+    if (restored.resume.action === 'video-ppt:batch') {
+     activeBatchId.current = restored.resume.operationId
+     activeProgressKey.current = `video-batch-prepare:${restored.resume.operationId}`
+     const items = await invoke<VideoBatchItem[]>(restored.resume.action, {operationId: restored.resume.operationId})
+     setBatch(items)
+     setProgress(
+      `批次已处理：完成 ${items.filter(item => item.status === '已完成').length}，失败 ${items.filter(item => item.status === '失败').length}`
+     )
+     onTaskRestored?.()
+     return
+    }
     activeProgressKey.current = `video-ppt:${restored.resume.operationId}`
     setReview(null)
     setChecked(false)
@@ -472,12 +489,18 @@ export function VideoPpt({
              setSaved(null)
              setSource(null)
              setReview(null)
+             const input = {url, pages: selected, prompt, courseId: courseId || undefined}
+             const draft = retainVideoOperation(batchOperation.current, 'video-ppt:batch', input, () =>
+              crypto.randomUUID()
+             )
+             batchOperation.current = draft
+             activeBatchId.current = draft.id
+             activeProgressKey.current = `video-batch-prepare:${draft.id}`
              const result = await invoke<VideoBatchItem[]>('video-ppt:batch', {
-              url,
-              pages: selected,
-              prompt,
-              courseId: courseId || undefined
+              ...input,
+              operationId: draft.id
              })
+             if (result.every(item => item.status === '已完成')) batchOperation.current = null
              setBatch(result)
              setProgress(
               `所选课程已处理：完成 ${result.filter(i => i.status === '已完成').length}，失败 ${result.filter(i => i.status === '失败').length}`

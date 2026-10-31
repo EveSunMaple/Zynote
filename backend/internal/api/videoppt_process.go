@@ -156,6 +156,10 @@ func (inv *Invoker) handleVideoPptExport(store contract.StateStore, state *contr
 }
 
 func (inv *Invoker) handleVideoPptAuto(store contract.StateStore, state *contract.State, params json.RawMessage) (any, error) {
+	return inv.handleVideoPptAutoContext(context.Background(), store, state, params)
+}
+
+func (inv *Invoker) handleVideoPptAutoContext(ctx context.Context, store contract.StateStore, state *contract.State, params json.RawMessage) (any, error) {
 	var input struct {
 		Path        string `json:"path"`
 		OperationID string `json:"operationId"`
@@ -195,7 +199,7 @@ func (inv *Invoker) handleVideoPptAuto(store contract.StateStore, state *contrac
 		}
 		return nil, videoPptError(err)
 	}
-	return inv.runVideoPptQueued(state, task, "auto", nil, func(ctx context.Context) (any, error) {
+	return inv.runVideoPptQueuedContext(ctx, state, task, "auto", nil, func(ctx context.Context) (any, error) {
 		prepared, err := inv.prepareQueuedVideo(ctx, store, state, task)
 		if err != nil {
 			return nil, err

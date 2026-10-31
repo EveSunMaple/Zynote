@@ -1,6 +1,7 @@
 package api
 
 import (
+	"context"
 	"encoding/json"
 	"log/slog"
 	"os"
@@ -26,6 +27,8 @@ const msgHandshakePending = "后台尚未完成握手"
 type handlerFunc func(store contract.StateStore, state *contract.State, params json.RawMessage) (any, error)
 
 type Invoker struct {
+	videoBatchMu  sync.Mutex
+	videoBatches  map[string]context.CancelFunc
 	handlers      map[string]handlerFunc
 	actions       map[string]actionFunc
 	native        *helper.Native
