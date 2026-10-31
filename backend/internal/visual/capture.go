@@ -295,6 +295,13 @@ func (service *Service) Capture(ctx context.Context, request CaptureRequest) (Ca
 	if err != nil {
 		return Capture{}, err
 	}
+	manifest, err := framecandidate.Read(service.Root, request.ID, *evidence, binding)
+	if err != nil {
+		return Capture{}, err
+	}
+	if err := recordExtractions(frames, evidence, manifest); err != nil {
+		return Capture{}, err
+	}
 	result := Capture{ID: request.ID, Source: source, SourceHash: hash, Duration: duration, Frames: frames, Gaps: []any{}, CandidateEvidence: evidence}
 	encoded, _ := json.MarshalIndent(result, "", "  ")
 	if err := os.WriteFile(filepath.Join(directory, "source.json"), encoded, 0o644); err != nil {

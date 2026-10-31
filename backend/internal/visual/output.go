@@ -283,7 +283,7 @@ func outputText(task *Task) string {
 	parts := []string{
 		"# 画面文字与内容\n\n来源：" + task.Source + "\n源文件 SHA256：" + task.SourceHash +
 			fmt.Sprintf("\n总时长：%.2f 秒\n\n仅识别所选的 %d/%d 个画面，不代表视频全部内容。", task.Duration, done, len(task.Frames)) +
-			"\n\n## 抽样缺口\n\n" + gapText + "\n\n## 识别结果\n\n",
+			"\n\n" + coverageText(task) + "## 抽样缺口\n\n" + gapText + "\n\n## 识别结果\n\n",
 	}
 	sections := []string{}
 	for _, frame := range task.Frames {

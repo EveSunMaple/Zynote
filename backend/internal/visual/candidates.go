@@ -23,13 +23,21 @@ func visualCandidateBinding(hash, path string, cap int, policy string, duration 
 }
 
 func (service *Service) verifyCandidateEvidence(task *Task) error {
+	_, err := service.readCandidateEvidence(task)
+	return err
+}
+
+func (service *Service) readCandidateEvidence(task *Task) (*framecandidate.Manifest, error) {
 	if task.CandidateEvidence == nil {
-		return nil
+		return nil, nil
 	} // Legacy task: no fabricated evidence.
 	if task.Preparation == nil {
-		return badRequest("候选证据缺少提取参数")
+		return nil, badRequest("候选证据缺少提取参数")
 	}
 	expected := visualCandidateBinding(task.SourceHash, task.Source, task.Preparation.Cap, task.Preparation.Policy, task.Duration)
-	_, err := framecandidate.Read(service.Root, task.ID, *task.CandidateEvidence, expected)
-	return err
+	manifest, err := framecandidate.Read(service.Root, task.ID, *task.CandidateEvidence, expected)
+	if err != nil {
+		return nil, err
+	}
+	return &manifest, nil
 }

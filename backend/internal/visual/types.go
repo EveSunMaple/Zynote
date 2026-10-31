@@ -25,12 +25,14 @@ var idPattern = regexp.MustCompile(`^[a-f0-9]{32}$`)
 var hashPattern = regexp.MustCompile(`^[a-f0-9]{64}$`)
 
 type Frame struct {
-	Path   string  `json:"path"`
-	Time   float64 `json:"time"`
-	Hash   string  `json:"hash"`
-	Status string  `json:"status"`
-	Text   string  `json:"text,omitempty"`
-	Error  string  `json:"error,omitempty"`
+	Extraction  *ExtractionReceipt  `json:"extraction,omitempty"`
+	Recognition *RecognitionReceipt `json:"recognition,omitempty"`
+	Path        string              `json:"path"`
+	Time        float64             `json:"time"`
+	Hash        string              `json:"hash"`
+	Status      string              `json:"status"`
+	Text        string              `json:"text,omitempty"`
+	Error       string              `json:"error,omitempty"`
 }
 
 type Journal struct {
@@ -49,21 +51,23 @@ type Preparation struct {
 }
 
 type Task struct {
-	CandidateEvidence *framecandidate.Reference `json:"candidateEvidence,omitempty"`
-	ID                string                    `json:"id"`
-	Source            string                    `json:"source"`
-	SourceHash        string                    `json:"sourceHash"`
-	Duration          float64                   `json:"duration"`
-	Frames            []Frame                   `json:"frames"`
-	Gaps              []any                     `json:"gaps"`
-	Connection        string                    `json:"connection"`
-	Output            string                    `json:"output,omitempty"`
-	OutputHash        string                    `json:"outputHash,omitempty"`
-	OutputJournal     *Journal                  `json:"outputJournal,omitempty"`
-	OutputPending     bool                      `json:"outputPending,omitempty"`
-	OutputRecovery    string                    `json:"outputRecovery,omitempty"`
-	Cleaned           bool                      `json:"cleaned,omitempty"`
-	Preparation       *Preparation              `json:"preparation,omitempty"`
+	CoverageInvalidation string                    `json:"coverageInvalidation,omitempty"`
+	Coverage             *Coverage                 `json:"coverage,omitempty"`
+	CandidateEvidence    *framecandidate.Reference `json:"candidateEvidence,omitempty"`
+	ID                   string                    `json:"id"`
+	Source               string                    `json:"source"`
+	SourceHash           string                    `json:"sourceHash"`
+	Duration             float64                   `json:"duration"`
+	Frames               []Frame                   `json:"frames"`
+	Gaps                 []any                     `json:"gaps"`
+	Connection           string                    `json:"connection"`
+	Output               string                    `json:"output,omitempty"`
+	OutputHash           string                    `json:"outputHash,omitempty"`
+	OutputJournal        *Journal                  `json:"outputJournal,omitempty"`
+	OutputPending        bool                      `json:"outputPending,omitempty"`
+	OutputRecovery       string                    `json:"outputRecovery,omitempty"`
+	Cleaned              bool                      `json:"cleaned,omitempty"`
+	Preparation          *Preparation              `json:"preparation,omitempty"`
 }
 
 type Capture struct {
@@ -113,6 +117,7 @@ func (service *Service) load(id string) (Task, error) {
 	if json.Unmarshal(raw, &task) != nil {
 		return Task{}, badRequest("画面任务记录无效")
 	}
+	task.Coverage = nil // Never accept serialized derived counters.
 	if task.ID != id {
 		return Task{}, badRequest("画面任务记录不一致")
 	}
@@ -120,6 +125,7 @@ func (service *Service) load(id string) (Task, error) {
 }
 
 func (service *Service) save(task Task) error {
+	task.Coverage = nil // Derived evidence is projected, never trusted from disk.
 	if err := os.MkdirAll(service.Root, 0o755); err != nil {
 		return badRequest("画面任务目录不可用")
 	}

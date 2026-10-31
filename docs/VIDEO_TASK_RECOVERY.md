@@ -331,7 +331,14 @@ Restore recomputes its pixel region. Visual cached preparation/recognition check
 its manifest. Different explicit crops retain separate histories. Low-resolution
 gray hashes never substitute for full source identity; stable-initial means an
 interval's first stable sample, not a semantically clean slide. Selected is not
-extracted/recognized/submitted/cited coverage. Source hashing adds linear I/O.
+extracted/recognized/submitted/cited coverage. Visual extraction and saved-response
+receipts now project the first two levels in lists, UI and Markdown; submitted and
+cited remain unknown/not integrated. Legacy statuses never become receipts.
+Changed-output recovery preserves the old file and creates a separate file;
+historical coverage remains invalid and explicitly requires review. Source/frame/
+output hashing adds linear I/O on list projection. Task-center polling can overlap
+requests; request coalescing/non-overlap remains the next performance slice, with
+no mtime cache substituted for strong content identity.
 
 PPT/visual scanning rejects failed or partial streams even after a candidate
 exists. ASR decode and native dispatch preserve cancellation/deadline causes,

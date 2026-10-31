@@ -45,6 +45,7 @@ func (service *Service) List() ([]Task, error) {
 		if err != nil {
 			continue
 		}
+		task.Coverage = service.projectCoverage(&task)
 		output, outputErr := service.outputPath(task)
 		if outputErr != nil {
 			task.OutputRecovery = "changed"
@@ -161,7 +162,7 @@ func (service *Service) checkVisualSource(task *Task) error {
 	if err != nil || hash != task.SourceHash {
 		return badRequest("源文件已经改变，请新建画面识别任务")
 	}
-	if err := service.verifyCandidateEvidence(task); err != nil {
+	if err := service.validateFrameReceipts(task); err != nil {
 		return err
 	}
 	return nil
@@ -225,6 +226,11 @@ func (service *Service) recognizeFrame(ctx context.Context, task *Task, index in
 		frame.Text = text
 		frame.Status = StatusDone
 		frame.Error = ""
+		if frame.Extraction != nil {
+			receipt := RecognitionReceipt{Version: 1, ExtractionID: frame.Extraction.ID, ResponseHash: digestText(text), Connection: task.Connection}
+			receipt.ID = recognitionID(receipt)
+			frame.Recognition = &receipt
+		}
 	}
 	return service.save(*task)
 }
@@ -273,6 +279,7 @@ func (service *Service) Recognize(
 	if err := service.checkVisualSource(&task); err != nil {
 		return Task{}, err
 	}
+	task.Coverage = service.projectCoverage(&task)
 	if err := service.commitOutput(&task, outputText(&task)); err != nil {
 		return Task{}, err
 	}
@@ -292,6 +299,7 @@ func (service *Service) Recognize(
 			return Task{}, err
 		}
 	}
+	task.Coverage = service.projectCoverage(&task)
 	return task, nil
 }
 
@@ -304,6 +312,7 @@ func (service *Service) RecoverOutput(id string) (Task, error) {
 		if err := service.recoverJournal(&task); err != nil {
 			return Task{}, err
 		}
+		task.Coverage = service.projectCoverage(&task)
 		return task, nil
 	}
 	completed := false
@@ -323,6 +332,9 @@ func (service *Service) RecoverOutput(id string) (Task, error) {
 	}
 	tracked := task.Output != "" && task.OutputHash != "" && current == task.OutputHash
 	if (!tracked && current != "") || (task.Output != "" && current == "") {
+		if hasFrameReceipts(&task) {
+			task.CoverageInvalidation = "output-recovery-unverified"
+		}
 		task.Output = filepath.Join(service.Root, task.ID+"-画面识别-恢复-"+strings.ReplaceAll(ids.New(), "-", "")+".md")
 		task.OutputHash = ""
 	}
@@ -330,6 +342,7 @@ func (service *Service) RecoverOutput(id string) (Task, error) {
 	if err := service.save(task); err != nil {
 		return Task{}, err
 	}
+	task.Coverage = service.projectCoverage(&task)
 	if err := service.commitOutput(&task, outputText(&task)); err != nil {
 		return Task{}, err
 	}
