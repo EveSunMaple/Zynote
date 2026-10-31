@@ -31,6 +31,8 @@ type testReverse struct{ server *transport.Server }
 
 var testPickPath string
 
+var testPickPaths []string
+
 func (reverse testReverse) Call(method string, params any, timeoutMS int) (json.RawMessage, error) {
 	if method == "crypto.unprotect" {
 		return json.RawMessage(`{"text":"test-key"}`), nil
@@ -43,6 +45,9 @@ func (reverse testReverse) Call(method string, params any, timeoutMS int) (json.
 	}
 	if method == "shell.pickFile" {
 		return json.Marshal(map[string]any{"path": testPickPath})
+	}
+	if method == "shell.pickFiles" {
+		return json.Marshal(map[string]any{"paths": testPickPaths})
 	}
 	if method == "shell.imageDataUrl" {
 		return json.RawMessage(`{"value":"data:image/png;base64,eHh4"}`), nil

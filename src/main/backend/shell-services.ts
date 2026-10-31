@@ -133,6 +133,21 @@ export function createShellServices(window: BrowserWindow, libraryRoot: string):
     ...(extensions.length ? {filters: [{name: '文件', extensions}]} : {})
    })
    return {path: picked.canceled ? null : (picked.filePaths[0] ?? null)}
+  },
+  'shell.pickFiles': async params => {
+   const title = z.string().min(1).max(200).parse(params.title)
+   const extensions = z
+    .array(z.string().min(1).max(20))
+    .max(20)
+    .parse(params.extensions || [])
+   const defaultPath = typeof params.defaultPath === 'string' ? z.string().max(4096).parse(params.defaultPath) : ''
+   const picked = await dialog.showOpenDialog(window, {
+    title,
+    ...(defaultPath ? {defaultPath} : {}),
+    properties: ['openFile', 'multiSelections'],
+    ...(extensions.length ? {filters: [{name: '文件', extensions}]} : {})
+   })
+   return {paths: picked.canceled ? [] : picked.filePaths}
   }
  }
 }
