@@ -107,6 +107,7 @@
      "zynote-core.exe",
      "zynote-native",
      "zynote-native.exe",
+     "DirectML.dll",
      "msvcp140.dll",
      "msvcp140_1.dll",
      "vcruntime140.dll",
