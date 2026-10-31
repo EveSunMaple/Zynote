@@ -60,3 +60,35 @@ func TestBatchSubtitleAcquisitionFailureDoesNotDownloadOrTranscribe(t *testing.T
 		})
 	}
 }
+
+func TestBatchExplicitEmptySubtitleCatalogStillCreatesRecoverableASRTask(t *testing.T) {
+	root, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	state := &contract.State{LibraryRoot: root}
+	inv := NewInvoker()
+	inv.biliRoot = filepath.Join(root, "MediaDownloads")
+	acquisitionCalls := 0
+	inv.bili = bilibili.NewScopedResources(func(address string, _ map[string]string, _ context.Context) (*http.Response, error) {
+		body := ""
+		switch {
+		case strings.Contains(address, "/x/player/pagelist"):
+			body = `{"code":0,"data":[{"page":1,"part":"lecture","duration":120,"cid":11}]}`
+		case strings.Contains(address, "/x/player/v2"):
+			body = `{"code":0,"data":{"subtitle":{"subtitles":[]}}}`
+		default:
+			acquisitionCalls++
+			return nil, errors.New("controlled stop before media acquisition")
+		}
+		return &http.Response{StatusCode: http.StatusOK, Body: io.NopCloser(strings.NewReader(body)), Header: make(http.Header)}, nil
+	})
+	item := inv.batchSubtitleItem(context.Background(), &subtitleStore{state: state}, state, bilibili.VideoEpisode{Page: 1, Title: "lecture", URL: "https://www.bilibili.com/video/BV1234567890/"}, "")
+	if item["status"] != "失败" || acquisitionCalls != 1 {
+		t.Fatal(item, acquisitionCalls)
+	}
+	pending, err := videoPptService(state).Pending()
+	if err != nil || len(pending) != 1 || pending[0].Kind != "subtitle" {
+		t.Fatal("ASR recovery task missing", pending, err)
+	}
+}
