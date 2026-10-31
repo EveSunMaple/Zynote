@@ -50,17 +50,19 @@ type Prepared struct {
 }
 
 type Item struct {
-	Source          Source                    `json:"source"`
-	Mode            string                    `json:"mode"`
-	Status          string                    `json:"status"`
-	Error           string                    `json:"error,omitempty"`
-	Outputs         []Output                  `json:"outputs,omitempty"`
-	Prepared        *Prepared                 `json:"prepared,omitempty"`
-	GenerationState string                    `json:"generationState,omitempty"`
-	Recipe          *ItemRecipe               `json:"recipe,omitempty"`
-	AttemptEvidence *AttemptEvidenceRef       `json:"attemptEvidence,omitempty"`
-	Received        *ReceivedSummary          `json:"received,omitempty"`
-	SummaryEvidence *contract.SummaryEvidence `json:"summaryEvidence,omitempty"`
+	Source             Source                    `json:"source"`
+	Mode               string                    `json:"mode"`
+	Status             string                    `json:"status"`
+	Error              string                    `json:"error,omitempty"`
+	Outputs            []Output                  `json:"outputs,omitempty"`
+	Prepared           *Prepared                 `json:"prepared,omitempty"`
+	GenerationState    string                    `json:"generationState,omitempty"`
+	Recipe             *ItemRecipe               `json:"recipe,omitempty"`
+	AttemptEvidence    *AttemptEvidenceRef       `json:"attemptEvidence,omitempty"`
+	Received           *ReceivedSummary          `json:"received,omitempty"`
+	SummaryEvidence    *contract.SummaryEvidence `json:"summaryEvidence,omitempty"`
+	PublicationPlan    *PublicationRef           `json:"publicationPlan,omitempty"`
+	PublicationReceipt *PublicationRef           `json:"publicationReceipt,omitempty"`
 }
 
 type Task struct {
@@ -87,8 +89,9 @@ type Dependencies struct {
 }
 
 type Service struct {
-	Root    string
-	Library string
+	Root            string
+	Library         string
+	publicationHook func(string) error
 }
 
 func New(root, libraryRoot string) *Service {
@@ -485,9 +488,15 @@ func (service *Service) processDerivedItem(ctx context.Context, task *Task, inde
 	item := &task.Items[index]
 	srt, err := service.current(item.Source, dependencies, ctx)
 	if err != nil {
+		if item.PublicationPlan != nil || item.PublicationReceipt != nil || (item.Prepared != nil && item.Prepared.Evidence != nil) {
+			return publicationError()
+		}
 		return err
 	}
 	if len(item.Outputs) > 0 {
+		if item.PublicationReceipt != nil || item.PublicationPlan != nil {
+			return service.restorePublication(ctx, task, index, srt)
+		}
 		if err := service.validDerivedOutputs(item); err != nil {
 			return err
 		}
@@ -497,6 +506,9 @@ func (service *Service) processDerivedItem(ctx context.Context, task *Task, inde
 	}
 	if err := service.ensurePrepared(ctx, task, item, dependencies, srt); err != nil {
 		return err
+	}
+	if item.Prepared.Evidence != nil || item.PublicationPlan != nil {
+		return service.publishSummary(ctx, task, index, srt, dependencies)
 	}
 	if _, err := service.current(item.Source, dependencies, ctx); err != nil {
 		return err

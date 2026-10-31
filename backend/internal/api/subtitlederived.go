@@ -246,6 +246,8 @@ func projectSubtitleTask(task subtitlederived.Task) subtitlederived.Task {
 	for index := range task.Items {
 		task.Items[index].Recipe = nil
 		task.Items[index].Received = nil
+		task.Items[index].PublicationPlan = nil
+		task.Items[index].PublicationReceipt = nil
 		if task.Items[index].Prepared != nil {
 			copy := *task.Items[index].Prepared
 			copy.Evidence = nil
