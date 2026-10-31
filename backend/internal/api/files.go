@@ -104,6 +104,13 @@ func (inv *Invoker) handleFilesRemove(state *contract.State, params json.RawMess
 }
 
 func copyInto(directory, source string) (string, error) {
+	// Importing a file that already lives in the target folder must reuse it.
+	// Copying it again would create "<name>-<uuid>.pptx" on every import.
+	if sourceDir, err := os.Stat(filepath.Dir(source)); err == nil {
+		if targetDir, err := os.Stat(directory); err == nil && os.SameFile(sourceDir, targetDir) {
+			return source, nil
+		}
+	}
 	extension := filepath.Ext(source)
 	name := strings.TrimSuffix(filepath.Base(source), extension)
 	destination := filepath.Join(directory, name+"-"+ids.New()+strings.ToLower(extension))

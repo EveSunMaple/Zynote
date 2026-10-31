@@ -32,12 +32,15 @@ import {
  ListChecks,
  MessageSquare,
  MessagesSquare,
+ Palette,
  Plus,
  Presentation,
  RefreshCw,
  Scan,
+ ScrollText,
  Search,
  Square,
+ UserRound,
  Wrench
 } from 'lucide-react'
 import {useEffect, useRef, useState, type ReactNode} from 'react'
@@ -1457,13 +1460,28 @@ export default function App() { // NOSONAR: transitional TS fallback/UI flow ret
                 本次会话动态
                </Button>
                <div className="menu-divider" />
-               <SettingsLink section="identity" inline={false} onSelect={() => setMenu(false)}>
+               <SettingsLink
+                section="identity"
+                inline={false}
+                icon={<UserRound size={16} />}
+                onSelect={() => setMenu(false)}
+               >
                 助手角色
                </SettingsLink>
-               <SettingsLink section="appearance" inline={false} onSelect={() => setMenu(false)}>
+               <SettingsLink
+                section="appearance"
+                inline={false}
+                icon={<Palette size={16} />}
+                onSelect={() => setMenu(false)}
+               >
                 聊天外观
                </SettingsLink>
-               <SettingsLink section="prompts" inline={false} onSelect={() => setMenu(false)}>
+               <SettingsLink
+                section="prompts"
+                inline={false}
+                icon={<ScrollText size={16} />}
+                onSelect={() => setMenu(false)}
+               >
                 任务提示词
                </SettingsLink>
               </div>

@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
@@ -91,6 +92,74 @@ func TestChatStreamsAndPersists(t *testing.T) { // NOSONAR: end-to-end test inte
 	}
 	if strings.Contains(string(raw), "event") {
 		t.Fatalf("reply polluted: %s", raw)
+	}
+}
+
+func TestChatIncludesLectureMaterials(t *testing.T) {
+	bodies := make(chan string, 2)
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		if request.URL.Path != "/v1/chat/completions" {
+			http.NotFound(writer, request)
+			return
+		}
+		raw, _ := io.ReadAll(request.Body)
+		bodies <- string(raw)
+		writer.Header().Set("Content-Type", "text/event-stream")
+		fmt.Fprint(writer, "data: {\"choices\":[{\"delta\":{\"content\":\"已结合课程资料\"},\"finish_reason\":\"stop\"}]}\n\n")
+		fmt.Fprint(writer, "data: [DONE]\n\n")
+	}))
+	defer server.Close()
+	dataRoot := t.TempDir()
+	libraryRoot := t.TempDir()
+	resourcesRoot := t.TempDir()
+	writeFixtureFile(t, dataRoot, "settings.json", `{"profiles":[],"activeProfile":"","theme":"light","prompts":{},"qwenProfile":{"id":"qwen-default","name":"通义千问","provider":"qwen","baseUrl":"`+server.URL+`/v1","model":"test","visionModel":"","apiFormat":"chat_completions","encryptedKey":"encrypted"}}`)
+	writeFixtureFile(t, dataRoot, "lecture.txt", "[00:01] 今天讲复合函数链式法则\n[00:02] 先对中间变量求导\n")
+	f := startCore(t, dataRoot, resourcesRoot)
+	if _, errReply := f.call("core.hello", map[string]any{
+		"protocol": 1, "appVersion": "0.0.1", "electronVersion": "42.11.10",
+		"platform": testPlatform(), "dataRoot": dataRoot, "libraryRoot": libraryRoot,
+		"resourcesRoot": resourcesRoot, "promptsRoot": resourcesRoot, "portable": false, "packaged": false,
+	}); errReply != nil {
+		t.Fatalf("hello failed: %+v", errReply)
+	}
+	if _, errReply := f.call("db:bootstrap", nil); errReply != nil {
+		t.Fatalf("bootstrap failed: %+v", errReply)
+	}
+	courseRaw, errReply := f.call("course:create", map[string]any{"name": "上下文课程"})
+	if errReply != nil {
+		t.Fatalf("course:create failed: %+v", errReply)
+	}
+	var course map[string]any
+	_ = json.Unmarshal(courseRaw, &course)
+	courseID := course["id"].(string)
+	lectureRaw, errReply := f.call("lecture:create", map[string]any{
+		"courseId": courseID, "title": "链式法则", "transcriptPath": filepath.Join(dataRoot, "lecture.txt"),
+	})
+	if errReply != nil {
+		t.Fatalf("lecture:create failed: %+v", errReply)
+	}
+	var lecture map[string]any
+	_ = json.Unmarshal(lectureRaw, &lecture)
+	lectureID := lecture["id"].(string)
+	db, err := sql.Open("sqlite", filepath.Join(dataRoot, "assistant.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec("UPDATE lectures SET ppt_text=? WHERE id=?", "课件文字：复合函数求导公式与例题", lectureID); err != nil {
+		db.Close()
+		t.Fatal(err)
+	}
+	db.Close()
+	if _, errReply := f.call("chat", map[string]any{
+		"courseId": courseID, "lectureId": lectureID, "content": "这一讲重点是什么？", "requestId": "req-context",
+	}); errReply != nil {
+		t.Fatalf("chat failed: %+v", errReply)
+	}
+	body := <-bodies
+	for _, want := range []string{"语音识别原文", "复合函数链式法则", "PPT/课件文字", "复合函数求导公式", "链式法则"} {
+		if !strings.Contains(body, want) {
+			t.Fatalf("chat request missing %q: %s", want, body)
+		}
 	}
 }
 

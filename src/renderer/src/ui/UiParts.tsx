@@ -78,7 +78,7 @@ export function FilePicker({
     let category = ''
     if (transcript) {
      extension = /\.(docx|txt|md|srt)$/i
-     category = '语音原文'
+     category = 'Transcripts'
     } else if (courseware) {
      extension = /\.(pptx?|pdf|docx|txt|md)$/i
      category = 'PPT'
@@ -149,7 +149,9 @@ export function FilePicker({
        options={library.map(file => ({
         value: file.path,
         label: file.name,
-        description: [file.category, file.course].filter(Boolean).join(' · ')
+        description: [transcript ? '语音原文' : courseware ? '课件' : file.category, file.course]
+         .filter(Boolean)
+         .join(' · ')
        }))}
       />
       {single && paths.length > 0 && (

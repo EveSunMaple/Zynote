@@ -39,12 +39,14 @@ export function SettingsLink({
  section,
  children,
  onSelect,
- inline = true
+ inline = true,
+ icon
 }: Readonly<{
  section: SettingsSection
  children: ReactNode
  onSelect?: () => void
  inline?: boolean
+ icon?: ReactNode
 }>) {
  const {open} = useSettingsNavigation()
  return (
@@ -58,9 +60,13 @@ export function SettingsLink({
     open(section)
    }}
   >
-   <span className="settings-link__badge" aria-hidden="true">
-    <Settings size={12} />
-   </span>
+   {inline ? (
+    <span className="settings-link__badge" aria-hidden="true">
+     <Settings size={12} />
+    </span>
+   ) : (
+    (icon ?? <Settings size={16} />)
+   )}
    {children}
   </Button>
  )
