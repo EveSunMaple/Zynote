@@ -23,7 +23,7 @@ var visualIDPattern = regexp.MustCompile(`^[a-f0-9]{32}$`)
 
 func (inv *Invoker) visualService(state *contract.State) *visual.Service {
 	return visual.New(
-		filepath.Join(state.LibraryRoot, "画面识别成果"),
+		filepath.Join(state.LibraryRoot, "VisualOutputs"),
 		filepath.Join(state.LibraryRoot, "MediaDownloads"),
 		state.ResourcesRoot, media.CurrentMediaPlatform(),
 		!state.Packaged || os.Getenv("ZYNOTE_SYSTEM_MEDIA") == "1",

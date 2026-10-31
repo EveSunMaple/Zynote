@@ -14,7 +14,7 @@ import (
 
 func subtitleDerivedService(state *contract.State) *subtitlederived.Service {
 	return subtitlederived.New(
-		filepath.Join(state.LibraryRoot, "笔记生成记录"), state.LibraryRoot,
+		filepath.Join(state.LibraryRoot, "NoteGeneration"), state.LibraryRoot,
 	)
 }
 

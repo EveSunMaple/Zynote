@@ -9,12 +9,16 @@ import (
 	"github.com/EveSunMaple/Zynote/backend/internal/contract"
 )
 
-func writeTestFile(t *testing.T, path string) {
+func writeTestFile(t *testing.T, path string, content ...string) {
 	t.Helper()
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		t.Fatalf("mkdir: %v", err)
 	}
-	if err := os.WriteFile(path, []byte("test"), 0o644); err != nil {
+	value := "test"
+	if len(content) > 0 {
+		value = content[0]
+	}
+	if err := os.WriteFile(path, []byte(value), 0o644); err != nil {
 		t.Fatalf("write: %v", err)
 	}
 }
@@ -93,6 +97,45 @@ func TestListDirectoryMissingDirectory(t *testing.T) {
 		var appErr *contract.AppError
 		if !errors.As(err, &appErr) || appErr.Code != contract.CodeNotFound {
 			t.Fatalf("error = %v, want NOT_FOUND", err)
+		}
+	}
+}
+
+func TestMigrateLegacyDirectories(t *testing.T) {
+	root := t.TempDir()
+	writeTestFile(t, filepath.Join(root, "知识库数据", "knowledge-native.sqlite"), "db")
+	writeTestFile(t, filepath.Join(root, "Knowledge", "existing.txt"), "existing")
+	writeTestFile(t, filepath.Join(root, "视频提取临时任务", "task", "video.mp4"), "video")
+	if err := os.MkdirAll(filepath.Join(root, "字幕同步记录"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(root, "笔记生成记录"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	writeTestFile(t, filepath.Join(root, "PPT", "课程", "第1讲.pptx"), "ppt")
+	if err := os.MkdirAll(filepath.Join(root, "PPT", "测试"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := MigrateLegacyDirectories(root); err != nil {
+		t.Fatalf("migrate: %v", err)
+	}
+	for _, target := range []string{"Knowledge/knowledge-native.sqlite", "Knowledge/existing.txt", "VideoTasks/task/video.mp4"} {
+		if _, err := os.Stat(filepath.Join(root, filepath.FromSlash(target))); err != nil {
+			t.Fatalf("missing %s: %v", target, err)
+		}
+	}
+	for _, legacy := range []string{"知识库数据", "字幕同步记录", "笔记生成记录", "视频提取临时任务"} {
+		if _, err := os.Stat(filepath.Join(root, legacy)); !os.IsNotExist(err) {
+			t.Fatalf("legacy directory %s should be gone", legacy)
+		}
+	}
+	CleanupEmptyCourseDirectories(root)
+	if _, err := os.Stat(filepath.Join(root, "PPT", "测试")); !os.IsNotExist(err) {
+		t.Fatal("empty course directory should be removed")
+	}
+	for _, kept := range []string{"PPT", "PPT/课程", "PPT/课程/第1讲.pptx"} {
+		if _, err := os.Stat(filepath.Join(root, filepath.FromSlash(kept))); err != nil {
+			t.Fatalf("kept path %s missing: %v", kept, err)
 		}
 	}
 }

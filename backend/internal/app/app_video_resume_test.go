@@ -46,7 +46,7 @@ func TestVideoResumeSavedSubtitle(t *testing.T) {
 	}
 	sum := sha256.Sum256([]byte(srt))
 	id := "eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee"
-	taskDir := filepath.Join(libraryRoot, "视频提取临时任务", id)
+	taskDir := filepath.Join(libraryRoot, "VideoTasks", id)
 	if err := os.MkdirAll(taskDir, 0o755); err != nil {
 		t.Fatal(err)
 	}

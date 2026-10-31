@@ -1,6 +1,7 @@
 package library
 
 import (
+	"log/slog"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -12,6 +13,129 @@ import (
 
 	"github.com/EveSunMaple/Zynote/backend/internal/contract"
 )
+
+var legacyDirectoryNames = map[string]string{
+	"字幕同步记录":   "SubtitleSync",
+	"画面识别成果":   "VisualOutputs",
+	"知识库数据":    "Knowledge",
+	"笔记生成记录":   "NoteGeneration",
+	"视频提取临时任务": "VideoTasks",
+}
+
+// MigrateLegacyDirectories moves legacy Chinese data directories to their
+// English names. Empty legacy directories are removed instead of renamed, so
+// old unused folders do not linger in the working directory.
+func MigrateLegacyDirectories(root string) error {
+	rootInfo, err := os.Stat(root)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil
+		}
+		return contract.Unavailable("资料目录不可访问")
+	}
+	if !rootInfo.IsDir() {
+		return contract.Unavailable("资料目录无效")
+	}
+	for legacy, target := range legacyDirectoryNames {
+		source := filepath.Join(root, legacy)
+		info, err := os.Lstat(source)
+		if os.IsNotExist(err) {
+			continue
+		}
+		if err != nil {
+			return contract.Unavailable("资料目录不可访问")
+		}
+		if info.Mode()&os.ModeSymlink != 0 || !info.IsDir() {
+			continue
+		}
+		entries, err := os.ReadDir(source)
+		if err != nil {
+			return contract.Unavailable("资料目录不可访问")
+		}
+		if len(entries) == 0 {
+			if err := os.Remove(source); err != nil {
+				return contract.Unavailable("旧资料目录无法删除")
+			}
+			continue
+		}
+		targetPath := filepath.Join(root, target)
+		if _, err := os.Lstat(targetPath); os.IsNotExist(err) {
+			if err := os.Rename(source, targetPath); err != nil {
+				return contract.Unavailable("资料目录迁移失败")
+			}
+			continue
+		} else if err != nil {
+			return contract.Unavailable("资料目录不可访问")
+		}
+		if err := mergeLegacyDirectory(source, targetPath); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func mergeLegacyDirectory(source, target string) error {
+	entries, err := os.ReadDir(source)
+	if err != nil {
+		return contract.Unavailable("资料目录不可访问")
+	}
+	for _, entry := range entries {
+		from := filepath.Join(source, entry.Name())
+		to := filepath.Join(target, entry.Name())
+		if _, err := os.Lstat(to); err == nil {
+			if entry.IsDir() && entry.Type()&os.ModeSymlink == 0 {
+				if err := os.MkdirAll(to, 0o755); err != nil {
+					return contract.Unavailable("资料目录迁移失败")
+				}
+				if err := mergeLegacyDirectory(from, to); err != nil {
+					return err
+				}
+			}
+			continue
+		} else if !os.IsNotExist(err) {
+			return contract.Unavailable("资料目录不可访问")
+		}
+		if err := os.Rename(from, to); err != nil {
+			return contract.Unavailable("资料目录迁移失败")
+		}
+	}
+	if err := os.Remove(source); err != nil && !os.IsNotExist(err) {
+		// Conflicting entries stay in the legacy directory for manual recovery.
+		slog.Warn("legacy library directory still has conflicts", "path", source)
+	}
+	return nil
+}
+
+// CleanupEmptyCourseDirectories removes empty subdirectories under the four
+// course material categories. Category roots and non-empty folders are kept.
+func CleanupEmptyCourseDirectories(root string) {
+	for _, category := range Categories {
+		base := filepath.Join(root, category)
+		info, err := os.Lstat(base)
+		if err != nil || info.Mode()&os.ModeSymlink != 0 || !info.IsDir() {
+			continue
+		}
+		pruneEmptyDirectories(base, true)
+	}
+}
+
+func pruneEmptyDirectories(dir string, keep bool) {
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return
+	}
+	for _, entry := range entries {
+		if entry.IsDir() && entry.Type()&os.ModeSymlink == 0 {
+			pruneEmptyDirectories(filepath.Join(dir, entry.Name()), false)
+		}
+	}
+	if keep {
+		return
+	}
+	if entries, err := os.ReadDir(dir); err == nil && len(entries) == 0 {
+		_ = os.Remove(dir)
+	}
+}
 
 var Categories = []string{"PPT", "Transcripts", "Notes", "PastExams"}
 
@@ -54,14 +178,14 @@ type directoryEntry struct {
 // ListDirectory returns the direct children of a directory under the library
 // root. The path is relative to root and slash-separated; empty means root.
 func ListDirectory(root, relative string) ([]map[string]any, error) {
-	rootInfo, err := os.Lstat(root)
+	rootInfo, err := os.Stat(root)
 	if err != nil {
 		if os.IsNotExist(err) {
 			return nil, contract.Unavailable("资料目录不存在")
 		}
 		return nil, contract.Unavailable("资料目录不可访问")
 	}
-	if rootInfo.Mode()&os.ModeSymlink != 0 || !rootInfo.IsDir() {
+	if !rootInfo.IsDir() {
 		return nil, contract.Unavailable("资料目录无效")
 	}
 	clean := filepath.Clean(filepath.FromSlash(relative))

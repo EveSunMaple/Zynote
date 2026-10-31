@@ -21,7 +21,7 @@ const defaultVideoPrompt = "可以帮我把这个视频里面的ppt截取出来�
 
 func videoProcessor(state *contract.State) videoppt.Processor {
 	return videoppt.Processor{
-		Root: filepath.Join(state.LibraryRoot, "视频提取临时任务"), Resources: state.ResourcesRoot,
+		Root: filepath.Join(state.LibraryRoot, "VideoTasks"), Resources: state.ResourcesRoot,
 		Platform:            media.CurrentMediaPlatform(),
 		AllowSystemFallback: !state.Packaged || os.Getenv("ZYNOTE_SYSTEM_MEDIA") == "1",
 	}

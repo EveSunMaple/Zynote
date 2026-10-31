@@ -13,6 +13,7 @@ import (
 	"github.com/EveSunMaple/Zynote/backend/internal/im"
 	"github.com/EveSunMaple/Zynote/backend/internal/jobs"
 	"github.com/EveSunMaple/Zynote/backend/internal/knowledge"
+	"github.com/EveSunMaple/Zynote/backend/internal/library"
 	"github.com/EveSunMaple/Zynote/backend/internal/media"
 	"github.com/EveSunMaple/Zynote/backend/internal/media/bilibili"
 	"github.com/EveSunMaple/Zynote/backend/internal/media/download"
@@ -417,6 +418,13 @@ func (inv *Invoker) handleHello(store contract.StateStore, params json.RawMessag
 	if err := os.MkdirAll(state.DataRoot, 0o755); err != nil {
 		return nil, contract.Unavailable("数据目录不可用")
 	}
+	if err := os.MkdirAll(state.LibraryRoot, 0o755); err != nil {
+		return nil, contract.Unavailable("资料目录不可用")
+	}
+	if err := library.MigrateLegacyDirectories(state.LibraryRoot); err != nil {
+		return nil, err
+	}
+	library.CleanupEmptyCourseDirectories(state.LibraryRoot)
 	if inv.native != nil {
 		inv.native.Configure(input.NativePath, filepath.Join(input.ResourcesRoot, "pdfium", pdfiumFilename()), "", "", "")
 	}

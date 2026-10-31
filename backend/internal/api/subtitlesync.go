@@ -18,7 +18,7 @@ import (
 )
 
 func subtitleSyncService(state *contract.State) *subtitlesync.Service {
-	return subtitlesync.New(filepath.Join(state.LibraryRoot, "字幕同步记录"), state.LibraryRoot)
+	return subtitlesync.New(filepath.Join(state.LibraryRoot, "SubtitleSync"), state.LibraryRoot)
 }
 
 func subtitleSyncPublish(knowledgeStore *knowledge.Store, item subtitlesync.Item, srt, category string) (bool, string, error) {

@@ -12,7 +12,7 @@ func TestKnowledgeCrossLanguage(t *testing.T) {
 	if directory == "" {
 		t.Skip("未请求跨语言知识库测试")
 	}
-	store, err := Open(filepath.Join(directory, "知识库数据"))
+	store, err := Open(filepath.Join(directory, "Knowledge"))
 	if err != nil {
 		t.Fatal(err)
 	}

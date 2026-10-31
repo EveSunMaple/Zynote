@@ -9,7 +9,7 @@ import (
 
 func openTestStore(t *testing.T) *Store {
 	t.Helper()
-	store, err := Open(filepath.Join(t.TempDir(), "知识库数据"))
+	store, err := Open(filepath.Join(t.TempDir(), "Knowledge"))
 	if err != nil {
 		t.Fatal(err)
 	}

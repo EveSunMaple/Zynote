@@ -202,12 +202,18 @@
  padding-left: 14px;
 }
 .library-tree__hint {
+ display: flex;
+ align-items: center;
+ min-height: 27px;
  padding: 3px 8px 3px 24px;
  color: var(--muted);
  font-size: 11px;
  line-height: 1.5;
 }
 .library-tree__retry {
+ display: flex;
+ align-items: center;
+ min-height: 27px;
  padding: 3px 8px 3px 24px;
  border: 0;
  background: transparent;

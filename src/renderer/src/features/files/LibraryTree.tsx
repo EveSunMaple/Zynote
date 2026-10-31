@@ -2,6 +2,7 @@ import {Button} from '@heroui/react'
 import {ChevronRight, File, Files, Folder, FolderOpen, RefreshCw} from 'lucide-react'
 import {useEffect, useRef, useState} from 'react'
 import type {LibraryEntry} from '@shared/types'
+import {isHiddenLibraryEntry, libraryFolderLabels} from '@shared/library-labels'
 
 /** 工作目录树：按需读取子目录，避免一次性扫描整个资料库。 */
 export function LibraryTree({
@@ -94,56 +95,62 @@ export function LibraryTree({
  }
 
  function renderEntries(entries: LibraryEntry[]) {
-  return entries.map(entry => {
-   const isDir = entry.type === 'dir'
-   const isOpen = isDir && expanded.has(entry.path)
-   return (
-    <div className="library-tree__node" key={entry.path}>
-     <button
-      type="button"
-      role="treeitem"
-      aria-selected={selected === entry.path}
-      aria-expanded={isDir ? isOpen : undefined}
-      className={'library-tree__row' + (selected === entry.path ? ' is-selected' : '')}
-      title={entry.path}
-      onClick={() => activate(entry)}
-     >
-      {isDir ? (
-       <ChevronRight size={14} className={'library-tree__chevron' + (isOpen ? ' is-open' : '')} aria-hidden="true" />
-      ) : (
-       <span className="library-tree__spacer" aria-hidden="true" />
-      )}
-      {isDir ? (
-       isOpen ? (
-        <FolderOpen size={15} aria-hidden="true" />
+  return entries
+   .filter(entry => !isHiddenLibraryEntry(entry))
+   .map(entry => {
+    const isDir = entry.type === 'dir'
+    const isOpen = isDir && expanded.has(entry.path)
+    const childEntries = children[entry.path]
+    const visibleChildren = childEntries?.filter(item => !isHiddenLibraryEntry(item)) ?? null
+    const label = isDir && !entry.path.includes('/') ? (libraryFolderLabels[entry.name] ?? entry.name) : entry.name
+    return (
+     <div className="library-tree__node" key={entry.path}>
+      <button
+       type="button"
+       role="treeitem"
+       aria-selected={selected === entry.path}
+       aria-expanded={isDir ? isOpen : undefined}
+       className={'library-tree__row' + (selected === entry.path ? ' is-selected' : '')}
+       title={entry.path}
+       onClick={() => activate(entry)}
+      >
+       {isDir ? (
+        <ChevronRight size={14} className={'library-tree__chevron' + (isOpen ? ' is-open' : '')} aria-hidden="true" />
        ) : (
-        <Folder size={15} aria-hidden="true" />
-       )
-      ) : (
-       <File size={15} aria-hidden="true" />
-      )}
-      <span className="library-tree__name">{entry.name}</span>
-     </button>
-     {isOpen && (
-      <div className="library-tree__children" role="group">
-       {children[entry.path] ? (
-        renderEntries(children[entry.path])
-       ) : loading.has(entry.path) ? (
-        <span className="library-tree__hint">正在读取…</span>
-       ) : failed.has(entry.path) ? (
-        <button type="button" className="library-tree__retry" onClick={() => void loadDir(entry.path).catch(() => {})}>
-         读取失败，点此重试
-        </button>
-       ) : (
-        <span className="library-tree__hint">空目录</span>
+        <span className="library-tree__spacer" aria-hidden="true" />
        )}
-      </div>
-     )}
-    </div>
-   )
-  })
+       {isDir ? (
+        isOpen ? (
+         <FolderOpen size={15} aria-hidden="true" />
+        ) : (
+         <Folder size={15} aria-hidden="true" />
+        )
+       ) : (
+        <File size={15} aria-hidden="true" />
+       )}
+       <span className="library-tree__name">{label}</span>
+      </button>
+      {isOpen && (
+       <div className="library-tree__children" role="group">
+        {visibleChildren?.length ? (
+         renderEntries(childEntries ?? [])
+        ) : loading.has(entry.path) ? (
+         <span className="library-tree__hint">正在读取…</span>
+        ) : failed.has(entry.path) ? (
+         <button type="button" className="library-tree__retry" onClick={() => void loadDir(entry.path).catch(() => {})}>
+          读取失败，点此重试
+         </button>
+        ) : (
+         <span className="library-tree__hint">空目录</span>
+        )}
+       </div>
+      )}
+     </div>
+    )
+   })
  }
 
+ const visibleRoot = root?.filter(entry => !isHiddenLibraryEntry(entry)) ?? null
  return (
   <div className="library-tree">
    <div className="library-tree__toolbar">
@@ -174,8 +181,8 @@ export function LibraryTree({
     </button>
     {root === null ? (
      <span className="library-tree__hint">正在读取目录…</span>
-    ) : root.length ? (
-     renderEntries(root)
+    ) : visibleRoot?.length ? (
+     renderEntries(visibleRoot)
     ) : (
      <span className="library-tree__hint">资料目录为空</span>
     )}

@@ -21,7 +21,7 @@ const (
 )
 
 func (inv *Invoker) knowledgeStoreFor(state *contract.State) (*knowledge.Store, error) {
-	root := filepath.Join(state.LibraryRoot, "知识库数据")
+	root := filepath.Join(state.LibraryRoot, "Knowledge")
 	inv.mediaMu.Lock()
 	defer inv.mediaMu.Unlock()
 	if inv.knowledge != nil && inv.knowledgeRoot == root {

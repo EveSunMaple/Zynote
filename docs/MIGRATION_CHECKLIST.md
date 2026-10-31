@@ -433,9 +433,9 @@ Zynote/
 - [ ] `<userData>/assistant.db`：课程、文件、课次、字幕、笔记、练习、消息、会话、检查点。
 - [ ] `<userData>/settings.json`、`identity.json`、`appearance.json`。
 - [ ] `<userData>/im-connections.sqlite3`：通讯连接、消息、发送/登录操作。
-- [ ] `<libraryRoot>/知识库数据/knowledge-native.sqlite`、`research-native.sqlite`、`knowledge.sqlite`（旧库只读）。
-- [ ] `<libraryRoot>/媒体下载/`：任务记录、`download-auth/profiles.dpapi`、分段与成果。
-- [ ] `<libraryRoot>/字幕同步记录/`、`笔记生成记录/`、`画面识别成果/`。
+- [ ] `<libraryRoot>/Knowledge/knowledge-native.sqlite`、`research-native.sqlite`、`knowledge.sqlite`（旧库只读）。
+- [ ] `<libraryRoot>/MediaDownloads/`：任务记录、`download-auth/profiles.dpapi`、分段与成果。
+- [ ] `<libraryRoot>/SubtitleSync/`、`NoteGeneration/`、`VisualOutputs/`。
 - [ ] portable：`课程数据/assistant.db`、`课程数据/library-location.json`、`资料/`。
 - [ ] `resources/`：ASR/BGE ONNX、FFmpeg/FFprobe、NapCat、runtime manifest。
 
@@ -856,7 +856,7 @@ Zynote/
 
 ## 1.50 video-ppt 任务状态（2026-10-24）
 
-- [x] `video-ppt:pending/restore`：读取 `视频提取临时任务/<uuid>/task.json`、`source.json`、`frames.json`、`review.json`；字幕任务返回 `savedPath`；损坏/缺失/权限错误分类保留原文件。
+- [x] `video-ppt:pending/restore`：读取 `VideoTasks/<uuid>/task.json`、`source.json`、`frames.json`、`review.json`；字幕任务返回 `savedPath`；损坏/缺失/权限错误分类保留原文件。
 - [x] Go `internal/videoppt`：任务/分镜校验、页面与帧一致性、字幕任务识别、错误分类。
 - [x] capabilities 110 → **112**；测试覆盖正常任务、字幕任务、损坏任务、预览不一致。
 - [ ] `video-ppt` 其余动作（series/subtitle/extract/export/...) 仍走 TS；切路由前需整组迁移。

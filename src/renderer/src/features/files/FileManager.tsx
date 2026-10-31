@@ -1,13 +1,20 @@
 import {Button, Input, Tabs, ToggleButton, ToggleButtonGroup} from '@heroui/react'
 import {useEffect, useState} from 'react'
 import type {LibraryEntry, LibraryFile} from '@shared/types'
+import {libraryCategoryLabels, libraryFolderLabel} from '@shared/library-labels'
 import {Folder, Trash2} from 'lucide-react'
 import {notify} from '@renderer/ui/ToastHost'
 import {WindowPanel} from '@renderer/ui/WindowPanel'
 import {ConfirmDialog} from '@renderer/ui/ConfirmDialog'
 import {MediaDownloads} from '@renderer/features/bilibili/MediaDownloads'
 import {LibraryTree} from '@renderer/features/files/LibraryTree'
-const categories = ['全部', 'PPT', 'Transcripts', 'Notes', 'PastExams']
+const categories = [
+ {id: '全部', label: '全部'},
+ {id: 'PPT', label: '课件'},
+ {id: 'Transcripts', label: '语音原文'},
+ {id: 'Notes', label: '笔记'},
+ {id: 'PastExams', label: '历年卷'}
+]
 const openable = /\.(pdf|pptx?|docx?|txt|md|srt)$/i
 export function FileManager({
  busy,
@@ -76,7 +83,7 @@ export function FileManager({
  const visible = selectedFiles.filter(
   f => (filter === '全部' || f.category === filter) && `${f.name} ${f.course}`.includes(search)
  )
- const directoryName = directory ? directory.split('/').at(-1) || directory : '全部文件'
+ const directoryName = directory ? libraryFolderLabel(directory) : '全部文件'
  return (
   <WindowPanel
    visible
@@ -159,9 +166,9 @@ export function FileManager({
         className="file-category-group"
        >
         {categories.map((c, index) => (
-         <ToggleButton key={c} id={c}>
+         <ToggleButton key={c.id} id={c.id}>
           {index > 0 && <ToggleButtonGroup.Separator />}
-          {c} {selectedFiles.filter(f => c === '全部' || f.category === c).length}
+          {c.label} {selectedFiles.filter(f => c.id === '全部' || f.category === c.id).length}
          </ToggleButton>
         ))}
        </ToggleButtonGroup>
@@ -174,7 +181,8 @@ export function FileManager({
           <div>
            <strong title={f.name}>{f.name}</strong>
            <small>
-            {f.category} · {f.course || '未分类'} · {(f.size / 1024 / 1024).toFixed(2)} MB
+            {libraryCategoryLabels[f.category] ?? f.category} · {f.course || '未分类'} ·{' '}
+            {(f.size / 1024 / 1024).toFixed(2)} MB
            </small>
           </div>
           {openable.test(f.name) && (

@@ -11,7 +11,7 @@ import (
 )
 
 func videoPptService(state *contract.State) *videoppt.Service {
-	return videoppt.New(filepath.Join(state.LibraryRoot, "视频提取临时任务"))
+	return videoppt.New(filepath.Join(state.LibraryRoot, "VideoTasks"))
 }
 
 func videoPptError(err error) error {

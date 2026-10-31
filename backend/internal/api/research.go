@@ -16,7 +16,7 @@ import (
 )
 
 func (inv *Invoker) researchStore(state *contract.State) (*research.Store, error) {
-	store, err := research.Open(filepath.Join(state.LibraryRoot, "知识库数据"))
+	store, err := research.Open(filepath.Join(state.LibraryRoot, "Knowledge"))
 	if err != nil {
 		return nil, contract.Unavailable(err.Error())
 	}
@@ -78,7 +78,7 @@ func (inv *Invoker) researchEngine(store contract.StateStore, state *contract.St
 }
 
 func (inv *Invoker) imService(state *contract.State, reverse contract.ReverseCaller, rootID string) (*im.Service, error) {
-	root := filepath.Join(state.LibraryRoot, "知识库数据")
+	root := filepath.Join(state.LibraryRoot, "Knowledge")
 	inv.imMu.Lock()
 	defer inv.imMu.Unlock()
 	if inv.im == nil || inv.imRoot != root {
