@@ -196,11 +196,6 @@
 .media-source {
  padding-top: 16px;
 }
-.media-advanced summary {
- cursor: pointer;
- color: var(--muted);
- padding: 12px 0;
-}
 .media-format-list {
  max-height: 220px;
  overflow: auto;

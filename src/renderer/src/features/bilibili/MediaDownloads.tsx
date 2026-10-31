@@ -1,4 +1,4 @@
-import {Button, Card, Checkbox, Input} from '@heroui/react'
+import {Button, Card, Checkbox, Disclosure, Input} from '@heroui/react'
 import {useEffect, useState} from 'react'
 import type {MediaCatalog, MediaJob} from '@shared/media'
 import {notify} from '@renderer/ui/ToastHost'
@@ -217,118 +217,133 @@ export function MediaDownloads({visible}: Readonly<{visible: boolean}>) { // NOS
      刷新下载记录
     </Button>
    </header>
-   <details className="media-advanced">
-    <summary>站点登录档案</summary>
-    <p className="hint">
-     只读取你主动选择的 Netscape cookies.txt，不扫描浏览器。档案由当前系统用户加密保存；仅发往所填站点域名，不发送给视频
-     CDN 或其它站点。这里不会显示凭据正文。
-    </p>
-    <div className="media-options">
-     <label>
-      档案名称
-      <Input
-       aria-label="登录档案名称"
-       value={profileName}
-       maxLength={80}
-       onChange={event => setProfileName(event.target.value)}
-      />
-     </label>
-     <label>
-      站点域名
-      <Input
-       aria-label="登录档案站点域名"
-       placeholder="例如 youtube.com"
-       value={profileSite}
-       onChange={event => setProfileSite(event.target.value)}
-      />
-     </label>
-     <Button
-      variant="tertiary"
-      size="sm"
-      isDisabled={busy || !profileName.trim() || !profileSite.trim()}
-      onClick={() =>
-       void run(async () => {
-        const result = await invoke<LoginProfile | null>('media:auth-import', {
-         name: profileName.trim(),
-         site: profileSite.trim()
-        })
-        if (result) {
-         await refreshProfiles()
-         setProfileName('')
-         setProfileSite('')
-         notify.success('登录档案已在本机加密保存，使用前请在下方明确选择', {timeout: 6000})
-        }
-       })
-      }
-     >
-      选择文件并导入
-     </Button>
-     <label>
-      下载使用的登录档案
-      <SelectField
-       label="下载登录档案"
-       isDisabled={busy}
-       value={String(options.cookie_profile || '')}
-       onChange={next => setOptions(current => ({...current, cookie_profile: next, use_cookies: !!next}))}
-       options={[
-        {value: '', label: '应用内 B 站会话 / 其它站点公开访问'},
-        ...profiles.map(profile => ({
-         value: profile.id,
-         label: profile.name + ' · ' + profile.site + ' · ' + profile.count + ' 项'
-        }))
-       ]}
-      />
-     </label>
-     <Checkbox
-      className="media-check"
-      isSelected={!!options.privacy}
-      isDisabled={busy}
-      onChange={checked => set('privacy', checked)}
-     >
-      <Checkbox.Content>
-       <Checkbox.Control>
-        <Checkbox.Indicator />
-       </Checkbox.Control>
-       加密下载任务记录（媒体文件本身不加密）
-      </Checkbox.Content>
-     </Checkbox>
-    </div>
-    {profiles.map(profile => (
-     <div className="row" key={profile.id}>
-      <span>
-       {profile.name} · {profile.site}
-      </span>
-      {confirmingProfile === profile.id ? (
-       <>
-        <Button
-         variant="danger"
-         size="sm"
-         isDisabled={busy}
-         onClick={() =>
-          void run(async () => {
-           await invoke('media:auth-remove', {id: profile.id, confirmed: true})
-           if (options.cookie_profile === profile.id)
-            setOptions(current => ({...current, cookie_profile: '', use_cookies: false}))
-           setConfirmingProfile('')
-           await refreshProfiles()
+   <Disclosure className="media-disclosure">
+    <Disclosure.Heading>
+     <Disclosure.Trigger className="media-disclosure-trigger">
+      站点登录档案
+      <Disclosure.Indicator />
+     </Disclosure.Trigger>
+    </Disclosure.Heading>
+    <Disclosure.Content>
+     <Disclosure.Body className="media-disclosure-body">
+      <p className="hint">
+       只读取你主动选择的 Netscape cookies.txt，不扫描浏览器。档案由当前系统用户加密保存；仅发往所填站点域名，不发送给视频
+       CDN 或其它站点。这里不会显示凭据正文。
+      </p>
+      <div className="media-profile-fields">
+       <label>
+        档案名称
+        <Input
+         aria-label="登录档案名称"
+         value={profileName}
+         maxLength={80}
+         onChange={event => setProfileName(event.target.value)}
+        />
+       </label>
+       <label>
+        站点域名
+        <Input
+         aria-label="登录档案站点域名"
+         placeholder="例如 youtube.com"
+         value={profileSite}
+         onChange={event => setProfileSite(event.target.value)}
+        />
+       </label>
+       <Button
+        variant="tertiary"
+        size="sm"
+        isDisabled={busy || !profileName.trim() || !profileSite.trim()}
+        onClick={() =>
+         void run(async () => {
+          const result = await invoke<LoginProfile | null>('media:auth-import', {
+           name: profileName.trim(),
+           site: profileSite.trim()
           })
-         }
-        >
-         确认删除
-        </Button>
-        <Button variant="ghost" size="sm" isDisabled={busy} onClick={() => setConfirmingProfile('')}>
-         取消
-        </Button>
-       </>
-      ) : (
-       <Button variant="danger-soft" size="sm" isDisabled={busy} onClick={() => setConfirmingProfile(profile.id)}>
-        删除此档案
+          if (result) {
+           await refreshProfiles()
+           setProfileName('')
+           setProfileSite('')
+           notify.success('登录档案已在本机加密保存，使用前请在下方明确选择', {timeout: 6000})
+          }
+         })
+        }
+       >
+        选择文件并导入
        </Button>
+      </div>
+      <div className="media-profile-access">
+       <label>
+        下载使用的登录档案
+        <SelectField
+         label="下载登录档案"
+         isDisabled={busy}
+         value={String(options.cookie_profile || '')}
+         onChange={next => setOptions(current => ({...current, cookie_profile: next, use_cookies: !!next}))}
+         options={[
+          {value: '', label: '应用内 B 站会话 / 其它站点公开访问'},
+          ...profiles.map(profile => ({
+           value: profile.id,
+           label: profile.name + ' · ' + profile.site + ' · ' + profile.count + ' 项'
+          }))
+         ]}
+        />
+       </label>
+       <Checkbox
+        className="media-check"
+        isSelected={!!options.privacy}
+        isDisabled={busy}
+        onChange={checked => set('privacy', checked)}
+       >
+        <Checkbox.Content>
+         <Checkbox.Control>
+          <Checkbox.Indicator />
+         </Checkbox.Control>
+         加密下载任务记录（媒体文件本身不加密）
+        </Checkbox.Content>
+       </Checkbox>
+      </div>
+      {!!profiles.length && (
+       <div className="media-profile-list">
+        {profiles.map(profile => (
+         <div className="media-profile-item" key={profile.id}>
+          <span>
+           {profile.name} · {profile.site}
+          </span>
+          {confirmingProfile === profile.id ? (
+           <div className="media-profile-actions">
+            <Button
+             variant="danger"
+             size="sm"
+             isDisabled={busy}
+             onClick={() =>
+              void run(async () => {
+               await invoke('media:auth-remove', {id: profile.id, confirmed: true})
+               if (options.cookie_profile === profile.id)
+                setOptions(current => ({...current, cookie_profile: '', use_cookies: false}))
+               setConfirmingProfile('')
+               await refreshProfiles()
+              })
+             }
+            >
+             确认删除
+            </Button>
+            <Button variant="ghost" size="sm" isDisabled={busy} onClick={() => setConfirmingProfile('')}>
+             取消
+            </Button>
+           </div>
+          ) : (
+           <Button variant="danger-soft" size="sm" isDisabled={busy} onClick={() => setConfirmingProfile(profile.id)}>
+            删除此档案
+           </Button>
+          )}
+         </div>
+        ))}
+       </div>
       )}
-     </div>
-    ))}
-   </details>
-   <div className="row">
+     </Disclosure.Body>
+    </Disclosure.Content>
+   </Disclosure>
+   <div className="media-url-row">
     <Input
      aria-label="媒体网址"
      placeholder="视频网址"
@@ -436,70 +451,88 @@ export function MediaDownloads({visible}: Readonly<{visible: boolean}>) { // NOS
        </div>
       ))}
      </div>
-     <details className="media-advanced">
-      <summary>更多下载选项</summary>
-      <div className="media-options">
-       {Object.keys(labels)
-        .filter(
-         key => !['height', 'audio_only', 'subtitle_only', 'subtitles', 'container', 'audio_format'].includes(key)
-        )
-        .map(key => (
-         <div className="media-option" key={key}>
-          <span>{labels[key]}</span>
-          {typeof options[key] === 'boolean' && (
-           <Checkbox
-            isSelected={!!options[key]}
-            isDisabled={busy}
-            aria-label={labels[key]}
-            onChange={checked => set(key, checked)}
-           >
-            <Checkbox.Content>
-             <Checkbox.Control>
-              <Checkbox.Indicator />
-             </Checkbox.Control>
-            </Checkbox.Content>
-           </Checkbox>
-          )}
-          {typeof options[key] !== 'boolean' && enums[key] && (
-           <SelectField
-            label={labels[key]}
-            isDisabled={busy}
-            value={String(options[key])}
-            onChange={next => set(key, next)}
-            options={enums[key]
-             .filter(value => value !== 'aria2c')
-             .map(value => ({
-              value: String(value),
-              label: qualityLabel(value)
-             }))}
-           />
-          )}
-          {typeof options[key] !== 'boolean' && !enums[key] && (
-           <Input
-            disabled={busy}
-            type={typeof options[key] === 'number' || ['clip_start', 'clip_end'].includes(key) ? 'number' : 'text'}
-            value={options[key] === null ? '' : String(options[key] ?? '')}
-            onChange={e => set(key, optionValue(key, e.target.value, options[key]))}
-            title={key === 'sponsorblock' ? sponsorHelp : undefined}
-            placeholder={optionPlaceholder(key)}
-           />
-          )}
-         </div>
-        ))}
-      </div>
-      {source.formats?.length && (
-       <details>
-        <summary>查看精确格式编号</summary>
-        <div className="media-format-list">
-         {source.formats.map(f => (
-          <p key={f.id}>
-           {f.id} · {f.height || '音频'} · {f.extension} · {f.video_codec} / {f.audio_codec}
-          </p>
-         ))}
+     <Disclosure className="media-disclosure media-disclosure--nested">
+      <Disclosure.Heading>
+       <Disclosure.Trigger className="media-disclosure-trigger">
+        更多下载选项
+        <Disclosure.Indicator />
+       </Disclosure.Trigger>
+      </Disclosure.Heading>
+      <Disclosure.Content>
+       <Disclosure.Body className="media-disclosure-body">
+        <div className="media-options">
+         {Object.keys(labels)
+          .filter(
+           key => !['height', 'audio_only', 'subtitle_only', 'subtitles', 'container', 'audio_format'].includes(key)
+          )
+          .map(key => (
+           <div className="media-option" key={key}>
+            <span>{labels[key]}</span>
+            {typeof options[key] === 'boolean' && (
+             <Checkbox
+              isSelected={!!options[key]}
+              isDisabled={busy}
+              aria-label={labels[key]}
+              onChange={checked => set(key, checked)}
+             >
+              <Checkbox.Content>
+               <Checkbox.Control>
+                <Checkbox.Indicator />
+               </Checkbox.Control>
+              </Checkbox.Content>
+             </Checkbox>
+            )}
+            {typeof options[key] !== 'boolean' && enums[key] && (
+             <SelectField
+              label={labels[key]}
+              isDisabled={busy}
+              value={String(options[key])}
+              onChange={next => set(key, next)}
+              options={enums[key]
+               .filter(value => value !== 'aria2c')
+               .map(value => ({
+                value: String(value),
+                label: qualityLabel(value)
+               }))}
+             />
+            )}
+            {typeof options[key] !== 'boolean' && !enums[key] && (
+             <Input
+              disabled={busy}
+              type={typeof options[key] === 'number' || ['clip_start', 'clip_end'].includes(key) ? 'number' : 'text'}
+              value={options[key] === null ? '' : String(options[key] ?? '')}
+              onChange={e => set(key, optionValue(key, e.target.value, options[key]))}
+              title={key === 'sponsorblock' ? sponsorHelp : undefined}
+              placeholder={optionPlaceholder(key)}
+             />
+            )}
+           </div>
+          ))}
         </div>
-       </details>
-      )}
-     </details>
+        {!!source.formats?.length && (
+         <Disclosure className="media-disclosure media-disclosure--nested">
+          <Disclosure.Heading>
+           <Disclosure.Trigger className="media-disclosure-trigger">
+            查看精确格式编号
+            <Disclosure.Indicator />
+           </Disclosure.Trigger>
+          </Disclosure.Heading>
+          <Disclosure.Content>
+           <Disclosure.Body className="media-disclosure-body">
+            <div className="media-format-list">
+             {source.formats.map(f => (
+              <p key={f.id}>
+               {f.id} · {f.height || '音频'} · {f.extension} · {f.video_codec} / {f.audio_codec}
+              </p>
+             ))}
+            </div>
+           </Disclosure.Body>
+          </Disclosure.Content>
+         </Disclosure>
+        )}
+       </Disclosure.Body>
+      </Disclosure.Content>
+     </Disclosure>
      <Button
       variant="primary"
       size="sm"
