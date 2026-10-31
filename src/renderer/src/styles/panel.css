@@ -1733,3 +1733,11 @@ html[data-platform="linux"][data-maximized="true"] #root {
   transition: none;
  }
 }
+
+/* HeroUI 会给单选输入加方形焦点环；选项整行已经有边框反馈，保留原生圆形单选即可。 */
+.interactive-practice label.answer-option > input,
+.interactive-practice label.answer-option > input:focus,
+.interactive-practice label.answer-option > input:focus-visible {
+ box-shadow: none;
+ outline: none;
+}
