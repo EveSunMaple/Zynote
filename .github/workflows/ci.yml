@@ -56,6 +56,12 @@ jobs:
         run: pnpm native:test
       - name: Build
         run: pnpm build
+      - name: Build Go core
+        shell: bash
+        run: |
+          mkdir -p backend/bin
+          cd backend
+          go build -trimpath -ldflags="-s -w" -o "bin/zynote-core$(go env GOEXE)" ./cmd/zynote-core
       - name: Go core smoke
         run: pnpm smoke:go-core
   go-test-linux:
