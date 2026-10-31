@@ -42,8 +42,15 @@ func visualError(err error) error {
 	if err == nil {
 		return nil
 	}
-	if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
-		return err
+	if errors.Is(err, context.Canceled) {
+		return contract.NewError(contract.CodeCancelled, "画面处理已取消，恢复文件保留")
+	}
+	if errors.Is(err, context.DeadlineExceeded) {
+		return contract.NewError(contract.CodeTimeout, "画面处理超时，恢复文件保留")
+	}
+	var app *contract.AppError
+	if errors.As(err, &app) {
+		return app
 	}
 	var request *visual.RequestError
 	if errors.As(err, &request) {

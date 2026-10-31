@@ -84,7 +84,7 @@ func pixelStats(pixels, previous []byte) (int, int) {
 	return light, change
 }
 
-func (service *Service) balancedTimes(ctx context.Context, source string, duration float64, times []float64) []float64 {
+func (service *Service) balancedTimes(ctx context.Context, source string, duration float64, times []float64) ([]float64, error) {
 	bins := make([]balanceBin, len(times))
 	for index, value := range times {
 		bins[index] = balanceBin{time: value, score: -1}
@@ -92,7 +92,7 @@ func (service *Service) balancedTimes(ctx context.Context, source string, durati
 	pending := []byte{}
 	var previous []byte
 	index := 0
-	_ = service.command(ctx, "ffmpeg", []string{
+	err := service.command(ctx, "ffmpeg", []string{
 		ffmpegHideBanner, ffmpegLogLevel, "error", ffmpegNoStdin, "-i", source,
 		"-an", "-vf", "fps=1/5,scale=32:18,format=gray", "-f", "rawvideo", "pipe:1",
 	}, func(chunk []byte) {
@@ -118,10 +118,16 @@ func (service *Service) balancedTimes(ctx context.Context, source string, durati
 			previous = pixels
 		}
 	})
+	if err != nil {
+		return nil, fmt.Errorf("画面候选扫描失败，未发布成果: %w", err)
+	}
+	if index == 0 || len(pending) != 0 {
+		return nil, fmt.Errorf("画面候选扫描返回不完整，未发布成果")
+	}
 	for index := range times {
 		times[index] = bins[index].time
 	}
-	return times
+	return times, nil
 }
 
 func (service *Service) probeVideoDuration(ctx context.Context, source string) (float64, error) {
@@ -129,7 +135,10 @@ func (service *Service) probeVideoDuration(ctx context.Context, source string) (
 		"-v", "error", "-show_entries", "format=duration:stream=codec_type,duration", "-of", "json", source,
 	})
 	if err != nil {
-		return 0, badRequest(errNoVideo)
+		if ctx.Err() != nil {
+			return 0, ctx.Err()
+		}
+		return 0, fmt.Errorf("视频检查失败: %w", err)
 	}
 	var metadata struct {
 		Format *struct {
@@ -160,7 +169,10 @@ func (service *Service) captureImageFrame(ctx context.Context, source, directory
 		ffmpegHideBanner, ffmpegLogLevel, "error", ffmpegNoStdin, "-i", source, "-frames:v", "1",
 		"-vf", "scale=1600:1600:force_original_aspect_ratio=decrease", "-q:v", "2", "-y", path,
 	}, nil); err != nil {
-		return nil, badRequest(errImageUnreadable)
+		if ctx.Err() != nil {
+			return nil, ctx.Err()
+		}
+		return nil, fmt.Errorf("图片提取失败: %w", err)
 	}
 	if frameInfo, err := os.Stat(path); err != nil || frameInfo.Size() == 0 {
 		return nil, badRequest(errImageUnreadable)
@@ -184,7 +196,10 @@ func (service *Service) captureVideoFrames(ctx context.Context, source, director
 			"-i", source, "-frames:v", "1", "-vf", "scale=1600:1600:force_original_aspect_ratio=decrease",
 			"-q:v", "2", "-y", path,
 		}, nil); err != nil {
-			return nil, badRequest(errFrameUnreadable)
+			if ctx.Err() != nil {
+				return nil, ctx.Err()
+			}
+			return nil, fmt.Errorf("视频画面提取失败: %w", err)
 		}
 		if info, err := os.Stat(path); err != nil || info.Size() == 0 {
 			return nil, badRequest(errFrameUnreadable)
@@ -199,6 +214,12 @@ func (service *Service) captureVideoFrames(ctx context.Context, source, director
 }
 
 func (service *Service) Capture(ctx context.Context, request CaptureRequest) (Capture, error) {
+	if err := ctx.Err(); err != nil {
+		return Capture{}, err
+	}
+	if request.Cap < 1 || request.Cap > 12 || (request.Policy != "balanced" && request.Policy != "coverage") {
+		return Capture{}, badRequest("画面提取参数无效")
+	}
 	if !idPattern.MatchString(request.ID) {
 		return Capture{}, badRequest("画面任务标识无效")
 	}
@@ -236,9 +257,11 @@ func (service *Service) Capture(ctx context.Context, request CaptureRequest) (Ca
 		if err == nil {
 			times := coverageTimes(duration, request.Cap)
 			if request.Policy == "balanced" {
-				times = service.balancedTimes(ctx, source, duration, times)
+				times, err = service.balancedTimes(ctx, source, duration, times)
 			}
-			frames, err = service.captureVideoFrames(ctx, source, directory, times)
+			if err == nil {
+				frames, err = service.captureVideoFrames(ctx, source, directory, times)
+			}
 		}
 	}
 	if err != nil {
@@ -264,6 +287,9 @@ func (service *Service) commandOutput(ctx context.Context, tool string, args []s
 		AllowSystemFallback: service.AllowSystemFallback, Platform: service.Platform,
 	})
 	if err != nil {
+		if ctx.Err() != nil {
+			return "", ctx.Err()
+		}
 		return "", err
 	}
 	return output, nil
