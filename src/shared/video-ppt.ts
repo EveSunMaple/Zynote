@@ -1,7 +1,14 @@
 import type {PptExtractPage} from './ppt-extract.js'
 export type VideoEpisode = {page: number; title: string; duration: number; url: string}
 export type VideoSeries = {title: string; episodes: VideoEpisode[]}
-export type PendingVideoTask = {id: string; name: string; kind?: 'subtitle'; savedPath?: string; error?: string}
+export type PendingVideoTask = {
+ id: string
+ name: string
+ kind?: 'subtitle'
+ savedPath?: string
+ error?: string
+ queueState?: string
+}
 export type VideoBatchItem = {
  page: number
  title: string

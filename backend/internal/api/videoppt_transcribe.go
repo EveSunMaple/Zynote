@@ -7,9 +7,9 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
-	"strings"
 
 	"github.com/EveSunMaple/Zynote/backend/internal/asr"
+	"github.com/EveSunMaple/Zynote/backend/internal/config"
 	"github.com/EveSunMaple/Zynote/backend/internal/contract"
 	"github.com/EveSunMaple/Zynote/backend/internal/documents"
 	"github.com/EveSunMaple/Zynote/backend/internal/library"
@@ -123,25 +123,33 @@ func (inv *Invoker) handleVideoSubtitleTranscribeLocal(store contract.StateStore
 	if picked.Path == nil || *picked.Path == "" {
 		return nil, nil
 	}
-	return inv.runJob(jobKindVideoSubtitle, func(ctx context.Context) (any, error) {
-		inv.videoProgress("正在复制本地视频用于字幕转写；原文件保持不变")
-		outputName := library.FolderName(videoppt.SubtitleTitle(filepath.Base(*picked.Path))) + "-离线转写.srt"
-		task, err := videoPptService(state).CreateSubtitleTask(*picked.Path, outputName, courseName, 1)
-		if err != nil {
-			return nil, videoPptError(err)
-		}
+	outputName := library.FolderName(videoppt.SubtitleTitle(filepath.Base(*picked.Path))) + "-离线转写.srt"
+	task, err := videoPptService(state).CreateSubtitleTask(*picked.Path, outputName, courseName, 1)
+	if err != nil {
+		return nil, videoPptError(err)
+	}
+	return inv.runSubtitleQueued(state, task.ID, func(ctx context.Context) (any, error) {
 		return inv.transcribeVideoTask(ctx, state, task)
 	})
+}
+
+func (inv *Invoker) runSubtitleQueued(state *contract.State, id string, run func(context.Context) (any, error)) (any, error) {
+	key := "subtitle-transcribe:" + id
+	result, err := inv.jobs.RunQueued(context.Background(), filepath.Join(state.LibraryRoot, "TaskQueue"), id, key, run)
+	return inv.finishJob(key, "", result, err)
 }
 
 func (inv *Invoker) handleVideoResumeSubtitle(state *contract.State, params json.RawMessage) (any, error) {
 	var input struct {
 		ID string `json:"id"`
 	}
-	if err := json.Unmarshal(params, &input); err != nil || !strings.HasPrefix(input.ID, "") || input.ID == "" {
+	if err := json.Unmarshal(params, &input); err != nil || !config.IsUUID(input.ID) {
 		return nil, contract.InputInvalid("任务编号无效")
 	}
-	return inv.runJob(jobKindVideoSubtitle, func(ctx context.Context) (any, error) {
+	if _, _, err := videoPptService(state).SubtitleTask(input.ID); err != nil {
+		return nil, videoPptError(err)
+	}
+	return inv.runSubtitleQueued(state, input.ID, func(ctx context.Context) (any, error) {
 		service := videoPptService(state)
 		meta, directory, err := service.SubtitleTask(input.ID)
 		if err != nil {
