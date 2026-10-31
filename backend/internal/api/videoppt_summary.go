@@ -49,6 +49,7 @@ type videoNotePoint struct {
 type summaryCue = summaryinput.Cue
 
 type summaryResult struct {
+	Evidence *contract.SummaryEvidence
 	Markdown string
 	Points   []videoNotePoint
 }
@@ -205,6 +206,9 @@ func summarizeVideoText(
 			return summaryResult{}, err
 		}
 		verified := verifySummaryPoints(points, part, startIndex, segments, heading)
+		if err := recordValidatedSummaryPoints(chunkContext, verified); err != nil {
+			return summaryResult{}, err
+		}
 		var section []videoNotePoint
 		lines, section = appendSummarySection(lines, part, verified)
 		allPoints = append(allPoints, section...)
@@ -213,7 +217,22 @@ func summarizeVideoText(
 	if len(allPoints) == 0 {
 		return summaryResult{}, contract.InputInvalid("模型没有给出能在字幕中核实的要点，未保存摘要")
 	}
-	return summaryResult{Markdown: strings.Join(lines, "\n"), Points: allPoints}, nil
+	result := summaryResult{Markdown: strings.Join(lines, "\n"), Points: allPoints}
+	if metadata, observer := contract.GenerationObservationFrom(ctx); observer != nil {
+		receipt, err := contract.ReadGenerationReceipt(ctx)
+		if err != nil {
+			return summaryResult{}, err
+		}
+		if receipt.Event.State != "validated-points" || receipt.Ref.Version != 2 {
+			return summaryResult{}, contract.ObservationFailure(fmt.Errorf("摘要已验证记录缺失"))
+		}
+		digest, err := contract.SummaryPointsDigest(canonicalVideoPoints(allPoints))
+		if err != nil {
+			return summaryResult{}, contract.ObservationFailure(err)
+		}
+		result.Evidence = &contract.SummaryEvidence{Version: 1, SourceSHA256: metadata.SourceSHA256, ItemRecipeHash: metadata.ItemRecipeSHA256, FinalPointsSHA256: digest, PointCount: len(allPoints), ValidatedHead: receipt.Ref}
+	}
+	return result, nil
 }
 
 func (inv *Invoker) handleVideoSummary(store contract.StateStore, state *contract.State, params json.RawMessage) (any, error) {
@@ -310,4 +329,34 @@ func sortNotePoints(points []videoNotePoint) {
 			points[current], points[current-1] = points[current-1], points[current]
 		}
 	}
+}
+
+func canonicalVideoPoints(points []videoNotePoint) []contract.ValidatedSummaryPoint {
+	rows := make([]contract.ValidatedSummaryPoint, 0, len(points))
+	for _, point := range points {
+		rows = append(rows, contract.ValidatedSummaryPoint{Cue: point.Cue, Quote: point.Quote, Point: point.Point, Topic: point.Topic, Timestamp: point.Timestamp})
+	}
+	return rows
+}
+func recordValidatedSummaryPoints(ctx context.Context, points []videoNotePoint) error {
+	metadata, observer := contract.GenerationObservationFrom(ctx)
+	if observer == nil {
+		return nil
+	}
+	receipt, err := contract.ReadGenerationReceipt(ctx)
+	if err != nil {
+		return err
+	}
+	event := receipt.Event
+	m := event.Observation
+	if receipt.Ref.Version != 2 || event.State != "format-result" || event.FormatValid == nil || !*event.FormatValid || m.TaskID != metadata.TaskID || m.ItemIndex != metadata.ItemIndex || m.SourceSHA256 != metadata.SourceSHA256 || m.ItemRecipeSHA256 != metadata.ItemRecipeSHA256 || m.ChunkIndex != metadata.ChunkIndex || m.ChunkCount != metadata.ChunkCount || m.InputSHA256 != metadata.InputSHA256 {
+		return contract.ObservationFailure(fmt.Errorf("摘要格式记录与实际分块不匹配"))
+	}
+	digest, err := contract.SummaryPointsDigest(canonicalVideoPoints(points))
+	if err != nil {
+		return contract.ObservationFailure(err)
+	}
+	event.State = "validated-points"
+	event.ValidatedPoints = &contract.ValidatedPointEvidence{AcceptedFormatRef: receipt.Ref, PointsSHA256: digest, PointCount: len(points)}
+	return contract.ObservationFailure(observer(ctx, event))
 }

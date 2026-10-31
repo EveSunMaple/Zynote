@@ -6,6 +6,7 @@ import (
 )
 
 type GenerationObservation struct {
+	ProtocolVersion  int    `json:"protocolVersion,omitempty"`
 	Purpose          string `json:"purpose"`
 	TaskID           string `json:"taskID"`
 	ItemIndex        int    `json:"itemIndex"`
@@ -19,16 +20,17 @@ type GenerationObservation struct {
 	FeedbackSHA256   string `json:"feedbackSHA256"`
 }
 type GenerationAttemptEvidence struct {
-	Version             int                   `json:"version"`
-	Observation         GenerationObservation `json:"observation"`
-	State               string                `json:"state"`
-	ConfigurationSHA256 string                `json:"configurationSHA256"`
-	EndpointSHA256      string                `json:"endpointSHA256"`
-	SystemPromptSHA256  string                `json:"systemPromptSHA256"`
-	RequestBodySHA256   string                `json:"requestBodySHA256"`
-	HTTPStatus          int                   `json:"httpStatus,omitempty"`
-	DecodedTextSHA256   string                `json:"decodedTextSHA256,omitempty"`
-	FormatValid         *bool                 `json:"formatValid,omitempty"`
+	Version             int                     `json:"version"`
+	Observation         GenerationObservation   `json:"observation"`
+	State               string                  `json:"state"`
+	ConfigurationSHA256 string                  `json:"configurationSHA256"`
+	EndpointSHA256      string                  `json:"endpointSHA256"`
+	SystemPromptSHA256  string                  `json:"systemPromptSHA256"`
+	RequestBodySHA256   string                  `json:"requestBodySHA256"`
+	HTTPStatus          int                     `json:"httpStatus,omitempty"`
+	DecodedTextSHA256   string                  `json:"decodedTextSHA256,omitempty"`
+	FormatValid         *bool                   `json:"formatValid,omitempty"`
+	ValidatedPoints     *ValidatedPointEvidence `json:"validatedPoints,omitempty"`
 }
 type GenerationObserver func(context.Context, GenerationAttemptEvidence) error
 

@@ -116,7 +116,13 @@ func observationForRequest(ctx context.Context, profile Profile, endpoint string
 		return contract.GenerationAttemptEvidence{}, nil, fmt.Errorf("摘要实际配置不匹配")
 	}
 	configBody, _ := json.Marshal(configuration)
-	event := contract.GenerationAttemptEvidence{Version: 1, Observation: metadata, State: "dispatch-intent", ConfigurationSHA256: recipeDigest(string(configBody)), EndpointSHA256: recipeDigest(endpoint), SystemPromptSHA256: recipeDigest(prompt), RequestBodySHA256: recipeDigest(string(encoded))}
+	version := 1
+	if metadata.ProtocolVersion == 2 {
+		version = 2
+	} else if metadata.ProtocolVersion != 0 {
+		return contract.GenerationAttemptEvidence{}, nil, fmt.Errorf("摘要观察协议不受支持")
+	}
+	event := contract.GenerationAttemptEvidence{Version: version, Observation: metadata, State: "dispatch-intent", ConfigurationSHA256: recipeDigest(string(configBody)), EndpointSHA256: recipeDigest(endpoint), SystemPromptSHA256: recipeDigest(prompt), RequestBodySHA256: recipeDigest(string(encoded))}
 	return event, observer, nil
 }
 func observedHTTPClient(client *http.Client, observer contract.GenerationObserver) *http.Client {

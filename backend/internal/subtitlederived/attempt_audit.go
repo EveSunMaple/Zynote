@@ -14,7 +14,16 @@ import (
 	"github.com/EveSunMaple/Zynote/backend/internal/summaryinput"
 )
 
+type validatedChunkAudit struct {
+	Index        int
+	Start        int
+	CueCount     int
+	PointCount   int
+	PointsSHA256 string
+	Ref          contract.GenerationEventRef
+}
 type AttemptAudit struct {
+	validated      []validatedChunkAudit
 	State          string `json:"state"` // unknown, incomplete, invalid, complete
 	Reason         string `json:"reason,omitempty"`
 	CheckedEvents  int    `json:"checkedEvents"`
@@ -27,7 +36,7 @@ func readAttemptRecord(ctx context.Context, directory string, sequence int, hash
 	if ctx.Err() != nil {
 		return attemptRecord{}, ctx.Err()
 	}
-	if sequence < 1 || sequence > 160000 || !recipeHashPattern.MatchString(hash) {
+	if sequence < 1 || sequence > 180000 || !recipeHashPattern.MatchString(hash) {
 		return attemptRecord{}, observerError()
 	}
 	path := filepath.Join(directory, strconv.Itoa(sequence)+"-"+hash+".json")
@@ -47,7 +56,7 @@ func readAttemptRecord(ctx context.Context, directory string, sequence int, hash
 	var record attemptRecord
 	decoder := json.NewDecoder(bytes.NewReader(body))
 	decoder.DisallowUnknownFields()
-	if decoder.Decode(&record) != nil || decoder.Decode(&struct{}{}) != io.EOF || record.Version != 1 || record.Sequence != sequence {
+	if decoder.Decode(&record) != nil || decoder.Decode(&struct{}{}) != io.EOF || (record.Version != 1 && record.Version != 2) || record.Sequence != sequence {
 		return attemptRecord{}, observerError()
 	}
 	return record, nil
@@ -56,6 +65,9 @@ func readAttemptRecord(ctx context.Context, directory string, sequence int, hash
 // AuditAttemptEvidence reads only. It never creates directories, saves tasks,
 // consults current model settings, adopts orphans or replays provider calls.
 func (service *Service) AuditAttemptEvidence(ctx context.Context, task Task, index int) AttemptAudit {
+	return service.auditAttemptEvidence(ctx, task, index, false)
+}
+func (service *Service) auditAttemptEvidence(ctx context.Context, task Task, index int, collect bool) AttemptAudit {
 	if ctx.Err() != nil {
 		return AttemptAudit{State: "unknown", Reason: "cancelled"}
 	}
@@ -67,7 +79,16 @@ func (service *Service) AuditAttemptEvidence(ctx context.Context, task Task, ind
 	if reference == nil {
 		return AttemptAudit{State: "unknown", Reason: "no-observer-record"}
 	}
-	if reference.Version != 1 || reference.EventCount < 1 || reference.EventCount > 160000 || !recipeHashPattern.MatchString(reference.HeadSHA256) {
+	if reference.Version != 1 && reference.Version != 2 {
+		return AttemptAudit{State: "unknown", Reason: "protocol-unsupported"}
+	}
+	maxEvents := 160000
+	eventsPerCue := 8
+	if reference.Version == 2 {
+		maxEvents = 180000
+		eventsPerCue = 9
+	}
+	if reference.EventCount < 1 || reference.EventCount > maxEvents || !recipeHashPattern.MatchString(reference.HeadSHA256) {
 		return invalidAudit("reference-invalid")
 	}
 	if task.EvidenceVersion != 1 || task.Recipe == nil || task.Recipe.Version != 1 || task.Recipe.Origin != "first-new-dispatch" || !validRequestedConfig(task.Recipe.Configuration) || task.Recipe.Hash != taskRecipeHash(task.Recipe.Configuration, task.CourseName) {
@@ -136,7 +157,7 @@ func (service *Service) AuditAttemptEvidence(ctx context.Context, task Task, ind
 		inputHashes[chunkIndex] = hash
 		start += len(part)
 	}
-	if reference.EventCount > len(segments)*8 {
+	if reference.EventCount > len(segments)*eventsPerCue {
 		return invalidAudit("event-count-invalid")
 	}
 	directory, err := locateEvidenceDirectory(service.Root, task.ID, index, false)
@@ -156,6 +177,9 @@ func (service *Service) AuditAttemptEvidence(ctx context.Context, task Task, ind
 				return AttemptAudit{State: "unknown", Reason: "cancelled"}
 			}
 			return invalidAudit("chain-invalid")
+		}
+		if record.Version != reference.Version || record.Event.Version != reference.Version {
+			return invalidAudit("protocol-mixed")
 		}
 		hashes[sequence-1] = hash
 		if sequence == 1 {
@@ -193,14 +217,22 @@ func (service *Service) AuditAttemptEvidence(ctx context.Context, task Task, ind
 		if m.AttemptIndex >= policy.JSONPolicy.MaxAttempts || m.ChunkCount != len(parts) || m.ChunkIndex >= len(parts) || m.InputSHA256 != inputHashes[m.ChunkIndex] || len(m.CueIDs) != len(parts[m.ChunkIndex]) || m.CueIDs[0] != starts[m.ChunkIndex] {
 			return invalidAudit("input-contract-invalid")
 		}
+		if event.State == "validated-points" {
+			if reference.Version != 2 || indexInChain < 1 || event.ValidatedPoints.AcceptedFormatRef != (contract.GenerationEventRef{Version: 2, Sequence: indexInChain, SHA256: hashes[indexInChain-1]}) {
+				return invalidAudit("validated-reference-invalid")
+			}
+			if collect {
+				result.validated = append(result.validated, validatedChunkAudit{Index: m.ChunkIndex, Start: starts[m.ChunkIndex], CueCount: len(parts[m.ChunkIndex]), PointCount: event.ValidatedPoints.PointCount, PointsSHA256: event.ValidatedPoints.PointsSHA256, Ref: contract.GenerationEventRef{Version: 2, Sequence: indexInChain + 1, SHA256: hash}})
+			}
+		}
 		result.CheckedEvents++
 		result.TotalChunks = m.ChunkCount
-		if event.State == "format-result" && event.FormatValid != nil && *event.FormatValid {
+		if ((reference.Version == 1 && event.State == "format-result") || (reference.Version == 2 && event.State == "validated-points")) && event.FormatValid != nil && *event.FormatValid {
 			result.CompleteChunks++
 		}
 		previous = &event
 	}
-	if previous != nil && previous.State == "format-result" && previous.FormatValid != nil && *previous.FormatValid && previous.Observation.ChunkIndex == previous.Observation.ChunkCount-1 && result.CompleteChunks == result.TotalChunks {
+	if previous != nil && ((reference.Version == 1 && previous.State == "format-result") || (reference.Version == 2 && previous.State == "validated-points")) && previous.FormatValid != nil && *previous.FormatValid && previous.Observation.ChunkIndex == previous.Observation.ChunkCount-1 && result.CompleteChunks == result.TotalChunks {
 		result.State = "complete"
 	}
 	return result

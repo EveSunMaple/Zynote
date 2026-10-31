@@ -52,18 +52,13 @@ func TestRealModelRecordedCourseNotes(t *testing.T) {
 	calls := 0
 	deps := subtitlederived.Dependencies{ResolveRecipes: func(_ context.Context, modes []string) (contract.RequestedGenerationConfig, map[string]subtitlederived.ModeRecipe, error) {
 		return resolveSubtitleRecipes(client, modes)
-	}, Summarize: func(ctx context.Context, srt, mode string) (string, []subtitlederived.Point, error) {
+	}, SummarizeWithEvidence: func(ctx context.Context, srt, mode string) (subtitlederived.SummaryResult, error) {
 		calls++
-		result, err := summarizeVideoText(ctx, client, srt, mode, nil)
-		if err != nil {
-			return "", nil, err
+		result, err := summarizeDerivedText(ctx, client, srt, mode, nil)
+		if err == nil {
+			t.Logf("mode=%s verifiedPoints=%d", mode, len(result.Points))
 		}
-		points := make([]subtitlederived.Point, 0, len(result.Points))
-		for _, point := range result.Points {
-			points = append(points, subtitlederived.Point{Cue: float64(point.Cue), Quote: point.Quote, Point: point.Point, Topic: point.Topic, Timestamp: point.Timestamp})
-		}
-		t.Logf("mode=%s verifiedPoints=%d", mode, len(points))
-		return result.Markdown, points, nil
+		return result, err
 	}, RenderSVG: func(title string, points []subtitlederived.Point) string {
 		converted := make([]notePoint, 0, len(points))
 		for _, point := range points {
@@ -86,9 +81,9 @@ func TestRealModelRecordedCourseNotes(t *testing.T) {
 			t.Fatalf("mode=%s missing outputs", item.Mode)
 		}
 	}
-	deps.Summarize = func(context.Context, string, string) (string, []subtitlederived.Point, error) {
+	deps.SummarizeWithEvidence = func(context.Context, string, string) (subtitlederived.SummaryResult, error) {
 		t.Error("completed model call replayed")
-		return "", nil, fmt.Errorf("replay forbidden")
+		return subtitlederived.SummaryResult{}, fmt.Errorf("replay forbidden")
 	}
 	if _, err := subtitlederived.New(service.Root, library).Run(ctx, task.ID, deps); err != nil {
 		t.Fatal(err)

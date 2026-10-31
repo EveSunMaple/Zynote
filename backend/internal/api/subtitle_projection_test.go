@@ -18,21 +18,32 @@ func TestSubtitleProjectionBoundsAddedMetadataAt4000Items(t *testing.T) {
 	}
 	task := subtitlederived.Task{ID: "cccccccc-cccc-4ccc-8ccc-cccccccccccc", EvidenceVersion: 1, Recipe: &subtitlederived.TaskRecipe{Version: 1, Configuration: contract.RequestedGenerationConfig{RequestedModel: strings.Repeat("m", 1024)}}, Items: make([]subtitlederived.Item, 4000)}
 	for i := range task.Items {
-		task.Items[i] = subtitlederived.Item{Source: subtitlederived.Source{URL: "https://www.bilibili.com/video/BV1xx411c7mD/?p=1", Title: strings.Repeat("课", 200), Path: strings.Repeat("p", 200), Hash: strings.Repeat("a", 64), Generation: "g1"}, Mode: "detailed", Status: "等待处理", Recipe: &subtitlederived.ItemRecipe{Version: 1, TaskRecipeHash: strings.Repeat("b", 64), SourceSHA256: strings.Repeat("a", 64), ModeRecipe: modeRecipe, Hash: strings.Repeat("c", 64)}, AttemptEvidence: &subtitlederived.AttemptEvidenceRef{Version: 1, HeadSHA256: strings.Repeat("d", 64), EventCount: 160000}}
+		task.Items[i] = subtitlederived.Item{Source: subtitlederived.Source{URL: "https://www.bilibili.com/video/BV1xx411c7mD/?p=1", Title: strings.Repeat("课", 200), Path: strings.Repeat("p", 200), Hash: strings.Repeat("a", 64), Generation: "g1"}, Mode: "detailed", Status: "等待处理", Recipe: &subtitlederived.ItemRecipe{Version: 1, TaskRecipeHash: strings.Repeat("b", 64), SourceSHA256: strings.Repeat("a", 64), ModeRecipe: modeRecipe, Hash: strings.Repeat("c", 64)}, AttemptEvidence: &subtitlederived.AttemptEvidenceRef{Version: 2, HeadSHA256: strings.Repeat("d", 64), EventCount: 180000}}
+	}
+
+	for i := range task.Items {
+		facts := &contract.SummaryEvidence{Version: 1, SourceSHA256: strings.Repeat("a", 64), ItemRecipeHash: strings.Repeat("c", 64), FinalPointsSHA256: strings.Repeat("e", 64), PointCount: 280000, ValidatedHead: contract.GenerationEventRef{Version: 2, Sequence: 180000, SHA256: strings.Repeat("d", 64)}}
+		task.Items[i].SummaryEvidence = facts
+		task.Items[i].Received = &subtitlederived.ReceivedSummary{Version: 1, Markdown: strings.Repeat("received-only", 100), Points: []subtitlederived.Point{{Cue: 0, Quote: "Original", Point: "Result"}}, Facts: facts}
+		task.Items[i].Prepared = &subtitlederived.Prepared{Markdown: "# Existing prepared shape", Points: []subtitlederived.Point{{Cue: 0, Quote: "Original", Point: "Result"}}, Evidence: facts}
 	}
 	projected := projectSubtitleTask(task)
 	if task.Recipe == nil || task.Items[0].Recipe == nil || projected.Recipe != nil || projected.Items[0].Recipe != nil {
 		t.Fatal("projection mutated durable object or retained recipe")
 	}
+	if task.Items[0].Received == nil || projected.Items[0].Received != nil || task.Items[0].Prepared.Evidence == nil || projected.Items[0].Prepared.Evidence != nil || projected.Items[0].Prepared.Markdown != task.Items[0].Prepared.Markdown {
+		t.Fatal("received/proof projection mutated or enlarged existing prepared")
+	}
 	baseline := projectSubtitleTask(projected)
 	for i := range baseline.Items {
 		baseline.Items[i].AttemptEvidence = nil
+		baseline.Items[i].SummaryEvidence = nil
 	}
 	baseline.EvidenceVersion = 0
 	base, _ := json.Marshal(baseline)
 	output, _ := json.Marshal(projected)
 	full, _ := json.Marshal(task)
-	if len(output)-len(base) > 4000*180+100 || len(output) >= len(full) || strings.Contains(string(output), "systemPromptSHA256") || strings.Contains(string(output), "cueIDs") {
+	if len(output)-len(base) > 4000*800+100 || len(output) >= len(full) || strings.Contains(string(output), "systemPromptSHA256") || strings.Contains(string(output), "cueIDs") || strings.Contains(string(output), "received-only") {
 		t.Fatal("added metadata unbounded", len(base), len(output), len(full))
 	}
 	t.Logf("4000 items: baseline=%d projected=%d full=%d added=%d", len(base), len(output), len(full), len(output)-len(base))

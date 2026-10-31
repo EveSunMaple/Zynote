@@ -60,23 +60,12 @@ func (inv *Invoker) subtitleDerivedDependencies(store contract.StateStore, state
 			}
 			return "", nil
 		},
-		Summarize: func(ctx context.Context, srt, mode string) (string, []subtitlederived.Point, error) {
+		SummarizeWithEvidence: func(ctx context.Context, srt, mode string) (subtitlederived.SummaryResult, error) {
 			active, err := getClient()
 			if err != nil {
-				return "", nil, err
+				return subtitlederived.SummaryResult{}, err
 			}
-			result, err := summarizeVideoText(ctx, active, srt, mode, inv.videoProgress)
-			if err != nil {
-				return "", nil, err
-			}
-			points := make([]subtitlederived.Point, 0, len(result.Points))
-			for _, point := range result.Points {
-				points = append(points, subtitlederived.Point{
-					Cue: float64(point.Cue), Quote: point.Quote, Point: point.Point,
-					Topic: point.Topic, Timestamp: point.Timestamp,
-				})
-			}
-			return result.Markdown, points, nil
+			return summarizeDerivedText(ctx, active, srt, mode, inv.videoProgress)
 		},
 		RenderSVG: func(title string, points []subtitlederived.Point) string {
 			converted := make([]notePoint, 0, len(points))
@@ -256,6 +245,24 @@ func projectSubtitleTask(task subtitlederived.Task) subtitlederived.Task {
 	task.Items = append([]subtitlederived.Item(nil), task.Items...)
 	for index := range task.Items {
 		task.Items[index].Recipe = nil
+		task.Items[index].Received = nil
+		if task.Items[index].Prepared != nil {
+			copy := *task.Items[index].Prepared
+			copy.Evidence = nil
+			task.Items[index].Prepared = &copy
+		}
 	}
 	return task
+}
+
+func summarizeDerivedText(ctx context.Context, client *ai.Client, srt, mode string, progress func(string)) (subtitlederived.SummaryResult, error) {
+	result, err := summarizeVideoText(ctx, client, srt, mode, progress)
+	if err != nil {
+		return subtitlederived.SummaryResult{}, err
+	}
+	points := make([]subtitlederived.Point, 0, len(result.Points))
+	for _, point := range result.Points {
+		points = append(points, subtitlederived.Point{Cue: float64(point.Cue), Quote: point.Quote, Point: point.Point, Topic: point.Topic, Timestamp: point.Timestamp})
+	}
+	return subtitlederived.SummaryResult{Markdown: result.Markdown, Points: points, Facts: result.Evidence}, nil
 }

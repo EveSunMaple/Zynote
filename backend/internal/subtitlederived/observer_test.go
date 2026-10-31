@@ -22,7 +22,7 @@ func fixtureObserver(t *testing.T) (*Service, *Task, contract.GenerationObserver
 		t.Fatal(err)
 	}
 	raw, _ := os.ReadFile(task.Items[0].Source.Path)
-	ctx, err := service.observationContext(context.Background(), &task, &task.Items[0], string(raw))
+	ctx, err := service.observationContextVersion(context.Background(), &task, &task.Items[0], string(raw), 1)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -175,7 +175,7 @@ func TestObserverKillHelper(t *testing.T) {
 	metadata.CueIDs = []int{0}
 	metadata.InputSHA256 = digest("input")
 	metadata.FeedbackSHA256 = digest("")
-	event := contract.GenerationAttemptEvidence{Version: 1, Observation: metadata, State: "dispatch-intent", ConfigurationSHA256: recipeHash(task.Recipe.Configuration), EndpointSHA256: task.Recipe.Configuration.EndpointSHA256, SystemPromptSHA256: task.Items[0].Recipe.ModeRecipe.SystemPromptSHA256, RequestBodySHA256: digest("body")}
+	event := contract.GenerationAttemptEvidence{Version: 2, Observation: metadata, State: "dispatch-intent", ConfigurationSHA256: recipeHash(task.Recipe.Configuration), EndpointSHA256: task.Recipe.Configuration.EndpointSHA256, SystemPromptSHA256: task.Items[0].Recipe.ModeRecipe.SystemPromptSHA256, RequestBodySHA256: digest("body")}
 	if err := observer(ctx, event); err != nil {
 		t.Fatal(err)
 	}

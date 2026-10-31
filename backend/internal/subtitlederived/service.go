@@ -44,20 +44,23 @@ type Point struct {
 }
 
 type Prepared struct {
-	Markdown string  `json:"markdown"`
-	Points   []Point `json:"points"`
+	Evidence *contract.SummaryEvidence `json:"evidence,omitempty"`
+	Markdown string                    `json:"markdown"`
+	Points   []Point                   `json:"points"`
 }
 
 type Item struct {
-	Source          Source              `json:"source"`
-	Mode            string              `json:"mode"`
-	Status          string              `json:"status"`
-	Error           string              `json:"error,omitempty"`
-	Outputs         []Output            `json:"outputs,omitempty"`
-	Prepared        *Prepared           `json:"prepared,omitempty"`
-	GenerationState string              `json:"generationState,omitempty"`
-	Recipe          *ItemRecipe         `json:"recipe,omitempty"`
-	AttemptEvidence *AttemptEvidenceRef `json:"attemptEvidence,omitempty"`
+	Source          Source                    `json:"source"`
+	Mode            string                    `json:"mode"`
+	Status          string                    `json:"status"`
+	Error           string                    `json:"error,omitempty"`
+	Outputs         []Output                  `json:"outputs,omitempty"`
+	Prepared        *Prepared                 `json:"prepared,omitempty"`
+	GenerationState string                    `json:"generationState,omitempty"`
+	Recipe          *ItemRecipe               `json:"recipe,omitempty"`
+	AttemptEvidence *AttemptEvidenceRef       `json:"attemptEvidence,omitempty"`
+	Received        *ReceivedSummary          `json:"received,omitempty"`
+	SummaryEvidence *contract.SummaryEvidence `json:"summaryEvidence,omitempty"`
 }
 
 type Task struct {
@@ -74,12 +77,13 @@ type Task struct {
 }
 
 type Dependencies struct {
-	Generation     func(ctx context.Context, url string) (string, error)
-	ValidateModel  func(ctx context.Context) error
-	Summarize      func(ctx context.Context, srt, mode string) (string, []Point, error)
-	RenderSVG      func(title string, points []Point) string
-	Progress       func(message string)
-	ResolveRecipes func(context.Context, []string) (contract.RequestedGenerationConfig, map[string]ModeRecipe, error)
+	SummarizeWithEvidence func(ctx context.Context, srt, mode string) (SummaryResult, error)
+	Generation            func(ctx context.Context, url string) (string, error)
+	ValidateModel         func(ctx context.Context) error
+	Summarize             func(ctx context.Context, srt, mode string) (string, []Point, error)
+	RenderSVG             func(title string, points []Point) string
+	Progress              func(message string)
+	ResolveRecipes        func(context.Context, []string) (contract.RequestedGenerationConfig, map[string]ModeRecipe, error)
 }
 
 type Service struct {
@@ -381,9 +385,15 @@ func (service *Service) validDerivedOutputs(item *Item) error {
 
 func (service *Service) ensurePrepared(ctx context.Context, task *Task, item *Item, dependencies Dependencies, srt string) error {
 	if item.Prepared != nil {
+		if item.Prepared.Evidence != nil {
+			return service.verifyPointEvidence(ctx, task, item, item.Prepared.Points, item.Prepared.Evidence)
+		}
 		return nil
 	}
-	if dependencies.Summarize == nil {
+	if item.Received != nil {
+		return service.prepareReceived(ctx, task, item)
+	}
+	if dependencies.Summarize == nil && dependencies.SummarizeWithEvidence == nil {
 		return fmt.Errorf("摘要不可用")
 	}
 	if item.GenerationState != "" {
@@ -404,6 +414,13 @@ func (service *Service) ensurePrepared(ctx context.Context, task *Task, item *It
 	item.GenerationState = "dispatched"
 	if err := service.save(*task); err != nil {
 		return err
+	}
+	if dependencies.SummarizeWithEvidence != nil {
+		result, err := dependencies.SummarizeWithEvidence(observedContext, srt, item.Mode)
+		if err != nil {
+			return err
+		}
+		return service.saveReceived(ctx, task, item, result)
 	}
 	markdown, points, err := dependencies.Summarize(observedContext, srt, item.Mode)
 	if err != nil {

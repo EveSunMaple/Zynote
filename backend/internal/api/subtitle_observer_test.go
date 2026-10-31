@@ -115,14 +115,14 @@ func TestSummaryObserverActualChunksRepairAndFailureStops(t *testing.T) {
 				t.Fatal("observer failure caused request/retry", calls.Load(), expected, result.Items[0].Error)
 			}
 			if failure == "" {
-				if audit := service.AuditAttemptEvidence(context.Background(), result, 0); audit.State != "complete" || audit.CheckedEvents != 12 || audit.CompleteChunks != 2 {
+				if audit := service.AuditAttemptEvidence(context.Background(), result, 0); audit.State != "complete" || audit.CheckedEvents != 14 || audit.CompleteChunks != 2 {
 					t.Fatal("actual HTTP chain audit failed", audit)
 				}
-				if result.Items[0].Status != "已完成" || result.Items[0].AttemptEvidence == nil || result.Items[0].AttemptEvidence.EventCount != 12 {
+				if result.Items[0].Status != "已完成" || result.Items[0].AttemptEvidence == nil || result.Items[0].AttemptEvidence.EventCount != 14 {
 					t.Fatal(result)
 				}
 				files, err := filepath.Glob(filepath.Join(service.Root, "evidence", task.ID, "0", "*.json"))
-				if err != nil || len(files) != 12 {
+				if err != nil || len(files) != 14 {
 					t.Fatal(files, err)
 				}
 				intents := 0
@@ -322,16 +322,16 @@ func TestSummaryObserverResponsesWireInputAndReceipts(t *testing.T) {
 	}}
 	result, err := service.Run(context.Background(), task.ID, deps)
 	server.Close()
-	if audit := service.AuditAttemptEvidence(context.Background(), result, 0); audit.State != "complete" || audit.CheckedEvents != 4 {
+	if audit := service.AuditAttemptEvidence(context.Background(), result, 0); audit.State != "complete" || audit.CheckedEvents != 5 {
 		t.Fatal("Responses chain audit failed", audit)
 	}
-	if err != nil || calls.Load() != 1 || result.Items[0].Status != "已完成" || result.Items[0].AttemptEvidence == nil || result.Items[0].AttemptEvidence.EventCount != 4 {
+	if err != nil || calls.Load() != 1 || result.Items[0].Status != "已完成" || result.Items[0].AttemptEvidence == nil || result.Items[0].AttemptEvidence.EventCount != 5 {
 		t.Fatal(result, calls.Load(), err)
 	}
 }
 
 func TestObserverPersistenceFailureStopsEntireTwoModeTask(t *testing.T) {
-	for _, failure := range []string{"dispatch-intent", "http-response-received", "response-decoded", "format-result"} {
+	for _, failure := range []string{"dispatch-intent", "http-response-received", "response-decoded", "format-result", "validated-points"} {
 		t.Run(failure, func(t *testing.T) {
 			state := &contract.State{LibraryRoot: t.TempDir()}
 			service := subtitleDerivedService(state)
@@ -346,6 +346,10 @@ func TestObserverPersistenceFailureStopsEntireTwoModeTask(t *testing.T) {
 			var calls atomic.Int32
 			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				calls.Add(1)
+				if failure == "validated-points" {
+					json.NewEncoder(w).Encode(map[string]any{"choices": []any{map[string]any{"message": map[string]any{"content": `[{"cue":0,"quote":"Hello course","point":"Greeting"}]`}}}})
+					return
+				}
 				fmt.Fprint(w, `{"choices":[{"message":{"content":"invalid-format"}}]}`)
 			}))
 			defer server.Close()

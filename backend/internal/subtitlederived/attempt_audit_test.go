@@ -191,7 +191,7 @@ func TestAttemptAuditRejectsReferenceAndRecipeCorruption(t *testing.T) {
 				_ = os.WriteFile(filepath.Join(directory, "4-"+hash+".json"), body, 0600)
 				reference.HeadSHA256 = hash
 			}
-			if result := service.AuditAttemptEvidence(context.Background(), *task, 0); result.State != "invalid" {
+			if result := service.AuditAttemptEvidence(context.Background(), *task, 0); result.State != "invalid" && !(bad == "version" && result.State == "unknown" && result.Reason == "protocol-unsupported") {
 				t.Fatal("corruption accepted", bad, result)
 			}
 		})
@@ -336,7 +336,7 @@ func TestAttemptAuditRejectsContinuousButWrongFrozenPartition(t *testing.T) {
 	}
 	task.Items[0].Recipe.ModeRecipe.ChunkLimit = 1
 	task.Items[0].Recipe.Hash = itemRecipeHash(*task.Items[0].Recipe)
-	ctx, err := service.observationContext(context.Background(), &task, &task.Items[0], raw)
+	ctx, err := service.observationContextVersion(context.Background(), &task, &task.Items[0], raw, 1)
 	if err != nil {
 		t.Fatal(err)
 	}
