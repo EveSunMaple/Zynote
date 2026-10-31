@@ -45,12 +45,13 @@ type Prepared struct {
 }
 
 type Item struct {
-	Source   Source    `json:"source"`
-	Mode     string    `json:"mode"`
-	Status   string    `json:"status"`
-	Error    string    `json:"error,omitempty"`
-	Outputs  []Output  `json:"outputs,omitempty"`
-	Prepared *Prepared `json:"prepared,omitempty"`
+	Source          Source    `json:"source"`
+	Mode            string    `json:"mode"`
+	Status          string    `json:"status"`
+	Error           string    `json:"error,omitempty"`
+	Outputs         []Output  `json:"outputs,omitempty"`
+	Prepared        *Prepared `json:"prepared,omitempty"`
+	GenerationState string    `json:"generationState,omitempty"`
 }
 
 type Task struct {
@@ -115,7 +116,14 @@ func (service *Service) save(task Task) error {
 	}
 	path := filepath.Join(service.Root, task.ID+".json")
 	temporary := path + ".tmp"
-	if err := os.WriteFile(temporary, encoded, 0o644); err != nil {
+	file, err := os.OpenFile(temporary, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, 0o600)
+	if err != nil {
+		return fmt.Errorf("笔记任务保存失败")
+	}
+	_, writeErr := file.Write(encoded)
+	syncErr := file.Sync()
+	closeErr := file.Close()
+	if writeErr != nil || syncErr != nil || closeErr != nil {
 		return fmt.Errorf("笔记任务保存失败")
 	}
 	return os.Rename(temporary, path)
@@ -268,11 +276,24 @@ func (service *Service) ensurePrepared(ctx context.Context, task *Task, item *It
 	if dependencies.Summarize == nil {
 		return fmt.Errorf("摘要不可用")
 	}
+	if item.GenerationState != "" {
+		return fmt.Errorf("上次模型调用结果未知，未自动重试；请先核对服务端记录")
+	}
+	item.GenerationState = "dispatched"
+	if err := service.save(*task); err != nil {
+		return err
+	}
 	markdown, points, err := dependencies.Summarize(ctx, srt, item.Mode)
 	if err != nil {
 		return err
 	}
 	item.Prepared = &Prepared{Markdown: markdown, Points: points}
+	item.GenerationState = "prepared"
+	// Persist the received result before further validation/export so recovery
+	// never repeats a paid call merely because a later local step failed.
+	if err := service.save(*task); err != nil {
+		return err
+	}
 	if _, err := service.current(item.Source, dependencies, ctx); err != nil {
 		return err
 	}
