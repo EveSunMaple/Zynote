@@ -17,10 +17,11 @@ import (
 	"github.com/EveSunMaple/Zynote/backend/internal/learning"
 	"github.com/EveSunMaple/Zynote/backend/internal/library"
 	"github.com/EveSunMaple/Zynote/backend/internal/subtitlederived"
+	"github.com/EveSunMaple/Zynote/backend/internal/summaryinput"
 )
 
 const msgSummarySaveInvalid = "摘要保存校验失败"
-const summaryChunkLimit = 15000
+const summaryChunkLimit = summaryinput.ChunkLimit
 
 func summaryModeRecipe(mode string) (subtitlederived.ModeRecipe, error) {
 	if !validVideoNoteMode(mode) {
@@ -45,11 +46,7 @@ type videoNotePoint struct {
 	Timestamp string `json:"timestamp"`
 }
 
-type summaryCue struct {
-	Cue  int    `json:"cue"`
-	Time string `json:"time"`
-	Text string `json:"text"`
-}
+type summaryCue = summaryinput.Cue
 
 type summaryResult struct {
 	Markdown string
@@ -67,29 +64,10 @@ func summaryMaxPoints(mode string) int {
 }
 
 func summaryChunks(segments []documents.Segment) [][]documents.Segment {
-	chunks := [][]documents.Segment{}
-	chunkLength := 0
-	for _, segment := range segments {
-		length := len([]rune(segment.Text))
-		if len(chunks) == 0 || chunkLength+length > summaryChunkLimit {
-			chunks = append(chunks, []documents.Segment{segment})
-			chunkLength = length
-			continue
-		}
-		chunks[len(chunks)-1] = append(chunks[len(chunks)-1], segment)
-		chunkLength += length
-	}
-	return chunks
+	return summaryinput.Chunks(segments, summaryChunkLimit)
 }
-
-func summaryCues(part []documents.Segment, startIndex int) []summaryCue {
-	cues := make([]summaryCue, 0, len(part))
-	for offset, segment := range part {
-		cues = append(cues, summaryCue{
-			Cue: startIndex + offset, Time: subtitleClock(segment.Start, false), Text: segment.Text,
-		})
-	}
-	return cues
+func summaryCues(part []documents.Segment, start int) []summaryCue {
+	return summaryinput.Cues(part, start)
 }
 
 func summaryPrompt(mode string, maxPoints int) string {
@@ -198,10 +176,7 @@ func summarizeVideoText(
 		if progress != nil {
 			progress(fmt.Sprintf("正在整理字幕 %d/%d", index+1, len(chunks)))
 		}
-		inputValue := struct {
-			Mode string       `json:"mode"`
-			Cues []summaryCue `json:"cues"`
-		}{mode, summaryCues(part, startIndex)}
+		inputValue := summaryinput.New(mode, part, startIndex)
 		var points []videoNotePoint
 		chunkContext := ctx
 		if metadata, observer := contract.GenerationObservationFrom(ctx); observer != nil {
@@ -211,7 +186,7 @@ func summarizeVideoText(
 			for i, cue := range inputValue.Cues {
 				metadata.CueIDs[i] = cue.Cue
 			}
-			inputHash, err := ai.JSONInputSHA256(inputValue)
+			inputHash, err := summaryinput.Digest(inputValue)
 			if err != nil {
 				return summaryResult{}, err
 			}

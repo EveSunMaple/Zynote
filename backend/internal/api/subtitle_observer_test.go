@@ -115,6 +115,9 @@ func TestSummaryObserverActualChunksRepairAndFailureStops(t *testing.T) {
 				t.Fatal("observer failure caused request/retry", calls.Load(), expected, result.Items[0].Error)
 			}
 			if failure == "" {
+				if audit := service.AuditAttemptEvidence(context.Background(), result, 0); audit.State != "complete" || audit.CheckedEvents != 12 || audit.CompleteChunks != 2 {
+					t.Fatal("actual HTTP chain audit failed", audit)
+				}
 				if result.Items[0].Status != "已完成" || result.Items[0].AttemptEvidence == nil || result.Items[0].AttemptEvidence.EventCount != 12 {
 					t.Fatal(result)
 				}
@@ -319,6 +322,9 @@ func TestSummaryObserverResponsesWireInputAndReceipts(t *testing.T) {
 	}}
 	result, err := service.Run(context.Background(), task.ID, deps)
 	server.Close()
+	if audit := service.AuditAttemptEvidence(context.Background(), result, 0); audit.State != "complete" || audit.CheckedEvents != 4 {
+		t.Fatal("Responses chain audit failed", audit)
+	}
 	if err != nil || calls.Load() != 1 || result.Items[0].Status != "已完成" || result.Items[0].AttemptEvidence == nil || result.Items[0].AttemptEvidence.EventCount != 4 {
 		t.Fatal(result, calls.Load(), err)
 	}

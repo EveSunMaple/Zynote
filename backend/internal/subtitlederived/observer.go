@@ -30,6 +30,10 @@ func observerError() error {
 	return contract.ObservationFailure(fmt.Errorf("摘要请求证据无效或保存失败"))
 }
 func evidenceDirectory(root, taskID string, index int) (string, error) {
+	return locateEvidenceDirectory(root, taskID, index, true)
+}
+
+func locateEvidenceDirectory(root, taskID string, index int, create bool) (string, error) {
 	if !validUUID(taskID) || index < 0 || index >= 4000 {
 		return "", observerError()
 	}
@@ -52,8 +56,10 @@ func evidenceDirectory(root, taskID string, index int) (string, error) {
 	current := resolved
 	for _, part := range []string{"evidence", taskID, strconv.Itoa(index)} {
 		current = filepath.Join(current, part)
-		if err := os.Mkdir(current, 0700); err != nil && !os.IsExist(err) {
-			return "", observerError()
+		if create {
+			if err := os.Mkdir(current, 0700); err != nil && !os.IsExist(err) {
+				return "", observerError()
+			}
 		}
 		info, err := os.Lstat(current)
 		if err != nil || !info.IsDir() || info.Mode()&os.ModeSymlink != 0 {
