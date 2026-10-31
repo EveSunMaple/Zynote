@@ -121,7 +121,8 @@ const hello = (await call('core.hello', {
 })) as HelloResult
 check('hello protocol', hello.protocol === 1)
 check('hello platform', hello.platform === platform)
-check('hello capabilities', hello.capabilities.length === 158)
+check('hello capabilities', hello.capabilities.length === 159)
+check('publication audit capability', hello.capabilities.includes('subtitle-derived:audit-publication'))
 
 const bootstrap = (await call('db:bootstrap')) as {ok: boolean}
 check('bootstrap ok', bootstrap.ok === true)
