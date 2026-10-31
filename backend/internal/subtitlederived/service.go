@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/EveSunMaple/Zynote/backend/internal/documents"
@@ -45,12 +46,13 @@ type Prepared struct {
 }
 
 type Item struct {
-	Source   Source    `json:"source"`
-	Mode     string    `json:"mode"`
-	Status   string    `json:"status"`
-	Error    string    `json:"error,omitempty"`
-	Outputs  []Output  `json:"outputs,omitempty"`
-	Prepared *Prepared `json:"prepared,omitempty"`
+	Source          Source    `json:"source"`
+	Mode            string    `json:"mode"`
+	Status          string    `json:"status"`
+	Error           string    `json:"error,omitempty"`
+	Outputs         []Output  `json:"outputs,omitempty"`
+	Prepared        *Prepared `json:"prepared,omitempty"`
+	GenerationState string    `json:"generationState,omitempty"`
 }
 
 type Task struct {
@@ -59,13 +61,16 @@ type Task struct {
 	CourseName  string `json:"courseName,omitempty"`
 	Interrupted bool   `json:"interrupted"`
 	Items       []Item `json:"items"`
+	QueueState  string `json:"queueState,omitempty"`
+	RequestHash string `json:"requestHash,omitempty"`
 }
 
 type Dependencies struct {
-	Generation func(ctx context.Context, url string) (string, error)
-	Summarize  func(ctx context.Context, srt, mode string) (string, []Point, error)
-	RenderSVG  func(title string, points []Point) string
-	Progress   func(message string)
+	Generation    func(ctx context.Context, url string) (string, error)
+	ValidateModel func(ctx context.Context) error
+	Summarize     func(ctx context.Context, srt, mode string) (string, []Point, error)
+	RenderSVG     func(title string, points []Point) string
+	Progress      func(message string)
 }
 
 type Service struct {
@@ -115,7 +120,14 @@ func (service *Service) save(task Task) error {
 	}
 	path := filepath.Join(service.Root, task.ID+".json")
 	temporary := path + ".tmp"
-	if err := os.WriteFile(temporary, encoded, 0o644); err != nil {
+	file, err := os.OpenFile(temporary, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, 0o600)
+	if err != nil {
+		return fmt.Errorf("笔记任务保存失败")
+	}
+	_, writeErr := file.Write(encoded)
+	syncErr := file.Sync()
+	closeErr := file.Close()
+	if writeErr != nil || syncErr != nil || closeErr != nil {
 		return fmt.Errorf("笔记任务保存失败")
 	}
 	return os.Rename(temporary, path)
@@ -179,33 +191,51 @@ func (service *Service) List() ([]Task, error) {
 }
 
 func (service *Service) Create(sources []Source, modes []string, courseName string) (Task, error) {
+	return service.CreateOperation(sources, modes, courseName, ids.New())
+}
+
+var operationCreateMu sync.Mutex
+
+// CreateOperation binds a caller's stable operation ID to immutable validated
+// inputs. Repeating the same submission returns its existing checkpoints.
+// The application owns one backend process per library; this mutex does not
+// substitute for a distributed/multi-process lock.
+func (service *Service) CreateOperation(sources []Source, modes []string, courseName, operationID string) (Task, error) {
+	if !validUUID(operationID) {
+		return Task{}, fmt.Errorf("笔记任务标识无效")
+	}
 	if len(sources) < 1 || len(sources) > 1000 || len(modes) < 1 || len(modes) > 4 {
 		return Task{}, fmt.Errorf("不要重复选择分集或笔记形式")
 	}
-	seen := map[string]bool{}
-	checked := []Source{}
-	for _, source := range sources {
-		locator, err := subtitlesync.Locator(source.URL)
-		if err != nil || source.Title == "" || len([]rune(source.Title)) > 200 ||
-			!inside(service.Library, source.Path) || len(source.Hash) != 64 || source.Generation == "" {
-			return Task{}, fmt.Errorf("不要重复选择分集或笔记形式")
-		}
-		if seen[locator] {
-			return Task{}, fmt.Errorf("不要重复选择分集或笔记形式")
-		}
-		seen[locator] = true
-		source.URL = locator
-		checked = append(checked, source)
+	checked, err := service.validateSources(sources)
+	if err != nil {
+		return Task{}, err
 	}
-	modeSeen := map[string]bool{}
-	for _, mode := range modes {
-		if !validMode(mode) || modeSeen[mode] {
-			return Task{}, fmt.Errorf("不要重复选择分集或笔记形式")
+	if err := validateModes(modes); err != nil {
+		return Task{}, err
+	}
+	request, err := json.Marshal(struct {
+		Sources []Source
+		Modes   []string
+		Course  string
+	}{checked, modes, courseName})
+	if err != nil {
+		return Task{}, err
+	}
+	requestHash := digest(string(request))
+	operationCreateMu.Lock()
+	defer operationCreateMu.Unlock()
+	if _, err := os.Stat(filepath.Join(service.Root, operationID+".json")); err == nil {
+		existing, err := service.Read(operationID)
+		if err != nil || existing.RequestHash != requestHash {
+			return Task{}, fmt.Errorf("同一提交标识不能更换字幕、课程或笔记形式；原任务保留")
 		}
-		modeSeen[mode] = true
+		return existing, nil
+	} else if !os.IsNotExist(err) {
+		return Task{}, err
 	}
 	task := Task{
-		ID: ids.New(), CreatedAt: time.Now().UTC().Format(time.RFC3339Nano),
+		ID: operationID, CreatedAt: time.Now().UTC().Format(time.RFC3339Nano), RequestHash: requestHash,
 		CourseName: courseName, Interrupted: true,
 	}
 	for _, source := range checked {
@@ -217,6 +247,36 @@ func (service *Service) Create(sources []Source, modes []string, courseName stri
 		return Task{}, err
 	}
 	return task, nil
+}
+
+func (service *Service) validateSources(sources []Source) ([]Source, error) {
+	seen := map[string]bool{}
+	checked := []Source{}
+	for _, source := range sources {
+		locator, err := subtitlesync.Locator(source.URL)
+		if err != nil || source.Title == "" || len([]rune(source.Title)) > 200 ||
+			!inside(service.Library, source.Path) || len(source.Hash) != 64 || source.Generation == "" {
+			return nil, fmt.Errorf("不要重复选择分集或笔记形式")
+		}
+		if seen[locator] {
+			return nil, fmt.Errorf("不要重复选择分集或笔记形式")
+		}
+		seen[locator] = true
+		source.URL = locator
+		checked = append(checked, source)
+	}
+	return checked, nil
+}
+
+func validateModes(modes []string) error {
+	modeSeen := map[string]bool{}
+	for _, mode := range modes {
+		if !validMode(mode) || modeSeen[mode] {
+			return fmt.Errorf("不要重复选择分集或笔记形式")
+		}
+		modeSeen[mode] = true
+	}
+	return nil
 }
 
 func (service *Service) current(source Source, dependencies Dependencies, ctx context.Context) (string, error) {
@@ -268,11 +328,29 @@ func (service *Service) ensurePrepared(ctx context.Context, task *Task, item *It
 	if dependencies.Summarize == nil {
 		return fmt.Errorf("摘要不可用")
 	}
+	if item.GenerationState != "" {
+		return fmt.Errorf("上次模型调用结果未知，未自动重试；请先核对服务端记录")
+	}
+	if dependencies.ValidateModel != nil {
+		if err := dependencies.ValidateModel(ctx); err != nil {
+			return err
+		}
+	}
+	item.GenerationState = "dispatched"
+	if err := service.save(*task); err != nil {
+		return err
+	}
 	markdown, points, err := dependencies.Summarize(ctx, srt, item.Mode)
 	if err != nil {
 		return err
 	}
 	item.Prepared = &Prepared{Markdown: markdown, Points: points}
+	item.GenerationState = "prepared"
+	// Persist the received result before further validation/export so recovery
+	// never repeats a paid call merely because a later local step failed.
+	if err := service.save(*task); err != nil {
+		return err
+	}
 	if _, err := service.current(item.Source, dependencies, ctx); err != nil {
 		return err
 	}

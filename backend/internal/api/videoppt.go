@@ -27,6 +27,11 @@ func (inv *Invoker) handleVideoPptPending(state *contract.State) (any, error) {
 	if err != nil {
 		return nil, videoPptError(err)
 	}
+	for index := range result {
+		if record, err := inv.jobs.QueueRecord(filepath.Join(state.LibraryRoot, "TaskQueue"), result[index].ID); err == nil {
+			result[index].QueueState = record.State
+		}
+	}
 	return result, nil
 }
 

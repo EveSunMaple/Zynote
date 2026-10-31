@@ -22,13 +22,46 @@ export function SubtitleBatchRecords({
  courseName?: string
 }>) {
  const [derived, setDerived] = useState<SubtitleDerivedTask[]>([])
- const [draft, setDraft] = useState<{task: SubtitleSyncTask; urls: string[]; modes: VideoNoteMode[]} | null>(null)
+ const [draft, setDraft] = useState<{
+  task: SubtitleSyncTask
+  urls: string[]
+  modes: VideoNoteMode[]
+  operationId?: string
+ } | null>(null)
+ const queueLabels = {
+  queued: '排队中',
+  running: '生成中',
+  completed: '任务已结束',
+  failed: '任务失败',
+  cancelled: '已取消',
+  interrupted: '上次进程中断，需核对后继续'
+ }
  async function load() {
   setDerived(await invoke('subtitle-derived:list'))
  }
  useEffect(() => {
-  if (visible) void load().catch(reason => notify.error(reason, {title: '读取任务失败'}))
- }, [visible])
+  if (!visible) return
+  let disposed = false
+  let pending = false
+  async function poll() {
+   if (pending) return
+   pending = true
+   try {
+    const records = await invoke<SubtitleDerivedTask[]>('subtitle-derived:list')
+    if (!disposed) setDerived(records)
+   } catch (reason) {
+    if (!disposed && !busy) notify.error(reason, {title: '读取任务失败'})
+   } finally {
+    pending = false
+   }
+  }
+  void poll()
+  const timer = busy ? setInterval(() => void poll(), 1000) : undefined
+  return () => {
+   disposed = true
+   if (timer) clearInterval(timer)
+  }
+ }, [visible, busy])
  const action = (fn: () => Promise<void>) =>
   void run(async () => {
    await fn()
@@ -141,6 +174,7 @@ export function SubtitleBatchRecords({
          onChange={checked =>
           setDraft({
            ...draft,
+           operationId: undefined,
            urls: checked ? [...draft.urls, item.url] : draft.urls.filter(url => url !== item.url)
           })
          }
@@ -165,6 +199,7 @@ export function SubtitleBatchRecords({
         onChange={checked =>
          setDraft({
           ...draft,
+          operationId: undefined,
           modes: checked ? [...draft.modes, mode] : draft.modes.filter(value => value !== mode)
          })
         }
@@ -184,10 +219,13 @@ export function SubtitleBatchRecords({
       isDisabled={busy || !draft.urls.length || !draft.modes.length}
       onClick={() =>
        action(async () => {
+        const operationId = draft.operationId || crypto.randomUUID()
+        setDraft({...draft, operationId})
         const result = await invoke<SubtitleDerivedTask>('subtitle-derived:start', {
          id: draft.task.id,
          urls: draft.urls,
-         modes: draft.modes
+         modes: draft.modes,
+         operationId
         })
         notify.success(
          `笔记任务结束：完成 ${result.items.filter(item => item.status === '已完成').length}，失败 ${result.items.filter(item => item.status === '失败').length}`
@@ -208,8 +246,9 @@ export function SubtitleBatchRecords({
       .map(task => (
        <article key={task.id}>
         <div>
+         {task.queueState && <p className="hint">{queueLabels[task.queueState]}</p>}
          {task.items.map(item => (
-          <div className="batch-item" key={item.source.url}>
+          <div className="batch-item" key={`${item.source.url}:${item.mode}`}>
            <strong>
             {item.source.title} · {noteTitles[item.mode]} · {item.status}
            </strong>
