@@ -248,14 +248,14 @@ func (inv *Invoker) handleVideoSummary(store contract.StateStore, state *contrac
 		if err != nil {
 			return nil, err
 		}
-		path, err := library.ReserveFile(directory, title+"-"+heading+".md")
+		path, evidence, err := reserveSummaryPair(directory, title+"-"+heading)
 		if err != nil {
 			return nil, err
 		}
-		evidence := strings.TrimSuffix(path, filepath.Ext(path)) + ".json"
 		encoded, _ := json.MarshalIndent(result.Points, "", "  ")
 		if err := os.WriteFile(path, []byte(result.Markdown), 0o644); err != nil {
 			_ = os.Remove(path)
+			_ = os.Remove(evidence)
 			return nil, contract.Unavailable(msgSummarySaveInvalid)
 		}
 		if err := os.WriteFile(evidence, encoded, 0o644); err != nil {
@@ -264,7 +264,8 @@ func (inv *Invoker) handleVideoSummary(store contract.StateStore, state *contrac
 			return nil, contract.Unavailable(msgSummarySaveInvalid)
 		}
 		check, err := os.ReadFile(path)
-		if err != nil || string(check) != result.Markdown {
+		evidenceCheck, evidenceErr := os.ReadFile(evidence)
+		if err != nil || string(check) != result.Markdown || evidenceErr != nil || string(evidenceCheck) != string(encoded) {
 			_ = os.Remove(path)
 			_ = os.Remove(evidence)
 			return nil, contract.Unavailable(msgSummarySaveInvalid)
@@ -273,6 +274,33 @@ func (inv *Invoker) handleVideoSummary(store contract.StateStore, state *contrac
 			"path": path, "count": len(result.Points), "markdown": result.Markdown, "points": result.Points,
 		}, nil
 	})
+}
+
+// Reserve both names exclusively: an orphan sidecar belongs to its original
+// producer and must not be truncated or removed by this request.
+func reserveSummaryPair(directory, stem string) (string, string, error) {
+	for index := 1; ; index++ {
+		name := stem
+		if index > 1 {
+			name = fmt.Sprintf("%s (%d)", stem, index)
+		}
+		path, err := library.ReserveFile(directory, name+".md")
+		if err != nil {
+			return "", "", err
+		}
+		evidence := strings.TrimSuffix(path, filepath.Ext(path)) + ".json"
+		file, err := os.OpenFile(evidence, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o644)
+		if err == nil {
+			if closeErr := file.Close(); closeErr == nil {
+				return path, evidence, nil
+			}
+			_ = os.Remove(evidence)
+		}
+		_ = os.Remove(path)
+		if !os.IsExist(err) {
+			return "", "", contract.Unavailable(msgSummarySaveInvalid)
+		}
+	}
 }
 
 func sortNotePoints(points []videoNotePoint) {

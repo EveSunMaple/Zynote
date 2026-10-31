@@ -64,4 +64,25 @@ func TestVideoSummary(t *testing.T) {
 	if _, err := os.Stat(strings.TrimSuffix(path, ".md") + ".json"); err != nil {
 		t.Fatalf("evidence missing: %v", err)
 	}
+	// An orphan evidence file must never be overwritten by a new summary.
+	orphan := filepath.Join(filepath.Dir(path), "第二讲-简要摘要.json")
+	if err := os.WriteFile(orphan, []byte("existing evidence"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	raw, errReply = f.call("video-ppt:summary", map[string]any{
+		"mode": "brief", "title": "第二讲", "courseId": course["id"],
+		"srt": "1\n00:00:01,000 --> 00:00:03,000\n第一句 机器学习\n",
+	})
+	if errReply != nil {
+		t.Fatal(errReply)
+	}
+	if body, err := os.ReadFile(orphan); err != nil || string(body) != "existing evidence" {
+		t.Fatalf("existing evidence overwritten: %q %v", body, err)
+	}
+	if err := json.Unmarshal(raw, &result); err != nil {
+		t.Fatal(err)
+	}
+	if result["path"] != filepath.Join(filepath.Dir(path), "第二讲-简要摘要 (2).md") {
+		t.Fatalf("pair not renamed: %v", result["path"])
+	}
 }
