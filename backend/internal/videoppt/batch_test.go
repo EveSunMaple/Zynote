@@ -35,7 +35,7 @@ func TestBatchBindingIsImmutableConcurrentAndValidatedOnRead(t *testing.T) {
 	if _, err := service.SetBatchEpisodes(id, episodes); err != nil {
 		t.Fatal(err)
 	}
-	if BatchChildID(id, 1) != BatchChildID(id, 1) || BatchChildID(id, 1) == BatchChildID(id, 2) {
+	if BatchChildID(id, 1) != "a50c0683-99b5-5148-b279-bd871a13d5bd" || BatchChildID(id, 1) == BatchChildID(id, 2) || BatchChildID(id, 1) == BatchChildID("cccccccc-cccc-4ccc-8ccc-cccccccccccc", 1) {
 		t.Fatal("unstable child identities")
 	}
 	batch, err := service.Batch(id)
