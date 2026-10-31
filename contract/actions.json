@@ -1,6 +1,6 @@
 {
  "schema": 1,
- "total": 158,
+ "total": 159,
  "actions": [
   {
    "action": "runtime:install",
@@ -118,6 +118,12 @@
   },
   {
    "action": "library:delete",
+   "source": "desktop.ts",
+   "phase": 1,
+   "backend": "go"
+  },
+  {
+   "action": "library:dir",
    "source": "desktop.ts",
    "phase": 1,
    "backend": "go"

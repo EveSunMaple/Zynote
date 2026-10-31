@@ -71,7 +71,7 @@ var DefaultCapabilities = []string{
 	"knowledge:citation", "knowledge:delete", "knowledge:organize", "knowledge:rebuild",
 	"knowledge:search", "knowledge:vector-status", "knowledge:vector-enable", "knowledge:vector-rebuild", "knowledge:ask", "knowledge:classification-suggest", "knowledge:classification-options", "knowledge:classification-read",
 	"knowledge:classification-save",
-	"course:detail", "library:list",
+	"course:detail", "library:list", "library:dir",
 	"course:create", "sessions", "session:create",
 	"db:bootstrap", "course:delete", "session:delete", "lecture:delete", "lecture:detail",
 	"pdf.text", "pdf.plainText", "pdf.inspect", "pdf.write",

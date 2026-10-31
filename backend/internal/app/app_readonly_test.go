@@ -136,6 +136,36 @@ func TestP1Readonly(t *testing.T) { // NOSONAR: end-to-end test intentionally ex
 		t.Fatalf("unexpected entry: %v", entry)
 	}
 
+	if _, errReply := f.call("library:dir", map[string]any{"path": ""}); errReply != nil {
+		t.Fatalf("library:dir root failed: %+v", errReply)
+	}
+	var rootEntries []any
+	if err = json.Unmarshal(f.lastResult, &rootEntries); err != nil {
+		t.Fatal(err)
+	}
+	if len(rootEntries) != 1 {
+		t.Fatalf("unexpected root entries: %v", rootEntries)
+	}
+	rootEntry := rootEntries[0].(map[string]any)
+	if rootEntry["name"] != "Transcripts" || rootEntry["type"] != "dir" {
+		t.Fatalf("unexpected root entry: %v", rootEntry)
+	}
+
+	if _, errReply := f.call("library:dir", map[string]any{"path": "Transcripts/课程A"}); errReply != nil {
+		t.Fatalf("library:dir course failed: %+v", errReply)
+	}
+	var courseEntries []any
+	if err = json.Unmarshal(f.lastResult, &courseEntries); err != nil {
+		t.Fatal(err)
+	}
+	if len(courseEntries) != 1 || courseEntries[0].(map[string]any)["name"] != "notes.txt" {
+		t.Fatalf("unexpected course entries: %v", courseEntries)
+	}
+
+	if _, errReply := f.call("library:dir", map[string]any{"path": "../"}); errReply == nil || errReply.Code != "INPUT_INVALID" {
+		t.Fatalf("traversal should be INPUT_INVALID, got %+v", errReply)
+	}
+
 	_ = app.New()
 	_ = transport.MaxFrameBytes
 }

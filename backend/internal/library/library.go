@@ -43,6 +43,96 @@ type walkEntry struct {
 	Modified string
 }
 
+type directoryEntry struct {
+	Path     string
+	Name     string
+	Type     string
+	Size     int64
+	Modified string
+}
+
+// ListDirectory returns the direct children of a directory under the library
+// root. The path is relative to root and slash-separated; empty means root.
+func ListDirectory(root, relative string) ([]map[string]any, error) {
+	rootInfo, err := os.Lstat(root)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil, contract.Unavailable("资料目录不存在")
+		}
+		return nil, contract.Unavailable("资料目录不可访问")
+	}
+	if rootInfo.Mode()&os.ModeSymlink != 0 || !rootInfo.IsDir() {
+		return nil, contract.Unavailable("资料目录无效")
+	}
+	clean := filepath.Clean(filepath.FromSlash(relative))
+	if clean == "." {
+		clean = ""
+	}
+	if clean != "" && !filepath.IsLocal(clean) {
+		return nil, contract.InputInvalid("目录路径无效")
+	}
+	target := root
+	if clean != "" {
+		target = filepath.Join(root, clean)
+	}
+	info, err := os.Lstat(target)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil, contract.NewError(contract.CodeNotFound, "目录不存在")
+		}
+		return nil, contract.Unavailable("目录不可访问")
+	}
+	if info.Mode()&os.ModeSymlink != 0 || !info.IsDir() {
+		return nil, contract.InputInvalid("目录路径无效")
+	}
+	entries, err := os.ReadDir(target)
+	if err != nil {
+		return nil, contract.Unavailable("目录不可访问")
+	}
+	collected := make([]directoryEntry, 0, len(entries))
+	for _, entry := range entries {
+		if entry.Type()&os.ModeSymlink != 0 {
+			continue
+		}
+		entryInfo, err := entry.Info()
+		if err != nil {
+			continue
+		}
+		path := filepath.ToSlash(filepath.Join(clean, entry.Name()))
+		modified := entryInfo.ModTime().UTC().Format(time.RFC3339Nano)
+		if entryInfo.IsDir() {
+			collected = append(collected, directoryEntry{Path: path, Name: entry.Name(), Type: "dir", Modified: modified})
+			continue
+		}
+		if !entryInfo.Mode().IsRegular() {
+			continue
+		}
+		collected = append(collected, directoryEntry{Path: path, Name: entry.Name(), Type: "file", Size: entryInfo.Size(), Modified: modified})
+	}
+	sort.Slice(collected, func(i, j int) bool {
+		iDir, jDir := collected[i].Type == "dir", collected[j].Type == "dir"
+		if iDir != jDir {
+			return iDir
+		}
+		left, right := strings.ToLower(collected[i].Name), strings.ToLower(collected[j].Name)
+		if left != right {
+			return left < right
+		}
+		return collected[i].Name < collected[j].Name
+	})
+	result := make([]map[string]any, 0, len(collected))
+	for _, entry := range collected {
+		result = append(result, map[string]any{
+			"path":     entry.Path,
+			"name":     entry.Name,
+			"type":     entry.Type,
+			"size":     entry.Size,
+			"modified": entry.Modified,
+		})
+	}
+	return result, nil
+}
+
 func ListLibrary(root string) ([]map[string]any, error) {
 	var collected []walkEntry
 	for _, category := range Categories {

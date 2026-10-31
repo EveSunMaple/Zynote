@@ -1,0 +1,16 @@
+{
+ "$schema": "https://json-schema.org/draft/2020-12/schema",
+ "title": "library:dir result (LibraryEntry[])",
+ "type": "array",
+ "items": {
+  "type": "object",
+  "required": ["path", "name", "type", "size", "modified"],
+  "properties": {
+   "path": { "type": "string" },
+   "name": { "type": "string", "minLength": 1 },
+   "type": { "enum": ["dir", "file"] },
+   "size": { "type": "integer", "minimum": 0 },
+   "modified": { "type": "string", "minLength": 1 }
+  }
+ }
+}

@@ -49,6 +49,13 @@ export interface LibraryFile {
  size: number
  modified: string
 }
+export interface LibraryEntry {
+ path: string
+ name: string
+ type: 'dir' | 'file'
+ size: number
+ modified: string
+}
 export interface ZhiyunCourse {
  id: string
  title: string

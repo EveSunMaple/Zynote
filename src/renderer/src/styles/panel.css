@@ -114,6 +114,114 @@
  color: var(--accent);
  background: color-mix(in srgb, var(--accent) 10%, transparent);
 }
+/* 文件管理：工作目录树。 */
+.library-tree {
+ display: flex;
+ flex-direction: column;
+ gap: 4px;
+ min-height: 0;
+}
+.library-tree__toolbar {
+ display: flex;
+ align-items: center;
+ justify-content: space-between;
+ gap: 8px;
+ margin: 0 4px 4px;
+ color: var(--muted);
+ font-size: 11px;
+ font-weight: 600;
+ letter-spacing: 0.04em;
+}
+.library-tree__toolbar .button {
+ width: 24px;
+ min-width: 24px;
+ height: 24px;
+ padding: 0;
+ color: var(--muted);
+}
+.library-tree__nodes {
+ display: flex;
+ flex-direction: column;
+ gap: 1px;
+}
+.library-tree__node {
+ min-width: 0;
+}
+.library-tree__row {
+ display: flex;
+ align-items: center;
+ gap: 5px;
+ width: 100%;
+ min-height: 27px;
+ padding: 3px 8px 3px 3px;
+ border: 0;
+ border-radius: 7px;
+ background: transparent;
+ color: var(--text);
+ font-size: 13px;
+ text-align: left;
+ cursor: pointer;
+}
+.library-tree__row:hover {
+ background: var(--surface-muted);
+}
+.library-tree__row.is-selected {
+ background: color-mix(in srgb, var(--accent) 10%, transparent);
+ color: var(--accent);
+}
+.library-tree__row svg {
+ width: 15px;
+ height: 15px;
+ flex: none;
+ color: var(--muted);
+}
+.library-tree__row.is-selected svg {
+ color: var(--accent);
+}
+.library-tree__chevron {
+ transition: transform 160ms ease;
+}
+.library-tree__chevron.is-open {
+ transform: rotate(90deg);
+}
+.library-tree__spacer {
+ width: 14px;
+ flex: none;
+}
+.library-tree__name {
+ flex: 1 1 auto;
+ min-width: 0;
+ overflow: hidden;
+ text-overflow: ellipsis;
+ white-space: nowrap;
+}
+.library-tree__children {
+ display: flex;
+ flex-direction: column;
+ gap: 1px;
+ padding-left: 14px;
+}
+.library-tree__hint {
+ padding: 3px 8px 3px 24px;
+ color: var(--muted);
+ font-size: 11px;
+ line-height: 1.5;
+}
+.library-tree__retry {
+ padding: 3px 8px 3px 24px;
+ border: 0;
+ background: transparent;
+ color: var(--accent);
+ font-size: 11px;
+ text-align: left;
+ cursor: pointer;
+}
+.library-tree__error {
+ margin: 0 4px 4px;
+ color: var(--danger);
+ font-size: 11px;
+ line-height: 1.5;
+}
 .window-panel__back {
  margin-top: 12px;
  height: 42px;

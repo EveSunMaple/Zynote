@@ -177,6 +177,18 @@ func handleLibraryList(_ contract.StateStore, state *contract.State, _ json.RawM
 	return result, nil
 }
 
+func handleLibraryDir(_ contract.StateStore, state *contract.State, params json.RawMessage) (any, error) {
+	var input struct {
+		Path string `json:"path"`
+	}
+	if len(params) > 0 {
+		if err := json.Unmarshal(params, &input); err != nil {
+			return nil, contract.InputInvalid("目录参数无效")
+		}
+	}
+	return library.ListDirectory(state.LibraryRoot, input.Path)
+}
+
 func parseJSONArray(raw string) []any {
 	var value []any
 	if raw == "" || json.Unmarshal([]byte(raw), &value) != nil {

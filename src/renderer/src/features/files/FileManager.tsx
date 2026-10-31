@@ -1,19 +1,19 @@
 import {Button, Input, Tabs, ToggleButton, ToggleButtonGroup} from '@heroui/react'
 import {useEffect, useState} from 'react'
-import type {Course, LibraryFile} from '@shared/types'
-import {Download, Folder, Trash2} from 'lucide-react'
+import type {LibraryEntry, LibraryFile} from '@shared/types'
+import {Folder, Trash2} from 'lucide-react'
 import {notify} from '@renderer/ui/ToastHost'
-import {WindowMenuButton, WindowPanel} from '@renderer/ui/WindowPanel'
+import {WindowPanel} from '@renderer/ui/WindowPanel'
 import {ConfirmDialog} from '@renderer/ui/ConfirmDialog'
 import {MediaDownloads} from '@renderer/features/bilibili/MediaDownloads'
+import {LibraryTree} from '@renderer/features/files/LibraryTree'
 const categories = ['全部', 'PPT', 'Transcripts', 'Notes', 'PastExams']
+const openable = /\.(pdf|pptx?|docx?|txt|md|srt)$/i
 export function FileManager({
  busy,
  close,
- changed,
- initialCourse = '全部课程'
+ changed
 }: Readonly<{
- initialCourse?: string
  busy: boolean
  close: () => void
  changed: () => Promise<unknown>
@@ -23,39 +23,47 @@ export function FileManager({
   [search, setSearch] = useState(''),
   [pending, setPending] = useState<LibraryFile | null>(null),
   [working, setWorking] = useState(false),
-  [source, setSource] = useState<'course' | 'media'>('course')
- const [courses, setCourses] = useState<Course[]>([]),
-  [course, setCourse] = useState(initialCourse)
+  [source, setSource] = useState<'course' | 'media'>('course'),
+  [directory, setDirectory] = useState(''),
+  [treeRefresh, setTreeRefresh] = useState(0)
  async function load() {
   let lastError: unknown
   for (let attempt = 0; attempt < 3; attempt++) {
-   const [fileResult, courseResult] = await Promise.allSettled([
-    window.assistant.invoke<LibraryFile[]>('library:list'),
-    window.assistant.invoke<Course[]>('courses')
-   ])
-   if (fileResult.status === 'fulfilled') setFiles(fileResult.value)
-   if (courseResult.status === 'fulfilled') setCourses(courseResult.value)
-   if (fileResult.status === 'fulfilled' && courseResult.status === 'fulfilled') return
-   lastError =
-    fileResult.status === 'rejected'
-     ? fileResult.reason
-     : courseResult.status === 'rejected'
-       ? courseResult.reason
-       : lastError
-   if (attempt < 2) await new Promise(resolve => setTimeout(resolve, 300 * (attempt + 1)))
+   try {
+    setFiles(await window.assistant.invoke<LibraryFile[]>('library:list'))
+    return
+   } catch (reason) {
+    lastError = reason
+    if (attempt < 2) await new Promise(resolve => setTimeout(resolve, 300 * (attempt + 1)))
+   }
   }
   throw lastError
+ }
+ async function refresh() {
+  setTreeRefresh(value => value + 1)
+  await load()
  }
  useEffect(() => {
   void load().catch(e => notify.error(e, {title: '读取文件失败'}))
  }, [])
+ async function openEntry(entry: LibraryEntry) {
+  setDirectory(entry.path.includes('/') ? entry.path.slice(0, entry.path.lastIndexOf('/')) : '')
+  setFilter('全部')
+  setSearch('')
+  try {
+   if (openable.test(entry.name)) await window.assistant.invoke('library:open-file', {path: entry.path})
+   else await window.assistant.invoke('library:reveal', {path: entry.path})
+  } catch (e) {
+   notify.error(e, {title: '打开文件失败'})
+  }
+ }
  async function remove() {
   if (!pending) return
   setWorking(true)
   try {
    await window.assistant.invoke('library:delete', {path: pending.path, confirmed: true})
    setPending(null)
-   await load()
+   await refresh()
    await changed()
    notify.success('文件已移入回收站')
   } catch (e) {
@@ -64,36 +72,31 @@ export function FileManager({
    setWorking(false)
   }
  }
- const courseNames = [...new Set([...courses.map(c => c.name), ...files.map(f => f.course).filter(Boolean)])]
- const selectedFiles = files.filter(f => course === '全部课程' || f.course === course)
+ const selectedFiles = files.filter(f => !directory || f.path.startsWith(directory + '/'))
  const visible = selectedFiles.filter(
   f => (filter === '全部' || f.category === filter) && `${f.name} ${f.course}`.includes(search)
  )
+ const directoryName = directory ? directory.split('/').at(-1) || directory : '全部文件'
  return (
   <WindowPanel
    visible
    label="文件管理"
    title="文件管理"
-   description="管理原始文件、下载与导出成果；文件不会自动进入知识库。"
+   description="按工作目录浏览资料；文件不会自动进入知识库。"
    heading="文件管理"
-   subheading={source === 'course' ? `${course} · ${visible.length} 个文件` : '媒体下载任务与已下载文件'}
+   subheading={source === 'course' ? `${directoryName} · ${visible.length} 个文件` : '媒体下载任务与已下载文件'}
    menu={
-    source === 'course' ? (
-     ['全部课程', ...courseNames].map(c => (
-      <WindowMenuButton
-       key={c}
-       active={course === c}
-       icon={<Folder aria-hidden="true" />}
-       onSelect={() => setCourse(c)}
-      >
-       {c} · {files.filter(f => c === '全部课程' || f.course === c).length}
-      </WindowMenuButton>
-     ))
-    ) : (
-     <WindowMenuButton active icon={<Download aria-hidden="true" />} onSelect={() => setSource('media')}>
-      媒体下载
-     </WindowMenuButton>
-    )
+    <LibraryTree
+     selected={directory}
+     onSelect={path => {
+      setDirectory(path)
+      setFilter('全部')
+      setSearch('')
+     }}
+     onOpen={entry => void openEntry(entry)}
+     onRefresh={() => void refresh().catch(e => notify.error(e, {title: '读取文件失败'}))}
+     refreshKey={treeRefresh}
+    />
    }
    actions={
     source === 'course' ? (
@@ -101,7 +104,7 @@ export function FileManager({
       <Button
        variant="ghost"
        size="sm"
-       onClick={() => void load().catch(e => notify.error(e, {title: '读取文件失败'}))}
+       onClick={() => void refresh().catch(e => notify.error(e, {title: '读取文件失败'}))}
       >
        刷新
       </Button>
@@ -174,7 +177,7 @@ export function FileManager({
             {f.category} · {f.course || '未分类'} · {(f.size / 1024 / 1024).toFixed(2)} MB
            </small>
           </div>
-          {/\.(pdf|pptx?|docx?|txt|md|srt)$/i.test(f.name) && (
+          {openable.test(f.name) && (
            <Button
             variant="tertiary"
             size="sm"
@@ -213,8 +216,10 @@ export function FileManager({
         ))}
         {!visible.length && (
          <div className="empty">
-          <h3>这里还没有文件</h3>
-          <p>导入或导出资料后会显示在这里。</p>
+          <h3>{directory ? '此目录没有课程资料' : '这里还没有文件'}</h3>
+          <p>
+           {directory ? '可直接在左侧目录打开文件；下载文件请在“媒体下载”页签查看。' : '导入或导出资料后会显示在这里。'}
+          </p>
          </div>
         )}
        </div>
