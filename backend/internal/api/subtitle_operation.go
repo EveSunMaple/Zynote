@@ -83,7 +83,7 @@ func (inv *Invoker) preparedVideoSubtitle(ctx context.Context, state *contract.S
 		Progress: inv.videoProgress,
 	}.Transcribe(ctx, task.Path, "zh")
 	if err != nil {
-		return asr.Result{}, false, contract.Unavailable(err.Error())
+		return asr.Result{}, false, videoPptError(err)
 	}
 	if err := videoppt.SavePreparedSubtitle(task, result.SRT, result.Count); err != nil {
 		return asr.Result{}, false, videoPptError(err)

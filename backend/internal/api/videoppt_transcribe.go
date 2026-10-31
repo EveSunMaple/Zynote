@@ -5,12 +5,14 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
 
 	"github.com/EveSunMaple/Zynote/backend/internal/config"
 	"github.com/EveSunMaple/Zynote/backend/internal/contract"
 	"github.com/EveSunMaple/Zynote/backend/internal/documents"
+	"github.com/EveSunMaple/Zynote/backend/internal/jobs"
 	"github.com/EveSunMaple/Zynote/backend/internal/library"
 	"github.com/EveSunMaple/Zynote/backend/internal/videoppt"
 )
@@ -117,6 +119,11 @@ func (inv *Invoker) runSubtitleQueued(state *contract.State, id string, run func
 func (inv *Invoker) runSubtitleQueuedContext(ctx context.Context, state *contract.State, id string, run func(context.Context) (any, error)) (any, error) {
 	key := "subtitle-transcribe:" + id
 	result, err := inv.jobs.RunQueued(ctx, filepath.Join(state.LibraryRoot, "TaskQueue"), id, key, run)
+	if err != nil && ctx.Err() != nil {
+		err = videoPptError(ctx.Err())
+	} else if errors.Is(err, jobs.ErrCancelled) {
+		err = contract.NewError(contract.CodeCancelled, "字幕转写已取消，恢复文件保留")
+	}
 	return inv.finishJob(key, "", result, err)
 }
 
