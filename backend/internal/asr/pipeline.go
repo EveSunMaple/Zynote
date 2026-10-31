@@ -38,9 +38,12 @@ type Pipeline struct {
 }
 
 type Result struct {
-	SRT       string
-	Count     int
-	Directory string
+	SRT          string
+	Count        int
+	Directory    string
+	SourceSHA256 string
+	SRTSHA256    string
+	Provenance   *contract.TranscriptionProvenance
 }
 
 func (result Result) Cleanup() error {
@@ -187,6 +190,24 @@ func (pipeline Pipeline) Transcribe(ctx context.Context, video, language string)
 	if err != nil {
 		return Result{}, err
 	}
+	language = strings.TrimSpace(language)
+	if language == "" {
+		language = "zh"
+	}
+	sourceHash, err := inputDigest(ctx, video)
+	if err != nil {
+		if outcome := asrContextOutcome(ctx, err); outcome != nil {
+			return Result{}, outcome
+		}
+		return Result{}, fmt.Errorf("转写来源内容校验失败")
+	}
+	acquisitionHash, err := inputDigest(ctx, acquisitionPath(pipeline))
+	if err != nil {
+		if outcome := asrContextOutcome(ctx, err); outcome != nil {
+			return Result{}, outcome
+		}
+		return Result{}, fmt.Errorf("模型声明记录内容校验失败")
+	}
 	root := filepath.Join(pipeline.DataRoot, "asr-tasks")
 	directory := filepath.Join(root, ids.New())
 	pcm := filepath.Join(directory, "audio.f32")
@@ -205,10 +226,6 @@ func (pipeline Pipeline) Transcribe(ctx context.Context, video, language string)
 	writeASRRecovery(recovery, video, before, "transcribing", nil)
 	if ctx.Err() != nil {
 		return Result{}, asrContextOutcome(ctx, nil)
-	}
-	language = strings.TrimSpace(language)
-	if language == "" {
-		language = "zh"
 	}
 	pipeline.report("正在识别语音范围并保留原始时间点")
 	if outcome := asrContextOutcome(ctx, nil); outcome != nil {
@@ -233,6 +250,17 @@ func (pipeline Pipeline) Transcribe(ctx context.Context, video, language string)
 	if err != nil || before.Size() != after.Size() || !before.ModTime().Equal(after.ModTime()) {
 		return Result{}, fmt.Errorf("转写期间原视频改变，请重新选择")
 	}
+	afterHash, hashErr := inputDigest(ctx, video)
+	afterAcquisition, acquisitionErr := inputDigest(ctx, acquisitionPath(pipeline))
+	if outcome := asrContextOutcome(ctx, nil); outcome != nil {
+		return Result{}, outcome
+	}
+	if hashErr != nil || afterHash != sourceHash {
+		return Result{}, fmt.Errorf("转写前后视频内容不一致，请保留恢复记录")
+	}
+	if acquisitionErr != nil || afterAcquisition != acquisitionHash {
+		return Result{}, fmt.Errorf("转写前后模型声明记录不一致，请保留恢复记录")
+	}
 	segments := Segments(cues)
 	if len(segments) == 0 {
 		return Result{}, fmt.Errorf("未识别到完整语音，原视频保留")
@@ -245,7 +273,7 @@ func (pipeline Pipeline) Transcribe(ctx context.Context, video, language string)
 		return Result{}, fmt.Errorf("字幕暂存结果写入失败")
 	}
 	writeASRRecovery(recovery, video, before, "ready-to-save", map[string]any{"count": len(segments)})
-	return Result{SRT: srt, Count: len(segments), Directory: directory}, nil
+	return Result{SRT: srt, Count: len(segments), Directory: directory, SourceSHA256: sourceHash, SRTSHA256: srtDigest(srt), Provenance: observedProvenance(language, acquisitionHash)}, nil
 }
 
 func Segments(cues []Cue) []documents.Segment {

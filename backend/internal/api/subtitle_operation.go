@@ -64,11 +64,14 @@ func (inv *Invoker) preparedVideoSubtitle(ctx context.Context, state *contract.S
 		return asr.Result{}, false, videoPptError(err)
 	}
 	if found {
+		if prepared.Version == 2 && prepared.Provenance.RequestedLanguage != "zh" {
+			return asr.Result{}, true, contract.InputInvalid("已保存转写语言与当前任务不一致，请保留任务")
+		}
 		segments, err := documents.ParseSrt(prepared.SRT)
 		if err != nil || len(segments) != prepared.Count {
 			return asr.Result{}, true, contract.InputInvalid("已保存转写内容与记录不一致")
 		}
-		return asr.Result{SRT: prepared.SRT, Count: prepared.Count}, true, nil
+		return asr.Result{SRT: prepared.SRT, Count: prepared.Count, SourceSHA256: prepared.VideoSHA256, SRTSHA256: prepared.SRTSHA256, Provenance: prepared.Provenance}, true, nil
 	}
 	result, err := asr.Pipeline{
 		Resources: state.ResourcesRoot, DataRoot: state.DataRoot,
@@ -85,7 +88,7 @@ func (inv *Invoker) preparedVideoSubtitle(ctx context.Context, state *contract.S
 	if err != nil {
 		return asr.Result{}, false, videoPptError(err)
 	}
-	if err := videoppt.SavePreparedSubtitle(task, result.SRT, result.Count); err != nil {
+	if err := videoppt.SavePreparedSubtitleWithProvenance(task, result.SRT, result.Count, result.SourceSHA256, result.SRTSHA256, result.Provenance); err != nil {
 		return asr.Result{}, false, videoPptError(err)
 	}
 	return result, false, nil

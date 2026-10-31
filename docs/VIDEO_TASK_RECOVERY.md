@@ -348,6 +348,24 @@ including a successful response received after cancellation; no result is then
 published. Native timeout remains6h; the full-course acceptance used a separate
 30min request context/35min Go test timeout.
 
+New ASR prepared checkpoints use version2 with source/SRT SHA256, cue count and
+observed requested language. The API keeps its existing zh default and rejects
+prepared results for a different language; the pipeline records its actual
+normalized argument (including controlled en runs). Adapter schema is recorded,
+but native runtime version remains unknown and model identity not-attested.
+The acquisition digest binds only the declaration file, not loaded weight bytes.
+Source/acquisition hashes before and after transcription detect observed drift;
+the saver checks the original source hash again. These are not an atomic media
+snapshot or protection against a change restored between observations.
+Version1 recovery remains unknown and is never retrofitted. Unsaved prepared
+recovery rechecks current source bytes. After a saved-output digest is verified,
+partial cleanup may legitimately have removed the video: version2 then validates
+its checkpoint against saved SRT and labels source verification historical.
+Neither recovery path requires reloading a current model or replaying ASR.
+These are task-level facts, not cue revision lineage or multilingual API settings.
+Full source hashing adds linear I/O before/after transcription and before saving;
+no full-course throughput measurement is implied by controlled regression tests.
+
 The licensed MIT43m06s production en ASR fixture passed832 cues/1553.41s with
 normalized official-caption WER460/6325(7.27%). All cue times were finite,
 nonoverlapping and bounded. This is not word-level timing, multilingual or UI/API

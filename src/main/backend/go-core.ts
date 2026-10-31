@@ -297,7 +297,7 @@ export class GoCore {
   this.restarts++
   if (this.restarts > MAX_RESTARTS) {
    this.status = 'failed'
-   this.options.onFailed('Go 后端反复崩溃，已切换回 TS 后端: ' + detail)
+   this.options.onFailed('Go 后端反复崩溃，已停止；请重启应用后重试: ' + detail)
    return
   }
   const delay = 1000 * this.restarts

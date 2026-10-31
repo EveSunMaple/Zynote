@@ -69,6 +69,9 @@ func (inv *Invoker) transcribeVideoTask(
 		"source": "本地 Whisper 转写", "warning": warning, "cleanupWarning": cleanupWarning,
 		"srt": result.SRT, "count": result.Count, "savedPath": path,
 	}
+	if result.Provenance != nil {
+		output["provenance"], output["sourceSHA256"], output["srtSHA256"] = result.Provenance, result.SourceSHA256, result.SRTSHA256
+	}
 	return finishSubtitleTask(state, task, output, path)
 }
 
@@ -169,6 +172,17 @@ func (inv *Invoker) handleVideoResumeSubtitleContext(ctx context.Context, store 
 				return nil, contract.InputInvalid(err.Error())
 			}
 			output := map[string]any{"title": meta.Name, "page": meta.Page, "source": "已保存的字幕", "warning": "已核对原有字幕。", "srt": string(body), "count": len(segments), "savedPath": path, "cleanupWarning": ""}
+			prepared, found, preparedErr := videoppt.LoadPreparedSubtitleForSavedOutput(videoppt.CreatedTask{Dir: directory}, string(body))
+			if preparedErr != nil {
+				return nil, videoPptError(preparedErr)
+			}
+			if found && prepared.Version == 2 {
+				if prepared.Provenance.RequestedLanguage != "zh" || prepared.SRT != string(body) {
+					return nil, contract.InputInvalid("已保存字幕与转写凭据不一致，请保留任务")
+				}
+				output["provenance"], output["sourceSHA256"], output["srtSHA256"] = prepared.Provenance, prepared.VideoSHA256, prepared.SRTSHA256
+				output["sourceVerification"] = "historical"
+			}
 			return finishSubtitleTask(state, videoppt.CreatedTask{ID: meta.ID, Name: meta.Name, Dir: directory}, output, path)
 		}
 		if operation, err := service.Operation(input.ID); err == nil {
