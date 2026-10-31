@@ -123,7 +123,7 @@ export function TaskCenter({ // NOSONAR: transitional TS fallback/UI flow retain
     domain: task.kind === 'subtitle' ? '字幕' : '视频',
     title: task.name,
     detail: task.error || (task.kind === 'subtitle' ? '字幕转写可继续' : '课件任务待继续'),
-    status: task.error ? '失败' : '待处理',
+    status: task.queueState ? (zhiyunStates[task.queueState] || '待处理') : task.error ? '失败' : '待处理',
     actions: (
      <>
       <Button
