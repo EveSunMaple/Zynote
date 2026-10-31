@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 )
 
 type exportCheckpoint struct {
@@ -19,6 +20,18 @@ type exportCheckpoint struct {
 }
 
 func publishExport(ctx context.Context, task CreatedTask, choices []Choice, directory string, result ExportResult, data []byte) (ExportResult, error) {
+	return publishArtifact(ctx, task, choices, directory, result, data, "export", result.FileName+"-视频课件.pdf")
+}
+
+func PublishSubtitle(ctx context.Context, task CreatedTask, directory, name string, data []byte) (string, error) {
+	if filepath.Base(name) != name || strings.ContainsAny(name, "/\\") || !strings.EqualFold(filepath.Ext(name), ".srt") {
+		return "", requestError("字幕文件名无效")
+	}
+	result, err := publishArtifact(ctx, task, nil, directory, ExportResult{FileName: name}, data, "subtitle-export", name)
+	return result.Path, err
+}
+
+func publishArtifact(ctx context.Context, task CreatedTask, choices []Choice, directory string, result ExportResult, data []byte, kind, name string) (ExportResult, error) {
 	directory, err := filepath.Abs(directory)
 	if err != nil {
 		return ExportResult{}, err
@@ -29,20 +42,23 @@ func publishExport(ctx context.Context, task CreatedTask, choices []Choice, dire
 		Choices           []Choice
 		Directory, Digest string
 	}{choices, directory, digest})
+	if kind != "export" {
+		input = append(input, []byte(name)...)
+	}
 	keySum := sha256.Sum256(input)
 	key := hex.EncodeToString(keySum[:])
-	journal := filepath.Join(task.Dir, "export-"+key+".json")
+	journal := filepath.Join(task.Dir, kind+"-"+key+".json")
 	var record exportCheckpoint
 	body, err := os.ReadFile(journal)
 	if err == nil {
-		if json.Unmarshal(body, &record) != nil || record.Version != 1 || record.Input != key || record.SHA256 != digest || filepath.Dir(record.Result.Path) != directory || filepath.Ext(record.Result.Path) != ".pdf" {
-			return ExportResult{}, requestError("PDF 导出记录无效，原文件已保留")
+		if json.Unmarshal(body, &record) != nil || record.Version != 1 || record.Input != key || record.SHA256 != digest || filepath.Dir(record.Result.Path) != directory || filepath.Ext(record.Result.Path) != filepath.Ext(name) {
+			return ExportResult{}, requestError("导出记录无效，原文件已保留")
 		}
 		result = record.Result
 	} else if !os.IsNotExist(err) {
 		return ExportResult{}, err
 	} else {
-		path, err := availableExport(directory, result.FileName+"-视频课件.pdf")
+		path, err := availableExport(directory, name)
 		if err != nil {
 			return ExportResult{}, err
 		}
@@ -58,7 +74,7 @@ func publishExport(ctx context.Context, task CreatedTask, choices []Choice, dire
 	existing, err := os.ReadFile(result.Path)
 	if err == nil {
 		if !bytes.Equal(existing, data) {
-			return ExportResult{}, requestError("PDF 与导出记录不一致，请保留并核对，不能重复导出")
+			return ExportResult{}, requestError("成果与导出记录不一致，请保留并核对，不能重复导出")
 		}
 		return result, nil
 	}

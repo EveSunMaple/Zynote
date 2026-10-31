@@ -19,6 +19,8 @@ var operationIDPattern = regexp.MustCompile(`^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4
 type VideoOperation struct {
 	Version    int    `json:"version"`
 	Stage      string `json:"stage"`
+	OutputName string `json:"outputName,omitempty"`
+	Page       int    `json:"page,omitempty"`
 	Path       string `json:"path,omitempty"`
 	SourceHash string `json:"sourceHash,omitempty"`
 	URL        string `json:"url,omitempty"`
@@ -104,9 +106,13 @@ func (service *Service) CreateOperationTask(id, name string, operation VideoOper
 	} else if !os.IsNotExist(err) {
 		return CreatedTask{}, err
 	}
-	if operation.Version != 1 || (operation.Stage != "source" && operation.Stage != "auto") {
+	if operation.Version != 1 || (operation.Stage != "source" && operation.Stage != "auto" && operation.Stage != "subtitle") {
 		return CreatedTask{}, requestError("任务来源记录无效")
 	}
+	if operation.Stage == "subtitle" && (operation.OutputName == "" || !subtitleFilePattern.MatchString(operation.OutputName) || operation.Page < 1) {
+		return CreatedTask{}, requestError("字幕任务参数无效")
+	}
+
 	if err := os.MkdirAll(service.Root, 0755); err != nil {
 		return CreatedTask{}, err
 	}
@@ -143,7 +149,14 @@ func (service *Service) CreateOperationTask(id, name string, operation VideoOper
 	if err := saveTaskJSON(filepath.Join(directory, "operation.json"), operation); err != nil {
 		return CreatedTask{}, err
 	}
-	if err := saveTaskJSON(filepath.Join(directory, taskFileName), map[string]any{"id": id, "name": name, "url": operation.URL}); err != nil {
+	meta := map[string]any{"id": id, "name": name, "url": operation.URL}
+	if operation.Stage == "subtitle" {
+		meta["kind"] = "subtitle"
+		meta["outputName"] = operation.OutputName
+		meta["courseName"] = operation.CourseName
+		meta["page"] = operation.Page
+	}
+	if err := saveTaskJSON(filepath.Join(directory, taskFileName), meta); err != nil {
 		return CreatedTask{}, err
 	}
 	return task, nil
@@ -167,7 +180,7 @@ func (service *Service) Operation(id string) (VideoOperation, error) {
 		return VideoOperation{}, err
 	}
 	var operation VideoOperation
-	if json.Unmarshal(body, &operation) != nil || operation.Version != 1 || (operation.Stage != "source" && operation.Stage != "auto") {
+	if json.Unmarshal(body, &operation) != nil || operation.Version != 1 || (operation.Stage != "source" && operation.Stage != "auto" && operation.Stage != "subtitle") {
 		return VideoOperation{}, requestError("任务来源记录无效")
 	}
 	return operation, nil

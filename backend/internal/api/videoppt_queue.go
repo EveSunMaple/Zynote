@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 
 	"github.com/EveSunMaple/Zynote/backend/internal/contract"
+	"github.com/EveSunMaple/Zynote/backend/internal/library"
 	mediaBilibili "github.com/EveSunMaple/Zynote/backend/internal/media/bilibili"
 	"github.com/EveSunMaple/Zynote/backend/internal/videoppt"
 )
@@ -29,6 +30,9 @@ func (inv *Invoker) createQueuedVideoTask(state *contract.State, path, videoURL,
 	}
 	operation := videoppt.VideoOperation{Version: 1, Stage: stage, Prompt: prompt, CourseName: courseName}
 	name := ""
+	if stage == "subtitle" {
+		operation.Page = 1
+	}
 	if path != "" {
 		absolute, err := filepath.Abs(path)
 		if err != nil {
@@ -56,6 +60,12 @@ func (inv *Invoker) createQueuedVideoTask(state *contract.State, path, videoURL,
 		}
 		operation.URL = normalized
 		name = videoID + "-P" + page
+		if stage == "subtitle" {
+			operation.Page = atoiSafe(page)
+		}
+	}
+	if stage == "subtitle" {
+		operation.OutputName = library.FolderName(videoppt.SubtitleTitle(name)) + "-离线转写.srt"
 	}
 	task, err := videoPptService(state).CreateOperationTask(id, name, operation)
 	if err != nil {
@@ -152,23 +162,37 @@ func queuedVideoTask(state *contract.State, id string) (videoppt.CreatedTask, er
 }
 
 func finishVideoPptExport(state *contract.State, task videoppt.CreatedTask, result videoppt.ExportResult) (any, error) {
-	service := videoPptService(state)
 	receipt := map[string]any{"path": result.Path, "kept": result.Kept, "removed": result.Removed, "cleaned": false, "cleanupWarning": "已恢复已保存成果；临时文件清理状态请核对任务记录"}
-	if err := service.CompleteOperation(task, receipt, result.Path); err != nil {
+	return finishManagedVideoTask(state, task, receipt, result.Path, true)
+}
+
+func finishManagedVideoTask(state *contract.State, task videoppt.CreatedTask, output map[string]any, path string, trackCleanup bool) (any, error) {
+	service := videoPptService(state)
+	if err := service.CompleteOperation(task, output, path); err != nil {
 		return nil, videoPptError(err)
 	}
-	warning := ""
-	if err := service.DiscardCompleted(task.ID); err != nil {
-		warning = err.Error()
+	warning, _ := output["cleanupWarning"].(string)
+	if trackCleanup {
+		warning = ""
 	}
-	receipt["cleaned"] = warning == ""
-	receipt["cleanupWarning"] = warning
-	// A completion receipt exists only for bound operations. Legacy tasks retain
-	// their old successful export semantics without creating a new identity.
-	if _, err := service.Operation(task.ID); err == nil {
-		if err := service.CompleteOperation(task, receipt, result.Path); err != nil {
-			receipt["cleanupWarning"] = "成果已保存，但完成记录更新失败：" + err.Error()
+	cleanupErr := service.DiscardCompleted(task.ID)
+	if cleanupErr != nil {
+		if warning != "" {
+			warning += "；"
+		}
+		warning += cleanupErr.Error()
+		if base, ok := output["warning"].(string); ok {
+			output["warning"] = base + "；" + cleanupErr.Error()
 		}
 	}
-	return receipt, nil
+	if trackCleanup {
+		output["cleaned"] = cleanupErr == nil
+	}
+	output["cleanupWarning"] = warning
+	if _, err := service.Operation(task.ID); err == nil {
+		if err := service.CompleteOperation(task, output, path); err != nil {
+			output["cleanupWarning"] = "成果已保存，但完成记录更新失败：" + err.Error()
+		}
+	}
+	return output, nil
 }

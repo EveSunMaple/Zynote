@@ -8,13 +8,10 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/EveSunMaple/Zynote/backend/internal/asr"
 	"github.com/EveSunMaple/Zynote/backend/internal/config"
 	"github.com/EveSunMaple/Zynote/backend/internal/contract"
 	"github.com/EveSunMaple/Zynote/backend/internal/documents"
 	"github.com/EveSunMaple/Zynote/backend/internal/library"
-	"github.com/EveSunMaple/Zynote/backend/internal/media"
-	"github.com/EveSunMaple/Zynote/backend/internal/media/bilibili"
 	"github.com/EveSunMaple/Zynote/backend/internal/videoppt"
 )
 
@@ -30,20 +27,9 @@ func (inv *Invoker) transcribeVideoTask(
 	task videoppt.CreatedTask,
 ) (any, error) {
 	service := videoPptService(state)
-	result, err := asr.Pipeline{
-		Resources: state.ResourcesRoot, DataRoot: state.DataRoot,
-		Platform:            media.CurrentMediaPlatform(),
-		AllowSystemFallback: !state.Packaged || os.Getenv("ZYNOTE_SYSTEM_MEDIA") == "1",
-		Call: func(ctx context.Context, method string, params any, timeoutMS int) (json.RawMessage, error) {
-			if inv.asr == nil {
-				return nil, contract.Unavailable("本地字幕模型不可用")
-			}
-			return inv.asr.CallContext(ctx, method, params, timeoutMS)
-		},
-		Progress: inv.videoProgress,
-	}.Transcribe(ctx, task.Path, "zh")
+	result, recovered, err := inv.preparedVideoSubtitle(ctx, state, task)
 	if err != nil {
-		return nil, contract.Unavailable(err.Error())
+		return nil, err
 	}
 	meta, _, err := service.SubtitleTask(task.ID)
 	if err != nil {
@@ -54,47 +40,40 @@ func (inv *Invoker) transcribeVideoTask(
 	if err != nil {
 		return nil, err
 	}
-	path, err := library.ReserveFile(directory, meta.OutputName)
+	path, err := videoppt.PublishSubtitle(ctx, task, directory, meta.OutputName, []byte(result.SRT))
 	if err != nil {
-		return nil, err
-	}
-	cleanupWarning := ""
-	if err := os.WriteFile(path, []byte(result.SRT), 0o644); err != nil {
-		_ = os.Remove(path)
-		return nil, contract.Unavailable("保存字幕后校验失败")
-	}
-	if body, err := os.ReadFile(path); err != nil || string(body) != result.SRT {
-		_ = os.Remove(path)
-		return nil, contract.Unavailable("保存字幕后校验失败")
-	}
-	if err := service.MarkSubtitleSaved(task.ID, path); err != nil {
-		_ = os.Remove(path)
 		return nil, videoPptError(err)
 	}
-	if err := result.Cleanup(); err != nil {
-		cleanupWarning = "字幕已保存，但临时音频清理失败：" + err.Error()
+	if err := service.MarkSubtitleSaved(task.ID, path); err != nil {
+		return nil, videoPptError(err)
 	}
-	if err := service.DiscardCompleted(task.ID); err != nil {
-		if cleanupWarning == "" {
-			cleanupWarning = err.Error()
-		} else {
-			cleanupWarning += "；" + err.Error()
+	cleanupWarning := ""
+	if recovered {
+		cleanupWarning = "已复用保存的转写；未自动清理先前临时音频，请核对后处理"
+	}
+
+	if result.Directory != "" {
+		if err := result.Cleanup(); err != nil {
+			cleanupWarning = "字幕已保存，但临时音频清理失败：" + err.Error()
 		}
 	}
+
 	warning := "自动转写可能有错，请核对后作为课堂原文使用。"
 	if cleanupWarning != "" {
 		warning += cleanupWarning
 	}
-	return map[string]any{
+	output := map[string]any{
 		"title": library.FolderName(videoppt.SubtitleTitle(task.Name)), "page": meta.Page,
 		"source": "本地 Whisper 转写", "warning": warning, "cleanupWarning": cleanupWarning,
 		"srt": result.SRT, "count": result.Count, "savedPath": path,
-	}, nil
+	}
+	return finishSubtitleTask(state, task, output, path)
 }
 
 func (inv *Invoker) handleVideoSubtitleTranscribeLocal(store contract.StateStore, state *contract.State, params json.RawMessage) (any, error) {
 	var input struct {
-		CourseID string `json:"courseId"`
+		CourseID    string `json:"courseId"`
+		OperationID string `json:"operationId"`
 	}
 	if err := json.Unmarshal(params, &input); err != nil {
 		return nil, contract.InputInvalid("字幕参数无效")
@@ -103,6 +82,10 @@ func (inv *Invoker) handleVideoSubtitleTranscribeLocal(store contract.StateStore
 	if err != nil {
 		return nil, err
 	}
+	if task, exists, err := inv.existingLocalSubtitle(state, input.OperationID, courseName); exists {
+		return inv.runBoundSubtitle(store, state, task, err)
+	}
+
 	reverse := store.Reverse()
 	if reverse == nil {
 		return nil, contract.Unavailable("文件选择器不可用")
@@ -123,14 +106,8 @@ func (inv *Invoker) handleVideoSubtitleTranscribeLocal(store contract.StateStore
 	if picked.Path == nil || *picked.Path == "" {
 		return nil, nil
 	}
-	outputName := library.FolderName(videoppt.SubtitleTitle(filepath.Base(*picked.Path))) + "-离线转写.srt"
-	task, err := videoPptService(state).CreateSubtitleTask(*picked.Path, outputName, courseName, 1)
-	if err != nil {
-		return nil, videoPptError(err)
-	}
-	return inv.runSubtitleQueued(state, task.ID, func(ctx context.Context) (any, error) {
-		return inv.transcribeVideoTask(ctx, state, task)
-	})
+	task, _, err := inv.createQueuedVideoTask(state, *picked.Path, "", "subtitle", "", courseName, input.OperationID)
+	return inv.runBoundSubtitle(store, state, task, err)
 }
 
 func (inv *Invoker) runSubtitleQueued(state *contract.State, id string, run func(context.Context) (any, error)) (any, error) {
@@ -139,7 +116,7 @@ func (inv *Invoker) runSubtitleQueued(state *contract.State, id string, run func
 	return inv.finishJob(key, "", result, err)
 }
 
-func (inv *Invoker) handleVideoResumeSubtitle(state *contract.State, params json.RawMessage) (any, error) {
+func (inv *Invoker) handleVideoResumeSubtitle(store contract.StateStore, state *contract.State, params json.RawMessage) (any, error) {
 	var input struct {
 		ID string `json:"id"`
 	}
@@ -176,15 +153,17 @@ func (inv *Invoker) handleVideoResumeSubtitle(state *contract.State, params json
 			if err != nil {
 				return nil, contract.InputInvalid(err.Error())
 			}
-			if err := service.DiscardCompleted(meta.ID); err != nil {
-				return nil, videoPptError(err)
-			}
-			return map[string]any{
-				"title": meta.Name, "page": meta.Page, "source": "已保存的字幕",
-				"warning": "已核对原有字幕并清理本次临时视频。", "srt": string(body),
-				"count": len(segments), "savedPath": path, "cleanupWarning": "",
-			}, nil
+			output := map[string]any{"title": meta.Name, "page": meta.Page, "source": "已保存的字幕", "warning": "已核对原有字幕。", "srt": string(body), "count": len(segments), "savedPath": path, "cleanupWarning": ""}
+			return finishSubtitleTask(state, videoppt.CreatedTask{ID: meta.ID, Name: meta.Name, Dir: directory}, output, path)
 		}
+		if _, err := service.Operation(input.ID); err == nil {
+			if err := inv.ensureQueuedVideo(ctx, store, state, videoppt.CreatedTask{ID: meta.ID, Name: meta.Name, Dir: directory, Path: filepath.Join(directory, "video.mp4")}); err != nil {
+				return nil, err
+			}
+		} else if !os.IsNotExist(err) {
+			return nil, videoPptError(err)
+		}
+
 		video := filepath.Join(directory, "video.mp4")
 		if info, err := os.Stat(video); err != nil || !info.Mode().IsRegular() {
 			return nil, contract.InputInvalid("本地视频副本尚未准备完成，请重新选择原视频")
@@ -205,38 +184,19 @@ func (inv *Invoker) handleVideoResumeSubtitle(state *contract.State, params json
 
 func (inv *Invoker) handleVideoSubtitleTranscribe(store contract.StateStore, state *contract.State, params json.RawMessage) (any, error) {
 	var input struct {
-		URL      string `json:"url"`
-		CourseID string `json:"courseId"`
+		URL         string `json:"url"`
+		CourseID    string `json:"courseId"`
+		OperationID string `json:"operationId"`
 	}
-	if err := json.Unmarshal(params, &input); err != nil || input.URL == "" {
+	if err := json.Unmarshal(params, &input); err != nil || (input.URL == "" && input.OperationID == "") {
 		return nil, contract.InputInvalid("视频网址无效")
-	}
-	videoID, page, _, err := biliTaskName(input.URL, "")
-	if err != nil {
-		return nil, err
 	}
 	courseName, err := inv.subtitleCourseName(state, input.CourseID)
 	if err != nil {
 		return nil, err
 	}
-	normalized, err := bilibili.VideoURL(input.URL)
-	if err != nil {
-		return nil, err
-	}
-	task, err := videoPptService(state).CreateBlankTask(videoID+"-P"+page+"-字幕转写", map[string]any{
-		"kind": "subtitle", "outputName": videoID + "-P" + page + "-离线转写.srt",
-		"courseName": courseName, "url": normalized, "page": atoiSafe(page),
-	})
-	if err != nil {
-		return nil, videoPptError(err)
-	}
-	return inv.runSubtitleQueued(state, task.ID, func(ctx context.Context) (any, error) {
-		inv.videoProgress("正在下载视频用于离线字幕转写")
-		if err := inv.downloadBiliVideo(ctx, store, state, normalized, task.Path); err != nil {
-			return nil, err
-		}
-		return inv.transcribeVideoTask(ctx, state, task)
-	})
+	task, _, err := inv.createQueuedVideoTask(state, "", input.URL, "subtitle", "", courseName, input.OperationID)
+	return inv.runBoundSubtitle(store, state, task, err)
 }
 
 func atoiSafe(value string) int {

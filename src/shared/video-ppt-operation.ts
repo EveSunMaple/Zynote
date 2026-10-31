@@ -3,7 +3,11 @@ export type VideoStartInput = {path?: string; url?: string; prompt?: string; cou
 
 export function retainVideoOperation(
  previous: VideoOperationDraft | null,
- action: 'video-ppt:source' | 'video-ppt:auto',
+ action:
+  | 'video-ppt:source'
+  | 'video-ppt:auto'
+  | 'video-ppt:subtitle-transcribe'
+  | 'video-ppt:subtitle-transcribe-local',
  input: VideoStartInput,
  createId: () => string
 ): VideoOperationDraft {
@@ -15,4 +19,11 @@ export function retainVideoOperation(
   input.courseId || ''
  ])
  return previous?.key === key ? previous : {key, id: createId()}
+}
+
+export function settleLocalSubtitleOperation(
+ draft: VideoOperationDraft,
+ outcome: 'completed' | 'cancelled' | 'failed'
+): VideoOperationDraft | null {
+ return outcome === 'failed' ? draft : null
 }

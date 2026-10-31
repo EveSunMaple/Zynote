@@ -62,6 +62,9 @@ func (registry *Registry) Report(message string) Progress {
 		if strings.HasPrefix(progress.Key, "subtitle-transcribe:") {
 			progress.Stage = "字幕转写"
 		}
+		if strings.HasPrefix(progress.Key, "video-ppt:") {
+			progress.Stage = "视频课件"
+		}
 	}
 	registry.current.Progress = &progress
 	return progress

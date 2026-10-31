@@ -245,7 +245,7 @@ func registerActions(inv *Invoker) map[string]actionFunc {
 		"video-ppt:series":                    actionWithState(inv.handleVideoPptSeries),
 		"video-ppt:subtitle":                  actionWithState(inv.handleVideoPptSubtitle),
 		"video-ppt:subtitle-transcribe-local": actionWithState(inv.handleVideoSubtitleTranscribeLocal),
-		"video-ppt:resume-subtitle":           actionWithState(actionStateParams(inv.handleVideoResumeSubtitle)),
+		"video-ppt:resume-subtitle":           actionWithState(inv.handleVideoResumeSubtitle),
 		"video-ppt:source":                    actionWithState(inv.handleVideoPptSource),
 		"video-ppt:extract":                   actionWithState(inv.handleVideoPptExtract),
 		"video-ppt:export":                    actionWithState(inv.handleVideoPptExport),

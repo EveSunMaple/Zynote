@@ -126,12 +126,7 @@ func (service *Service) MarkSubtitleSaved(id, path string) error {
 		Path   string `json:"path"`
 		SHA256 string `json:"sha256"`
 	}{Path: path, SHA256: hex.EncodeToString(sum[:])}
-	encoded, _ := json.Marshal(task)
-	temporary := filepath.Join(directory, "task-result.tmp")
-	if err := os.WriteFile(temporary, encoded, 0o644); err != nil {
-		return requestError("字幕任务记录写入失败")
-	}
-	if err := os.Rename(temporary, filepath.Join(directory, taskFileName)); err != nil {
+	if err := saveTaskJSON(filepath.Join(directory, taskFileName), task); err != nil {
 		return requestError("字幕任务记录写入失败")
 	}
 	return nil

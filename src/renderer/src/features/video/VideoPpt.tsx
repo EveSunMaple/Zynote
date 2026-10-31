@@ -17,7 +17,12 @@ import {
  type VideoSeries,
  type VideoBatchItem
 } from '@shared/video-ppt'
-import {retainVideoOperation, type VideoOperationDraft, type VideoStartInput} from '@shared/video-ppt-operation'
+import {
+ retainVideoOperation,
+ settleLocalSubtitleOperation,
+ type VideoOperationDraft,
+ type VideoStartInput
+} from '@shared/video-ppt-operation'
 import type {SubtitleSyncTask} from '@shared/subtitle-sync'
 type BiliSubtitle = {
  title: string
@@ -66,13 +71,52 @@ export function VideoPpt({
   } | null>(null)
  const working = useRef(false)
  const pptOperation = useRef<VideoOperationDraft | null>(null)
- const pptProgressKey = useRef<string | null>(null)
+ const activeProgressKey = useRef<string | null>(null)
  async function startPpt<T>(action: 'video-ppt:source' | 'video-ppt:auto', input: VideoStartInput): Promise<T> {
   const draft = retainVideoOperation(pptOperation.current, action, input, () => crypto.randomUUID())
   pptOperation.current = draft
-  pptProgressKey.current = `video-ppt:${draft.id}`
+  activeProgressKey.current = `video-ppt:${draft.id}`
   return invoke<T>(action, {...input, operationId: draft.id})
  }
+ const remoteSubtitleOperation = useRef<VideoOperationDraft | null>(null)
+ const localSubtitleOperation = useRef<VideoOperationDraft | null>(null)
+ const [localSubtitleRetry, setLocalSubtitleRetry] = useState(false)
+ async function startRemoteSubtitle(input: VideoStartInput): Promise<BiliSubtitle> {
+  const draft = retainVideoOperation(remoteSubtitleOperation.current, 'video-ppt:subtitle-transcribe', input, () =>
+   crypto.randomUUID()
+  )
+  remoteSubtitleOperation.current = draft
+  activeProgressKey.current = `subtitle-transcribe:${draft.id}`
+  return invoke<BiliSubtitle>('video-ppt:subtitle-transcribe', {...input, operationId: draft.id})
+ }
+ async function startLocalSubtitle(newSelection = false): Promise<BiliSubtitle | null> {
+  const draft = retainVideoOperation(
+   newSelection ? null : localSubtitleOperation.current,
+   'video-ppt:subtitle-transcribe-local',
+   {courseId},
+   () => crypto.randomUUID()
+  )
+  localSubtitleOperation.current = draft
+  activeProgressKey.current = `subtitle-transcribe:${draft.id}`
+  try {
+   const result = await invoke<BiliSubtitle | null>('video-ppt:subtitle-transcribe-local', {
+    courseId: courseId || undefined,
+    operationId: draft.id
+   })
+   localSubtitleOperation.current = settleLocalSubtitleOperation(draft, result ? 'completed' : 'cancelled')
+   setLocalSubtitleRetry(false)
+   return result
+  } catch (error) {
+   localSubtitleOperation.current = settleLocalSubtitleOperation(draft, 'failed')
+   setLocalSubtitleRetry(true)
+   throw error
+  }
+ }
+ useEffect(() => {
+  localSubtitleOperation.current = null
+  setLocalSubtitleRetry(false)
+ }, [courseId])
+
  useEffect(
   () =>
    window.assistant.onEvent(event => {
@@ -98,7 +142,7 @@ export function VideoPpt({
        throw reason
       }
       setProgress('没有站内字幕，正在下载并使用本地模型转写')
-      acquired = await invoke<BiliSubtitle>('video-ppt:subtitle-transcribe', {
+      acquired = await startRemoteSubtitle({
        url: event.url,
        courseId: courseId || undefined
       })
@@ -145,7 +189,11 @@ export function VideoPpt({
  useEffect(
   () =>
    window.assistant.onEvent(e => {
-    if (working.current && e.kind === 'progress' && (!pptProgressKey.current || e.data.key === pptProgressKey.current))
+    if (
+     working.current &&
+     e.kind === 'progress' &&
+     (!activeProgressKey.current || e.data.key === activeProgressKey.current)
+    )
      setProgress(e.data.message)
     if (working.current && e.kind === 'video-batch') setBatch(e.items)
    }),
@@ -161,7 +209,7 @@ export function VideoPpt({
    notify.error(e)
   } finally {
    working.current = false
-   pptProgressKey.current = null
+   activeProgressKey.current = null
    setBusy(false)
   }
  }
@@ -173,7 +221,7 @@ export function VideoPpt({
     | {resume: {action: 'video-ppt:source' | 'video-ppt:auto'; operationId: string}}
    >('video-ppt:restore', {id: restoreTaskId})
    if ('resume' in restored) {
-    pptProgressKey.current = `video-ppt:${restored.resume.operationId}`
+    activeProgressKey.current = `video-ppt:${restored.resume.operationId}`
     setReview(null)
     setChecked(false)
     if (restored.resume.action === 'video-ppt:auto') {
@@ -513,7 +561,7 @@ export function VideoPpt({
         onClick={() =>
          void run(async () => {
           const target = series?.episodes.find(e => e.page === subtitlePage)?.url || url
-          const result = await invoke<BiliSubtitle>('video-ppt:subtitle-transcribe', {
+          const result = await startRemoteSubtitle({
            url: target,
            courseId: courseId || undefined
           })
@@ -531,9 +579,7 @@ export function VideoPpt({
         isDisabled={busy}
         onClick={() =>
          void run(async () => {
-          const result = await invoke<BiliSubtitle | null>('video-ppt:subtitle-transcribe-local', {
-           courseId: courseId || undefined
-          })
+          const result = await startLocalSubtitle()
           if (result) {
            setSubtitle(result)
            setSubtitleSaved(result.savedPath || '')
@@ -542,8 +588,26 @@ export function VideoPpt({
          })
         }
        >
-        选择本地视频转写
+        {localSubtitleRetry ? '继续上次本地转写' : '选择本地视频转写'}
        </Button>
+       {localSubtitleRetry && (
+        <Button
+         variant="ghost"
+         size="sm"
+         isDisabled={busy}
+         onClick={() =>
+          void run(async () => {
+           const result = await startLocalSubtitle(true)
+           if (result) {
+            setSubtitle(result)
+            setSubtitleSaved(result.savedPath || '')
+           }
+          })
+         }
+        >
+         选择新视频
+        </Button>
+       )}
       </div>
       {subtitle && (
        <>
@@ -931,7 +995,7 @@ export function VideoPpt({
       onClick={() =>
        void run(async () => {
         setChecked(false)
-        pptProgressKey.current = `video-ppt:${source.id}`
+        activeProgressKey.current = `video-ppt:${source.id}`
         setReview(await invoke<VideoReview>('video-ppt:extract', {id: source.id, crop: source.crop, prompt}))
        })
       }
@@ -960,7 +1024,7 @@ export function VideoPpt({
        isDisabled={busy || !checked || !kept}
        onClick={() =>
         void run(async () => {
-         pptProgressKey.current = `video-ppt:${review.id}`
+         activeProgressKey.current = `video-ppt:${review.id}`
          setSaved(
           await invoke('video-ppt:export', {
            id: review.id,

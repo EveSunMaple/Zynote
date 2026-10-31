@@ -27,7 +27,7 @@ func TestSubtitleResumePersistsQueueAndCancelsWithoutASR(t *testing.T) {
 	holdQueueWorker(t, inv)
 	params, _ := json.Marshal(map[string]string{"id": task.ID})
 	done := make(chan error, 1)
-	go func() { _, err := inv.handleVideoResumeSubtitle(state, params); done <- err }()
+	go func() { _, err := inv.handleVideoResumeSubtitle(nil, state, params); done <- err }()
 	row := waitVideoQueued(t, inv, state, done)
 	if row.ID != task.ID {
 		t.Fatal("wrong queued task")
@@ -45,7 +45,7 @@ func TestSubtitleResumeRejectsInvalidIdentityBeforeQueue(t *testing.T) {
 	inv := NewInvoker()
 	for _, id := range []string{"../outside", "", "not-a-uuid"} {
 		params, _ := json.Marshal(map[string]string{"id": id})
-		if _, err := inv.handleVideoResumeSubtitle(&contract.State{LibraryRoot: t.TempDir()}, params); err == nil {
+		if _, err := inv.handleVideoResumeSubtitle(nil, &contract.State{LibraryRoot: t.TempDir()}, params); err == nil {
 			t.Fatal("invalid identity accepted")
 		}
 	}

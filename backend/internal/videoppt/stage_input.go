@@ -15,7 +15,7 @@ import (
 // submissions preserve the same record.
 func PersistStageInput(task CreatedTask, stage string, input any) error {
 	switch stage {
-	case "source", "auto", "extract", "export":
+	case "source", "auto", "extract", "export", "subtitle":
 	default:
 		return requestError("任务阶段无效")
 	}

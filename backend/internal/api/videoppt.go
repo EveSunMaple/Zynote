@@ -50,7 +50,7 @@ func (inv *Invoker) handleVideoPptRestore(state *contract.State, params json.Raw
 	if err != nil {
 		if os.IsNotExist(err) {
 			operation, operationErr := videoPptService(state).Operation(input.ID)
-			if operationErr == nil {
+			if operationErr == nil && (operation.Stage == "source" || operation.Stage == "auto") {
 				return map[string]any{"resume": map[string]any{"action": "video-ppt:" + operation.Stage, "operationId": input.ID}}, nil
 			}
 		}

@@ -1,5 +1,5 @@
 import {describe, expect, it} from 'vitest'
-import {retainVideoOperation} from './video-ppt-operation'
+import {retainVideoOperation, settleLocalSubtitleOperation} from './video-ppt-operation'
 
 describe('PPT submission identity', () => {
  it('retains retry identity and changes it when meaningful inputs change', () => {
@@ -16,5 +16,20 @@ describe('PPT submission identity', () => {
    expect(retainVideoOperation(draft, 'video-ppt:auto', changed, createId).id).not.toBe(draft.id)
   }
   expect(retainVideoOperation(draft, 'video-ppt:source', input, createId).id).not.toBe(draft.id)
+ })
+
+ it('keeps failed local selection for resume and releases successful or cancelled selections', () => {
+  let ids = 0
+  const createId = () => `local-${++ids}`
+  const action = 'video-ppt:subtitle-transcribe-local'
+  const draft = retainVideoOperation(null, action, {courseId: 'course'}, createId)
+  const failed = settleLocalSubtitleOperation(draft, 'failed')
+  expect(retainVideoOperation(failed, action, {courseId: 'course'}, createId)).toBe(draft)
+  for (const outcome of ['completed', 'cancelled'] as const) {
+   const released = settleLocalSubtitleOperation(draft, outcome)
+   expect(retainVideoOperation(released, action, {courseId: 'course'}, createId).id).not.toBe(draft.id)
+  }
+  expect(retainVideoOperation(null, action, {courseId: 'course'}, createId).id).not.toBe(draft.id)
+  expect(retainVideoOperation(failed, action, {courseId: 'changed'}, createId).id).not.toBe(draft.id)
  })
 })

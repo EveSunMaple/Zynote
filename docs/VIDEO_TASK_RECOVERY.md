@@ -45,9 +45,18 @@ admission, and re-reads the task when execution starts. Its progress key is
 the task center. Cancelling while queued retains the source and recovery copy;
 an API regression verifies no ASR runs while another worker owns the slot.
 Remote transcription persists its source URL/task metadata before admission;
-download and ASR share the same exclusive worker. A queued cancellation retains
-the source record. Recovery of missing/incomplete downloaded video still requires
-reacquisition; this queue change does not assert partial-download reconciliation.
+download and ASR share the same exclusive worker. Local/remote starts accept
+operationId and bind source digest/URL plus course. Local same-ID retry reuses
+the selected source without reopening the picker. Picker cancellation creates
+no binding; successful/cancelled UI selections release their draft, and a failed
+selection offers explicit continue versus choose-new actions. Completed subtitle
+receipts return the same hash-verified SRT without ASR. Before publishing, a
+synced prepared-SRT checkpoint binds the response to the video digest. Retrying
+publication reuses its journaled target path; recovered older temporary audio is
+preserved with a warning rather than deleted from an untrusted persisted path. A queued cancellation retains
+the source record. Explicit subtitle resume can reacquire a missing new bound
+copy under the queue. Corrupt/unverified copies fail closed; historical partial
+files are not silently adopted or deleted.
 
 New remote, local subtitle and PPT video copies use same-directory staging,
 file sync and close before atomic no-overwrite hard-link publication. Failed or
@@ -89,6 +98,11 @@ invocation. Provider errors/cancellation after dispatch remain unknown and canno
 be resumed into another call. Already-saved frame responses can recover output
 without recognition. The subprocess-kill regression uses a simulated provider;
 it does not call a paid model. Visual entries still use BUSY rather than FIFO.
+`TestKilledPPTExportReusesPublishedPDF` kills a real subprocess after production
+frame rendering/PDF building/verification/publication, then verifies same-path
+recovery and exactly one PDF. Its frames are generated; no vision provider runs.
+The recorded English native test explicitly selects English. The current video
+API still uses its existing zh setting; that test is not UI English acceptance.
 
 ## Model checkpoint policy
 

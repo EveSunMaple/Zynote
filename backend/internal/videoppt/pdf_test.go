@@ -12,7 +12,8 @@ import (
 	"testing"
 )
 
-func TestExportPDFAndCrop(t *testing.T) {
+func pdfExportFixture(t *testing.T) (Processor, CreatedTask, []Choice, string) {
+	t.Helper()
 	root := t.TempDir()
 	taskID := "ffffffff-ffff-4fff-8fff-ffffffffffff"
 	directory := filepath.Join(root, taskID)
@@ -43,9 +44,13 @@ func TestExportPDFAndCrop(t *testing.T) {
 	file.Close()
 	output := t.TempDir()
 	processor := Processor{Root: root, Platform: "darwin", AllowSystemFallback: true}
-	result, data, err := processor.Export(context.Background(), CreatedTask{ID: taskID, Name: "第一讲.mp4", Dir: directory, Path: "video"}, []Choice{
-		{Page: 1, Keep: true, Crop: Region{Left: 0.5, Right: 1, Top: 0, Bottom: 1}},
-	}, output)
+
+	return processor, CreatedTask{ID: taskID, Name: "第一讲.mp4", Dir: directory, Path: "video"}, []Choice{{Page: 1, Keep: true, Crop: Region{Left: 0.5, Right: 1, Top: 0, Bottom: 1}}}, output
+}
+
+func TestExportPDFAndCrop(t *testing.T) {
+	processor, task, choices, output := pdfExportFixture(t)
+	result, data, err := processor.Export(context.Background(), task, choices, output)
 	if err != nil {
 		t.Fatal(err)
 	}
