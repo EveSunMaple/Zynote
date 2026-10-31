@@ -16,6 +16,10 @@ import (
 )
 
 func (inv *Invoker) runBoundSubtitle(store contract.StateStore, state *contract.State, task videoppt.CreatedTask, createErr error) (any, error) {
+	return inv.runBoundSubtitleContext(context.Background(), store, state, task, createErr)
+}
+
+func (inv *Invoker) runBoundSubtitleContext(ctx context.Context, store contract.StateStore, state *contract.State, task videoppt.CreatedTask, createErr error) (any, error) {
 	if createErr != nil {
 		var completed *videoppt.CompletedOperationError
 		if errors.As(createErr, &completed) {
@@ -28,7 +32,7 @@ func (inv *Invoker) runBoundSubtitle(store contract.StateStore, state *contract.
 		return nil, videoPptError(createErr)
 	}
 	params, _ := json.Marshal(map[string]string{"id": task.ID})
-	return inv.handleVideoResumeSubtitle(store, state, params)
+	return inv.handleVideoResumeSubtitleContext(ctx, store, state, params)
 }
 
 func (inv *Invoker) existingLocalSubtitle(state *contract.State, id, courseName string) (videoppt.CreatedTask, bool, error) {

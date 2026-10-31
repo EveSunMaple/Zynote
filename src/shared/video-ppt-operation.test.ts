@@ -11,6 +11,7 @@ describe('PPT submission identity', () => {
   for (const pages of [[2, 1], [1], [1, 2, 3]]) {
    expect(retainVideoOperation(draft, 'video-ppt:batch', {...input, pages}, createId).id).not.toBe(draft.id)
   }
+  expect(retainVideoOperation(draft, 'video-ppt:batch-subtitles', input, createId).id).not.toBe(draft.id)
  })
  it('retains retry identity and changes it when meaningful inputs change', () => {
   let ids = 0

@@ -30,7 +30,7 @@ func (inv *Invoker) createQueuedVideoTask(state *contract.State, path, videoURL,
 	}
 	operation := videoppt.VideoOperation{Version: 1, Stage: stage, Prompt: prompt, CourseName: courseName}
 	name := ""
-	if stage == "subtitle" {
+	if stage == "subtitle" || stage == "subtitle-station" {
 		operation.Page = 1
 	}
 	if path != "" {
@@ -60,12 +60,15 @@ func (inv *Invoker) createQueuedVideoTask(state *contract.State, path, videoURL,
 		}
 		operation.URL = normalized
 		name = videoID + "-P" + page
-		if stage == "subtitle" {
+		if stage == "subtitle" || stage == "subtitle-station" {
 			operation.Page = atoiSafe(page)
 		}
 	}
-	if stage == "subtitle" {
+	if stage == "subtitle" || stage == "subtitle-station" {
 		operation.OutputName = library.FolderName(videoppt.SubtitleTitle(name)) + "-离线转写.srt"
+		if stage == "subtitle-station" {
+			operation.OutputName = library.FolderName(videoppt.SubtitleTitle(name)) + "-字幕.srt"
+		}
 	}
 	task, err := videoPptService(state).CreateOperationTask(id, name, operation)
 	if err != nil {
@@ -132,7 +135,7 @@ func (inv *Invoker) projectVideoSource(state *contract.State, id string) {
 		return
 	}
 	key := "video-ppt:" + id
-	if operation.Stage == "subtitle" {
+	if operation.Stage == "subtitle" || operation.Stage == "subtitle-station" {
 		key = "subtitle-transcribe:" + id
 	}
 	inv.jobs.SetSource(key, source)

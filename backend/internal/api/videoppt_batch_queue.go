@@ -36,7 +36,7 @@ func (inv *Invoker) cancelVideoBatches() {
 	}
 }
 
-func (inv *Invoker) bindVideoBatch(store contract.StateStore, state *contract.State, params json.RawMessage) (videoppt.BatchOperation, error) {
+func (inv *Invoker) bindVideoBatch(store contract.StateStore, state *contract.State, params json.RawMessage, kind string) (videoppt.BatchOperation, error) {
 	var input struct {
 		OperationID string `json:"operationId"`
 		URL         string `json:"url"`
@@ -49,7 +49,11 @@ func (inv *Invoker) bindVideoBatch(store contract.StateStore, state *contract.St
 	}
 	service := videoPptService(state)
 	if input.URL == "" && input.OperationID != "" {
-		return service.Batch(input.OperationID)
+		batch, err := service.Batch(input.OperationID)
+		if err == nil && batch.Input.Kind != kind {
+			return batch, contract.InputInvalid("批次类型与已绑定任务不一致")
+		}
+		return batch, err
 	}
 	normalized, err := bilibili.VideoURL(input.URL)
 	if err != nil {
@@ -69,10 +73,13 @@ func (inv *Invoker) bindVideoBatch(store contract.StateStore, state *contract.St
 	if err != nil {
 		return videoppt.BatchOperation{}, err
 	}
+	if kind == "subtitle" {
+		input.Prompt = "station-first-then-asr"
+	}
 	if input.Prompt == "" {
 		input.Prompt = defaultVideoPrompt
 	}
-	return service.BindBatch(input.OperationID, videoppt.BatchInput{URL: normalized, Pages: input.Pages, Prompt: input.Prompt, CourseName: course})
+	return service.BindBatch(input.OperationID, videoppt.BatchInput{Kind: kind, URL: normalized, Pages: input.Pages, Prompt: input.Prompt, CourseName: course})
 }
 
 func (inv *Invoker) prepareVideoBatch(ctx context.Context, store contract.StateStore, state *contract.State, batch videoppt.BatchOperation) (videoppt.BatchOperation, error) {
@@ -111,7 +118,11 @@ func (inv *Invoker) runVideoBatchEpisode(ctx context.Context, store contract.Sta
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
-	id := videoppt.BatchChildID(batch.ID, episode.Page)
+	id := batch.ChildID(episode.Page)
+	if batch.Input.Kind == "subtitle" {
+		task, _, err := inv.createQueuedVideoTask(state, "", episode.URL, "subtitle-station", "", batch.Input.CourseName, id)
+		return inv.runBoundSubtitleContext(ctx, store, state, task, err)
+	}
 	// Bind the exact parent course snapshot before operation-only continuation.
 	_, _, err := inv.createQueuedVideoTask(state, "", episode.URL, "auto", batch.Input.Prompt, batch.Input.CourseName, id)
 	if err != nil {
@@ -130,7 +141,15 @@ func (inv *Invoker) runVideoBatchEpisode(ctx context.Context, store contract.Sta
 }
 
 func (inv *Invoker) handleVideoBatch(store contract.StateStore, state *contract.State, params json.RawMessage) (any, error) {
-	batch, err := inv.bindVideoBatch(store, state, params)
+	return inv.handleManagedVideoBatch(store, state, params, "")
+}
+
+func (inv *Invoker) handleVideoBatchSubtitles(store contract.StateStore, state *contract.State, params json.RawMessage) (any, error) {
+	return inv.handleManagedVideoBatch(store, state, params, "subtitle")
+}
+
+func (inv *Invoker) handleManagedVideoBatch(store contract.StateStore, state *contract.State, params json.RawMessage, kind string) (any, error) {
+	batch, err := inv.bindVideoBatch(store, state, params, kind)
 	if err != nil {
 		return nil, videoPptError(err)
 	}
@@ -145,10 +164,10 @@ func (inv *Invoker) handleVideoBatch(store contract.StateStore, state *contract.
 	}
 	items := make([]map[string]any, 0, len(batch.Episodes))
 	for _, episode := range batch.Episodes {
-		items = append(items, map[string]any{"page": episode.Page, "title": episode.Title, "status": "等待处理", "taskId": videoppt.BatchChildID(batch.ID, episode.Page)})
+		items = append(items, map[string]any{"page": episode.Page, "title": episode.Title, "status": "等待处理", "taskId": batch.ChildID(episode.Page)})
 	}
 	notify := func(taskID string) {
-		inv.emit(map[string]any{"kind": "video-batch", "operationId": batch.ID, "taskId": taskID, "items": items})
+		inv.emit(map[string]any{"kind": "video-batch", "operationId": batch.ID, "taskId": taskID, "batchKind": batch.Input.Kind, "items": items})
 	}
 	notify("")
 	for index, episode := range batch.Episodes {
@@ -157,8 +176,12 @@ func (inv *Invoker) handleVideoBatch(store contract.StateStore, state *contract.
 		}
 		item := items[index]
 		item["status"] = "处理中"
-		notify(videoppt.BatchChildID(batch.ID, episode.Page))
-		inv.emit(map[string]any{"kind": "progress", "data": map[string]any{"key": "video-ppt:" + videoppt.BatchChildID(batch.ID, episode.Page), "stage": "视频课件", "message": fmt.Sprintf("正在等待或处理所选课程 %d/%d · P%d %s", index+1, len(items), episode.Page, episode.Title)}})
+		notify(batch.ChildID(episode.Page))
+		stage := "视频课件"
+		if batch.Input.Kind == "subtitle" {
+			stage = "字幕转写"
+		}
+		inv.emit(map[string]any{"kind": "progress", "data": map[string]any{"key": batchProgressKey(batch, episode.Page), "stage": stage, "message": fmt.Sprintf("正在等待或处理所选课程 %d/%d · P%d %s", index+1, len(items), episode.Page, episode.Title)}})
 		result, err := inv.runVideoBatchEpisode(ctx, store, state, batch, episode)
 		if ctx.Err() != nil || err == jobs.ErrCancelled {
 			return nil, contract.NewError(contract.CodeCancelled, "批次已取消，任务已保留")
@@ -168,9 +191,17 @@ func (inv *Invoker) handleVideoBatch(store contract.StateStore, state *contract.
 			item["error"] = err.Error()
 		} else {
 			item["status"] = "已完成"
-			item["path"] = result.(map[string]any)["path"]
+			if batch.Input.Kind == "subtitle" {
+				item["path"] = result.(map[string]any)["savedPath"]
+			} else {
+				item["path"] = result.(map[string]any)["path"]
+			}
 		}
 		notify("")
+		var application *contract.AppError
+		if errors.As(err, &application) && (application.Code == contract.CodeAuthExpired || application.Code == contract.CodeRateLimited) {
+			return nil, application
+		}
 	}
 	complete := true
 	for _, item := range items {
@@ -184,4 +215,12 @@ func (inv *Invoker) handleVideoBatch(store contract.StateStore, state *contract.
 		}
 	}
 	return items, nil
+}
+
+func batchProgressKey(batch videoppt.BatchOperation, page int) string {
+	prefix := "video-ppt:"
+	if batch.Input.Kind == "subtitle" {
+		prefix = "subtitle-transcribe:"
+	}
+	return prefix + batch.ChildID(page)
 }

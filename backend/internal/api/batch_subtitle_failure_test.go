@@ -2,6 +2,7 @@ package api
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"io"
 	"net/http"
@@ -17,7 +18,11 @@ import (
 func TestBatchSubtitleAcquisitionFailureDoesNotDownloadOrTranscribe(t *testing.T) {
 	for _, failure := range []string{"login", "rate-limit", "transport", "invalid-track", "untrusted-track", "cancelled"} {
 		t.Run(failure, func(t *testing.T) {
-			state := &contract.State{LibraryRoot: t.TempDir()}
+			root, err := filepath.EvalSymlinks(t.TempDir())
+			if err != nil {
+				t.Fatal(err)
+			}
+			state := &contract.State{LibraryRoot: root}
 			inv := NewInvoker()
 			calls := 0
 			inv.biliRoot = filepath.Join(state.LibraryRoot, "MediaDownloads")
@@ -47,15 +52,23 @@ func TestBatchSubtitleAcquisitionFailureDoesNotDownloadOrTranscribe(t *testing.T
 				}
 				return &http.Response{StatusCode: status, Body: io.NopCloser(strings.NewReader(body)), Header: make(http.Header)}, nil
 			})
-			item := inv.batchSubtitleItem(context.Background(), &subtitleStore{state: state}, state, bilibili.VideoEpisode{Page: 1, Title: "lecture", URL: "https://www.bilibili.com/video/BV1234567890/"}, "")
-			if item["status"] != "失败" || item["error"] == "" {
-				t.Fatal(item)
+			task, _, createErr := inv.createQueuedVideoTask(state, "", "https://www.bilibili.com/video/BV1234567890/", "subtitle-station", "", "", "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb")
+			if createErr != nil {
+				t.Fatal(createErr)
 			}
-			if calls > 3 {
+			params, _ := json.Marshal(map[string]string{"id": task.ID})
+			_, runErr := inv.handleVideoResumeSubtitle(&subtitleStore{state: state}, state, params)
+			if runErr == nil {
+				t.Fatal("failure accepted")
+			}
+			if calls < 2 || calls > 3 {
 				t.Fatal("unexpected reacquisition", calls)
 			}
-			if _, err := os.Stat(filepath.Join(state.LibraryRoot, "VideoTasks")); !os.IsNotExist(err) {
+			if _, err := os.Stat(task.Path); !os.IsNotExist(err) {
 				t.Fatal("failure initiated video task", err)
+			}
+			if _, found, err := videoPptService(state).LoadStationSubtitle(task); err != nil || found {
+				t.Fatal("failure froze absence decision", found, err)
 			}
 		})
 	}
@@ -83,9 +96,14 @@ func TestBatchExplicitEmptySubtitleCatalogStillCreatesRecoverableASRTask(t *test
 		}
 		return &http.Response{StatusCode: http.StatusOK, Body: io.NopCloser(strings.NewReader(body)), Header: make(http.Header)}, nil
 	})
-	item := inv.batchSubtitleItem(context.Background(), &subtitleStore{state: state}, state, bilibili.VideoEpisode{Page: 1, Title: "lecture", URL: "https://www.bilibili.com/video/BV1234567890/"}, "")
-	if item["status"] != "失败" || acquisitionCalls != 1 {
-		t.Fatal(item, acquisitionCalls)
+	task, _, createErr := inv.createQueuedVideoTask(state, "", "https://www.bilibili.com/video/BV1234567890/", "subtitle-station", "", "", "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb")
+	if createErr != nil {
+		t.Fatal(createErr)
+	}
+	params, _ := json.Marshal(map[string]string{"id": task.ID})
+	_, runErr := inv.handleVideoResumeSubtitle(&subtitleStore{state: state}, state, params)
+	if runErr == nil || acquisitionCalls != 1 {
+		t.Fatal(runErr, acquisitionCalls)
 	}
 	pending, err := videoPptService(state).Pending()
 	if err != nil || len(pending) != 1 || pending[0].Kind != "subtitle" {

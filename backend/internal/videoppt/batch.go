@@ -13,6 +13,7 @@ import (
 )
 
 type BatchInput struct {
+	Kind       string `json:"kind,omitempty"`
 	URL        string `json:"url"`
 	Pages      []int  `json:"pages"`
 	Prompt     string `json:"prompt"`
@@ -61,7 +62,7 @@ func (service *Service) Batch(id string) (BatchOperation, error) {
 
 func validateBatch(batch BatchOperation) error {
 	parent, err := operationSource(VideoOperation{URL: batch.Input.URL})
-	if err != nil || batch.Input.Prompt == "" || len(batch.Input.Pages) < 1 || len(batch.Input.Pages) > 1000 {
+	if (batch.Input.Kind != "" && batch.Input.Kind != "subtitle") || err != nil || batch.Input.Prompt == "" || len(batch.Input.Pages) < 1 || len(batch.Input.Pages) > 1000 {
 		return requestError("批次来源记录无效")
 	}
 	seen := map[int]bool{}
@@ -199,13 +200,21 @@ func (service *Service) PendingBatches() ([]Pending, error) {
 		}
 		batch, err := service.Batch(id)
 		pending := Pending{ID: id, Name: "批量课件", Kind: "batch"}
+		if batch.Input.Kind == "subtitle" {
+			pending.Kind = "batch-subtitle"
+			pending.Name = "批量字幕"
+		}
 		if err != nil {
 			pending.Error = err.Error()
 			result = append(result, pending)
 			continue
 		}
 		if !batch.Completed {
-			pending.Name = fmt.Sprintf("批量课件 · %d 个分集", len(batch.Input.Pages))
+			label := "批量课件"
+			if batch.Input.Kind == "subtitle" {
+				label = "批量字幕"
+			}
+			pending.Name = fmt.Sprintf("%s · %d 个分集", label, len(batch.Input.Pages))
 			result = append(result, pending)
 		}
 	}
@@ -215,7 +224,18 @@ func (service *Service) PendingBatches() ([]Pending, error) {
 // BatchChildID is stable within a parent batch; changing the parent ID is an
 // explicit new operation, not a claim of cross-batch deduplication.
 func BatchChildID(parent string, page int) string {
-	sum := sha256.Sum256([]byte(fmt.Sprintf("video-ppt-batch:%s:%d", parent, page)))
+	return batchChildID("video-ppt-batch", parent, page)
+}
+
+func (batch BatchOperation) ChildID(page int) string {
+	if batch.Input.Kind == "subtitle" {
+		return batchChildID("video-subtitle-batch", batch.ID, page)
+	}
+	return BatchChildID(batch.ID, page)
+}
+
+func batchChildID(namespace, parent string, page int) string {
+	sum := sha256.Sum256([]byte(fmt.Sprintf("%s:%s:%d", namespace, parent, page)))
 	sum[6] = (sum[6] & 0x0f) | 0x50
 	sum[8] = (sum[8] & 0x3f) | 0x80
 	raw := hex.EncodeToString(sum[:16])

@@ -121,9 +121,9 @@ export function TaskCenter({ // NOSONAR: transitional TS fallback/UI flow retain
   for (const task of pending) {
    next.push({
     key: 'video:' + task.id,
-    domain: task.kind === 'subtitle' ? '字幕' : '视频',
+    domain: task.kind === 'subtitle' || task.kind === 'batch-subtitle' ? '字幕' : '视频',
     title: task.name,
-    detail: [task.error || (task.kind === 'subtitle' ? '字幕转写可继续' : task.kind === 'batch' ? '批量课件可继续' : '课件任务待继续'), mediaSourceSummary(task.source)].filter(Boolean).join(' · '),
+    detail: [task.error || (task.kind === 'subtitle' ? '字幕转写可继续' : task.kind === 'batch' ? '批量课件可继续' : task.kind === 'batch-subtitle' ? '批量字幕可继续' : '课件任务待继续'), mediaSourceSummary(task.source)].filter(Boolean).join(' · '),
     status: task.queueState ? (zhiyunStates[task.queueState] || '待处理') : task.error ? '失败' : '待处理',
     actions: (
      <>

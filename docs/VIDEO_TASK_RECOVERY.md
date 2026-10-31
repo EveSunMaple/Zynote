@@ -204,9 +204,8 @@ failures and invalid/untrusted subtitle tracks remain errors. The renderer
 retains its compatible no-subtitle message handling because the current shell
 bridge carries error messages without structured error codes.
 
-`video-ppt:batch-subtitles` still uses its outer exclusive worker and remains a
-separate orchestration migration. It must not call a queued single-task entry
-from inside that worker, which would deadlock.
+Both PPT and subtitle batches now use the parent/child orchestration described
+below; no outer worker waits for an inner queued child.
 
 
 Bilibili resource and raw subtitle readers now share sanitized direct error
@@ -287,3 +286,30 @@ The fence does not hold over QR HTTP network work. Controlled barriers cover
 headers-before-logout, body-read-before-logout, new-login invalidation and bridge
 open/clear ordering. These are deterministic fake-response tests, not real QR,
 protected video, browser UI or account-state acceptance.
+
+
+## Subtitle batch orchestration and station checkpoint
+
+Subtitle batches share parent manifests, discovery/restore and cancellation with
+PPT batches. Manifest kind is bound immutably (legacy empty kind remains PPT),
+subtitle children use a separate deterministic namespace, and each child owns
+one subtitle queue slot. A subtitle-station operation binds URL/page/course and
+resumes through the station branch even from its standalone pending-task action.
+
+A station-subtitle checkpoint records only canonical URL/page, known SRT text,
+content SHA256/count and display provenance, or an explicitly confirmed
+NO_SUBTITLE outcome. Reads validate operation identity, SRT parsing/count/digest;
+this never invents video bytes, CID or a video-ready proof. Known station text
+reuses journaled PublishSubtitle and completed receipts after publication or
+parent interruption, without fetching or running ASR again. Only the bound
+NO_SUBTITLE decision enters existing verified acquisition/ASR in the same child
+worker; no nested queue is taken. Authentication/rate-limit errors stop the
+parent immediately after recording that child failure, so later pages are not
+created or requested. Other independent per-page content errors may continue.
+
+Controlled tests exercise standalone prepared/published station recovery,
+completed-child replay, parent kind isolation/discovery, cancellation between
+subtitle children, edited URL/page/SRT/count rejection and auth/rate no-next-page.
+The old unqueued batch subtitle helpers were removed; failure tests invoke the
+actual queued resume handler and assert catalog calls really occurred. No paid
+model, real account/protected acquisition or manual theme acceptance is implied.

@@ -72,6 +72,7 @@ export function VideoPpt({
  const working = useRef(false)
  const pptOperation = useRef<VideoOperationDraft | null>(null)
  const batchOperation = useRef<VideoOperationDraft | null>(null)
+ const subtitleBatchOperation = useRef<VideoOperationDraft | null>(null)
  const activeBatchId = useRef<string | null>(null)
  const activeProgressKey = useRef<string | null>(null)
  async function startPpt<T>(action: 'video-ppt:source' | 'video-ppt:auto', input: VideoStartInput): Promise<T> {
@@ -198,8 +199,10 @@ export function VideoPpt({
     )
      setProgress(e.data.message)
     if (working.current && e.kind === 'video-batch' && (!e.operationId || e.operationId === activeBatchId.current)) {
-     setBatch(e.items)
-     if (e.taskId) activeProgressKey.current = `video-ppt:${e.taskId}`
+     if (e.batchKind === 'subtitle') setSubtitleBatch(e.items)
+     else setBatch(e.items)
+     if (e.taskId)
+      activeProgressKey.current = `${e.batchKind === 'subtitle' ? 'subtitle-transcribe' : 'video-ppt'}:${e.taskId}`
     }
    }),
   []
@@ -224,14 +227,22 @@ export function VideoPpt({
   void run(async () => {
    const restored = await invoke<
     | {source: VideoSource; review: VideoReview | null}
-    | {resume: {action: 'video-ppt:source' | 'video-ppt:auto' | 'video-ppt:batch'; operationId: string}}
+    | {
+       resume: {
+        action: 'video-ppt:source' | 'video-ppt:auto' | 'video-ppt:batch' | 'video-ppt:batch-subtitles'
+        operationId: string
+       }
+      }
    >('video-ppt:restore', {id: restoreTaskId})
    if ('resume' in restored) {
-    if (restored.resume.action === 'video-ppt:batch') {
+    if (restored.resume.action === 'video-ppt:batch' || restored.resume.action === 'video-ppt:batch-subtitles') {
      activeBatchId.current = restored.resume.operationId
      activeProgressKey.current = `video-batch-prepare:${restored.resume.operationId}`
+     if (restored.resume.action === 'video-ppt:batch-subtitles') select('videoSubtitles')
      const items = await invoke<VideoBatchItem[]>(restored.resume.action, {operationId: restored.resume.operationId})
-     setBatch(items)
+     if (restored.resume.action === 'video-ppt:batch-subtitles') {
+      setSubtitleBatch(items)
+     } else setBatch(items)
      setProgress(
       `批次已处理：完成 ${items.filter(item => item.status === '已完成').length}，失败 ${items.filter(item => item.status === '失败').length}`
      )
@@ -719,11 +730,18 @@ export function VideoPpt({
         onClick={() =>
          void run(async () => {
           setSubtitleBatch([])
+          const input = {url, pages: selected, courseId: courseId || undefined}
+          const draft = retainVideoOperation(subtitleBatchOperation.current, 'video-ppt:batch-subtitles', input, () =>
+           crypto.randomUUID()
+          )
+          subtitleBatchOperation.current = draft
+          activeBatchId.current = draft.id
+          activeProgressKey.current = `video-batch-prepare:${draft.id}`
           const result = await invoke<VideoBatchItem[]>('video-ppt:batch-subtitles', {
-           url,
-           pages: selected,
-           courseId: courseId || undefined
+           ...input,
+           operationId: draft.id
           })
+          if (result.every(item => item.status === '已完成')) subtitleBatchOperation.current = null
           setSubtitleBatch(result)
           setProgress(
            `字幕处理完成：成功 ${result.filter(i => i.status === '已完成').length}，失败 ${result.filter(i => i.status === '失败').length}`

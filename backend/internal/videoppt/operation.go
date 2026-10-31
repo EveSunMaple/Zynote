@@ -106,10 +106,13 @@ func (service *Service) CreateOperationTask(id, name string, operation VideoOper
 	} else if !os.IsNotExist(err) {
 		return CreatedTask{}, err
 	}
-	if operation.Version != 1 || (operation.Stage != "source" && operation.Stage != "auto" && operation.Stage != "subtitle") {
+	if operation.Version != 1 || (operation.Stage != "source" && operation.Stage != "auto" && operation.Stage != "subtitle" && operation.Stage != "subtitle-station") {
 		return CreatedTask{}, requestError("任务来源记录无效")
 	}
-	if operation.Stage == "subtitle" && (operation.OutputName == "" || !subtitleFilePattern.MatchString(operation.OutputName) || operation.Page < 1) {
+	if operation.Stage == "subtitle-station" && (operation.URL == "" || operation.Path != "") {
+		return CreatedTask{}, requestError("站内字幕必须绑定远程来源")
+	}
+	if (operation.Stage == "subtitle" || operation.Stage == "subtitle-station") && (operation.OutputName == "" || !subtitleFilePattern.MatchString(operation.OutputName) || operation.Page < 1) {
 		return CreatedTask{}, requestError("字幕任务参数无效")
 	}
 
@@ -150,7 +153,7 @@ func (service *Service) CreateOperationTask(id, name string, operation VideoOper
 		return CreatedTask{}, err
 	}
 	meta := map[string]any{"id": id, "name": name, "url": operation.URL}
-	if operation.Stage == "subtitle" {
+	if operation.Stage == "subtitle" || operation.Stage == "subtitle-station" {
 		meta["kind"] = "subtitle"
 		meta["outputName"] = operation.OutputName
 		meta["courseName"] = operation.CourseName
@@ -180,7 +183,7 @@ func (service *Service) Operation(id string) (VideoOperation, error) {
 		return VideoOperation{}, err
 	}
 	var operation VideoOperation
-	if json.Unmarshal(body, &operation) != nil || operation.Version != 1 || (operation.Stage != "source" && operation.Stage != "auto" && operation.Stage != "subtitle") {
+	if json.Unmarshal(body, &operation) != nil || operation.Version != 1 || (operation.Stage != "source" && operation.Stage != "auto" && operation.Stage != "subtitle" && operation.Stage != "subtitle-station") {
 		return VideoOperation{}, requestError("任务来源记录无效")
 	}
 	return operation, nil

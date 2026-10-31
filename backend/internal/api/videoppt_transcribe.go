@@ -111,12 +111,20 @@ func (inv *Invoker) handleVideoSubtitleTranscribeLocal(store contract.StateStore
 }
 
 func (inv *Invoker) runSubtitleQueued(state *contract.State, id string, run func(context.Context) (any, error)) (any, error) {
+	return inv.runSubtitleQueuedContext(context.Background(), state, id, run)
+}
+
+func (inv *Invoker) runSubtitleQueuedContext(ctx context.Context, state *contract.State, id string, run func(context.Context) (any, error)) (any, error) {
 	key := "subtitle-transcribe:" + id
-	result, err := inv.jobs.RunQueued(context.Background(), filepath.Join(state.LibraryRoot, "TaskQueue"), id, key, run)
+	result, err := inv.jobs.RunQueued(ctx, filepath.Join(state.LibraryRoot, "TaskQueue"), id, key, run)
 	return inv.finishJob(key, "", result, err)
 }
 
 func (inv *Invoker) handleVideoResumeSubtitle(store contract.StateStore, state *contract.State, params json.RawMessage) (any, error) {
+	return inv.handleVideoResumeSubtitleContext(context.Background(), store, state, params)
+}
+
+func (inv *Invoker) handleVideoResumeSubtitleContext(ctx context.Context, store contract.StateStore, state *contract.State, params json.RawMessage) (any, error) {
 	var input struct {
 		ID string `json:"id"`
 	}
@@ -126,7 +134,7 @@ func (inv *Invoker) handleVideoResumeSubtitle(store contract.StateStore, state *
 	if _, _, err := videoPptService(state).SubtitleTask(input.ID); err != nil {
 		return nil, videoPptError(err)
 	}
-	return inv.runSubtitleQueued(state, input.ID, func(ctx context.Context) (any, error) {
+	return inv.runSubtitleQueuedContext(ctx, state, input.ID, func(ctx context.Context) (any, error) {
 		service := videoPptService(state)
 		meta, directory, err := service.SubtitleTask(input.ID)
 		if err != nil {
@@ -156,7 +164,10 @@ func (inv *Invoker) handleVideoResumeSubtitle(store contract.StateStore, state *
 			output := map[string]any{"title": meta.Name, "page": meta.Page, "source": "已保存的字幕", "warning": "已核对原有字幕。", "srt": string(body), "count": len(segments), "savedPath": path, "cleanupWarning": ""}
 			return finishSubtitleTask(state, videoppt.CreatedTask{ID: meta.ID, Name: meta.Name, Dir: directory}, output, path)
 		}
-		if _, err := service.Operation(input.ID); err == nil {
+		if operation, err := service.Operation(input.ID); err == nil {
+			if operation.Stage == "subtitle-station" {
+				return inv.stationSubtitle(ctx, store, state, videoppt.CreatedTask{ID: meta.ID, Name: meta.Name, Dir: directory, Path: filepath.Join(directory, "video.mp4")})
+			}
 			if err := inv.ensureQueuedVideo(ctx, store, state, videoppt.CreatedTask{ID: meta.ID, Name: meta.Name, Dir: directory, Path: filepath.Join(directory, "video.mp4")}); err != nil {
 				return nil, err
 			}

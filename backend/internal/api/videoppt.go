@@ -33,7 +33,7 @@ func (inv *Invoker) handleVideoPptPending(state *contract.State) (any, error) {
 		return nil, videoPptError(err)
 	}
 	for index := range result {
-		if result[index].Kind == "batch" {
+		if result[index].Kind == "batch" || result[index].Kind == "batch-subtitle" {
 			result[index].QueueState = "interrupted"
 			inv.videoBatchMu.Lock()
 			if inv.videoBatches[filepath.Join(state.LibraryRoot, result[index].ID)] != nil {
@@ -64,8 +64,12 @@ func (inv *Invoker) handleVideoPptRestore(state *contract.State, params json.Raw
 	if err := json.Unmarshal(params, &input); err != nil || input.ID == "" {
 		return nil, contract.InputInvalid("任务编号无效")
 	}
-	if _, err := videoPptService(state).Batch(input.ID); err == nil {
-		return map[string]any{"resume": map[string]any{"action": "video-ppt:batch", "operationId": input.ID}}, nil
+	if batch, err := videoPptService(state).Batch(input.ID); err == nil {
+		action := "video-ppt:batch"
+		if batch.Input.Kind == "subtitle" {
+			action = "video-ppt:batch-subtitles"
+		}
+		return map[string]any{"resume": map[string]any{"action": action, "operationId": input.ID}}, nil
 	} else if !os.IsNotExist(err) {
 		return nil, videoPptError(err)
 	}

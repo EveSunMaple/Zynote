@@ -7,6 +7,7 @@ export function retainVideoOperation(
   | 'video-ppt:source'
   | 'video-ppt:auto'
   | 'video-ppt:batch'
+  | 'video-ppt:batch-subtitles'
   | 'video-ppt:subtitle-transcribe'
   | 'video-ppt:subtitle-transcribe-local',
  input: VideoStartInput,

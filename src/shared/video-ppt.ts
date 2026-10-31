@@ -5,7 +5,7 @@ export type VideoSeries = {title: string; episodes: VideoEpisode[]}
 export type PendingVideoTask = {
  id: string
  name: string
- kind?: 'subtitle' | 'batch'
+ kind?: 'subtitle' | 'batch' | 'batch-subtitle'
  savedPath?: string
  error?: string
  queueState?: string
