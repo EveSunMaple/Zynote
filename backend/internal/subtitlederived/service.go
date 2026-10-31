@@ -13,6 +13,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/EveSunMaple/Zynote/backend/internal/contract"
 	"github.com/EveSunMaple/Zynote/backend/internal/documents"
 	"github.com/EveSunMaple/Zynote/backend/internal/ids"
 	"github.com/EveSunMaple/Zynote/backend/internal/library"
@@ -48,32 +49,36 @@ type Prepared struct {
 }
 
 type Item struct {
-	Source          Source    `json:"source"`
-	Mode            string    `json:"mode"`
-	Status          string    `json:"status"`
-	Error           string    `json:"error,omitempty"`
-	Outputs         []Output  `json:"outputs,omitempty"`
-	Prepared        *Prepared `json:"prepared,omitempty"`
-	GenerationState string    `json:"generationState,omitempty"`
+	Source          Source      `json:"source"`
+	Mode            string      `json:"mode"`
+	Status          string      `json:"status"`
+	Error           string      `json:"error,omitempty"`
+	Outputs         []Output    `json:"outputs,omitempty"`
+	Prepared        *Prepared   `json:"prepared,omitempty"`
+	GenerationState string      `json:"generationState,omitempty"`
+	Recipe          *ItemRecipe `json:"recipe,omitempty"`
 }
 
 type Task struct {
-	OutputVersion int    `json:"outputVersion,omitempty"`
-	ID            string `json:"id"`
-	CreatedAt     string `json:"createdAt"`
-	CourseName    string `json:"courseName,omitempty"`
-	Interrupted   bool   `json:"interrupted"`
-	Items         []Item `json:"items"`
-	QueueState    string `json:"queueState,omitempty"`
-	RequestHash   string `json:"requestHash,omitempty"`
+	OutputVersion   int         `json:"outputVersion,omitempty"`
+	ID              string      `json:"id"`
+	CreatedAt       string      `json:"createdAt"`
+	CourseName      string      `json:"courseName,omitempty"`
+	Interrupted     bool        `json:"interrupted"`
+	Items           []Item      `json:"items"`
+	QueueState      string      `json:"queueState,omitempty"`
+	RequestHash     string      `json:"requestHash,omitempty"`
+	EvidenceVersion int         `json:"evidenceVersion,omitempty"`
+	Recipe          *TaskRecipe `json:"recipe,omitempty"`
 }
 
 type Dependencies struct {
-	Generation    func(ctx context.Context, url string) (string, error)
-	ValidateModel func(ctx context.Context) error
-	Summarize     func(ctx context.Context, srt, mode string) (string, []Point, error)
-	RenderSVG     func(title string, points []Point) string
-	Progress      func(message string)
+	Generation     func(ctx context.Context, url string) (string, error)
+	ValidateModel  func(ctx context.Context) error
+	Summarize      func(ctx context.Context, srt, mode string) (string, []Point, error)
+	RenderSVG      func(title string, points []Point) string
+	Progress       func(message string)
+	ResolveRecipes func(context.Context, []string) (contract.RequestedGenerationConfig, map[string]ModeRecipe, error)
 }
 
 type Service struct {
@@ -387,6 +392,9 @@ func (service *Service) ensurePrepared(ctx context.Context, task *Task, item *It
 		if err := dependencies.ValidateModel(ctx); err != nil {
 			return err
 		}
+	}
+	if err := service.bindRecipe(ctx, task, dependencies); err != nil {
+		return err
 	}
 	item.GenerationState = "dispatched"
 	if err := service.save(*task); err != nil {

@@ -711,7 +711,7 @@ func (client *Client) JSONWithOptions(
 	}
 	feedback := ""
 	var lastErr error
-	for attempt := 0; attempt < 2; attempt++ {
+	for attempt := 0; attempt < jsonMaxAttempts; attempt++ {
 		text := string(encoded) + feedback
 		var content any = text
 		if len(options.Images) > 0 {
@@ -735,10 +735,10 @@ func (client *Client) JSONWithOptions(
 			if ctx.Err() != nil {
 				return nil, ctx.Err()
 			}
-			if attempt == 1 {
+			if attempt == jsonMaxAttempts-1 {
 				return nil, err
 			}
-			feedback = "\n上次输出未通过格式校验。请严格返回指定结构的合法 JSON，不加说明。"
+			feedback = jsonRepairFeedback
 			if options.OnRetry != nil {
 				options.OnRetry()
 			}

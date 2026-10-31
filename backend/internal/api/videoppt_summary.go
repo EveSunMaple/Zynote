@@ -2,6 +2,8 @@ package api
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -18,6 +20,18 @@ import (
 )
 
 const msgSummarySaveInvalid = "摘要保存校验失败"
+const summaryChunkLimit = 15000
+
+func summaryModeRecipe(mode string) (subtitlederived.ModeRecipe, error) {
+	if !validVideoNoteMode(mode) {
+		return subtitlederived.ModeRecipe{}, contract.InputInvalid("摘要模式无效")
+	}
+	prompt := summaryPrompt(mode, summaryMaxPoints(mode))
+	sum := sha256.Sum256([]byte(prompt))
+	return subtitlederived.ModeRecipe{Version: 1, Mode: mode, SystemPromptSHA256: hex.EncodeToString(sum[:]), ChunkPolicy: "subtitle-text-runes", ChunkLimit: summaryChunkLimit, MaxPoints: summaryMaxPoints(mode), JSONPolicy: ai.JSONRecipePolicy()}, nil
+}
+
+func validVideoNoteMode(mode string) bool { _, ok := videoNoteTitles[mode]; return ok }
 
 var videoNoteTitles = map[string]string{
 	"brief": "简要摘要", "detailed": "详细摘要", "keypoints": "课程要点", "mindmap": "思维导图",
@@ -57,7 +71,7 @@ func summaryChunks(segments []documents.Segment) [][]documents.Segment {
 	chunkLength := 0
 	for _, segment := range segments {
 		length := len([]rune(segment.Text))
-		if len(chunks) == 0 || chunkLength+length > 15000 {
+		if len(chunks) == 0 || chunkLength+length > summaryChunkLimit {
 			chunks = append(chunks, []documents.Segment{segment})
 			chunkLength = length
 			continue

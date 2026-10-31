@@ -28,7 +28,7 @@ func recoveryTask(t *testing.T) (*Service, Task) {
 func TestUnknownGenerationIsNotReplayedAfterRestart(t *testing.T) {
 	service, task := recoveryTask(t)
 	calls := 0
-	deps := Dependencies{Summarize: func(context.Context, string, string) (string, []Point, error) {
+	deps := Dependencies{ResolveRecipes: fixtureRecipes, Summarize: func(context.Context, string, string) (string, []Point, error) {
 		calls++
 		disk, err := service.Read(task.ID)
 		if err != nil || disk.Items[0].GenerationState != "dispatched" {
@@ -51,7 +51,7 @@ func TestUnknownGenerationIsNotReplayedAfterRestart(t *testing.T) {
 
 func TestLocalModelConfigurationFailureIsNotUnknown(t *testing.T) {
 	service, task := recoveryTask(t)
-	deps := Dependencies{
+	deps := Dependencies{ResolveRecipes: fixtureRecipes,
 		ValidateModel: func(context.Context) error { return fmt.Errorf("model configuration missing") },
 		Summarize: func(context.Context, string, string) (string, []Point, error) {
 			t.Fatal("model invoked after local validation failure")
@@ -80,7 +80,7 @@ func TestPreparedGenerationResumesWithoutModel(t *testing.T) {
 		t.Fatal(err)
 	}
 	restarted := New(service.Root, service.Library)
-	deps := Dependencies{Summarize: func(context.Context, string, string) (string, []Point, error) {
+	deps := Dependencies{ResolveRecipes: fixtureRecipes, Summarize: func(context.Context, string, string) (string, []Point, error) {
 		t.Fatal("prepared result regenerated")
 		return "", nil, nil
 	}}

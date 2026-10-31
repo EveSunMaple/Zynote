@@ -35,6 +35,13 @@ func (inv *Invoker) subtitleDerivedDependencies(store contract.StateStore, state
 		return client, nil
 	}
 	return subtitlederived.Dependencies{
+		ResolveRecipes: func(_ context.Context, modes []string) (contract.RequestedGenerationConfig, map[string]subtitlederived.ModeRecipe, error) {
+			active, err := getClient()
+			if err != nil {
+				return contract.RequestedGenerationConfig{}, nil, err
+			}
+			return resolveSubtitleRecipes(active, modes)
+		},
 		ValidateModel: func(context.Context) error {
 			_, err := getClient()
 			return err
@@ -217,4 +224,21 @@ func (inv *Invoker) handleSubtitleDerivedStart(store contract.StateStore, state 
 		return nil, contract.InputInvalid(err.Error())
 	}
 	return inv.runDerivedQueued(store, state, task.ID)
+}
+
+// resolveSubtitleRecipes binds the same client and prompt construction used by dispatch.
+func resolveSubtitleRecipes(client *ai.Client, modes []string) (contract.RequestedGenerationConfig, map[string]subtitlederived.ModeRecipe, error) {
+	configuration, err := client.TextRequestConfiguration()
+	if err != nil {
+		return configuration, nil, err
+	}
+	recipes := map[string]subtitlederived.ModeRecipe{}
+	for _, mode := range modes {
+		recipe, err := summaryModeRecipe(mode)
+		if err != nil {
+			return configuration, nil, err
+		}
+		recipes[mode] = recipe
+	}
+	return configuration, recipes, nil
 }

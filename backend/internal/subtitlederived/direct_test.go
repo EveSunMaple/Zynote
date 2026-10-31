@@ -23,7 +23,7 @@ func TestDirectSnapshotBindingAndUnknownNeverReplay(t *testing.T) {
 		t.Fatal("changed title accepted")
 	}
 	calls := 0
-	deps := Dependencies{Generation: func(context.Context, string) (string, error) {
+	deps := Dependencies{ResolveRecipes: fixtureRecipes, Generation: func(context.Context, string) (string, error) {
 		t.Fatal("direct SRT queried remote generation")
 		return "", nil
 	}, Summarize: func(context.Context, string, string) (string, []Point, error) {

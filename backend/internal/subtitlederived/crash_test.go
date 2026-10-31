@@ -50,7 +50,7 @@ func TestCrashWorker(t *testing.T) {
 		}()
 	}
 	_, err := registry.RunQueued(context.Background(), root, id, "notes", func(ctx context.Context) (any, error) {
-		return service.Run(ctx, id, Dependencies{Generation: func(context.Context, string) (string, error) {
+		return service.Run(ctx, id, Dependencies{ResolveRecipes: fixtureRecipes, Generation: func(context.Context, string) (string, error) {
 			checks++
 			if checkpoint == "prepared" && checks == 2 {
 				block()
@@ -118,7 +118,7 @@ func killedProcessCheckpoint(t *testing.T, checkpoint string) {
 		t.Fatalf("lost queue ownership after crash: %+v %v", record, err)
 	}
 	value, err := registry.RunQueued(context.Background(), root, task.ID, "notes", func(ctx context.Context) (any, error) {
-		return restarted.Run(ctx, task.ID, Dependencies{Summarize: func(context.Context, string, string) (string, []Point, error) {
+		return restarted.Run(ctx, task.ID, Dependencies{ResolveRecipes: fixtureRecipes, Summarize: func(context.Context, string, string) (string, []Point, error) {
 			if checkpoint == "queued" {
 				return "# Resumed queued task", nil, nil
 			}

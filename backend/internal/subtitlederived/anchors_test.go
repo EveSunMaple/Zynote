@@ -35,7 +35,7 @@ func TestPublishedPreparedPairsRetainVersionedLayout(t *testing.T) {
 			if err := service.save(task); err != nil {
 				t.Fatal(err)
 			}
-			first, err := service.Run(context.Background(), task.ID, Dependencies{})
+			first, err := service.Run(context.Background(), task.ID, Dependencies{ResolveRecipes: fixtureRecipes})
 			if err != nil || first.Items[0].Status != "已完成" {
 				t.Fatalf("legacy export failed %+v %v", first, err)
 			}
@@ -53,7 +53,7 @@ func TestPublishedPreparedPairsRetainVersionedLayout(t *testing.T) {
 			if err := service.save(task); err != nil {
 				t.Fatal(err)
 			}
-			recovered, err := service.Run(context.Background(), task.ID, Dependencies{Summarize: func(context.Context, string, string) (string, []Point, error) {
+			recovered, err := service.Run(context.Background(), task.ID, Dependencies{ResolveRecipes: fixtureRecipes, Summarize: func(context.Context, string, string) (string, []Point, error) {
 				t.Fatal("legacy recovery replayed provider")
 				return "", nil, nil
 			}})

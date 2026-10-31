@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/EveSunMaple/Zynote/backend/internal/ai"
+	"github.com/EveSunMaple/Zynote/backend/internal/contract"
 	"github.com/EveSunMaple/Zynote/backend/internal/jobs"
 	"github.com/EveSunMaple/Zynote/backend/internal/subtitlederived"
 )
@@ -49,7 +50,9 @@ func TestRealModelRecordedCourseNotes(t *testing.T) {
 	// MIT recording came from Bilibili. No media download uses that locator.
 	client := ai.New(ai.Profile{BaseURL: base, Model: model, Key: key, APIFormat: "openai"})
 	calls := 0
-	deps := subtitlederived.Dependencies{Summarize: func(ctx context.Context, srt, mode string) (string, []subtitlederived.Point, error) {
+	deps := subtitlederived.Dependencies{ResolveRecipes: func(_ context.Context, modes []string) (contract.RequestedGenerationConfig, map[string]subtitlederived.ModeRecipe, error) {
+		return resolveSubtitleRecipes(client, modes)
+	}, Summarize: func(ctx context.Context, srt, mode string) (string, []subtitlederived.Point, error) {
 		calls++
 		result, err := summarizeVideoText(ctx, client, srt, mode, nil)
 		if err != nil {
