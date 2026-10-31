@@ -71,6 +71,18 @@ const settingsBackLabels: Record<string, string> = {
  tasks: '返回任务中心'
 }
 const practiceFormatLabels: Record<string, string> = {md: 'Markdown', docx: 'Word', pdf: 'PDF'}
+async function startupInvoke<T>(action: string, args?: unknown) {
+ let lastError: unknown
+ for (let attempt = 0; attempt < 3; attempt++) {
+  try {
+   return await invoke<T>(action, args)
+  } catch (error) {
+   lastError = error
+   if (attempt < 2) await new Promise(resolve => setTimeout(resolve, 400 * (attempt + 1)))
+  }
+ }
+ throw lastError
+}
 type RailTarget = LearningView | 'zhiyun' | 'files' | 'recognition' | 'knowledge' | 'tools' | 'study' | 'tasks' | null
 type ModalTarget =
  | 'course'
@@ -124,12 +136,30 @@ export default function App() { // NOSONAR: transitional TS fallback/UI flow ret
  function openSettings(section: SettingsSection) {
   setSettingsSection(section)
   if (modal !== 'settings') setSettingsReturn(modal)
-  setModal('settings')
+  if (settings) {
+   setModal('settings')
+   return
+  }
+  void startupInvoke<Settings>('settings:get')
+   .then(value => {
+    setSettings(value)
+    setModal('settings')
+   })
+   .catch(error => notify.error(error, {title: '读取设置失败'}))
  }
  function openSettingsHome() {
   setSettingsReturn(null)
   setSettingsSection('appearance')
-  setModal('settings')
+  if (settings) {
+   setModal('settings')
+   return
+  }
+  void startupInvoke<Settings>('settings:get')
+   .then(value => {
+    setSettings(value)
+    setModal('settings')
+   })
+   .catch(error => notify.error(error, {title: '读取设置失败'}))
  }
  function closeSettings() {
   const target = settingsReturn
@@ -250,26 +280,37 @@ export default function App() { // NOSONAR: transitional TS fallback/UI flow ret
   }
  }
  useEffect(() => {
-  void invoke<AppearanceState>('appearance:get')
+  void startupInvoke<AppearanceState>('appearance:get')
    .then(setAppearance)
    .catch(e => notify.error(e, {title: '读取数据失败'}))
  }, [])
  useEffect(() => {
-  void invoke<Identity>('identity:get')
+  void startupInvoke<Identity>('identity:get')
    .then(setIdentity)
    .catch(e => notify.error(e, {title: '读取数据失败'}))
  }, [])
  useEffect(() => {
   let disposed = false
-  void Promise.all([invoke<Course[]>('courses'), invoke<Settings>('settings:get'), invoke<ChatSession[]>('sessions')])
-   .then(([c, s, cs]) => {
-    setSessions(cs)
-    setCourses(c)
-    setSettings(s)
-    const first = sortCoursesForNavigation(c)[0]
+  void Promise.allSettled([
+   startupInvoke<Course[]>('courses'),
+   startupInvoke<Settings>('settings:get'),
+   startupInvoke<ChatSession[]>('sessions')
+  ]).then(([coursesResult, settingsResult, sessionsResult]) => {
+   if (disposed) return
+   const errors: unknown[] = []
+   if (settingsResult.status === 'fulfilled') setSettings(settingsResult.value)
+   else errors.push(settingsResult.reason)
+   if (sessionsResult.status === 'fulfilled') setSessions(sessionsResult.value)
+   else errors.push(sessionsResult.reason)
+   if (coursesResult.status === 'fulfilled') {
+    setCourses(coursesResult.value)
+    const first = sortCoursesForNavigation(coursesResult.value)[0]
     if (first) setCourseId(first.id)
-   })
-   .catch(e => notify.error(e, {title: '读取数据失败'}))
+   } else {
+    errors.push(coursesResult.reason)
+   }
+   if (errors.length) notify.error(errors[0], {title: '读取数据失败'})
+  })
   const unsubscribe = window.assistant.onEvent(e => {
    if (e.kind === 'progress') {
     setJobProgress(e.data)
