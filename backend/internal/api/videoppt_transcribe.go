@@ -215,15 +215,15 @@ func (inv *Invoker) handleVideoSubtitleTranscribe(store contract.StateStore, sta
 	if err != nil {
 		return nil, err
 	}
-	return inv.runJob(jobKindVideoSubtitle, func(ctx context.Context) (any, error) {
+	task, err := videoPptService(state).CreateBlankTask(videoID+"-P"+page+"-字幕转写", map[string]any{
+		"kind": "subtitle", "outputName": videoID + "-P" + page + "-离线转写.srt",
+		"courseName": courseName, "url": normalized, "page": atoiSafe(page),
+	})
+	if err != nil {
+		return nil, videoPptError(err)
+	}
+	return inv.runSubtitleQueued(state, task.ID, func(ctx context.Context) (any, error) {
 		inv.videoProgress("正在下载视频用于离线字幕转写")
-		task, err := videoPptService(state).CreateBlankTask(videoID+"-P"+page+"-字幕转写", map[string]any{
-			"kind": "subtitle", "outputName": videoID + "-P" + page + "-离线转写.srt",
-			"courseName": courseName, "url": normalized, "page": atoiSafe(page),
-		})
-		if err != nil {
-			return nil, videoPptError(err)
-		}
 		if err := inv.downloadBiliVideo(ctx, store, state, normalized, task.Path); err != nil {
 			return nil, err
 		}
