@@ -5,7 +5,8 @@
 `jobs.Registry.RunQueued` is a reusable bounded FIFO scheduler sharing the
 existing global exclusive worker. The first integration is
 `subtitle-derived:start/resume`, local video transcription, and persisted
-subtitle resume. Other job entry points still return BUSY.
+subtitle resume, and remote subtitle acquisition/transcription. Other job entry
+points still return BUSY.
 There are at most 16 queue participants, including the running queued task.
 Normal jobs and queued jobs cannot execute simultaneously. Cancellation applies
 to both waiting participants and the active job.
@@ -43,7 +44,10 @@ admission, and re-reads the task when execution starts. Its progress key is
 `subtitle-transcribe:<task-id>`. Pending-video records project queue state into
 the task center. Cancelling while queued retains the source and recovery copy;
 an API regression verifies no ASR runs while another worker owns the slot.
-Remote acquisition/transcription is not yet admitted through this queue.
+Remote transcription persists its source URL/task metadata before admission;
+download and ASR share the same exclusive worker. A queued cancellation retains
+the source record. Recovery of missing/incomplete downloaded video still requires
+reacquisition; this queue change does not assert partial-download reconciliation.
 
 ## Model checkpoint policy
 
