@@ -21,9 +21,7 @@ import (
 const jobKindVideoSubtitle = "video-subtitle"
 
 func (inv *Invoker) videoProgress(message string) {
-	inv.emit(map[string]any{"kind": "progress", "data": map[string]any{
-		"stage": "视频提取 PPT", "message": message,
-	}})
+	inv.emit(map[string]any{"kind": "progress", "data": inv.jobs.Report(message)})
 }
 
 func (inv *Invoker) transcribeVideoTask(
