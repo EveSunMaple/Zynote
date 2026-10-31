@@ -16,6 +16,13 @@ closures, subtitle text, credentials or provider responses. Writes use a unique
 temporary file, file sync, close and rename. This does not claim power-loss
 atomicity of the directory or a multi-file transaction.
 
+The start action optionally accepts `operationId` (UUID). The UI retains it
+across a failed submission and resets it when the selected inputs change. The
+domain binds that ID to a SHA256 of normalized sources, ordered modes and course;
+identical resubmissions preserve checkpoints, while changed inputs cannot reuse
+the ID. Older clients without this field still get a newly generated task ID
+and should use the existing resume action after interruption.
+
 Queue ownership is process-local. After backend loss, a queued/running record
 without a live owner projects as `interrupted`. The existing explicit resume
 action reconstructs domain work using its persisted inputs. Restart never
