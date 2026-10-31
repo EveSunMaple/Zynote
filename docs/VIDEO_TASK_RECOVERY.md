@@ -104,3 +104,10 @@ invalid starts, reversed/nonfinite spans, or spans beyond a full padded window
 remain errors. The original 0.832s recording passed a real native regression
 with a cue bounded to 0.000–0.832s. Full 12-minute rerun is recorded separately;
 the short regression alone does not establish that longer acceptance passed.
+
+The subsequent full 12-minute rerun passed in 411 seconds: 275 cues, all finite,
+bounded and monotonically non-overlapping, last cue end 718.856s of 720s.
+Against wholly contained official VTT cues, normalized word edit distance was
+164/1912 (8.58%, including boundary differences). This verifies this English
+course excerpt after the repair; full-course/multilingual acceptance remains
+outside the recorded evidence.
