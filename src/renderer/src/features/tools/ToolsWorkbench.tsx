@@ -49,7 +49,55 @@ type Agent = {
  error_code?: string
  turns: number
  events: {kind: string; message?: string}[]
- sources: {source_id: string; title: string; read: boolean; text: string; url: string}[]
+ sources: {source_id: string; title: string; read: boolean; url: string; coverage?: string}[]
+ quotes?: Quote[]
+ rejected_answer?: string
+}
+type Quote = {source_id: string; quote: string; cited_at?: string; status: string; at?: string; original?: string}
+const quoteLabels: Record<string, {label: string; color: 'success' | 'warning' | 'danger'}> = {
+ exact: {label: '原文一致', color: 'success'},
+ edited: {label: '有删改', color: 'warning'},
+ moved: {label: '时间不符', color: 'warning'},
+ unverified: {label: '待核对', color: 'danger'}
+}
+function QuoteChecks({quotes, sources}: Readonly<{quotes?: Quote[]; sources: Agent['sources']}>) {
+ if (!quotes?.length) return null
+ const verified = quotes.filter(quote => quote.status !== 'unverified').length
+ const seen = new Map<string, number>()
+ return (
+  <section className="research-quotes" aria-label="原话核对">
+   <h4>
+    原话核对：{verified}/{quotes.length} 条已在原文中找到
+   </h4>
+   {quotes.map(quote => {
+    const base = `${quote.source_id}:${quote.at ?? ''}:${quote.quote}`
+    const count = (seen.get(base) ?? 0) + 1
+    seen.set(base, count)
+    const state = quoteLabels[quote.status] ?? quoteLabels.unverified
+    const title = sources.find(source => source.source_id === quote.source_id)?.title ?? ''
+    return (
+     <div className="research-quote" key={`${base}:${count}`}>
+      <div className="research-quote-head">
+       <Chip size="sm" variant="soft" color={state.color}>
+        {state.label}
+       </Chip>
+       <span className="hint">
+        {quote.source_id} · {title}
+        {quote.at ? ` · 字幕 ${quote.at}` : ''}
+        {quote.status === 'moved' && quote.cited_at ? `（回答标注 ${quote.cited_at}）` : ''}
+       </span>
+      </div>
+      <blockquote>“{quote.quote}”</blockquote>
+      {quote.original ? (
+       <p className="research-quote-original">原始字幕：{quote.original}</p>
+      ) : (
+       <p className="hint">所读原文中找不到这句话，不能当作老师原话。</p>
+      )}
+     </div>
+    )
+   })}
+  </section>
+ )
 }
 type Flow = {
  workflow_id: string
@@ -363,8 +411,7 @@ export function ToolsWorkbench({visible, close}: Readonly<{visible: boolean; clo
        </>
       )}
       <p className="hint">
-       点击开始才将已选资料交给当前模型。研究 Agent
-       最多八轮，只执行勾选渠道和工具；来源存在性核验不等于结论正确。两步工作流保留每一步结果，失败后可继续。
+       点击开始才将已选资料交给当前模型，只执行勾选的渠道和工具。回答中的老师原话会逐句回原始字幕核对，对不上的标为待核对；来源核对不等于结论正确。两步工作流保留每一步结果，失败后可继续。
       </p>
       <Button
        variant="primary"
@@ -493,7 +540,7 @@ export function ToolsWorkbench({visible, close}: Readonly<{visible: boolean; clo
        <header>
         <h3>{task.question}</h3>
         <span>
-         <StatusChip status={task.status} suffix={` · ${task.turns}/8 轮`} />
+         <StatusChip status={task.status} />
         </span>
        </header>
        {task.status === 'running' && (
@@ -507,6 +554,7 @@ export function ToolsWorkbench({visible, close}: Readonly<{visible: boolean; clo
         </p>
        )}
        {task.note && <Result text={task.note} />}
+       <QuoteChecks quotes={task.quotes} sources={task.sources} />
        {task.limitations && <p className="hint">{task.limitations}</p>}
        <details>
         <summary>处理过程与来源</summary>
@@ -514,14 +562,16 @@ export function ToolsWorkbench({visible, close}: Readonly<{visible: boolean; clo
          <p key={`${event.kind}-${event.message ?? ''}`}>{event.message || event.kind}</p>
         ))}
         {task.sources.map(source => (
-         <details key={source.source_id}>
-          <summary>
-           {source.source_id} · {source.title} · {source.read ? '已读取' : '尚未读取'}
-          </summary>
-          <p>{source.url}</p>
-          <p className="knowledge-text">{source.text}</p>
-         </details>
+         <p key={source.source_id}>
+          {source.source_id} · {source.title} · {source.read ? source.coverage || '已读取' : '尚未读取'}
+         </p>
         ))}
+        {task.rejected_answer && (
+         <>
+          <p className="hint">模型原始回答（未通过核验，仅供排查，不作为研究成果）：</p>
+          <p className="knowledge-text">{task.rejected_answer}</p>
+         </>
+        )}
        </details>
        {task.status === 'completed' && (
         <Button

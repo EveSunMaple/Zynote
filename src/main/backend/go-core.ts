@@ -53,9 +53,11 @@ const LONG_RUNNING_ACTIONS = new Set([
  'visual:prepare',
  'visual:recognize',
  'ppt-extract:analyze',
- 'ppt-extract:export'
+ 'ppt-extract:export',
+ // 研究请求要等模型读完整节课字幕，单次常需 60–90 秒，两步工作流更久；模型客户端自身有超时。
+ 'tools:request'
 ])
-const SLOW_ACTIONS = new Set(['zhiyun:search', 'zhiyun:lessons', 'settings:models', 'tools:request'])
+const SLOW_ACTIONS = new Set(['zhiyun:search', 'zhiyun:lessons', 'settings:models'])
 function callTimeout(action: string) {
  if (LONG_RUNNING_ACTIONS.has(action)) return LONG_CALL_TIMEOUT_MS
  if (SLOW_ACTIONS.has(action)) return SLOW_CALL_TIMEOUT_MS
