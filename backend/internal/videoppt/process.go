@@ -18,6 +18,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/EveSunMaple/Zynote/backend/internal/framecandidate"
 	"github.com/EveSunMaple/Zynote/backend/internal/ids"
 	"github.com/EveSunMaple/Zynote/backend/internal/media"
 )
@@ -279,29 +280,27 @@ type stableSlides struct {
 	Times       []float64
 }
 
-func pixelDifference(left, right []byte) float64 {
-	sum := 0
-	for index := range left {
-		difference := int(left[index]) - int(right[index])
-		if difference < 0 {
-			difference = -difference
-		}
-		sum += difference
+func (slides *stableSlides) push(pixels []byte, at float64) error {
+	metrics, err := framecandidate.MeasureGray(pixels, slides.last)
+	if err != nil {
+		return err
 	}
-	return float64(sum) / (float64(len(left)) * 255)
-}
-
-func (slides *stableSlides) push(pixels []byte, at float64) {
-	if slides.last == nil || pixelDifference(pixels, slides.last) > 0.0018 {
+	if slides.last == nil || metrics.NormalizedChange > 0.0018 {
 		slides.pending = append([]byte(nil), pixels...)
 		slides.pendingTime = at
-	} else if slides.pending != nil &&
-		(slides.accepted == nil || pixelDifference(slides.pending, slides.accepted) > 0.003) {
-		slides.Times = append(slides.Times, slides.pendingTime)
-		slides.accepted = append([]byte(nil), slides.pending...)
-		slides.pending = nil
+	} else if slides.pending != nil {
+		accepted, err := framecandidate.MeasureGray(slides.pending, slides.accepted)
+		if err != nil {
+			return err
+		}
+		if slides.accepted == nil || accepted.NormalizedChange > 0.003 {
+			slides.Times = append(slides.Times, slides.pendingTime)
+			slides.accepted = append([]byte(nil), slides.pending...)
+			slides.pending = nil
+		}
 	}
 	slides.last = append([]byte(nil), pixels...)
+	return nil
 }
 
 type reviewDecision struct {
@@ -354,6 +353,7 @@ func scanStableSlides(ctx context.Context, processor Processor, task CreatedTask
 	pending := []byte{}
 	index := 0
 	last := time.Time{}
+	var scanErr error
 	_, err := processor.command(ctx, "ffmpeg", []string{
 		ffmpegHideBanner, ffmpegLogLevel, "error", ffmpegNoStdin, "-i", task.Path, "-an",
 		"-vf", fmt.Sprintf("fps=1,crop=%d:%d:%d:%d,scale=160:90,format=gray", w, h, x, y),
@@ -363,7 +363,9 @@ func scanStableSlides(ctx context.Context, processor Processor, task CreatedTask
 		for len(pending) >= 14400 {
 			pixels := append([]byte(nil), pending[:14400]...)
 			pending = pending[14400:]
-			detector.push(pixels, float64(index))
+			if scanErr == nil {
+				scanErr = detector.push(pixels, float64(index))
+			}
 			index++
 		}
 		if progress != nil && time.Since(last) > 1500*time.Millisecond {
@@ -375,7 +377,19 @@ func scanStableSlides(ctx context.Context, processor Processor, task CreatedTask
 			progress(fmt.Sprintf("扫描进度：%d%%", percent))
 		}
 	})
-	if err != nil || len(detector.Times) == 0 {
+	if ctx.Err() != nil {
+		return nil, ctx.Err()
+	}
+	if err != nil {
+		return nil, fmt.Errorf("PPT画面扫描失败，视频已保留: %w", err)
+	}
+	if scanErr != nil {
+		return nil, scanErr
+	}
+	if len(pending) != 0 {
+		return nil, fmt.Errorf("PPT画面扫描返回残帧，视频已保留")
+	}
+	if len(detector.Times) == 0 {
 		return nil, requestError("未找到稳定的 PPT 画面，请检查框选区域；视频已保留")
 	}
 	return detector, nil

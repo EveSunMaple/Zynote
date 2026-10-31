@@ -20,6 +20,12 @@ func videoPptError(err error) error {
 	if errors.As(err, &application) {
 		return application
 	}
+	if errors.Is(err, context.Canceled) {
+		return contract.NewError(contract.CodeCancelled, "视频处理已取消，恢复文件保留")
+	}
+	if errors.Is(err, context.DeadlineExceeded) {
+		return contract.NewError(contract.CodeTimeout, "视频处理超时，恢复文件保留")
+	}
 	var request *videoppt.RequestError
 	if errors.As(err, &request) {
 		return contract.InputInvalid(request.Message)

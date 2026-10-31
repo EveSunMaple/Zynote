@@ -10,6 +10,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/EveSunMaple/Zynote/backend/internal/framecandidate"
 	"github.com/EveSunMaple/Zynote/backend/internal/media"
 )
 
@@ -68,22 +69,6 @@ type balanceBin struct {
 	score float64
 }
 
-func pixelStats(pixels, previous []byte) (int, int) {
-	light := 0
-	change := 0
-	for point := 0; point < len(pixels); point++ {
-		light += int(pixels[point])
-		if previous != nil {
-			difference := int(pixels[point]) - int(previous[point])
-			if difference < 0 {
-				difference = -difference
-			}
-			change += difference
-		}
-	}
-	return light, change
-}
-
 func (service *Service) balancedTimes(ctx context.Context, source string, duration float64, times []float64) ([]float64, error) {
 	bins := make([]balanceBin, len(times))
 	for index, value := range times {
@@ -92,6 +77,7 @@ func (service *Service) balancedTimes(ctx context.Context, source string, durati
 	pending := []byte{}
 	var previous []byte
 	index := 0
+	var scanErr error
 	err := service.command(ctx, "ffmpeg", []string{
 		ffmpegHideBanner, ffmpegLogLevel, "error", ffmpegNoStdin, "-i", source,
 		"-an", "-vf", "fps=1/5,scale=32:18,format=gray", "-f", "rawvideo", "pipe:1",
@@ -102,16 +88,20 @@ func (service *Service) balancedTimes(ctx context.Context, source string, durati
 			pending = pending[576:]
 			time := math.Min(duration-0.05, float64(index)*5)
 			index++
-			light, change := pixelStats(pixels, previous)
+			metrics, measureErr := framecandidate.MeasureGray(pixels, previous)
+			if measureErr != nil {
+				scanErr = measureErr
+				continue
+			}
 			binIndex := int(math.Floor((time / duration) * float64(len(bins))))
 			if binIndex >= len(bins) {
 				binIndex = len(bins) - 1
 			}
 			score := 1.0
 			if previous != nil {
-				score = float64(change) / 576
+				score = metrics.MeanChange
 			}
-			if float64(light)/576 > 4 && score > bins[binIndex].score {
+			if metrics.MeanLight > 4 && score > bins[binIndex].score {
 				bins[binIndex].time = math.Max(0, time)
 				bins[binIndex].score = score
 			}
@@ -120,6 +110,9 @@ func (service *Service) balancedTimes(ctx context.Context, source string, durati
 	})
 	if err != nil {
 		return nil, fmt.Errorf("画面候选扫描失败，未发布成果: %w", err)
+	}
+	if scanErr != nil {
+		return nil, scanErr
 	}
 	if index == 0 || len(pending) != 0 {
 		return nil, fmt.Errorf("画面候选扫描返回不完整，未发布成果")
