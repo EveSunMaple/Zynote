@@ -200,6 +200,7 @@ export interface LectureDetail {
  correction?: {completed: number; total: number}
 }
 export interface Progress {
+ key?: string
  lectureId?: string
  stage: string
  message: string
