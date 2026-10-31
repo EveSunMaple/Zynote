@@ -259,10 +259,10 @@ worker, and stable-child UNKNOWN provider guard. They do not establish real
 protected multi-episode acquisition or paid vision acceptance. UI changes were
 typechecked/built; no manual two-theme inspection was performed this turn.
 
-The single-video `video-ppt:summary` UI path still uses its legacy synchronous
-model path, not the subtitlederived persistent journal. Prior four-mode paid
-acceptance belongs to the subtitlederived domain and does not close that UI
-path. Session-generation fencing is described below; actual account logout/QR/protected
+The single-video `video-ppt:summary` UI now uses the subtitlederived persistent
+journal with a managed direct-SRT snapshot and stable UI operation ID. Prior
+four-mode paid acceptance belongs to the subtitlederived domain; actual-handler
+and local simulated-provider tests cover the direct-summary adapter. Session-generation fencing is described below; actual account logout/QR/protected
 acquisition still requires separately authorized real acceptance.
 
 
@@ -313,3 +313,35 @@ subtitle children, edited URL/page/SRT/count rejection and auth/rate no-next-pag
 The old unqueued batch subtitle helpers were removed; failure tests invoke the
 actual queued resume handler and assert catalog calls really occurred. No paid
 model, real account/protected acquisition or manual theme acceptance is implied.
+
+
+## Content-bound references and selection evidence
+
+New subtitlederived operations bind outputVersion2. Cue anchors are rebuilt from
+verified source SRT bytes, including source SHA256, cue index, exact millisecond
+range and original text. Prepared/model timestamps are not trusted. JSON and
+Markdown retain references. UI hashes the current SRT and disables mismatches;
+this is subtitle reference selection, not video seeking. Legacy0 recovery retains
+its old output bytes, including publication before receipt. Unknown versions stop.
+
+Both frame selectors retain their existing rates/thresholds and share only gray
+measurements. Source-bound selected manifests record actual scan region/sampler
+and sample/capture times. PPT ScanCrop is separate from initial/model page crops;
+Restore recomputes its pixel region. Visual cached preparation/recognition checks
+its manifest. Different explicit crops retain separate histories. Low-resolution
+gray hashes never substitute for full source identity; stable-initial means an
+interval's first stable sample, not a semantically clean slide. Selected is not
+extracted/recognized/submitted/cited coverage. Source hashing adds linear I/O.
+
+PPT/visual scanning rejects failed or partial streams even after a candidate
+exists. ASR decode and native dispatch preserve cancellation/deadline causes,
+including a successful response received after cancellation; no result is then
+published. Native timeout remains6h; the full-course acceptance used a separate
+30min request context/35min Go test timeout.
+
+The licensed MIT43m06s production en ASR fixture passed832 cues/1553.41s with
+normalized official-caption WER460/6325(7.27%). All cue times were finite,
+nonoverlapping and bounded. This is not word-level timing, multilingual or UI/API
+English acceptance: the current API selects zh. No real-account or manual theme
+acceptance follows from these tests. Structured backend error classes still lose
+code across the Electron message-only IPC bridge.

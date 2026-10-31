@@ -11,6 +11,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/EveSunMaple/Zynote/backend/internal/contract"
 	"github.com/EveSunMaple/Zynote/backend/internal/documents"
 	"github.com/EveSunMaple/Zynote/backend/internal/ids"
 	"github.com/EveSunMaple/Zynote/backend/internal/learning"
@@ -73,6 +74,30 @@ func (pipeline Pipeline) report(message string) {
 	}
 }
 
+func asrContextOutcome(ctx context.Context, err error) error {
+	cause := ctx.Err()
+	if cause == nil {
+		if errors.Is(err, context.Canceled) {
+			cause = context.Canceled
+		}
+		if errors.Is(err, context.DeadlineExceeded) {
+			cause = context.DeadlineExceeded
+		}
+	}
+	if cause != nil {
+		message := "字幕转写已取消，原视频与恢复记录保留"
+		if errors.Is(cause, context.DeadlineExceeded) {
+			message = "字幕转写超时，原视频与恢复记录保留"
+		}
+		return fmt.Errorf("%s: %w", message, cause)
+	}
+	var app *contract.AppError
+	if errors.As(err, &app) && (app.Code == contract.CodeCancelled || app.Code == contract.CodeTimeout) {
+		return app
+	}
+	return nil
+}
+
 func validateASRInput(pipeline Pipeline, video string) (os.FileInfo, error) {
 	if pipeline.Call == nil {
 		return nil, fmt.Errorf("本地字幕转写不可用")
@@ -118,8 +143,8 @@ func decodeASRAudio(ctx context.Context, pipeline Pipeline, video, pcm string) e
 	if err == nil {
 		return nil
 	}
-	if ctx.Err() != nil || errors.Is(err, context.Canceled) {
-		return fmt.Errorf("字幕转写已取消，原视频与恢复记录保留")
+	if outcome := asrContextOutcome(ctx, err); outcome != nil {
+		return outcome
 	}
 	message := err.Error()
 	switch {
@@ -155,6 +180,9 @@ func parseASRReply(raw []byte) (float64, []Cue, error) {
 }
 
 func (pipeline Pipeline) Transcribe(ctx context.Context, video, language string) (Result, error) {
+	if outcome := asrContextOutcome(ctx, nil); outcome != nil {
+		return Result{}, outcome
+	}
 	before, err := validateASRInput(pipeline, video)
 	if err != nil {
 		return Result{}, err
@@ -176,18 +204,21 @@ func (pipeline Pipeline) Transcribe(ctx context.Context, video, language string)
 	}
 	writeASRRecovery(recovery, video, before, "transcribing", nil)
 	if ctx.Err() != nil {
-		return Result{}, fmt.Errorf("字幕转写已取消，原视频与恢复记录保留")
+		return Result{}, asrContextOutcome(ctx, nil)
 	}
 	language = strings.TrimSpace(language)
 	if language == "" {
 		language = "zh"
 	}
 	pipeline.report("正在识别语音范围并保留原始时间点")
+	if outcome := asrContextOutcome(ctx, nil); outcome != nil {
+		return Result{}, outcome
+	}
 	raw, err := pipeline.Call(ctx, "asr.transcribe", map[string]any{"path": pcm, "language": language}, 6*60*60*1000)
+	if outcome := asrContextOutcome(ctx, err); outcome != nil {
+		return Result{}, outcome
+	}
 	if err != nil {
-		if ctx.Err() != nil {
-			return Result{}, fmt.Errorf("字幕转写已取消，原视频与恢复记录保留")
-		}
 		message := cleanNativeError(err)
 		if strings.Contains(message, "原生助手已退出") || strings.Contains(message, "请求超时") {
 			return Result{}, fmt.Errorf("转写工作进程中断，原视频与恢复记录保留")
