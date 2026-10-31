@@ -65,6 +65,15 @@
  flex-direction: column;
  gap: 0;
 }
+/* 首页各页签与对话正文共用同一阅读宽度，避免切到字幕/笔记后铺满窗口。 */
+.agent-scroll > .activity-list,
+.agent-scroll > .empty,
+.agent-scroll > .lecture-source-card,
+.agent-scroll > .tab-content {
+ max-width: var(--chat-width, 832px);
+ margin-left: auto;
+ margin-right: auto;
+}
 .agent-empty {
  margin: auto;
  text-align: center;

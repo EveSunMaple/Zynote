@@ -148,9 +148,6 @@
 }
 
 /* 课表与教材：课表列表在左，教材工作区在右。 */
-.study-window .learning-menu {
- width: 300px;
-}
 .study-window .learning-menu__items {
  padding: 4px;
  margin: -4px;
@@ -238,16 +235,6 @@
 }
 .study-entry-warning {
  color: var(--danger);
-}
-@media (max-width: 1100px) {
- .study-window .learning-menu {
-  width: 270px;
- }
-}
-@media (max-width: 760px) {
- .study-window .learning-menu {
-  width: 64px;
- }
 }
 .study-import {
  display: flex;
