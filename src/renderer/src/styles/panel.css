@@ -46,7 +46,8 @@
 .learning-content__body {
  flex: 1;
  min-height: 0;
- padding: 32px 40px 50px;
+ /* 与对话正文/输入框共用同一阅读宽度：宽屏居中，窄屏保留 40px 边距。 */
+ padding: 32px max(40px, calc((100% - var(--chat-width, 832px)) / 2)) 50px;
 }
 .learning-content__body > header {
  display: flex;

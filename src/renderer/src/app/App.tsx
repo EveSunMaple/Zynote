@@ -577,7 +577,7 @@ export default function App() { // NOSONAR: transitional TS fallback/UI flow ret
   <SettingsNavigationProvider value={{open: openSettings}}>
    <IdentityContext.Provider value={identity}>
     <TitleBar />
-    <div className="app" data-background={activeAppearance.background}>
+    <div className="app" data-background={activeAppearance.background} style={chatStyle(activeAppearance)}>
      <AppWindows
       current={modal as AppWindowKey}
       setModal={setModal}
@@ -782,7 +782,6 @@ export default function App() { // NOSONAR: transitional TS fallback/UI flow ret
      </aside>
      <main
       className={'workspace agent-workspace wallpaper-workspace ' + (tab === 'chat' ? 'chat-styled' : '')}
-      style={chatStyle(activeAppearance)}
       data-names={activeAppearance.showNames}
       data-bubbles={activeAppearance.assistantBubble}
       onDragOver={e => e.preventDefault()}
