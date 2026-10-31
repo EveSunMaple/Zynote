@@ -81,6 +81,13 @@ export function VideoPpt({
   activeProgressKey.current = `video-ppt:${draft.id}`
   return invoke<T>(action, {...input, operationId: draft.id})
  }
+ const summaryOperation = useRef<VideoOperationDraft | null>(null)
+ async function startSummary(input: VideoStartInput): Promise<VideoNoteResult> {
+  const draft = retainVideoOperation(summaryOperation.current, 'video-ppt:summary', input, () => crypto.randomUUID())
+  summaryOperation.current = draft
+  activeProgressKey.current = `subtitle-derived:${draft.id}`
+  return invoke<VideoNoteResult>('video-ppt:summary', {...input, operationId: draft.id})
+ }
  const remoteSubtitleOperation = useRef<VideoOperationDraft | null>(null)
  const localSubtitleOperation = useRef<VideoOperationDraft | null>(null)
  const [localSubtitleRetry, setLocalSubtitleRetry] = useState(false)
@@ -153,7 +160,7 @@ export function VideoPpt({
      setSubtitle(acquired)
      if (event.mode === 'videoNotes') {
       setSummary(
-       await invoke<VideoNoteResult>('video-ppt:summary', {
+       await startSummary({
         mode: 'detailed',
         srt: acquired.srt,
         title: acquired.title,
@@ -864,7 +871,7 @@ export function VideoPpt({
         onClick={() =>
          void run(async () => {
           setSummary(null)
-          const result = await invoke<VideoNoteResult | null>('video-ppt:summary', {
+          const result = await startSummary({
            mode: summaryMode,
            srt: subtitle!.srt,
            title: subtitle!.title,

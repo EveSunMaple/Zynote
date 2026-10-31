@@ -2,6 +2,21 @@ import {describe, expect, it} from 'vitest'
 import {retainVideoOperation, settleLocalSubtitleOperation} from './video-ppt-operation'
 
 describe('PPT submission identity', () => {
+ it('binds summary retries to exact subtitle, title, mode and course', () => {
+  let ids = 0
+  const createId = () => `summary-${++ids}`
+  const input = {srt: 'original', title: 'Lecture', mode: 'brief', courseId: 'course'}
+  const draft = retainVideoOperation(null, 'video-ppt:summary', input, createId)
+  expect(retainVideoOperation(draft, 'video-ppt:summary', {...input}, createId)).toBe(draft)
+  for (const changed of [
+   {...input, srt: 'corrected'},
+   {...input, title: 'Other'},
+   {...input, mode: 'detailed'},
+   {...input, courseId: 'other'}
+  ]) {
+   expect(retainVideoOperation(draft, 'video-ppt:summary', changed, createId).id).not.toBe(draft.id)
+  }
+ })
  it('binds batch selection and order while retaining an identical retry', () => {
   let ids = 0
   const createId = () => `batch-${++ids}`

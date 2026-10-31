@@ -19,7 +19,6 @@ func subtitleDerivedService(state *contract.State) *subtitlederived.Service {
 }
 
 func (inv *Invoker) subtitleDerivedDependencies(store contract.StateStore, state *contract.State) subtitlederived.Dependencies {
-	knowledgeStore, _ := inv.knowledgeStoreFor(state)
 	var client *ai.Client
 	getClient := func() (*ai.Client, error) {
 		if client != nil {
@@ -41,6 +40,7 @@ func (inv *Invoker) subtitleDerivedDependencies(store contract.StateStore, state
 			return err
 		},
 		Generation: func(ctx context.Context, url string) (string, error) {
+			knowledgeStore, _ := inv.knowledgeStoreFor(state)
 			if knowledgeStore == nil {
 				return "", nil
 			}

@@ -1,9 +1,19 @@
 export type VideoOperationDraft = {key: string; id: string}
-export type VideoStartInput = {path?: string; url?: string; prompt?: string; courseId?: string; pages?: number[]}
+export type VideoStartInput = {
+ path?: string
+ url?: string
+ prompt?: string
+ courseId?: string
+ pages?: number[]
+ srt?: string
+ title?: string
+ mode?: string
+}
 
 export function retainVideoOperation(
  previous: VideoOperationDraft | null,
  action:
+  | 'video-ppt:summary'
   | 'video-ppt:source'
   | 'video-ppt:auto'
   | 'video-ppt:batch'
@@ -19,7 +29,10 @@ export function retainVideoOperation(
   input.url?.trim() || '',
   input.prompt || '',
   input.courseId || '',
-  input.pages || []
+  input.pages || [],
+  input.srt || '',
+  input.title || '',
+  input.mode || ''
  ])
  return previous?.key === key ? previous : {key, id: createId()}
 }

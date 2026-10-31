@@ -20,6 +20,7 @@ import (
 )
 
 type Source struct {
+	Kind       string `json:"kind,omitempty"`
 	URL        string `json:"url"`
 	Title      string `json:"title"`
 	Path       string `json:"path"`
@@ -194,6 +195,41 @@ func (service *Service) Create(sources []Source, modes []string, courseName stri
 	return service.CreateOperation(sources, modes, courseName, ids.New())
 }
 
+// CreateDirectOperation snapshots supplied subtitles before any model dispatch.
+func (service *Service) CreateDirectOperation(srt, title, mode, course, id string) (Task, error) {
+	if !validUUID(id) || !validMode(mode) || title == "" || len([]rune(title)) > 200 || len(srt) == 0 || len(srt) > 4000000 {
+		return Task{}, fmt.Errorf("摘要参数无效")
+	}
+	if _, err := documents.ParseSrt(srt); err != nil {
+		return Task{}, err
+	}
+	directory := filepath.Join(service.Root, "inputs")
+	if err := os.MkdirAll(directory, 0o700); err != nil {
+		return Task{}, err
+	}
+	path := filepath.Join(directory, id+".srt")
+	// Publish a fully synced file without overwriting a concurrent/original input.
+	temporary, err := os.CreateTemp(directory, ".srt-*")
+	if err != nil {
+		return Task{}, err
+	}
+	defer os.Remove(temporary.Name())
+	_, writeErr := temporary.WriteString(srt)
+	syncErr := temporary.Sync()
+	closeErr := temporary.Close()
+	if writeErr != nil || syncErr != nil || closeErr != nil {
+		return Task{}, fmt.Errorf("字幕快照保存失败")
+	}
+	if err := os.Link(temporary.Name(), path); err != nil {
+		previous, readErr := os.ReadFile(path)
+		if readErr != nil || string(previous) != srt {
+			return Task{}, fmt.Errorf("同一提交标识不能更换字幕；原任务保留")
+		}
+	}
+	hash := digest(srt)
+	return service.CreateOperation([]Source{{Kind: "direct-srt", Title: title, Path: path, Hash: hash, Generation: "srt-sha256:" + hash}}, []string{mode}, course, id)
+}
+
 var operationCreateMu sync.Mutex
 
 // CreateOperation binds a caller's stable operation ID to immutable validated
@@ -254,6 +290,14 @@ func (service *Service) validateSources(sources []Source) ([]Source, error) {
 	checked := []Source{}
 	for _, source := range sources {
 		locator, err := subtitlesync.Locator(source.URL)
+		if source.Kind == "direct-srt" {
+			locator, err = source.Path, nil
+			if source.URL != "" || !inside(filepath.Join(service.Root, "inputs"), source.Path) || source.Generation != "srt-sha256:"+source.Hash {
+				return nil, fmt.Errorf("直接字幕来源身份无效")
+			}
+		} else if source.Kind != "" {
+			return nil, fmt.Errorf("字幕来源类型无效")
+		}
 		if err != nil || source.Title == "" || len([]rune(source.Title)) > 200 ||
 			!inside(service.Library, source.Path) || len(source.Hash) != 64 || source.Generation == "" {
 			return nil, fmt.Errorf("不要重复选择分集或笔记形式")
@@ -262,7 +306,9 @@ func (service *Service) validateSources(sources []Source) ([]Source, error) {
 			return nil, fmt.Errorf("不要重复选择分集或笔记形式")
 		}
 		seen[locator] = true
-		source.URL = locator
+		if source.Kind != "direct-srt" {
+			source.URL = locator
+		}
 		checked = append(checked, source)
 	}
 	return checked, nil
@@ -280,6 +326,9 @@ func validateModes(modes []string) error {
 }
 
 func (service *Service) current(source Source, dependencies Dependencies, ctx context.Context) (string, error) {
+	if _, err := service.validateSources([]Source{source}); err != nil {
+		return "", err
+	}
 	if !inside(service.Library, source.Path) {
 		return "", fmt.Errorf("笔记来源或成果不在课程资料目录")
 	}
@@ -291,7 +340,7 @@ func (service *Service) current(source Source, dependencies Dependencies, ctx co
 	if digest(text) != source.Hash {
 		return "", fmt.Errorf("字幕来源已有改变，请重新同步并建立笔记任务；旧成果保留")
 	}
-	if dependencies.Generation != nil {
+	if source.Kind != "direct-srt" && dependencies.Generation != nil {
 		generation, err := dependencies.Generation(ctx, source.URL)
 		if err != nil || generation != source.Generation {
 			return "", fmt.Errorf("字幕来源已有改变，请重新同步并建立笔记任务；旧成果保留")
@@ -366,10 +415,27 @@ func writeDerivedFiles(files []derivedFile, created *[]string) ([]Output, error)
 				return nil, fmt.Errorf("同名成果已有不同内容，未覆盖，请检查任务记录")
 			}
 		} else if os.IsNotExist(err) {
-			if err := os.WriteFile(file.Path, []byte(file.Text), 0o644); err != nil {
+			temporary, err := os.CreateTemp(filepath.Dir(file.Path), ".note-*")
+			if err != nil {
 				return nil, err
 			}
-			*created = append(*created, file.Path)
+			_, writeErr := temporary.WriteString(file.Text)
+			syncErr := temporary.Sync()
+			closeErr := temporary.Close()
+			if writeErr != nil || syncErr != nil || closeErr != nil {
+				_ = os.Remove(temporary.Name())
+				return nil, fmt.Errorf("笔记临时文件保存失败")
+			}
+			linkErr := os.Link(temporary.Name(), file.Path)
+			_ = os.Remove(temporary.Name())
+			if linkErr != nil {
+				existing, readErr := os.ReadFile(file.Path)
+				if readErr != nil || string(existing) != file.Text {
+					return nil, fmt.Errorf("同名成果已有不同内容，未覆盖，请检查任务记录")
+				}
+			} else {
+				*created = append(*created, file.Path)
+			}
 		} else {
 			return nil, err
 		}
@@ -411,7 +477,11 @@ func (service *Service) processDerivedItem(ctx context.Context, task *Task, inde
 		title = title[:40]
 	}
 	stem := string(title) + "-" + modeTitles[item.Mode] + "-" + task.ID[:8] + "-" + itoa(index+1)
-	provenance := "\n\n---\n字幕来源：" + item.Source.URL + "\n来源版本：" + item.Source.Generation +
+	sourceLabel := item.Source.URL
+	if item.Source.Kind == "direct-srt" {
+		sourceLabel = "传入 SRT 快照：" + item.Source.Path
+	}
+	provenance := "\n\n---\n字幕来源：" + sourceLabel + "\n来源版本：" + item.Source.Generation +
 		"\n字幕 SHA256：" + item.Source.Hash + "\n"
 	files := []derivedFile{
 		{Path: filepath.Join(directory, stem+".md"), Text: item.Prepared.Markdown + provenance},

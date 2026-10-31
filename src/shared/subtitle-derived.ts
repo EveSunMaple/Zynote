@@ -1,5 +1,12 @@
 import type {VideoNoteMode, VideoNotePoint} from './video-notes'
-export type DerivedSource = {url: string; title: string; path: string; hash: string; generation: string}
+export type DerivedSource = {
+ kind?: 'direct-srt'
+ url: string
+ title: string
+ path: string
+ hash: string
+ generation: string
+}
 export type DerivedOutput = {path: string; hash: string}
 export type SubtitleDerivedItem = {
  source: DerivedSource

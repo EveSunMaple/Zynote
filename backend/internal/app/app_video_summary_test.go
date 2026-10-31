@@ -8,11 +8,14 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync/atomic"
 	"testing"
 )
 
 func TestVideoSummary(t *testing.T) {
+	var calls atomic.Int32
 	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		calls.Add(1)
 		fmt.Fprintf(writer, `{"choices":[{"finish_reason":"stop","message":{"content":%q}}]}`,
 			`[{"cue":0,"quote":"第一句","point":"核心结论","topic":"主题"}]`)
 	}))
@@ -42,7 +45,7 @@ func TestVideoSummary(t *testing.T) {
 	var course map[string]any
 	_ = json.Unmarshal(courseRaw, &course)
 	raw, errReply := f.call("video-ppt:summary", map[string]any{
-		"mode": "brief", "title": "第一讲", "courseId": course["id"],
+		"operationId": "eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee", "mode": "brief", "title": "第一讲", "courseId": course["id"],
 		"srt": "1\n00:00:01,000 --> 00:00:03,000\n第一句 机器学习\n",
 	})
 	if errReply != nil {
@@ -57,7 +60,16 @@ func TestVideoSummary(t *testing.T) {
 		!strings.Contains(result["markdown"].(string), "00:00:01") {
 		t.Fatalf("summary mismatch: %s", raw)
 	}
-	path := filepath.Join(libraryRoot, "Notes", "摘要课", "第一讲-简要摘要.md")
+	path := result["path"].(string)
+	if filepath.Dir(path) != filepath.Join(libraryRoot, "Notes", "摘要课") || !strings.Contains(result["markdown"].(string), "传入 SRT 快照") {
+		t.Fatal("source provenance or course directory missing")
+	}
+	if _, errReply := f.call("video-ppt:summary", map[string]any{"operationId": "eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee", "mode": "brief", "title": "第一讲", "courseId": course["id"], "srt": "1\n00:00:01,000 --> 00:00:03,000\n第一句 机器学习\n"}); errReply != nil {
+		t.Fatal(errReply)
+	}
+	if calls.Load() != 1 {
+		t.Fatal("completed summary called provider twice")
+	}
 	if body, err := os.ReadFile(path); err != nil || string(body) != result["markdown"] {
 		t.Fatalf("summary file mismatch: %v %q", err, body)
 	}
@@ -82,7 +94,7 @@ func TestVideoSummary(t *testing.T) {
 	if err := json.Unmarshal(raw, &result); err != nil {
 		t.Fatal(err)
 	}
-	if result["path"] != filepath.Join(filepath.Dir(path), "第二讲-简要摘要 (2).md") {
-		t.Fatalf("pair not renamed: %v", result["path"])
+	if filepath.Dir(result["path"].(string)) != filepath.Dir(path) || !strings.HasPrefix(filepath.Base(result["path"].(string)), "第二讲-简要摘要-") {
+		t.Fatalf("task-scoped output missing: %v", result["path"])
 	}
 }

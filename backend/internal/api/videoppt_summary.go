@@ -9,11 +9,12 @@ import (
 	"strings"
 
 	"github.com/EveSunMaple/Zynote/backend/internal/ai"
-	"github.com/EveSunMaple/Zynote/backend/internal/config"
 	"github.com/EveSunMaple/Zynote/backend/internal/contract"
 	"github.com/EveSunMaple/Zynote/backend/internal/documents"
+	"github.com/EveSunMaple/Zynote/backend/internal/ids"
 	"github.com/EveSunMaple/Zynote/backend/internal/learning"
 	"github.com/EveSunMaple/Zynote/backend/internal/library"
+	"github.com/EveSunMaple/Zynote/backend/internal/subtitlederived"
 )
 
 const msgSummarySaveInvalid = "摘要保存校验失败"
@@ -213,67 +214,63 @@ func summarizeVideoText(
 
 func (inv *Invoker) handleVideoSummary(store contract.StateStore, state *contract.State, params json.RawMessage) (any, error) {
 	var input struct {
-		Mode     string `json:"mode"`
-		SRT      string `json:"srt"`
-		Title    string `json:"title"`
-		CourseID string `json:"courseId"`
+		OperationID string `json:"operationId,omitempty"`
+		Mode        string `json:"mode"`
+		SRT         string `json:"srt"`
+		Title       string `json:"title"`
+		CourseID    string `json:"courseId"`
 	}
 	if err := json.Unmarshal(params, &input); err != nil || len(input.SRT) < 1 || len(input.SRT) > 4000000 ||
 		len([]rune(input.Title)) < 1 || len([]rune(input.Title)) > 200 {
 		return nil, contract.InputInvalid("摘要参数无效")
 	}
-	heading, ok := videoNoteTitles[input.Mode]
-	if !ok {
+	if _, ok := videoNoteTitles[input.Mode]; !ok {
 		return nil, contract.InputInvalid("摘要模式无效")
 	}
-	title := library.FolderName(input.Title)
 	courseName, err := inv.subtitleCourseName(state, input.CourseID)
 	if err != nil {
 		return nil, err
 	}
-	return inv.runJob("video-summary", func(ctx context.Context) (any, error) {
-		profile, err := config.ActiveProfile(state.ConfigRoot, store.Reverse())
+	if input.OperationID == "" {
+		input.OperationID = ids.New()
+	}
+	service := subtitleDerivedService(state)
+	task, err := service.CreateDirectOperation(input.SRT, input.Title, input.Mode, courseName, input.OperationID)
+	if err != nil {
+		return nil, contract.InputInvalid(err.Error())
+	}
+	value, err := inv.runDerivedQueued(store, state, task.ID)
+	if err != nil {
+		return nil, err
+	}
+	completed, ok := value.(subtitlederived.Task)
+	if !ok || len(completed.Items) != 1 {
+		return nil, contract.Unavailable("摘要任务结果无效")
+	}
+	item := completed.Items[0]
+	if item.Status != "已完成" {
+		return nil, contract.Unavailable(item.Error)
+	}
+	var markdown, path string
+	var points []subtitlederived.Point
+	for _, output := range item.Outputs {
+		body, err := os.ReadFile(output.Path)
 		if err != nil {
-			return nil, err
-		}
-		client := ai.New(ai.Profile{
-			BaseURL: profile.BaseURL, Model: profile.Model, VisionModel: profile.VisionModel,
-			APIFormat: profile.APIFormat, Key: profile.Key, Parameters: profile.Parameters,
-		})
-		result, err := summarizeVideoText(ctx, client, input.SRT, input.Mode, inv.videoProgress)
-		if err != nil {
-			return nil, err
-		}
-		directory, err := library.CourseDirectory(state.LibraryRoot, "Notes", courseName)
-		if err != nil {
-			return nil, err
-		}
-		path, evidence, err := reserveSummaryPair(directory, title+"-"+heading)
-		if err != nil {
-			return nil, err
-		}
-		encoded, _ := json.MarshalIndent(result.Points, "", "  ")
-		if err := os.WriteFile(path, []byte(result.Markdown), 0o644); err != nil {
-			_ = os.Remove(path)
-			_ = os.Remove(evidence)
 			return nil, contract.Unavailable(msgSummarySaveInvalid)
 		}
-		if err := os.WriteFile(evidence, encoded, 0o644); err != nil {
-			_ = os.Remove(path)
-			_ = os.Remove(evidence)
-			return nil, contract.Unavailable(msgSummarySaveInvalid)
+		switch filepath.Ext(output.Path) {
+		case ".md":
+			markdown, path = string(body), output.Path
+		case ".json":
+			if json.Unmarshal(body, &points) != nil {
+				return nil, contract.Unavailable(msgSummarySaveInvalid)
+			}
 		}
-		check, err := os.ReadFile(path)
-		evidenceCheck, evidenceErr := os.ReadFile(evidence)
-		if err != nil || string(check) != result.Markdown || evidenceErr != nil || string(evidenceCheck) != string(encoded) {
-			_ = os.Remove(path)
-			_ = os.Remove(evidence)
-			return nil, contract.Unavailable(msgSummarySaveInvalid)
-		}
-		return map[string]any{
-			"path": path, "count": len(result.Points), "markdown": result.Markdown, "points": result.Points,
-		}, nil
-	})
+	}
+	if path == "" || len(points) == 0 {
+		return nil, contract.Unavailable(msgSummarySaveInvalid)
+	}
+	return map[string]any{"path": path, "count": len(points), "markdown": markdown, "points": points}, nil
 }
 
 // Reserve both names exclusively: an orphan sidecar belongs to its original
