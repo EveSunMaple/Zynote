@@ -217,20 +217,25 @@ func CopyVideoReady(ctx context.Context, source, destination string) error {
 }
 
 func VerifyVideoReady(task CreatedTask) error {
+	_, err := verifiedVideoDigest(task)
+	return err
+}
+
+func verifiedVideoDigest(task CreatedTask) (string, error) {
 	body, err := os.ReadFile(filepath.Join(task.Dir, "video-ready.json"))
 	if err != nil {
-		return requestError("视频副本缺少完成记录，请保留任务并核对来源")
+		return "", requestError("视频副本缺少完成记录，请保留任务并核对来源")
 	}
 	var ready struct {
 		Version int    `json:"version"`
 		SHA256  string `json:"sha256"`
 	}
 	if json.Unmarshal(body, &ready) != nil || ready.Version != 1 || ready.SHA256 == "" {
-		return requestError("视频副本完成记录无效")
+		return "", requestError("视频副本完成记录无效")
 	}
 	hash, err := VideoDigest(task.Path)
 	if err != nil || hash != ready.SHA256 {
-		return requestError("视频副本已经改变，请保留任务并核对来源")
+		return "", requestError("视频副本已经改变，请保留任务并核对来源")
 	}
-	return nil
+	return hash, nil
 }

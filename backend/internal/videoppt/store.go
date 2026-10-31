@@ -7,6 +7,8 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
+
+	"github.com/EveSunMaple/Zynote/backend/internal/contract"
 )
 
 const (
@@ -55,12 +57,13 @@ type Review struct {
 }
 
 type Pending struct {
-	ID         string `json:"id"`
-	Name       string `json:"name"`
-	Kind       string `json:"kind,omitempty"`
-	SavedPath  string `json:"savedPath,omitempty"`
-	Error      string `json:"error,omitempty"`
-	QueueState string `json:"queueState,omitempty"`
+	ID         string                `json:"id"`
+	Name       string                `json:"name"`
+	Kind       string                `json:"kind,omitempty"`
+	SavedPath  string                `json:"savedPath,omitempty"`
+	Error      string                `json:"error,omitempty"`
+	QueueState string                `json:"queueState,omitempty"`
+	Source     *contract.MediaSource `json:"source,omitempty"`
 }
 
 type Service struct{ Root string }

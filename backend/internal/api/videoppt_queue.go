@@ -78,6 +78,8 @@ func (inv *Invoker) createQueuedVideoTask(state *contract.State, path, videoURL,
 }
 
 func (inv *Invoker) ensureQueuedVideo(ctx context.Context, store contract.StateStore, state *contract.State, task videoppt.CreatedTask) error {
+	inv.projectVideoSource(state, task.ID)
+	defer inv.projectVideoSource(state, task.ID)
 	operation, err := videoPptService(state).Operation(task.ID)
 	if err != nil {
 		return videoPptError(err)
@@ -117,6 +119,23 @@ func (inv *Invoker) ensureQueuedVideo(ctx context.Context, store contract.StateS
 		}
 	}
 	return videoppt.VerifyVideoReady(task)
+}
+
+func (inv *Invoker) projectVideoSource(state *contract.State, id string) {
+	service := videoPptService(state)
+	operation, err := service.Operation(id)
+	if err != nil {
+		return
+	}
+	source, err := service.MediaSource(id)
+	if err != nil {
+		return
+	}
+	key := "video-ppt:" + id
+	if operation.Stage == "subtitle" {
+		key = "subtitle-transcribe:" + id
+	}
+	inv.jobs.SetSource(key, source)
 }
 
 func (inv *Invoker) runVideoPptQueued(state *contract.State, task videoppt.CreatedTask, stage string, input any, run func(context.Context) (any, error)) (any, error) {

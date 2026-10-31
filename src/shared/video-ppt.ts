@@ -1,4 +1,5 @@
 import type {PptExtractPage} from './ppt-extract.js'
+import type {MediaSource} from './media-source.js'
 export type VideoEpisode = {page: number; title: string; duration: number; url: string}
 export type VideoSeries = {title: string; episodes: VideoEpisode[]}
 export type PendingVideoTask = {
@@ -8,6 +9,7 @@ export type PendingVideoTask = {
  savedPath?: string
  error?: string
  queueState?: string
+ source?: MediaSource
 }
 export type VideoBatchItem = {
  page: number

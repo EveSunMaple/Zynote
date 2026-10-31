@@ -6,6 +6,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/EveSunMaple/Zynote/backend/internal/contract"
 )
 
 // ErrCancelled is returned when the user cancels the active job.
@@ -24,6 +26,7 @@ type Snapshot struct {
 	LectureID string
 	Started   time.Time
 	Progress  *Progress
+	Source    *contract.MediaSource
 }
 
 type Progress struct {
@@ -139,5 +142,24 @@ func (registry *Registry) Current() any {
 	if registry.current.Progress != nil {
 		result["progress"] = *registry.current.Progress
 	}
+	if registry.current.Source != nil {
+		result["source"] = *registry.current.Source
+	}
 	return result
+}
+
+// SetSource changes only the current owner's projection. The scalar-only DTO
+// is copied both here and by Current, preventing callers from mutating state.
+func (registry *Registry) SetSource(key string, source contract.MediaSource) bool {
+	if !source.Valid() {
+		return false
+	}
+	registry.mu.Lock()
+	defer registry.mu.Unlock()
+	if registry.current == nil || registry.current.Key != key {
+		return false
+	}
+	copy := source
+	registry.current.Source = &copy
+	return true
 }

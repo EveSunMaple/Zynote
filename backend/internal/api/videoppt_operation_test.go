@@ -47,6 +47,26 @@ func TestLocalVideoOperationResumesVerifiedCopyWithoutRecopyingChangedSource(t *
 	if string(body) != "original" {
 		t.Fatal("recovery copy changed")
 	}
+	_, err = inv.jobs.Run("video-ppt:"+id, "", func(context.Context) (any, error) {
+		inv.projectVideoSource(state, id)
+		current := inv.jobs.Current().(map[string]any)
+		source, ok := current["source"].(contract.MediaSource)
+		if !ok || source.Status != "resolved" || source.Path != path || source.SHA256 == "" {
+			t.Fatal("current source projection missing", current)
+		}
+		pending, pendingErr := inv.handleVideoPptPending(state)
+		if pendingErr != nil {
+			t.Fatal(pendingErr)
+		}
+		tasks := pending.([]videoppt.Pending)
+		if len(tasks) != 1 || tasks[0].Source == nil || tasks[0].Source.SHA256 != source.SHA256 {
+			t.Fatal("pending source projection missing", tasks)
+		}
+		return nil, nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
 }
 
 func TestAutoCompletedOperationReturnsVerifiedResultWithoutModel(t *testing.T) {

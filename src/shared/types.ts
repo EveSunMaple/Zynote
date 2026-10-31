@@ -212,6 +212,7 @@ export interface JobState {
  key: string
  lectureId?: string
  progress?: Progress
+ source?: import('./media-source.js').MediaSource
 }
 export type EventPayload =
  | {kind: 'progress'; data: Progress}

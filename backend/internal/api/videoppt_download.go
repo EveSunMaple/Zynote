@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/url"
 	"os"
+	"path/filepath"
 	"strings"
 
 	"github.com/EveSunMaple/Zynote/backend/internal/contract"
@@ -37,6 +38,11 @@ func (inv *Invoker) downloadBiliVideo(ctx context.Context, store contract.StateS
 	if !ok {
 		return contract.Unavailable("视频目录不可用")
 	}
+	id := filepath.Base(filepath.Dir(destination))
+	if err := videoPptService(state).ResolveBiliSource(id, source.Bvid, source.Cid, source.Page, source.Identity); err != nil && !os.IsNotExist(err) {
+		return videoPptError(err)
+	}
+	inv.projectVideoSource(state, id)
 	service, err := inv.mediaServiceFor(state, store.Reverse())
 	if err != nil {
 		return err

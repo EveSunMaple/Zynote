@@ -29,6 +29,11 @@ func (inv *Invoker) handleVideoPptPending(state *contract.State) (any, error) {
 		return nil, videoPptError(err)
 	}
 	for index := range result {
+		if source, err := videoPptService(state).MediaSource(result[index].ID); err == nil {
+			result[index].Source = &source
+		} else if !os.IsNotExist(err) && result[index].Error == "" {
+			result[index].Error = err.Error()
+		}
 		if record, err := inv.jobs.QueueRecord(filepath.Join(state.LibraryRoot, "TaskQueue"), result[index].ID); err == nil {
 			result[index].QueueState = record.State
 			if record.State == "completed" && result[index].Kind != "subtitle" {
