@@ -210,6 +210,7 @@ export type EventPayload =
  | {kind: 'job'; data: {key: string; lectureId?: string; state: 'finished'; error?: string}}
  | {kind: 'chat'; requestId: string; text: string}
  | {kind: 'browser'; url: string}
+ | {kind: 'bili-import'; url: string; mode: 'videoNotes' | 'videoSubtitles' | 'videoPpt'}
  | {kind: 'window'; data: {maximized: boolean}}
  | {kind: 'update'; data: UpdateStatus}
  | {kind: 'video-batch'; items: VideoBatchItem[]}

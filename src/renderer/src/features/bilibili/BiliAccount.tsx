@@ -62,6 +62,18 @@ export function BiliAccountPanel() {
  return (
   <div className="panel-section">
    <div className="row">
+    <Button
+     variant="tertiary"
+     size="sm"
+     isDisabled={busy}
+     onClick={() =>
+      void run(async () => {
+       await invoke('bili-resources:open-page')
+      })
+     }
+    >
+     在软件内浏览 B站
+    </Button>
     <span className="learning-course">{user.loggedIn ? user.name || '已登录' : '未登录'}</span>
     <Button variant="tertiary" size="sm" isDisabled={busy} onClick={() => void run(refresh)}>
      检查登录状态

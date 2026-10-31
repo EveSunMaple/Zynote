@@ -1,3 +1,4 @@
+import {BiliBrowser} from '@main/media/bilibili/browser'
 import {GoCore, nativeBinaryPath} from '@main/backend/go-core'
 import {resolveDataPaths} from '@main/backend/portable-data'
 import {createShellServices} from '@main/backend/shell-services'
@@ -151,6 +152,12 @@ async function startApplication() {
   }
  })
  const shellServices = createShellServices(window, paths.libraryRoot)
+ const biliBrowser = new BiliBrowser(window, event => {
+  if (!window.isDestroyed()) window.webContents.send('assistant:event', event)
+ })
+ shellServices['shell.biliOpen'] = params => biliBrowser.open(z.string().parse(params.url), params.cookies)
+ shellServices['shell.biliClear'] = () => biliBrowser.clear()
+
  const zhiyunBrowser = new ZhiyunBrowser(window, message =>
   window.webContents.send('assistant:event', {
    kind: 'progress',
@@ -234,6 +241,7 @@ async function startApplication() {
  shutdownBackends = async () => {
   updater.dispose()
   zhiyunBrowser.dispose()
+  biliBrowser.dispose()
   goCore.dispose()
  }
 }

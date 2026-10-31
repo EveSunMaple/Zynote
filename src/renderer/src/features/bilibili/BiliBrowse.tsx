@@ -25,6 +25,14 @@ export function BiliBrowse({
  return (
   <Card className="knowledge-card">
    <h3>查找 B 站视频</h3>
+   <Button
+    variant="tertiary"
+    size="sm"
+    onClick={() => void window.assistant.invoke('bili-resources:open-page', {}).catch(reason => notify.error(reason))}
+   >
+    打开 B站网页浏览
+   </Button>
+   <p className="hint">登录后在浏览窗口菜单选择“导入当前视频到视频摘要”，沿用本软件的摘要与笔记格式。</p>
    <p className="hint">在应用内搜索或读取热门视频；选择某个视频后再勾选分集和处理方式。</p>
    <form
     className="row"

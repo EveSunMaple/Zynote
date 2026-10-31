@@ -32,6 +32,8 @@ type storedCookie struct {
 	Secure   bool   `json:"secure"`
 	HTTPOnly bool   `json:"http_only"`
 	Expires  int64  `json:"expires"`
+	HostOnly bool   `json:"host_only,omitempty"`
+	SameSite int    `json:"same_site,omitempty"`
 }
 
 type cookieStore struct {
@@ -44,7 +46,9 @@ type cookieStore struct {
 
 func newCookieStore(path string, crypt Crypt) *cookieStore {
 	if crypt == nil {
-		crypt = func(data []byte, decrypt bool) ([]byte, error) { return data, nil }
+		crypt = func(data []byte, decrypt bool) ([]byte, error) {
+			return nil, contract.Unavailable("系统密钥库不可用")
+		}
 	}
 	return &cookieStore{path: path, crypt: crypt}
 }
@@ -55,10 +59,10 @@ func (store *cookieStore) load() error {
 	if store.loaded {
 		return nil
 	}
-	store.loaded = true
 	raw, err := os.ReadFile(store.path)
 	if err != nil {
 		if os.IsNotExist(err) {
+			store.loaded = true
 			return nil
 		}
 		return contract.Unavailable(errBiliLoginRead)
@@ -72,6 +76,7 @@ func (store *cookieStore) load() error {
 		return contract.Unavailable(errBiliLoginRead)
 	}
 	store.cookies = cookies
+	store.loaded = true
 	return nil
 }
 
@@ -116,10 +121,10 @@ func (store *cookieStore) header(host, requestPath string, secure bool) string {
 		if cookie.Secure && !secure {
 			continue
 		}
-		if !hostMatches(host, cookie.Domain) {
+		if !hostMatches(host, cookie.Domain) || (cookie.HostOnly && !strings.EqualFold(host, cookie.Domain)) {
 			continue
 		}
-		if cookie.Path != "" && cookie.Path != "/" && !strings.HasPrefix(requestPath, cookie.Path) {
+		if cookie.Path != "" && cookie.Path != "/" && !(requestPath == cookie.Path || strings.HasPrefix(requestPath, strings.TrimSuffix(cookie.Path, "/")+"/")) {
 			continue
 		}
 		pairs = append(pairs, cookie.Name+"="+cookie.Value)
@@ -143,6 +148,10 @@ func responseCookie(cookie *http.Cookie, host string, now int64) (storedCookie, 
 	value := storedCookie{
 		Name: cookie.Name, Value: cookie.Value, Domain: strings.TrimPrefix(domain, "."),
 		Path: path, Secure: cookie.Secure, HTTPOnly: cookie.HttpOnly, Expires: expires,
+		HostOnly: cookie.Domain == "", SameSite: int(cookie.SameSite),
+	}
+	if cookie.MaxAge > 0 {
+		value.Expires = now + int64(cookie.MaxAge)
 	}
 	if cookie.MaxAge < 0 || (expires > 0 && expires <= now) {
 		return value, false
@@ -150,14 +159,20 @@ func responseCookie(cookie *http.Cookie, host string, now int64) (storedCookie, 
 	return value, true
 }
 
-func (store *cookieStore) setFromResponse(host string, response *http.Response) {
+func (store *cookieStore) setFromResponse(host string, response *http.Response) error {
 	store.mu.Lock()
 	defer store.mu.Unlock()
+	previous := append([]storedCookie(nil), store.cookies...)
 	now := time.Now()
+	changed := false
 	for _, raw := range response.Header.Values("Set-Cookie") {
 		header := http.Header{}
 		header.Add("Set-Cookie", raw)
 		for _, cookie := range (&http.Response{Header: header}).Cookies() {
+			if !hostMatches(host, cookie.Domain) && cookie.Domain != "" {
+				continue
+			}
+			changed = true
 			value, keep := responseCookie(cookie, host, now.Unix())
 			if !keep {
 				store.removeLocked(value.Domain, value.Path, value.Name)
@@ -166,13 +181,20 @@ func (store *cookieStore) setFromResponse(host string, response *http.Response) 
 			store.upsertLocked(value)
 		}
 	}
-	_ = store.saveLocked()
+	if !changed {
+		return nil
+	}
+	if err := store.saveLocked(); err != nil {
+		store.cookies = previous
+		return err
+	}
+	return nil
 }
 
 func (store *cookieStore) upsertLocked(cookie storedCookie) {
 	for index := range store.cookies {
 		existing := &store.cookies[index]
-		if existing.Name == cookie.Name && hostMatches(existing.Domain, cookie.Domain) && existing.Path == cookie.Path {
+		if existing.Name == cookie.Name && strings.EqualFold(existing.Domain, cookie.Domain) && existing.Path == cookie.Path {
 			*existing = cookie
 			return
 		}
@@ -183,7 +205,7 @@ func (store *cookieStore) upsertLocked(cookie storedCookie) {
 func (store *cookieStore) removeLocked(domain, path, name string) {
 	kept := store.cookies[:0]
 	for _, cookie := range store.cookies {
-		if cookie.Name == name && cookie.Path == path && hostMatches(cookie.Domain, domain) {
+		if cookie.Name == name && cookie.Path == path && strings.EqualFold(cookie.Domain, domain) {
 			continue
 		}
 		kept = append(kept, cookie)
@@ -194,10 +216,10 @@ func (store *cookieStore) removeLocked(domain, path, name string) {
 func (store *cookieStore) clear() error {
 	store.mu.Lock()
 	defer store.mu.Unlock()
-	store.cookies = []storedCookie{}
 	if err := os.Remove(store.path); err != nil && !os.IsNotExist(err) {
 		return contract.Unavailable("B 站登录状态不可清除")
 	}
+	store.cookies = []storedCookie{}
 	return nil
 }
 
@@ -217,6 +239,7 @@ type qrState struct {
 }
 
 type Resources struct {
+	loginMu    sync.Mutex
 	client     *http.Client
 	cookies    *cookieStore
 	fetch      func(*http.Request) (*http.Response, error)
@@ -302,7 +325,11 @@ func (resources *Resources) RawDiscussion(requestPath string, params map[string]
 		return nil, fmt.Errorf("network_or_protocol")
 	}
 	defer response.Body.Close()
-	resources.cookies.setFromResponse(request.URL.Hostname(), response)
+	if resources.cookies != nil {
+		if err := resources.cookies.setFromResponse(request.URL.Hostname(), response); err != nil {
+			return nil, err
+		}
+	}
 	if response.StatusCode < 200 || response.StatusCode >= 300 {
 		return nil, fmt.Errorf("HTTP %d", response.StatusCode)
 	}
@@ -359,13 +386,16 @@ func (resources *Resources) decodeBiliResponse(requestPath string, response *htt
 		return nil, contract.Unavailable(fmt.Sprintf("B 站服务暂不可用（HTTP %d）", response.StatusCode))
 	}
 	var payload struct {
-		Code int             `json:"code"`
+		Code *int            `json:"code"`
 		Data json.RawMessage `json:"data"`
 	}
 	if err := json.NewDecoder(response.Body).Decode(&payload); err != nil {
 		return nil, contract.Unavailable("B 站服务返回格式异常，请稍后重试")
 	}
-	if requestPath == apiWebInterfaceNav && payload.Code == -101 {
+	if payload.Code == nil {
+		return nil, contract.Unavailable("B 站服务返回格式异常，请稍后重试")
+	}
+	if requestPath == apiWebInterfaceNav && *payload.Code == -101 {
 		result := map[string]any{"isLogin": false}
 		if len(payload.Data) > 0 {
 			_ = json.Unmarshal(payload.Data, &result)
@@ -373,11 +403,11 @@ func (resources *Resources) decodeBiliResponse(requestPath string, response *htt
 		}
 		return result, nil
 	}
-	if payload.Code != 0 {
-		if payload.Code == -101 {
+	if *payload.Code != 0 {
+		if *payload.Code == -101 {
 			return nil, contract.Unavailable("B 站登录已失效，请重新扫码")
 		}
-		return nil, contract.Unavailable(fmt.Sprintf("B 站读取失败（%d），请稍后重试", payload.Code))
+		return nil, contract.Unavailable(fmt.Sprintf("B 站读取失败（%d），请稍后重试", *payload.Code))
 	}
 	var data any
 	if len(payload.Data) > 0 {
@@ -416,10 +446,31 @@ func (resources *Resources) readContext(ctx context.Context, requestPath string,
 		return nil, contract.Unavailable("B 站服务暂不可用，请稍后重试")
 	}
 	defer response.Body.Close()
-	if resources.cookies != nil {
-		resources.cookies.setFromResponse(request.URL.Hostname(), response)
+	data, err := resources.decodeBiliResponse(requestPath, response)
+	if err != nil {
+		return nil, err
 	}
-	return resources.decodeBiliResponse(requestPath, response)
+	if requestPath == "/x/passport-login/web/qrcode/poll" {
+		row, _ := data.(map[string]any)
+		if row["code"] != float64(0) {
+			return data, nil
+		}
+		required := map[string]bool{"SESSDATA": false, "bili_jct": false}
+		for _, cookie := range response.Cookies() {
+			if _, ok := required[cookie.Name]; ok && cookie.Value != "" && cookie.MaxAge >= 0 && (cookie.Expires.IsZero() || cookie.Expires.After(time.Now())) && (cookie.Domain == "" || hostMatches(request.URL.Hostname(), cookie.Domain)) {
+				required[cookie.Name] = true
+			}
+		}
+		if !required["SESSDATA"] || !required["bili_jct"] {
+			return nil, contract.Unavailable("扫码响应缺少登录凭据，请重新扫码")
+		}
+	}
+	if resources.cookies != nil {
+		if err := resources.cookies.setFromResponse(request.URL.Hostname(), response); err != nil {
+			return nil, err
+		}
+	}
+	return data, nil
 }
 
 var mediaReadPaths = map[string]bool{
@@ -640,6 +691,8 @@ func (resources *Resources) Browse(kind, query string, page int) (map[string]any
 }
 
 func (resources *Resources) Begin() (string, error) {
+	resources.loginMu.Lock()
+	defer resources.loginMu.Unlock()
 	data, err := resources.read("/x/passport-login/web/qrcode/generate", nil, true)
 	if err != nil {
 		return "", err
@@ -660,6 +713,8 @@ func (resources *Resources) Begin() (string, error) {
 }
 
 func (resources *Resources) Poll() (map[string]any, error) {
+	resources.loginMu.Lock()
+	defer resources.loginMu.Unlock()
 	resources.mu.Lock()
 	current := resources.qr
 	if current == nil || current.expires <= time.Now().UnixMilli() {
@@ -681,7 +736,7 @@ func (resources *Resources) Poll() (map[string]any, error) {
 	resources.mu.Unlock()
 	row, _ := data.(map[string]any)
 	code := -1
-	if value, ok := row["code"].(float64); ok {
+	if value, ok := row["code"].(float64); ok && value == float64(int(value)) {
 		code = int(value)
 	}
 	status, known := map[int]string{0: "success", 86101: "waiting", 86090: "scanning", 86038: "expired"}[code]
@@ -697,13 +752,23 @@ func (resources *Resources) Poll() (map[string]any, error) {
 }
 
 func (resources *Resources) CancelLogin() {
+	resources.loginMu.Lock()
+	defer resources.loginMu.Unlock()
 	resources.mu.Lock()
 	resources.qr = nil
 	resources.mu.Unlock()
 }
 
 func (resources *Resources) Logout() (map[string]any, error) {
-	resources.CancelLogin()
+	resources.loginMu.Lock()
+	defer resources.loginMu.Unlock()
+	resources.mu.Lock()
+	resources.qr = nil
+	resources.signingKey = nil
+	resources.mu.Unlock()
+	if err := resources.cookies.load(); err != nil {
+		return nil, err
+	}
 	if err := resources.cookies.clear(); err != nil {
 		return nil, err
 	}

@@ -218,7 +218,7 @@ func (inv *Invoker) handleVideoSubtitleTranscribe(store contract.StateStore, sta
 		if err != nil {
 			return nil, videoPptError(err)
 		}
-		if err := inv.downloadBiliVideo(store, ctx, normalized, task.Path); err != nil {
+		if err := inv.downloadBiliVideo(ctx, store, state, normalized, task.Path); err != nil {
 			return nil, err
 		}
 		return inv.transcribeVideoTask(ctx, state, task)

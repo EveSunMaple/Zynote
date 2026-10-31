@@ -116,13 +116,28 @@ func (inv *Invoker) handleBiliPoll(store contract.StateStore, state *contract.St
 	if err != nil {
 		return nil, err
 	}
-	return resources.Poll()
+	result, err := resources.Poll()
+	if err != nil {
+		return nil, err
+	}
+	if result["status"] == "success" && store.Reverse() != nil {
+		if _, err := store.Reverse().Call("shell.biliClear", map[string]any{}, 15000); err != nil {
+			return nil, contract.Unavailable("登录已保存，但旧浏览窗口未能退出；请重新打开B站浏览")
+		}
+	}
+	return result, nil
 }
 
 func (inv *Invoker) handleBiliLogout(store contract.StateStore, state *contract.State, _ json.RawMessage) (any, error) {
 	resources, err := inv.biliResourcesFor(state, store.Reverse())
 	if err != nil {
 		return nil, err
+	}
+	if store.Reverse() == nil {
+		return nil, contract.Unavailable("B站浏览会话不可用")
+	}
+	if _, err := store.Reverse().Call("shell.biliClear", map[string]any{}, 15000); err != nil {
+		return nil, contract.Unavailable("B站浏览会话未能退出，请重试")
 	}
 	return resources.Logout()
 }

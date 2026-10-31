@@ -14,7 +14,6 @@ import (
 	"github.com/EveSunMaple/Zynote/backend/internal/documents"
 	"github.com/EveSunMaple/Zynote/backend/internal/knowledge"
 	"github.com/EveSunMaple/Zynote/backend/internal/library"
-	mediaBilibili "github.com/EveSunMaple/Zynote/backend/internal/media/bilibili"
 	"github.com/EveSunMaple/Zynote/backend/internal/subtitlesync"
 )
 
@@ -69,7 +68,7 @@ func (inv *Invoker) subtitleSyncDependencies(store contract.StateStore, state *c
 	knowledgeStore, _ := inv.knowledgeStoreFor(state)
 	return subtitlesync.Dependencies{
 		Acquire: func(ctx context.Context, item subtitlesync.Item) (string, string, error) {
-			subtitle, err := mediaBilibili.FetchVideoSubtitles(ctx, nil, item.URL)
+			subtitle, err := inv.fetchVideoSubtitles(ctx, store, state, item.URL)
 			if err != nil {
 				return "", "", err
 			}
@@ -115,7 +114,7 @@ func (inv *Invoker) handleSubtitleSyncStart(store contract.StateStore, state *co
 		return nil, contract.InputInvalid("分类名称无效")
 	}
 	return inv.runJob("字幕同步知识库", func(ctx context.Context) (any, error) {
-		series, err := mediaBilibili.FetchVideoSeries(ctx, nil, input.URL)
+		series, err := inv.fetchVideoSeries(ctx, store, state, input.URL)
 		if err != nil {
 			return nil, err
 		}
@@ -141,8 +140,8 @@ type subtitleSyncSelection struct {
 	Pages []int  `json:"pages"`
 }
 
-func appendMixedSelection(ctx context.Context, selection subtitleSyncSelection, seen map[string]bool, items []subtitlesync.CreateItem) ([]subtitlesync.CreateItem, error) {
-	series, err := mediaBilibili.FetchVideoSeries(ctx, nil, selection.URL)
+func (inv *Invoker) appendMixedSelection(ctx context.Context, store contract.StateStore, state *contract.State, selection subtitleSyncSelection, seen map[string]bool, items []subtitlesync.CreateItem) ([]subtitlesync.CreateItem, error) {
+	series, err := inv.fetchVideoSeries(ctx, store, state, selection.URL)
 	if err != nil {
 		return nil, err
 	}
@@ -177,12 +176,12 @@ func appendMixedSelection(ctx context.Context, selection subtitleSyncSelection, 
 	return items, nil
 }
 
-func mixedSyncItems(ctx context.Context, selections []subtitleSyncSelection) ([]subtitlesync.CreateItem, error) {
+func (inv *Invoker) mixedSyncItems(ctx context.Context, store contract.StateStore, state *contract.State, selections []subtitleSyncSelection) ([]subtitlesync.CreateItem, error) {
 	items := []subtitlesync.CreateItem{}
 	seen := map[string]bool{}
 	for _, selection := range selections {
 		var err error
-		items, err = appendMixedSelection(ctx, selection, seen, items)
+		items, err = inv.appendMixedSelection(ctx, store, state, selection, seen, items)
 		if err != nil {
 			return nil, err
 		}
@@ -204,7 +203,7 @@ func (inv *Invoker) handleSubtitleSyncMixed(store contract.StateStore, state *co
 		return nil, err
 	}
 	return inv.runJob("批量字幕同步知识库", func(ctx context.Context) (any, error) {
-		items, err := mixedSyncItems(ctx, input.Selections)
+		items, err := inv.mixedSyncItems(ctx, store, state, input.Selections)
 		if err != nil {
 			return nil, err
 		}
