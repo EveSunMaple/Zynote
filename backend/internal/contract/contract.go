@@ -10,6 +10,9 @@ const ProtocolVersion = 1
 const (
 	CodeInputInvalid = "INPUT_INVALID"
 	CodeNoSubtitle   = "NO_SUBTITLE"
+	CodeAuthExpired  = "AUTH_EXPIRED"
+	CodeRateLimited  = "RATE_LIMITED"
+	CodeTimeout      = "TIMEOUT"
 	CodeNotFound     = "NOT_FOUND"
 	CodeConflict     = "CONFLICT"
 	CodeBusy         = "BUSY"

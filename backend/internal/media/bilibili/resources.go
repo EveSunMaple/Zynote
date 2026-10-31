@@ -239,15 +239,17 @@ type qrState struct {
 }
 
 type Resources struct {
-	loginMu    sync.Mutex
-	client     *http.Client
-	cookies    *cookieStore
-	fetch      func(*http.Request) (*http.Response, error)
-	mu         sync.Mutex
-	qr         *qrState
-	signingKey *wbiKey
-	baseAPI    string
-	basePass   string
+	now           func() time.Time
+	cooldownUntil time.Time
+	loginMu       sync.Mutex
+	client        *http.Client
+	cookies       *cookieStore
+	fetch         func(*http.Request) (*http.Response, error)
+	mu            sync.Mutex
+	qr            *qrState
+	signingKey    *wbiKey
+	baseAPI       string
+	basePass      string
 }
 
 func NewResources(root string, crypt Crypt) *Resources {
@@ -347,10 +349,23 @@ func (resources *Resources) RawDiscussion(requestPath string, params map[string]
 }
 
 func (resources *Resources) do(request *http.Request) (*http.Response, error) {
-	if resources.fetch != nil {
-		return resources.fetch(request)
+	if err := request.Context().Err(); err != nil {
+		return nil, biliTransportFailure(err)
 	}
-	return resources.client.Do(request)
+	if err := resources.rateLimitFailure(); err != nil {
+		return nil, err
+	}
+	var response *http.Response
+	var err error
+	if resources.fetch != nil {
+		response, err = resources.fetch(request)
+	} else {
+		response, err = resources.client.Do(request)
+	}
+	if err == nil && response.StatusCode == http.StatusTooManyRequests {
+		resources.recordRateLimit(response.Header)
+	}
+	return response, err
 }
 
 type ScopedFetcher func(url string, headers map[string]string, ctx context.Context) (*http.Response, error)
@@ -383,13 +398,19 @@ func biliTarget(base, requestPath string, params map[string]string) string {
 
 func (resources *Resources) decodeBiliResponse(requestPath string, response *http.Response) (any, error) {
 	if response.StatusCode < 200 || response.StatusCode >= 300 {
-		return nil, contract.Unavailable(fmt.Sprintf("B 站服务暂不可用（HTTP %d）", response.StatusCode))
+		if response.StatusCode == http.StatusTooManyRequests {
+			resources.recordRateLimit(response.Header)
+		}
+		return nil, biliHTTPFailure(response.StatusCode)
 	}
 	var payload struct {
 		Code *int            `json:"code"`
 		Data json.RawMessage `json:"data"`
 	}
 	if err := json.NewDecoder(response.Body).Decode(&payload); err != nil {
+		if failure := biliTransportFailure(err); failure.Code != contract.CodeUnavailable {
+			return nil, failure
+		}
 		return nil, contract.Unavailable("B 站服务返回格式异常，请稍后重试")
 	}
 	if payload.Code == nil {
@@ -404,10 +425,11 @@ func (resources *Resources) decodeBiliResponse(requestPath string, response *htt
 		return result, nil
 	}
 	if *payload.Code != 0 {
-		if *payload.Code == -101 {
-			return nil, contract.Unavailable("B 站登录已失效，请重新扫码")
+		failure := biliCodeFailure(*payload.Code)
+		if failure.Code == contract.CodeRateLimited {
+			resources.recordRateLimit(response.Header)
 		}
-		return nil, contract.Unavailable(fmt.Sprintf("B 站读取失败（%d），请稍后重试", *payload.Code))
+		return nil, failure
 	}
 	var data any
 	if len(payload.Data) > 0 {
@@ -441,9 +463,9 @@ func (resources *Resources) readContext(ctx context.Context, requestPath string,
 	response, err := resources.do(request)
 	if err != nil {
 		if ctx.Err() != nil {
-			return nil, ctx.Err()
+			return nil, biliTransportFailure(ctx.Err())
 		}
-		return nil, contract.Unavailable("B 站服务暂不可用，请稍后重试")
+		return nil, biliTransportFailure(err)
 	}
 	defer response.Body.Close()
 	data, err := resources.decodeBiliResponse(requestPath, response)

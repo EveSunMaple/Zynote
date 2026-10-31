@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"io"
 	"math"
 	"net/http"
@@ -88,17 +87,23 @@ func biliGet(ctx context.Context, client *http.Client, target string) ([]byte, e
 	request.Header.Set("User-Agent", "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36")
 	response, err := client.Do(request)
 	if err != nil {
-		if ctx.Err() != nil {
-			return nil, ctx.Err()
+		if requestContext.Err() != nil {
+			return nil, biliTransportFailure(requestContext.Err())
 		}
-		return nil, contract.Unavailable("无法读取 B 站视频分集")
+		return nil, biliTransportFailure(err)
 	}
 	defer response.Body.Close()
 	if response.StatusCode < 200 || response.StatusCode >= 300 {
-		return nil, contract.Unavailable(fmt.Sprintf("B 站 %s 返回 HTTP %d", request.URL.Path, response.StatusCode))
+		if response.StatusCode == http.StatusTooManyRequests {
+			recordSubtitleRateLimit(client, response.Header)
+		}
+		return nil, biliHTTPFailure(response.StatusCode)
 	}
 	body, err := io.ReadAll(io.LimitReader(response.Body, 4*1024*1024+1))
-	if err != nil || len(body) > 4*1024*1024 {
+	if err != nil {
+		return nil, biliTransportFailure(err)
+	}
+	if len(body) > 4*1024*1024 {
 		return nil, contract.Unavailable("字幕响应过大")
 	}
 	return body, nil
@@ -135,10 +140,16 @@ func fetchPageList(ctx context.Context, client *http.Client, normalized string) 
 		return nil, err
 	}
 	var reply struct {
-		Code int       `json:"code"`
+		Code *int      `json:"code"`
 		Data []pageRow `json:"data"`
 	}
-	if json.Unmarshal(body, &reply) != nil || reply.Code != 0 || len(reply.Data) == 0 || len(reply.Data) > 1000 {
+	if json.Unmarshal(body, &reply) != nil || reply.Code == nil {
+		return nil, contract.Unavailable("未能读取视频分集目录，请稍后重试")
+	}
+	if *reply.Code != 0 {
+		return nil, subtitleCodeFailure(client, *reply.Code)
+	}
+	if len(reply.Data) == 0 || len(reply.Data) > 1000 {
 		return nil, contract.Unavailable("未能读取视频分集目录，请稍后重试")
 	}
 	for index, page := range reply.Data {
@@ -227,14 +238,20 @@ func fetchSubtitleTracks(ctx context.Context, client *http.Client, parsed *url.U
 		return nil, err
 	}
 	var detail struct {
-		Code int `json:"code"`
+		Code *int `json:"code"`
 		Data struct {
 			Subtitle struct { // NOSONAR: path is resolved and checked against the configured root.
 				Subtitles *[]subtitleTrack `json:"subtitles"`
 			} `json:"subtitle"`
 		} `json:"data"`
 	}
-	if json.Unmarshal(body, &detail) != nil || detail.Code != 0 || detail.Data.Subtitle.Subtitles == nil {
+	if json.Unmarshal(body, &detail) != nil || detail.Code == nil {
+		return nil, contract.Unavailable("无法读取此分集的字幕目录")
+	}
+	if *detail.Code != 0 {
+		return nil, subtitleCodeFailure(client, *detail.Code)
+	}
+	if detail.Data.Subtitle.Subtitles == nil {
 		return nil, contract.Unavailable("无法读取此分集的字幕目录")
 	}
 	tracks := *detail.Data.Subtitle.Subtitles
@@ -349,7 +366,7 @@ func FetchVideoSubtitles(ctx context.Context, client *http.Client, value string)
 		segments, warning, err := readSubtitleTrack(ctx, client, track, selected.Duration)
 		if err != nil {
 			if ctx.Err() != nil {
-				return FetchedSubtitle{}, ctx.Err()
+				return FetchedSubtitle{}, biliTransportFailure(ctx.Err())
 			}
 			lastErr = err
 			continue

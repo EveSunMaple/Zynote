@@ -208,3 +208,19 @@ Legacy `video-ppt:batch` and `video-ppt:batch-subtitles` still use their outer
 exclusive worker, and batch PPT model calls lack the new per-operation model
 journal. They must not call the queued single-task entry from inside that worker
 (which would deadlock); safe batch orchestration remains a separate migration.
+
+
+Bilibili resource and raw subtitle readers now share sanitized direct error
+classes: AUTH_EXPIRED (-101 / HTTP 401), RATE_LIMITED (-412 / -509 / HTTP 429),
+CANCELLED and TIMEOUT (context/network timeout / HTTP 408 or 504). Navigation's
+-101 remains a successful logged-out status. No error triggers reauthentication,
+cookie clearing or a fallback model invocation.
+
+Each resource instance keeps an in-memory rate-limit cooldown, shared by catalog
+and subtitle requests. Default is 30 seconds; Retry-After seconds/date is bounded
+to five minutes for HTTP rate limits. API rate-limit codes use the default.
+Requests during cooldown fail immediately with remaining retryAfterSeconds;
+there is no sleeping or automatic retry. After expiry, only the next explicit
+request may dispatch. This is process-local backoff, not an account-wide or
+multi-process quota guarantee. Fake-clock tests validate bounds, cross-reader
+blocking/expiry, sanitized wrapped errors and unchanged login state.
