@@ -224,3 +224,10 @@ there is no sleeping or automatic retry. After expiry, only the next explicit
 request may dispatch. This is process-local backoff, not an account-wide or
 multi-process quota guarantee. Fake-clock tests validate bounds, cross-reader
 blocking/expiry, sanitized wrapped errors and unchanged login state.
+
+Terminal track errors (auth expiry, rate limit, cancellation or timeout) stop
+track selection immediately, so an alternative track cannot overwrite the
+classification or cause an extra request. Content-invalid tracks may still fall
+back to a valid alternative. Cooldown intentionally covers every request on the
+same resource instance, including navigation/passport endpoints; it does not
+clear or refresh login state and does not create a second credential store.

@@ -117,3 +117,16 @@ func subtitleCodeFailure(client *http.Client, code int) error {
 	}
 	return failure
 }
+
+func terminalSubtitleFailure(err error) bool {
+	var application *contract.AppError
+	if !errors.As(err, &application) {
+		return false
+	}
+	switch application.Code {
+	case contract.CodeAuthExpired, contract.CodeRateLimited, contract.CodeCancelled, contract.CodeTimeout:
+		return true
+	default:
+		return false
+	}
+}

@@ -368,6 +368,9 @@ func FetchVideoSubtitles(ctx context.Context, client *http.Client, value string)
 			if ctx.Err() != nil {
 				return FetchedSubtitle{}, biliTransportFailure(ctx.Err())
 			}
+			if terminalSubtitleFailure(err) {
+				return FetchedSubtitle{}, err
+			}
 			lastErr = err
 			continue
 		}

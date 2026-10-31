@@ -172,3 +172,28 @@ func TestNonRateFailuresDoNotCreateCooldownOrRewriteLoginState(t *testing.T) {
 		}
 	}
 }
+
+func TestTerminalTrackFailuresDoNotDispatchAlternativeOrLoseCode(t *testing.T) {
+	for _, code := range []string{contract.CodeAuthExpired, contract.CodeRateLimited, contract.CodeTimeout, contract.CodeCancelled} {
+		t.Run(code, func(t *testing.T) {
+			tracks := 0
+			resources := NewScopedResources(func(address string, _ map[string]string, _ context.Context) (*http.Response, error) {
+				body := ""
+				switch {
+				case strings.Contains(address, "pagelist"):
+					body = `{"code":0,"data":[{"page":1,"part":"lecture","duration":20,"cid":7}]}`
+				case strings.Contains(address, "/x/player/v2"):
+					body = `{"code":0,"data":{"subtitle":{"subtitles":[{"lan":"zh","subtitle_url":"https://aisubtitle.hdslb.com/first.json"},{"lan":"en","subtitle_url":"https://aisubtitle.hdslb.com/second.json"}]}}}`
+				default:
+					tracks++
+					return nil, contract.NewError(code, "controlled terminal failure")
+				}
+				return &http.Response{StatusCode: 200, Header: make(http.Header), Body: io.NopCloser(strings.NewReader(body))}, nil
+			})
+			_, err := resources.FetchSubtitles(context.Background(), "https://www.bilibili.com/video/BV1234567890/")
+			if failureCode(t, err) != code || tracks != 1 {
+				t.Fatal("alternative dispatched or code overwritten", err, tracks)
+			}
+		})
+	}
+}
