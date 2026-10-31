@@ -35,8 +35,28 @@ export function SubtitleBatchRecords({
   setDerived(await invoke('subtitle-derived:list'))
  }
  useEffect(() => {
-  if (visible) void load().catch(reason => notify.error(reason, {title: '读取任务失败'}))
- }, [visible])
+  if (!visible) return
+  let disposed = false
+  let pending = false
+  async function poll() {
+   if (pending) return
+   pending = true
+   try {
+    const records = await invoke<SubtitleDerivedTask[]>('subtitle-derived:list')
+    if (!disposed) setDerived(records)
+   } catch (reason) {
+    if (!disposed && !busy) notify.error(reason, {title: '读取任务失败'})
+   } finally {
+    pending = false
+   }
+  }
+  void poll()
+  const timer = busy ? setInterval(() => void poll(), 1000) : undefined
+  return () => {
+   disposed = true
+   if (timer) clearInterval(timer)
+  }
+ }, [visible, busy])
  const action = (fn: () => Promise<void>) =>
   void run(async () => {
    await fn()
