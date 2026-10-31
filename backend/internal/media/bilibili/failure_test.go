@@ -197,3 +197,16 @@ func TestTerminalTrackFailuresDoNotDispatchAlternativeOrLoseCode(t *testing.T) {
 		})
 	}
 }
+
+func TestNilScopedResponseAndDiscussionCooldownStaySanitized(t *testing.T) {
+	resources := NewScopedResources(func(string, map[string]string, context.Context) (*http.Response, error) { return nil, nil })
+	_, err := resources.RawDiscussion("/x/v2/reply", nil, context.Background(), 1024)
+	if failureCode(t, err) != contract.CodeUnavailable {
+		t.Fatal(err)
+	}
+	resources.recordRateLimit(nil)
+	_, err = resources.RawDiscussion("/x/v2/reply", nil, context.Background(), 1024)
+	if failureCode(t, err) != contract.CodeRateLimited {
+		t.Fatal(err)
+	}
+}

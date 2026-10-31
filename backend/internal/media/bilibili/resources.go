@@ -322,9 +322,9 @@ func (resources *Resources) RawDiscussion(requestPath string, params map[string]
 	response, err := resources.do(request)
 	if err != nil {
 		if ctx.Err() != nil {
-			return nil, ctx.Err()
+			return nil, biliTransportFailure(ctx.Err())
 		}
-		return nil, fmt.Errorf("network_or_protocol")
+		return nil, biliTransportFailure(err)
 	}
 	defer response.Body.Close()
 	if resources.cookies != nil {
@@ -333,7 +333,7 @@ func (resources *Resources) RawDiscussion(requestPath string, params map[string]
 		}
 	}
 	if response.StatusCode < 200 || response.StatusCode >= 300 {
-		return nil, fmt.Errorf("HTTP %d", response.StatusCode)
+		return nil, biliHTTPFailure(response.StatusCode)
 	}
 	if response.ContentLength > limit {
 		return nil, fmt.Errorf("danmaku_too_large")
@@ -361,6 +361,9 @@ func (resources *Resources) do(request *http.Request) (*http.Response, error) {
 		response, err = resources.fetch(request)
 	} else {
 		response, err = resources.client.Do(request)
+	}
+	if err == nil && (response == nil || response.Body == nil) {
+		return nil, contract.Unavailable("B 站服务返回响应无效")
 	}
 	if err == nil && response.StatusCode == http.StatusTooManyRequests {
 		resources.recordRateLimit(response.Header)
