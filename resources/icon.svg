@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<svg xmlns="http://www.w3.org/2000/svg" width="1254" height="1254" viewBox="0 0 1248 1248" role="img" aria-labelledby="title desc">
+<svg xmlns="http://www.w3.org/2000/svg" width="1254" height="1254" viewBox="110 110.5 1028 1028" role="img" aria-labelledby="title desc">
   <title id="title">摘云 · 原图外观矢量图标</title>
-  <desc id="desc">保留透明留白、浅蓝圆角底板、云朵与黄色信息碎片。基于参考图重绘的可编辑贝塞尔路径与原生 SVG 渐变；不含嵌入式位图。</desc>
+  <desc id="desc">紧凑裁切并保留少量透明留白、浅蓝圆角底板、云朵与黄色信息碎片。基于参考图重绘的可编辑贝塞尔路径与原生 SVG 渐变；不含嵌入式位图。</desc>
   <defs>
     <linearGradient id="cloud-blue" gradientUnits="userSpaceOnUse" x1="498.47" y1="391.59" x2="883.39" y2="929.00">
       <stop offset="0.00" stop-color="#75B7FE"/>
