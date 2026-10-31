@@ -1,5 +1,6 @@
 import {BiliBrowser} from '@main/media/bilibili/browser'
 import {GoCore, nativeBinaryPath} from '@main/backend/go-core'
+import {createAssistantInvoke} from '@main/backend/assistant-ipc'
 import {resolveDataPaths} from '@main/backend/portable-data'
 import {createShellServices} from '@main/backend/shell-services'
 import {createUpdater, type Updater} from '@main/app/updater'
@@ -218,28 +219,21 @@ async function startApplication() {
  goCore.start()
  await waitForCore(goCore)
  await goCore.call('db:bootstrap', {})
- ipcMain.handle('assistant:invoke', async (event, action: string, args: unknown) => {
-  if (event.sender !== window.webContents || event.senderFrame !== window.webContents.mainFrame)
-   throw new Error('拒绝未知页面请求')
-  const object = z.record(z.string(), z.unknown()).parse(args || {})
-  const validated = z.string().min(1).max(100).parse(action)
-  try {
-   const shellResult = await invokeShellAction(window, paths.libraryRoot, updater, validated, object)
-   if (shellResult !== unhandled) return shellResult
-   await waitForCore(goCore)
-   return await goCore.call(validated, object)
-  } catch (error) {
-   let code = 'REQUEST_FAILED'
-   if (error instanceof z.ZodError) code = 'INPUT_INVALID'
-   const message = error instanceof Error ? error.message : String(error)
-   diagnostic(root, 'ipc', 'request-failed', {
-    action: validated,
-    code,
-    message: message.replace(/\s+/g, ' ').slice(0, 300)
-   })
-   throw error
-  }
- })
+ ipcMain.handle(
+  'assistant:invoke',
+  createAssistantInvoke(
+   window,
+   async (action, object) => {
+    const shellResult = await invokeShellAction(window, paths.libraryRoot, updater, action, object)
+    if (shellResult !== unhandled) return shellResult
+    await waitForCore(goCore)
+    return await goCore.call(action, object)
+   },
+   (action, failure) => {
+    diagnostic(root, 'ipc', 'request-failed', {action, code: failure.code, message: failure.message})
+   }
+  )
+ )
  if (process.env.ELECTRON_RENDERER_URL) await window.loadURL(process.env.ELECTRON_RENDERER_URL)
  else await window.loadFile(join(mainDir, '../renderer/index.html'))
  showMainWindow()

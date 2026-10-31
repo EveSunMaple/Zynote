@@ -336,9 +336,11 @@ receipts now project the first two levels in lists, UI and Markdown; submitted a
 cited remain unknown/not integrated. Legacy statuses never become receipts.
 Changed-output recovery preserves the old file and creates a separate file;
 historical coverage remains invalid and explicitly requires review. Source/frame/
-output hashing adds linear I/O on list projection. Task-center polling can overlap
-requests; request coalescing/non-overlap remains the next performance slice, with
-no mtime cache substituted for strong content identity.
+output hashing adds linear I/O on list projection. Task-center polling now
+coalesces/serializes snapshots, including all sibling reads after early failure;
+events retain one trailing refresh and hidden generations discard stale results.
+Other callers/windows are outside this component's serialization scope. No mtime
+cache substitutes for strong content identity.
 
 PPT/visual scanning rejects failed or partial streams even after a candidate
 exists. ASR decode and native dispatch preserve cancellation/deadline causes,
@@ -350,5 +352,11 @@ The licensed MIT43m06s production en ASR fixture passed832 cues/1553.41s with
 normalized official-caption WER460/6325(7.27%). All cue times were finite,
 nonoverlapping and bounded. This is not word-level timing, multilingual or UI/API
 English acceptance: the current API selects zh. No real-account or manual theme
-acceptance follows from these tests. Structured backend error classes still lose
-code across the Electron message-only IPC bridge.
+acceptance follows from these tests. Known backend error codes now cross a bounded
+main/preload envelope; preload creates a code/message record with a pure String
+compatibility closure. Success values remain unchanged. Unknown wire errors use
+a generic fallback and never forward arbitrary data; ordinary local shell Errors
+retain bounded user-facing messages. Sender/mainFrame checks remain strict.
+Controlled child JSON-RPC and hidden Electron42.11.10 Windows tests cover these
+boundaries using production preload/handler code; this is not a real-account,
+manual theme or packaged macOS/Linux acceptance.

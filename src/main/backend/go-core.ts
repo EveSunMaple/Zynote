@@ -5,6 +5,7 @@ import {join} from 'node:path'
 import {z} from 'zod'
 import type {EventPayload} from '@shared/types'
 import type {ShellService} from '@main/backend/shell-service'
+import {backendFailure} from '@shared/ipc-result'
 
 const HELLO_TIMEOUT_MS = 8000
 const CALL_TIMEOUT_MS = 10000
@@ -254,7 +255,7 @@ export class GoCore {
    clearTimeout(item.timer)
    if (frame.error) {
     const error = frame.error as {code?: string; message?: string}
-    item.reject(new Error(error.message || 'Go 后端请求失败'))
+    item.reject(backendFailure(error))
    } else item.resolve(frame.result)
   }
  }
