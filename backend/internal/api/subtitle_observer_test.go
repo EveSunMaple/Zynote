@@ -12,6 +12,8 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -30,12 +32,15 @@ func TestSummaryObserverActualChunksRepairAndFailureStops(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			calls := 0
+			var calls atomic.Int32
+			var observationsMu sync.Mutex
 			var receivedIDs [][]int
 			var requestHashes []string
 			var requestInputs []string
 			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-				calls++
+				observationsMu.Lock()
+				defer observationsMu.Unlock()
+				calls.Add(1)
 				var request struct {
 					Messages []ai.Message `json:"messages"`
 				}
@@ -63,7 +68,7 @@ func TestSummaryObserverActualChunksRepairAndFailureStops(t *testing.T) {
 				}
 				receivedIDs = append(receivedIDs, ids)
 				reply := "invalid-json"
-				if calls > 1 {
+				if calls.Load() > 1 {
 					reply = fmt.Sprintf(`[{"cue":%d,"quote":"Hello","point":"Greeting"}]`, input.Cues[0].Cue)
 				}
 				body, _ := json.Marshal(map[string]any{"choices": []any{map[string]any{"finish_reason": "stop", "message": map[string]any{"content": reply}}}})
@@ -91,15 +96,23 @@ func TestSummaryObserverActualChunksRepairAndFailureStops(t *testing.T) {
 			if err != nil && !contract.IsObservationFailure(err) {
 				t.Fatal(err)
 			}
-			expected := 3
+			observationsMu.Lock()
+			capturedIDs := make([][]int, len(receivedIDs))
+			for i := range receivedIDs {
+				capturedIDs[i] = append([]int(nil), receivedIDs[i]...)
+			}
+			capturedHashes := append([]string(nil), requestHashes...)
+			capturedInputs := append([]string(nil), requestInputs...)
+			observationsMu.Unlock()
+			expected := int32(3)
 			if failure != "" {
 				expected = 1
 			}
 			if failure == "dispatch-intent" {
 				expected = 0
 			}
-			if calls != expected {
-				t.Fatal("observer failure caused request/retry", calls, expected, result.Items[0].Error)
+			if calls.Load() != expected {
+				t.Fatal("observer failure caused request/retry", calls.Load(), expected, result.Items[0].Error)
 			}
 			if failure == "" {
 				if result.Items[0].Status != "已完成" || result.Items[0].AttemptEvidence == nil || result.Items[0].AttemptEvidence.EventCount != 12 {
@@ -124,7 +137,7 @@ func TestSummaryObserverActualChunksRepairAndFailureStops(t *testing.T) {
 						if record.Event.Observation.ChunkIndex == 1 {
 							expectedRequest = 2
 						}
-						if record.Event.RequestBodySHA256 != requestHashes[expectedRequest] {
+						if record.Event.RequestBodySHA256 != capturedHashes[expectedRequest] {
 							t.Fatal("actual request digest differs from sidecar")
 						}
 
@@ -144,25 +157,29 @@ func TestSummaryObserverActualChunksRepairAndFailureStops(t *testing.T) {
 				if result.Items[0].Status != "失败" || result.Items[0].GenerationState != "dispatched" {
 					t.Fatal(result)
 				}
-				before := calls
-				if _, err := service.Run(context.Background(), task.ID, deps); err != nil || calls != before {
-					t.Fatal("unknown observer outcome replayed", err, calls)
+				before := calls.Load()
+				deps.Summarize = func(context.Context, string, string) (string, []subtitlederived.Point, error) {
+					t.Error("UNKNOWN replay attempted")
+					return "", nil, fmt.Errorf("replay forbidden")
+				}
+				if _, err := service.Run(context.Background(), task.ID, deps); err != nil || calls.Load() != before {
+					t.Fatal("unknown observer outcome replayed", err, calls.Load())
 				}
 			}
-			if failure == "" && requestInputs[0] != requestInputs[1] {
+			if failure == "" && capturedInputs[0] != capturedInputs[1] {
 				t.Fatal("repair changed base input")
 			}
-			if failure == "" && (len(receivedIDs) != 3 || receivedIDs[0][0] != 0 || receivedIDs[1][0] != 0 || receivedIDs[2][0] != 1) {
-				t.Fatal("actual chunk/repair inputs differ", receivedIDs)
+			if failure == "" && (len(capturedIDs) != 3 || capturedIDs[0][0] != 0 || capturedIDs[1][0] != 0 || capturedIDs[2][0] != 1) {
+				t.Fatal("actual chunk/repair inputs differ", capturedIDs)
 			}
 		})
 	}
 }
 
 func TestObservedSummaryRejectsRedirectButOrdinaryChatKeepsIt(t *testing.T) {
-	targetCalls := 0
+	var targetCalls atomic.Int32
 	target := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		targetCalls++
+		targetCalls.Add(1)
 		fmt.Fprint(w, `{"choices":[{"message":{"content":"ok"}}]}`)
 	}))
 	defer target.Close()
@@ -182,11 +199,11 @@ func TestObservedSummaryRejectsRedirectButOrdinaryChatKeepsIt(t *testing.T) {
 		return result.Markdown, nil, err
 	}}
 	result, err := service.Run(context.Background(), task.ID, deps)
-	if err != nil || targetCalls != 0 || result.Items[0].AttemptEvidence == nil || result.Items[0].AttemptEvidence.EventCount != 2 {
-		t.Fatal("observed redirect followed", result, targetCalls, err)
+	if err != nil || targetCalls.Load() != 0 || result.Items[0].AttemptEvidence == nil || result.Items[0].AttemptEvidence.EventCount != 2 {
+		t.Fatal("observed redirect followed", result, targetCalls.Load(), err)
 	}
-	if _, err := client.Chat(context.Background(), []ai.Message{{Role: "user", Content: "ordinary"}}, nil); err != nil || targetCalls != 1 {
-		t.Fatal("ordinary redirect changed", targetCalls, err)
+	if _, err := client.Chat(context.Background(), []ai.Message{{Role: "user", Content: "ordinary"}}, nil); err != nil || targetCalls.Load() != 1 {
+		t.Fatal("ordinary redirect changed", targetCalls.Load(), err)
 	}
 }
 
@@ -199,10 +216,10 @@ func TestSummaryObserverTransportAndCancellationRemainUnknown(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			calls := 0
+			var calls atomic.Int32
 			cancelChannel := make(chan context.CancelFunc, 1)
 			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-				calls++
+				calls.Add(1)
 				_, _ = io.Copy(io.Discard, r.Body)
 				if kind == "cancel" {
 					(<-cancelChannel)()
@@ -239,19 +256,24 @@ func TestSummaryObserverTransportAndCancellationRemainUnknown(t *testing.T) {
 				return result.Markdown, nil, err
 			}}
 			result, err := service.Run(context.Background(), task.ID, deps)
+			server.Close()
 			if (err != nil && !contract.IsObservationFailure(err)) || result.Items[0].Status != "失败" {
 				t.Fatal(result, err)
 			}
-			expected := 1
+			expected := int32(1)
 			if kind == "config-drift" {
 				expected = 0
 			}
-			if calls != expected {
-				t.Fatal("unexpected transport replay", calls)
+			if calls.Load() != expected {
+				t.Fatal("unexpected transport replay", calls.Load())
 			}
-			before := calls
-			if _, err := service.Run(context.Background(), task.ID, deps); err != nil || calls != before {
-				t.Fatal("UNKNOWN replay", err, calls)
+			before := calls.Load()
+			deps.Summarize = func(context.Context, string, string) (string, []subtitlederived.Point, error) {
+				t.Error("UNKNOWN replay attempted")
+				return "", nil, fmt.Errorf("replay forbidden")
+			}
+			if _, err := service.Run(context.Background(), task.ID, deps); err != nil || calls.Load() != before {
+				t.Fatal("UNKNOWN replay", err, calls.Load())
 			}
 		})
 	}
@@ -264,9 +286,9 @@ func TestSummaryObserverResponsesWireInputAndReceipts(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	calls := 0
+	var calls atomic.Int32
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		calls++
+		calls.Add(1)
 		var body struct {
 			Input  []ai.Message `json:"input"`
 			Store  *bool        `json:"store"`
@@ -296,8 +318,9 @@ func TestSummaryObserverResponsesWireInputAndReceipts(t *testing.T) {
 		return result.Markdown, nil, err
 	}}
 	result, err := service.Run(context.Background(), task.ID, deps)
-	if err != nil || calls != 1 || result.Items[0].Status != "已完成" || result.Items[0].AttemptEvidence == nil || result.Items[0].AttemptEvidence.EventCount != 4 {
-		t.Fatal(result, calls, err)
+	server.Close()
+	if err != nil || calls.Load() != 1 || result.Items[0].Status != "已完成" || result.Items[0].AttemptEvidence == nil || result.Items[0].AttemptEvidence.EventCount != 4 {
+		t.Fatal(result, calls.Load(), err)
 	}
 }
 
@@ -314,9 +337,9 @@ func TestObserverPersistenceFailureStopsEntireTwoModeTask(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			calls := 0
+			var calls atomic.Int32
 			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-				calls++
+				calls.Add(1)
 				fmt.Fprint(w, `{"choices":[{"message":{"content":"invalid-format"}}]}`)
 			}))
 			defer server.Close()
@@ -335,22 +358,27 @@ func TestObserverPersistenceFailureStopsEntireTwoModeTask(t *testing.T) {
 				return result.Markdown, nil, err
 			}}
 			result, err := service.Run(context.Background(), task.ID, deps)
-			expected := 1
+			server.Close()
+			expected := int32(1)
 			if failure == "dispatch-intent" {
 				expected = 0
 			}
-			if !contract.IsObservationFailure(err) || calls != expected || result.Items[1].GenerationState != "" || result.Items[1].Status != "等待处理" {
-				t.Fatal("persistence failure continued another item", result, calls, err)
+			if !contract.IsObservationFailure(err) || calls.Load() != expected || result.Items[1].GenerationState != "" || result.Items[1].Status != "等待处理" {
+				t.Fatal("persistence failure continued another item", result, calls.Load(), err)
 			}
 			disk, readErr := service.Read(task.ID)
 			if readErr != nil || disk.Items[0].GenerationState != "dispatched" || disk.Items[1].AttemptEvidence != nil {
 				t.Fatal(disk, readErr)
 			}
-			before := calls
+			before := calls.Load()
+			deps.Summarize = func(context.Context, string, string) (string, []subtitlederived.Point, error) {
+				t.Error("UNKNOWN replay attempted")
+				return "", nil, fmt.Errorf("replay forbidden")
+			}
 			fresh := subtitlederived.New(service.Root, state.LibraryRoot)
 			recovered, recoverErr := fresh.Run(context.Background(), task.ID, deps)
-			if recoverErr != nil || calls != before || recovered.Items[1].GenerationState != "" {
-				t.Fatal("fresh recovery skipped UNKNOWN and dispatched next mode", recovered, calls, recoverErr)
+			if recoverErr != nil || calls.Load() != before || recovered.Items[1].GenerationState != "" {
+				t.Fatal("fresh recovery skipped UNKNOWN and dispatched next mode", recovered, calls.Load(), recoverErr)
 			}
 
 		})

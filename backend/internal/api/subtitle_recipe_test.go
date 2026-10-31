@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"sync/atomic"
 	"testing"
 
 	"github.com/EveSunMaple/Zynote/backend/internal/ai"
@@ -22,9 +23,9 @@ func TestSubtitleRecipeDurableBeforeActualSummaryRequest(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	calls := 0
+	var calls atomic.Int32
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		calls++
+		calls.Add(1)
 		durable, err := service.Read(task.ID)
 		if err != nil || durable.EvidenceVersion != 1 || durable.Recipe == nil || durable.Items[0].Recipe == nil || durable.Items[0].GenerationState != "dispatched" {
 			t.Error("provider reached without durable recipe", err)
@@ -61,7 +62,8 @@ func TestSubtitleRecipeDurableBeforeActualSummaryRequest(t *testing.T) {
 			return result.Markdown, nil, err
 		},
 	})
-	if err != nil || calls != 1 || result.Items[0].Status != "已完成" {
-		t.Fatal("controlled summary failed", result, calls, err)
+	server.Close()
+	if err != nil || calls.Load() != 1 || result.Items[0].Status != "已完成" {
+		t.Fatal("controlled summary failed", result, calls.Load(), err)
 	}
 }

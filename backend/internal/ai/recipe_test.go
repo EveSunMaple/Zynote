@@ -8,6 +8,8 @@ import (
 	"net/http/httptest"
 	"reflect"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"testing"
 
 	"github.com/EveSunMaple/Zynote/backend/internal/config"
@@ -16,11 +18,14 @@ import (
 func TestTextRecipeMatchesActualRequestAndIgnoresCredentialRotation(t *testing.T) {
 	for _, format := range []string{"openai", "responses"} {
 		t.Run(format, func(t *testing.T) {
-			calls := 0
+			var calls atomic.Int32
+			var observationsMu sync.Mutex
 			var received map[string]any
 			var endpoint, authorization string
 			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-				calls++
+				observationsMu.Lock()
+				defer observationsMu.Unlock()
+				calls.Add(1)
 				endpoint, authorization = "http://"+r.Host+r.URL.RequestURI(), r.Header.Get("Authorization")
 				if err := json.NewDecoder(r.Body).Decode(&received); err != nil {
 					t.Error(err)
@@ -42,6 +47,8 @@ func TestTextRecipeMatchesActualRequestAndIgnoresCredentialRotation(t *testing.T
 			if _, err := client.Chat(context.Background(), []Message{{Role: "user", Content: "controlled text"}}, nil); err != nil {
 				t.Fatal(err)
 			}
+			observationsMu.Lock()
+			defer observationsMu.Unlock()
 			if recipe.EndpointSHA256 != recipeDigest(endpoint) || recipe.RequestedModel != received["model"] || received["stream"] != false {
 				t.Fatal("request identity mismatch", recipe, received)
 			}
@@ -59,7 +66,7 @@ func TestTextRecipeMatchesActualRequestAndIgnoresCredentialRotation(t *testing.T
 			if string(expected) != string(actual) {
 				t.Fatal("effective parameters diverged", string(expected), string(actual))
 			}
-			if authorization != "Bearer secret-before" || calls != 1 {
+			if authorization != "Bearer secret-before" || calls.Load() != 1 {
 				t.Fatal("request not observed")
 			}
 			client.Profile.Key = "secret-after"

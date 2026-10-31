@@ -5,15 +5,16 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"sync/atomic"
 	"testing"
 
 	"github.com/EveSunMaple/Zynote/backend/internal/contract"
 )
 
 func TestObserverDirectChatCannotDetachInputOrFeedback(t *testing.T) {
-	calls := 0
+	var calls atomic.Int32
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		calls++
+		calls.Add(1)
 		fmt.Fprint(w, `{"choices":[{"message":{"content":"[]"}}]}`)
 	}))
 	defer server.Close()
@@ -44,8 +45,8 @@ func TestObserverDirectChatCannotDetachInputOrFeedback(t *testing.T) {
 			if bad == "stream" {
 				onText = func(string) {}
 			}
-			if _, err := client.Chat(ctx, []Message{{Role: "system", Content: "prompt"}, {Role: "user", Content: user}}, onText); err == nil || calls != 0 || observed != 0 {
-				t.Fatal("detached observed input dispatched", bad, calls, observed, err)
+			if _, err := client.Chat(ctx, []Message{{Role: "system", Content: "prompt"}, {Role: "user", Content: user}}, onText); err == nil || calls.Load() != 0 || observed != 0 {
+				t.Fatal("detached observed input dispatched", bad, calls.Load(), observed, err)
 			}
 		})
 	}
