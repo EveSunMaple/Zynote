@@ -34,11 +34,12 @@ type Output struct {
 }
 
 type Point struct {
-	Cue       float64 `json:"cue"`
-	Quote     string  `json:"quote"`
-	Point     string  `json:"point"`
-	Topic     string  `json:"topic"`
-	Timestamp string  `json:"timestamp"`
+	Anchor    *CueAnchor `json:"anchor,omitempty"`
+	Cue       float64    `json:"cue"`
+	Quote     string     `json:"quote"`
+	Point     string     `json:"point"`
+	Topic     string     `json:"topic"`
+	Timestamp string     `json:"timestamp"`
 }
 
 type Prepared struct {
@@ -57,13 +58,14 @@ type Item struct {
 }
 
 type Task struct {
-	ID          string `json:"id"`
-	CreatedAt   string `json:"createdAt"`
-	CourseName  string `json:"courseName,omitempty"`
-	Interrupted bool   `json:"interrupted"`
-	Items       []Item `json:"items"`
-	QueueState  string `json:"queueState,omitempty"`
-	RequestHash string `json:"requestHash,omitempty"`
+	OutputVersion int    `json:"outputVersion,omitempty"`
+	ID            string `json:"id"`
+	CreatedAt     string `json:"createdAt"`
+	CourseName    string `json:"courseName,omitempty"`
+	Interrupted   bool   `json:"interrupted"`
+	Items         []Item `json:"items"`
+	QueueState    string `json:"queueState,omitempty"`
+	RequestHash   string `json:"requestHash,omitempty"`
 }
 
 type Dependencies struct {
@@ -271,7 +273,8 @@ func (service *Service) CreateOperation(sources []Source, modes []string, course
 		return Task{}, err
 	}
 	task := Task{
-		ID: operationID, CreatedAt: time.Now().UTC().Format(time.RFC3339Nano), RequestHash: requestHash,
+		OutputVersion: 2,
+		ID:            operationID, CreatedAt: time.Now().UTC().Format(time.RFC3339Nano), RequestHash: requestHash,
 		CourseName: courseName, Interrupted: true,
 	}
 	for _, source := range checked {
@@ -481,10 +484,22 @@ func (service *Service) processDerivedItem(ctx context.Context, task *Task, inde
 	if item.Source.Kind == "direct-srt" {
 		sourceLabel = "传入 SRT 快照：" + item.Source.Path
 	}
+	anchorText := ""
+	if task.OutputVersion == 2 {
+		points, text, err := anchorPoints(srt, item.Prepared.Points)
+		if err != nil {
+			return err
+		}
+		anchorText = text
+		item.Prepared.Points = points
+		if err := service.save(*task); err != nil {
+			return err
+		}
+	}
 	provenance := "\n\n---\n字幕来源：" + sourceLabel + "\n来源版本：" + item.Source.Generation +
 		"\n字幕 SHA256：" + item.Source.Hash + "\n"
 	files := []derivedFile{
-		{Path: filepath.Join(directory, stem+".md"), Text: item.Prepared.Markdown + provenance},
+		{Path: filepath.Join(directory, stem+".md"), Text: item.Prepared.Markdown + anchorText + provenance},
 		{Path: filepath.Join(directory, stem+".json"), Text: prettyJSON(item.Prepared.Points)},
 	}
 	if item.Mode == "mindmap" && dependencies.RenderSVG != nil {
@@ -508,6 +523,9 @@ func (service *Service) Run(ctx context.Context, id string, dependencies Depende
 	task, err := service.Read(id)
 	if err != nil {
 		return Task{}, err
+	}
+	if task.OutputVersion != 0 && task.OutputVersion != 2 {
+		return Task{}, fmt.Errorf("笔记成果版本不受支持，原任务保留")
 	}
 	task.Interrupted = true
 	if err := service.save(task); err != nil {

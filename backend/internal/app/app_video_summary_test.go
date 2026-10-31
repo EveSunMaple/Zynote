@@ -60,6 +60,10 @@ func TestVideoSummary(t *testing.T) {
 		!strings.Contains(result["markdown"].(string), "00:00:01") {
 		t.Fatalf("summary mismatch: %s", raw)
 	}
+	anchor := result["points"].([]any)[0].(map[string]any)["anchor"].(map[string]any)
+	if anchor["sourceHash"] != result["sourceHash"] || anchor["cueIndex"] != float64(0) || anchor["startMs"] != float64(1000) || anchor["endMs"] != float64(3000) {
+		t.Fatalf("RPC anchor mismatch: %+v", anchor)
+	}
 	path := result["path"].(string)
 	if filepath.Dir(path) != filepath.Join(libraryRoot, "Notes", "摘要课") || !strings.Contains(result["markdown"].(string), "传入 SRT 快照") {
 		t.Fatal("source provenance or course directory missing")
@@ -75,6 +79,10 @@ func TestVideoSummary(t *testing.T) {
 	}
 	if _, err := os.Stat(strings.TrimSuffix(path, ".md") + ".json"); err != nil {
 		t.Fatalf("evidence missing: %v", err)
+	}
+	evidence, err := os.ReadFile(strings.TrimSuffix(path, ".md") + ".json")
+	if err != nil || !strings.Contains(string(evidence), result["sourceHash"].(string)) || !strings.Contains(string(evidence), `"startMs": 1000`) {
+		t.Fatalf("persistent anchor missing: %s %v", evidence, err)
 	}
 	// An orphan evidence file must never be overwritten by a new summary.
 	orphan := filepath.Join(filepath.Dir(path), "第二讲-简要摘要.json")

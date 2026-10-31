@@ -85,6 +85,11 @@ func TestVideoSummaryHandlerJournalRecovery(t *testing.T) {
 				if result["count"] != 1 || !strings.Contains(result["markdown"].(string), "传入 SRT 快照") {
 					t.Fatalf("invalid adapter result %+v", result)
 				}
+				points := result["points"].([]subtitlederived.Point)
+				anchor := points[0].Anchor
+				if anchor == nil || anchor.SourceHash != result["sourceHash"] || anchor.StartMs != 0 || anchor.EndMs != 2000 || anchor.Text != "Hello" {
+					t.Fatalf("handler lost source anchor: %+v", points)
+				}
 			}
 			conflict, _ := json.Marshal(map[string]string{"operationId": id, "srt": srt + "changed", "title": "Lecture", "mode": "brief"})
 			if _, err := inv.handleVideoSummary(nil, state, conflict); err == nil {
@@ -95,5 +100,32 @@ func TestVideoSummaryHandlerJournalRecovery(t *testing.T) {
 				t.Fatal("retry duplicated task")
 			}
 		})
+	}
+}
+
+func TestVideoSummaryHandlerRejectsInvalidPreparedCueWithoutDispatch(t *testing.T) {
+	state := &contract.State{LibraryRoot: t.TempDir()}
+	service := subtitleDerivedService(state)
+	id := "fafafafa-fafa-4afa-8afa-fafafafafafa"
+	srt := "1\n00:00:01,125 --> 00:00:03,750\nOriginal words\n"
+	task, err := service.CreateDirectOperation(srt, "Lecture", "brief", "", id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	task.Items[0].GenerationState = "prepared"
+	task.Items[0].Prepared = &subtitlederived.Prepared{Markdown: "# Received", Points: []subtitlederived.Point{{Cue: 1, Quote: "Original", Point: "Point"}}}
+	encoded, _ := json.Marshal(task)
+	if err := os.WriteFile(filepath.Join(service.Root, id+".json"), encoded, 0600); err != nil {
+		t.Fatal(err)
+	}
+	params, _ := json.Marshal(map[string]string{"operationId": id, "mode": "brief", "title": "Lecture", "srt": srt})
+	for range 2 {
+		if _, err := NewInvoker().handleVideoSummary(nil, state, params); err == nil || !strings.Contains(err.Error(), "字幕编号无效") {
+			t.Fatalf("invalid cue accepted: %v", err)
+		}
+	}
+	recovered, err := service.Read(id)
+	if err != nil || recovered.Items[0].Prepared == nil || len(recovered.Items[0].Outputs) != 0 {
+		t.Fatal("invalid received result lost or published")
 	}
 }

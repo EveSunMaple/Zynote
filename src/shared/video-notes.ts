@@ -1,5 +1,43 @@
-export type VideoNotePoint = {cue: number; quote: string; point: string; topic: string; timestamp: string}
-export type VideoNoteResult = {path: string; count: number; markdown: string; points: VideoNotePoint[]}
+export type SubtitleCueAnchor = {sourceHash: string; cueIndex: number; startMs: number; endMs: number; text: string}
+export type VideoNotePoint = {
+ cue: number
+ quote: string
+ point: string
+ topic: string
+ timestamp: string
+ anchor?: SubtitleCueAnchor
+}
+export type VideoNoteResult = {
+ path: string
+ count: number
+ markdown: string
+ points: VideoNotePoint[]
+ sourceHash?: string
+}
+export function verifiedNoteAnchor(
+ point: VideoNotePoint,
+ sourceHash?: string,
+ currentHash?: string
+): SubtitleCueAnchor | null {
+ const anchor = point.anchor
+ if (
+  !anchor ||
+  !sourceHash ||
+  sourceHash !== currentHash ||
+  anchor.sourceHash !== sourceHash ||
+  !/^[a-f0-9]{64}$/.test(sourceHash) ||
+  !Number.isInteger(anchor.cueIndex) ||
+  anchor.cueIndex < 0 ||
+  anchor.cueIndex !== point.cue ||
+  !Number.isSafeInteger(anchor.startMs) ||
+  !Number.isSafeInteger(anchor.endMs) ||
+  anchor.startMs < 0 ||
+  anchor.endMs <= anchor.startMs ||
+  !anchor.text.trim()
+ )
+  return null
+ return anchor
+}
 export type VideoNoteMode = 'brief' | 'detailed' | 'keypoints' | 'mindmap'
 export const noteTitles: Record<VideoNoteMode, string> = {
  brief: '简要摘要',

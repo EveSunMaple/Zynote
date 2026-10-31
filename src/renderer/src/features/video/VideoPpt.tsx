@@ -1,6 +1,7 @@
 import {Button, Card, Checkbox, Input, TextArea} from '@heroui/react'
 import {learningViews, LearningIcon, type LearningView} from '@renderer/features/video/LearningNav'
 import {VideoMindmap} from '@renderer/features/video/VideoMindmap'
+import {SummaryReferences} from '@renderer/features/video/SummaryReferences'
 import {BiliResourcesPanel} from '@renderer/features/bilibili/BiliResources'
 import {notify} from '@renderer/ui/ToastHost'
 import {WindowMenuButton, WindowPanel} from '@renderer/ui/WindowPanel'
@@ -909,6 +910,7 @@ export function VideoPpt({
           <ReactMarkdown>{summary.markdown}</ReactMarkdown>
          )}
         </div>
+        <SummaryReferences key={summary.path} summary={summary} srt={subtitle?.srt || ''} />
         <div className="row">
          <Button variant="tertiary" size="sm" isDisabled={busy} onClick={() => void open(summary.path)}>
           打开 Markdown

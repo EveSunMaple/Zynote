@@ -60,7 +60,7 @@ func TestCrashWorker(t *testing.T) {
 			if checkpoint == "dispatched" {
 				block()
 			}
-			return "# Generated", []Point{{Point: "Recovered result"}}, nil
+			return "# Generated", []Point{{Point: "Recovered result", Quote: "第一句"}}, nil
 		}})
 	})
 	if err != nil {
