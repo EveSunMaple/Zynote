@@ -56,7 +56,13 @@ const LONG_RUNNING_ACTIONS = new Set([
  'ppt-extract:analyze',
  'ppt-extract:export'
 ])
-const SLOW_ACTIONS = new Set(['zhiyun:search', 'zhiyun:lessons', 'settings:models', 'tools:request'])
+const SLOW_ACTIONS = new Set([
+ 'zhiyun:search',
+ 'zhiyun:lessons',
+ 'settings:models',
+ 'tools:request',
+ 'subtitle-derived:audit-publication'
+])
 function callTimeout(action: string) {
  if (LONG_RUNNING_ACTIONS.has(action)) return LONG_CALL_TIMEOUT_MS
  if (SLOW_ACTIONS.has(action)) return SLOW_CALL_TIMEOUT_MS

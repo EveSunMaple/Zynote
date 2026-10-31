@@ -293,7 +293,7 @@ func (inv *Invoker) handleVideoSummary(store contract.StateStore, state *contrac
 	if path == "" || len(points) == 0 {
 		return nil, contract.Unavailable(msgSummarySaveInvalid)
 	}
-	return map[string]any{"path": path, "count": len(points), "markdown": markdown, "points": points, "sourceHash": item.Source.Hash}, nil
+	return map[string]any{"path": path, "count": len(points), "markdown": markdown, "points": points, "sourceHash": item.Source.Hash, "auditTarget": map[string]any{"id": completed.ID, "itemIndex": 0, "record": item.PublicationRecord}}, nil
 }
 
 // Reserve both names exclusively: an orphan sidecar belongs to its original

@@ -1,4 +1,5 @@
 import type {VideoNoteMode, VideoNotePoint} from './video-notes'
+import type {PublicationRecord} from './publication-audit'
 export type DerivedSource = {
  kind?: 'direct-srt'
  url: string
@@ -15,6 +16,7 @@ export type SubtitleDerivedItem = {
  error?: string
  outputs?: DerivedOutput[]
  prepared?: {markdown: string; points: VideoNotePoint[]}
+ publicationRecord?: PublicationRecord
 }
 export type SubtitleDerivedTask = {
  id: string

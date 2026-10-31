@@ -5,6 +5,7 @@ import type {SubtitleDerivedTask} from '@shared/subtitle-derived'
 import {noteTitles, type VideoNoteMode} from '@shared/video-notes'
 import {notify} from '@renderer/ui/ToastHost'
 import {SettingsLink} from '@renderer/app/settings-navigation'
+import {PublicationAudit} from './PublicationAudit'
 const invoke = <T,>(action: string, args?: unknown) => window.assistant.invoke<T>(action, args)
 export function SubtitleBatchRecords({
  visible,
@@ -247,7 +248,7 @@ export function SubtitleBatchRecords({
        <article key={task.id}>
         <div>
          {task.queueState && <p className="hint">{queueLabels[task.queueState]}</p>}
-         {task.items.map(item => (
+         {task.items.map((item, itemIndex) => (
           <div className="batch-item" key={`${item.source.url}:${item.mode}`}>
            <strong>
             {item.source.title} · {noteTitles[item.mode]} · {item.status}
@@ -298,6 +299,12 @@ export function SubtitleBatchRecords({
                </Button>
               ))}
             </div>
+           )}
+           {item.outputs && (
+            <PublicationAudit
+             target={{id: task.id, itemIndex, record: item.publicationRecord}}
+             sourceHash={item.source.hash}
+            />
            )}
           </div>
          ))}

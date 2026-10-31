@@ -30,6 +30,9 @@ func canonicalDerivedPoints(points []Point) ([]contract.ValidatedSummaryPoint, e
 	return rows, nil
 }
 func (service *Service) verifyPointEvidence(ctx context.Context, task *Task, item *Item, points []Point, facts *contract.SummaryEvidence) error {
+	return service.verifyPointEvidenceAudit(ctx, task, item, points, facts, nil)
+}
+func (service *Service) verifyPointEvidenceAudit(ctx context.Context, task *Task, item *Item, points []Point, facts *contract.SummaryEvidence, checked *AttemptAudit) error {
 	if facts == nil || facts.Version != 1 || facts.SourceSHA256 != item.Source.Hash || item.Recipe == nil || facts.ItemRecipeHash != item.Recipe.Hash || facts.PointCount != len(points) || item.AttemptEvidence == nil || item.AttemptEvidence.Version != 2 || facts.ValidatedHead != (contract.GenerationEventRef{Version: 2, Sequence: item.AttemptEvidence.EventCount, SHA256: item.AttemptEvidence.HeadSHA256}) {
 		return observerError()
 	}
@@ -43,7 +46,12 @@ func (service *Service) verifyPointEvidence(ctx context.Context, task *Task, ite
 	if index < 0 {
 		return observerError()
 	}
-	audit := service.auditAttemptEvidence(ctx, *task, index, true)
+	var audit AttemptAudit
+	if checked != nil {
+		audit = *checked
+	} else {
+		audit = service.auditAttemptEvidence(ctx, *task, index, true)
+	}
 	if audit.State != "complete" || len(audit.validated) != audit.TotalChunks {
 		return observerError()
 	}

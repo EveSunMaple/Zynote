@@ -27,36 +27,38 @@ const msgHandshakePending = "后台尚未完成握手"
 type handlerFunc func(store contract.StateStore, state *contract.State, params json.RawMessage) (any, error)
 
 type Invoker struct {
-	biliSessionMu sync.Mutex
-	videoBatchMu  sync.Mutex
-	videoBatches  map[string]context.CancelFunc
-	handlers      map[string]handlerFunc
-	actions       map[string]actionFunc
-	native        *helper.Native
-	youtube       *helper.Native
-	embed         *helper.Native
-	asr           *helper.Native
-	wechat        *helper.Native
-	media         *media.MediaService
-	mediaRoot     string
-	bili          *bilibili.Resources
-	biliRoot      string
-	download      *download.Service
-	downloadRoot  string
-	knowledge     *knowledge.Store
-	knowledgeRoot string
-	textbook      *textbook.Service
-	tokens        map[string]catalogToken
-	tokenMu       sync.Mutex
-	mediaMu       sync.Mutex
-	notifier      contract.Notifier
-	jobs          *jobs.Registry
-	im            *im.Service
-	imRoot        string
-	imMu          sync.Mutex
-	zhiyunTaskMu  sync.Mutex
-	zhiyunTasks   *zhiyunTaskStore
-	zhiyunTaskDir string
+	biliSessionMu        sync.Mutex
+	videoBatchMu         sync.Mutex
+	videoBatches         map[string]context.CancelFunc
+	handlers             map[string]handlerFunc
+	actions              map[string]actionFunc
+	native               *helper.Native
+	youtube              *helper.Native
+	embed                *helper.Native
+	asr                  *helper.Native
+	wechat               *helper.Native
+	media                *media.MediaService
+	mediaRoot            string
+	bili                 *bilibili.Resources
+	biliRoot             string
+	download             *download.Service
+	downloadRoot         string
+	knowledge            *knowledge.Store
+	knowledgeRoot        string
+	textbook             *textbook.Service
+	tokens               map[string]catalogToken
+	tokenMu              sync.Mutex
+	mediaMu              sync.Mutex
+	notifier             contract.Notifier
+	jobs                 *jobs.Registry
+	im                   *im.Service
+	imRoot               string
+	imMu                 sync.Mutex
+	zhiyunTaskMu         sync.Mutex
+	zhiyunTasks          *zhiyunTaskStore
+	zhiyunTaskDir        string
+	publicationAuditOnce sync.Once
+	publicationAuditGate chan struct{}
 }
 
 func NewInvoker() *Invoker {
@@ -233,6 +235,7 @@ func registerActions(inv *Invoker) map[string]actionFunc {
 		"study:save":                          actionWithState(inv.handleStudySave),
 		"study:parse":                         actionWithState(inv.handleStudyParse),
 		"subtitle-derived:list":               actionWithState(actionStateOnly(inv.handleSubtitleDerivedList)),
+		"subtitle-derived:audit-publication":  actionWithState(inv.handlePublicationAudit),
 		"subtitle-derived:resume":             actionWithState(inv.handleSubtitleDerivedResume),
 		"subtitle-derived:start":              actionWithState(inv.handleSubtitleDerivedStart),
 		"subtitle-sync:list":                  actionWithState(actionStateOnly(inv.handleSubtitleSyncList)),

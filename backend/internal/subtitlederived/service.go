@@ -63,6 +63,7 @@ type Item struct {
 	SummaryEvidence    *contract.SummaryEvidence `json:"summaryEvidence,omitempty"`
 	PublicationPlan    *PublicationRef           `json:"publicationPlan,omitempty"`
 	PublicationReceipt *PublicationRef           `json:"publicationReceipt,omitempty"`
+	PublicationRecord  *PublicationRecord        `json:"publicationRecord,omitempty"`
 }
 
 type Task struct {
@@ -89,9 +90,10 @@ type Dependencies struct {
 }
 
 type Service struct {
-	Root            string
-	Library         string
-	publicationHook func(string) error
+	Root               string
+	Library            string
+	publicationHook    func(string) error
+	auditTraversalHook func()
 }
 
 func New(root, libraryRoot string) *Service {

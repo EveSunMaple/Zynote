@@ -24,10 +24,15 @@ func TestSubtitleProjectionBoundsAddedMetadataAt4000Items(t *testing.T) {
 	for i := range task.Items {
 		facts := &contract.SummaryEvidence{Version: 1, SourceSHA256: strings.Repeat("a", 64), ItemRecipeHash: strings.Repeat("c", 64), FinalPointsSHA256: strings.Repeat("e", 64), PointCount: 280000, ValidatedHead: contract.GenerationEventRef{Version: 2, Sequence: 180000, SHA256: strings.Repeat("d", 64)}}
 		task.Items[i].SummaryEvidence = facts
+		task.Items[i].PublicationPlan = &subtitlederived.PublicationRef{Version: 1, SHA256: strings.Repeat("f", 64)}
+		task.Items[i].PublicationReceipt = &subtitlederived.PublicationRef{Version: 1, SHA256: strings.Repeat("a", 64)}
 		task.Items[i].Received = &subtitlederived.ReceivedSummary{Version: 1, Markdown: strings.Repeat("received-only", 100), Points: []subtitlederived.Point{{Cue: 0, Quote: "Original", Point: "Result"}}, Facts: facts}
 		task.Items[i].Prepared = &subtitlederived.Prepared{Markdown: "# Existing prepared shape", Points: []subtitlederived.Point{{Cue: 0, Quote: "Original", Point: "Result"}}, Evidence: facts}
 	}
 	projected := projectSubtitleTask(task)
+	if projected.Items[0].PublicationRecord == nil || projected.Items[0].PublicationRecord.State != "recorded" || projected.Items[0].PublicationPlan != nil || projected.Items[0].PublicationReceipt != nil {
+		t.Fatal("publication metadata projection failed")
+	}
 	if task.Recipe == nil || task.Items[0].Recipe == nil || projected.Recipe != nil || projected.Items[0].Recipe != nil {
 		t.Fatal("projection mutated durable object or retained recipe")
 	}
@@ -43,7 +48,7 @@ func TestSubtitleProjectionBoundsAddedMetadataAt4000Items(t *testing.T) {
 	base, _ := json.Marshal(baseline)
 	output, _ := json.Marshal(projected)
 	full, _ := json.Marshal(task)
-	if len(output)-len(base) > 4000*800+100 || len(output) >= len(full) || strings.Contains(string(output), "systemPromptSHA256") || strings.Contains(string(output), "cueIDs") || strings.Contains(string(output), "received-only") {
+	if len(output)-len(base) > 4000*1200+100 || len(output) >= len(full) || strings.Contains(string(output), "systemPromptSHA256") || strings.Contains(string(output), "cueIDs") || strings.Contains(string(output), "received-only") {
 		t.Fatal("added metadata unbounded", len(base), len(output), len(full))
 	}
 	t.Logf("4000 items: baseline=%d projected=%d full=%d added=%d", len(base), len(output), len(full), len(output)-len(base))

@@ -1958,3 +1958,7 @@ html[data-platform="linux"][data-maximized="true"] #root {
  box-shadow: none;
  outline: none;
 }
+
+.publication-audit .hint {
+ color: var(--text);
+}

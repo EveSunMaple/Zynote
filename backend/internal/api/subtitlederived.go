@@ -244,6 +244,7 @@ func projectSubtitleTask(task subtitlederived.Task) subtitlederived.Task {
 	task.Recipe = nil
 	task.Items = append([]subtitlederived.Item(nil), task.Items...)
 	for index := range task.Items {
+		task.Items[index].PublicationRecord = subtitlederived.RecordedPublication(task.Items[index], task.OutputVersion)
 		task.Items[index].Recipe = nil
 		task.Items[index].Received = nil
 		task.Items[index].PublicationPlan = nil

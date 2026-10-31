@@ -343,6 +343,9 @@ func (service *Service) buildPublication(ctx context.Context, task *Task, index 
 	return plan, contents, nil
 }
 func (service *Service) loadPublication(ctx context.Context, task *Task, index int) (publicationPlan, string, error) {
+	return service.loadPublicationAudit(ctx, task, index, nil)
+}
+func (service *Service) loadPublicationAudit(ctx context.Context, task *Task, index int, checked *AttemptAudit) (publicationPlan, string, error) {
 	plan := publicationPlan{}
 	item := &task.Items[index]
 	ref := item.PublicationPlan
@@ -377,7 +380,7 @@ func (service *Service) loadPublication(ctx context.Context, task *Task, index i
 		}
 		points[i] = row.Point
 	}
-	if service.verifyPointEvidence(ctx, task, item, points, &plan.Evidence) != nil {
+	if service.verifyPointEvidenceAudit(ctx, task, item, points, &plan.Evidence, checked) != nil {
 		return plan, "", publicationError()
 	}
 	for i, file := range plan.Files {
@@ -621,12 +624,21 @@ func (service *Service) publishSummary(ctx context.Context, task *Task, index in
 	return service.publicationStep(ctx, "commit-durable")
 }
 func (service *Service) restorePublication(ctx context.Context, task *Task, index int, srt string) error {
+	if err := service.verifyPublication(ctx, task, index, srt, nil); err != nil {
+		return err
+	}
+	item := &task.Items[index]
+	item.Status = "已完成"
+	item.Error = ""
+	return nil
+}
+func (service *Service) verifyPublication(ctx context.Context, task *Task, index int, srt string, checked *AttemptAudit) error {
 	item := &task.Items[index]
 	ref := item.PublicationReceipt
 	if ref == nil || ref.Version != 1 {
 		return publicationError()
 	}
-	plan, directory, err := service.loadPublication(ctx, task, index)
+	plan, directory, err := service.loadPublicationAudit(ctx, task, index, checked)
 	if err != nil {
 		return err
 	}
@@ -652,7 +664,5 @@ func (service *Service) restorePublication(ctx context.Context, task *Task, inde
 	if err != nil || validatePublicationRows(ctx, plan, bodies, srt) != nil {
 		return publicationError()
 	}
-	item.Status = "已完成"
-	item.Error = ""
 	return nil
 }

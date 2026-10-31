@@ -1,3 +1,4 @@
+import type {PublicationAuditTarget} from './publication-audit'
 export type SubtitleCueAnchor = {sourceHash: string; cueIndex: number; startMs: number; endMs: number; text: string}
 export type VideoNotePoint = {
  cue: number
@@ -13,6 +14,7 @@ export type VideoNoteResult = {
  markdown: string
  points: VideoNotePoint[]
  sourceHash?: string
+ auditTarget?: PublicationAuditTarget
 }
 export function verifiedNoteAnchor(
  point: VideoNotePoint,

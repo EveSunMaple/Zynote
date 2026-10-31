@@ -23,6 +23,7 @@ type validatedChunkAudit struct {
 	Ref          contract.GenerationEventRef
 }
 type AttemptAudit struct {
+	sourceText     string
 	validated      []validatedChunkAudit
 	State          string `json:"state"` // unknown, incomplete, invalid, complete
 	Reason         string `json:"reason,omitempty"`
@@ -68,6 +69,9 @@ func (service *Service) AuditAttemptEvidence(ctx context.Context, task Task, ind
 	return service.auditAttemptEvidence(ctx, task, index, false)
 }
 func (service *Service) auditAttemptEvidence(ctx context.Context, task Task, index int, collect bool) AttemptAudit {
+	if service.auditTraversalHook != nil {
+		service.auditTraversalHook()
+	}
 	if ctx.Err() != nil {
 		return AttemptAudit{State: "unknown", Reason: "cancelled"}
 	}
@@ -234,6 +238,9 @@ func (service *Service) auditAttemptEvidence(ctx context.Context, task Task, ind
 	}
 	if previous != nil && ((reference.Version == 1 && previous.State == "format-result") || (reference.Version == 2 && previous.State == "validated-points")) && previous.FormatValid != nil && *previous.FormatValid && previous.Observation.ChunkIndex == previous.Observation.ChunkCount-1 && result.CompleteChunks == result.TotalChunks {
 		result.State = "complete"
+		if collect {
+			result.sourceText = string(body)
+		}
 	}
 	return result
 }

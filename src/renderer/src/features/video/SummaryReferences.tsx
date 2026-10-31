@@ -2,6 +2,7 @@ import {Button} from '@heroui/react'
 import {useEffect, useRef, useState} from 'react'
 import {verifiedNoteAnchor, type SubtitleCueAnchor, type VideoNoteResult} from '@shared/video-notes'
 import {time} from '@shared/srt'
+import {PublicationAudit} from './PublicationAudit'
 
 export function SummaryReferences({summary, srt}: Readonly<{summary: VideoNoteResult; srt: string}>) {
  const [source, setSource] = useState<{srt: string; hash: string} | null>(null)
@@ -31,6 +32,7 @@ export function SummaryReferences({summary, srt}: Readonly<{summary: VideoNoteRe
   <section className="learning-summary" aria-label="摘要引用原文">
    <h3>核对字幕原文</h3>
    <p className="hint">选择时间点查看对应字幕。这里定位字幕原文，不控制视频播放。</p>
+   <PublicationAudit target={summary.auditTarget} sourceHash={currentHash} />
    <div className="row">
     {summary.points.map((point, index) => {
      const anchor = verifiedNoteAnchor(point, summary.sourceHash, currentHash)

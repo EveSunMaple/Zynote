@@ -1,6 +1,6 @@
 {
  "schema": 1,
- "total": 159,
+ "total": 160,
  "actions": [
   {
    "action": "runtime:install",
@@ -766,6 +766,12 @@
   },
   {
    "action": "subtitle-sync:list",
+   "source": "courseware.ts",
+   "phase": 4,
+   "backend": "go"
+  },
+  {
+   "action": "subtitle-derived:audit-publication",
    "source": "courseware.ts",
    "phase": 4,
    "backend": "go"
