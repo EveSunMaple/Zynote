@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/EveSunMaple/Zynote/backend/internal/documents"
@@ -61,6 +62,7 @@ type Task struct {
 	Interrupted bool   `json:"interrupted"`
 	Items       []Item `json:"items"`
 	QueueState  string `json:"queueState,omitempty"`
+	RequestHash string `json:"requestHash,omitempty"`
 }
 
 type Dependencies struct {
@@ -189,33 +191,51 @@ func (service *Service) List() ([]Task, error) {
 }
 
 func (service *Service) Create(sources []Source, modes []string, courseName string) (Task, error) {
+	return service.CreateOperation(sources, modes, courseName, ids.New())
+}
+
+var operationCreateMu sync.Mutex
+
+// CreateOperation binds a caller's stable operation ID to immutable validated
+// inputs. Repeating the same submission returns its existing checkpoints.
+// The application owns one backend process per library; this mutex does not
+// substitute for a distributed/multi-process lock.
+func (service *Service) CreateOperation(sources []Source, modes []string, courseName, operationID string) (Task, error) {
+	if !validUUID(operationID) {
+		return Task{}, fmt.Errorf("笔记任务标识无效")
+	}
 	if len(sources) < 1 || len(sources) > 1000 || len(modes) < 1 || len(modes) > 4 {
 		return Task{}, fmt.Errorf("不要重复选择分集或笔记形式")
 	}
-	seen := map[string]bool{}
-	checked := []Source{}
-	for _, source := range sources {
-		locator, err := subtitlesync.Locator(source.URL)
-		if err != nil || source.Title == "" || len([]rune(source.Title)) > 200 ||
-			!inside(service.Library, source.Path) || len(source.Hash) != 64 || source.Generation == "" {
-			return Task{}, fmt.Errorf("不要重复选择分集或笔记形式")
-		}
-		if seen[locator] {
-			return Task{}, fmt.Errorf("不要重复选择分集或笔记形式")
-		}
-		seen[locator] = true
-		source.URL = locator
-		checked = append(checked, source)
+	checked, err := service.validateSources(sources)
+	if err != nil {
+		return Task{}, err
 	}
-	modeSeen := map[string]bool{}
-	for _, mode := range modes {
-		if !validMode(mode) || modeSeen[mode] {
-			return Task{}, fmt.Errorf("不要重复选择分集或笔记形式")
+	if err := validateModes(modes); err != nil {
+		return Task{}, err
+	}
+	request, err := json.Marshal(struct {
+		Sources []Source
+		Modes   []string
+		Course  string
+	}{checked, modes, courseName})
+	if err != nil {
+		return Task{}, err
+	}
+	requestHash := digest(string(request))
+	operationCreateMu.Lock()
+	defer operationCreateMu.Unlock()
+	if _, err := os.Stat(filepath.Join(service.Root, operationID+".json")); err == nil {
+		existing, err := service.Read(operationID)
+		if err != nil || existing.RequestHash != requestHash {
+			return Task{}, fmt.Errorf("同一提交标识不能更换字幕、课程或笔记形式；原任务保留")
 		}
-		modeSeen[mode] = true
+		return existing, nil
+	} else if !os.IsNotExist(err) {
+		return Task{}, err
 	}
 	task := Task{
-		ID: ids.New(), CreatedAt: time.Now().UTC().Format(time.RFC3339Nano),
+		ID: operationID, CreatedAt: time.Now().UTC().Format(time.RFC3339Nano), RequestHash: requestHash,
 		CourseName: courseName, Interrupted: true,
 	}
 	for _, source := range checked {
@@ -227,6 +247,36 @@ func (service *Service) Create(sources []Source, modes []string, courseName stri
 		return Task{}, err
 	}
 	return task, nil
+}
+
+func (service *Service) validateSources(sources []Source) ([]Source, error) {
+	seen := map[string]bool{}
+	checked := []Source{}
+	for _, source := range sources {
+		locator, err := subtitlesync.Locator(source.URL)
+		if err != nil || source.Title == "" || len([]rune(source.Title)) > 200 ||
+			!inside(service.Library, source.Path) || len(source.Hash) != 64 || source.Generation == "" {
+			return nil, fmt.Errorf("不要重复选择分集或笔记形式")
+		}
+		if seen[locator] {
+			return nil, fmt.Errorf("不要重复选择分集或笔记形式")
+		}
+		seen[locator] = true
+		source.URL = locator
+		checked = append(checked, source)
+	}
+	return checked, nil
+}
+
+func validateModes(modes []string) error {
+	modeSeen := map[string]bool{}
+	for _, mode := range modes {
+		if !validMode(mode) || modeSeen[mode] {
+			return fmt.Errorf("不要重复选择分集或笔记形式")
+		}
+		modeSeen[mode] = true
+	}
+	return nil
 }
 
 func (service *Service) current(source Source, dependencies Dependencies, ctx context.Context) (string, error) {

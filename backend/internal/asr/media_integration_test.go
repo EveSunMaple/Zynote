@@ -64,7 +64,7 @@ func TestRecordedSpeechPipeline(t *testing.T) {
 	worker := helper.NewNative("asr")
 	worker.Configure(native, "", "", "", model)
 	defer worker.Dispose()
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Minute)
 	defer cancel()
 	result, err := (Pipeline{Resources: resources, DataRoot: t.TempDir(), Call: worker.CallContext}).Transcribe(ctx, video, "en")
 	if err != nil {

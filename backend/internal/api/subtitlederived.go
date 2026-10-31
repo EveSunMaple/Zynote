@@ -120,14 +120,16 @@ func (inv *Invoker) handleSubtitleDerivedResume(store contract.StateStore, state
 }
 
 type subtitleDerivedInput struct {
-	ID    string   `json:"id"`
-	URLs  []string `json:"urls"`
-	Modes []string `json:"modes"`
+	ID          string   `json:"id"`
+	URLs        []string `json:"urls"`
+	Modes       []string `json:"modes"`
+	OperationID string   `json:"operationId,omitempty"`
 }
 
 func parseSubtitleDerivedInput(params json.RawMessage) (subtitleDerivedInput, error) {
 	var input subtitleDerivedInput
 	if err := json.Unmarshal(params, &input); err != nil || !config.IsUUID(input.ID) ||
+		(input.OperationID != "" && !config.IsUUID(input.OperationID)) ||
 		len(input.URLs) < 1 || len(input.URLs) > 1000 || len(input.Modes) < 1 || len(input.Modes) > 4 {
 		return input, contract.InputInvalid("笔记任务参数无效")
 	}
@@ -205,7 +207,12 @@ func (inv *Invoker) handleSubtitleDerivedStart(store contract.StateStore, state 
 	if err != nil {
 		return nil, err
 	}
-	task, err := subtitleDerivedService(state).Create(sources, input.Modes, syncTask.CourseName)
+	var task subtitlederived.Task
+	if input.OperationID != "" {
+		task, err = subtitleDerivedService(state).CreateOperation(sources, input.Modes, syncTask.CourseName, input.OperationID)
+	} else {
+		task, err = subtitleDerivedService(state).Create(sources, input.Modes, syncTask.CourseName)
+	}
 	if err != nil {
 		return nil, contract.InputInvalid(err.Error())
 	}

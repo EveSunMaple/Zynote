@@ -22,7 +22,12 @@ export function SubtitleBatchRecords({
  courseName?: string
 }>) {
  const [derived, setDerived] = useState<SubtitleDerivedTask[]>([])
- const [draft, setDraft] = useState<{task: SubtitleSyncTask; urls: string[]; modes: VideoNoteMode[]} | null>(null)
+ const [draft, setDraft] = useState<{
+  task: SubtitleSyncTask
+  urls: string[]
+  modes: VideoNoteMode[]
+  operationId?: string
+ } | null>(null)
  const queueLabels = {
   queued: '排队中',
   running: '生成中',
@@ -169,6 +174,7 @@ export function SubtitleBatchRecords({
          onChange={checked =>
           setDraft({
            ...draft,
+           operationId: undefined,
            urls: checked ? [...draft.urls, item.url] : draft.urls.filter(url => url !== item.url)
           })
          }
@@ -193,6 +199,7 @@ export function SubtitleBatchRecords({
         onChange={checked =>
          setDraft({
           ...draft,
+          operationId: undefined,
           modes: checked ? [...draft.modes, mode] : draft.modes.filter(value => value !== mode)
          })
         }
@@ -212,10 +219,13 @@ export function SubtitleBatchRecords({
       isDisabled={busy || !draft.urls.length || !draft.modes.length}
       onClick={() =>
        action(async () => {
+        const operationId = draft.operationId || crypto.randomUUID()
+        setDraft({...draft, operationId})
         const result = await invoke<SubtitleDerivedTask>('subtitle-derived:start', {
          id: draft.task.id,
          urls: draft.urls,
-         modes: draft.modes
+         modes: draft.modes,
+         operationId
         })
         notify.success(
          `笔记任务结束：完成 ${result.items.filter(item => item.status === '已完成').length}，失败 ${result.items.filter(item => item.status === '失败').length}`
