@@ -263,5 +263,27 @@ typechecked/built; no manual two-theme inspection was performed this turn.
 The single-video `video-ppt:summary` UI path still uses its legacy synchronous
 model path, not the subtitlederived persistent journal. Prior four-mode paid
 acceptance belongs to the subtitlederived domain and does not close that UI
-path. Session-generation protection against responses returning after logout
-also remains follow-up work until separately tested and implemented.
+path. Session-generation fencing is described below; actual account logout/QR/protected
+acquisition still requires separately authorized real acceptance.
+
+
+## Bilibili session generation fence
+
+Cookie headers and session generations are captured under the same cookie-store
+lock. API/discussion responses apply cookie updates by a same-lock generation
+comparison after the response is read; subtitle HTTP bodies also check generation
+before and after reads. Logout successfully clears cookies and advances the
+generation without waiting for an in-flight HTTP request. A successful new QR
+login advances it only after cookie persistence succeeds; failed saves roll back
+cookies and retain the generation. Old anonymous/authenticated responses cannot
+restore prior credentials or return accepted old-session bodies after logout or
+new login. Failed credential-file removal returns failure and retains state.
+
+At the Go/Electron boundary, browser open holds a session fence from credential
+snapshot through shell acknowledgement; logout clears only after earlier opens
+finish. Successful QR poll carries its applied generation and checks it under
+that same bridge fence before clearing old browser sessions or returning success.
+The fence does not hold over QR HTTP network work. Controlled barriers cover
+headers-before-logout, body-read-before-logout, new-login invalidation and bridge
+open/clear ordering. These are deterministic fake-response tests, not real QR,
+protected video, browser UI or account-state acceptance.

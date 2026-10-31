@@ -2,6 +2,7 @@ package bilibili
 
 import (
 	"context"
+	"io"
 	"net/http"
 	"net/url"
 	"strings"
@@ -19,15 +20,43 @@ func (transport sessionTransport) RoundTrip(request *http.Request) (*http.Respon
 	request.Header = request.Header.Clone()
 	request.Header.Del("Cookie")
 	base, _ := url.Parse(resources.baseAPI)
+	generation := resources.SessionGeneration()
 	if request.URL.Scheme == base.Scheme && request.URL.Host == base.Host && resources.cookies != nil {
 		if err := resources.cookies.load(); err != nil {
 			return nil, err
 		}
-		if cookie := resources.cookies.header(request.URL.Hostname(), request.URL.Path, request.URL.Scheme == "https"); cookie != "" {
+		cookie, snapshot := resources.cookies.snapshot(request.URL.Hostname(), request.URL.Path, request.URL.Scheme == "https")
+		generation = snapshot
+		if cookie != "" {
 			request.Header.Set("Cookie", cookie)
 		}
 	}
-	return resources.do(request)
+	response, err := resources.do(request)
+	if err == nil && generation != resources.SessionGeneration() {
+		response.Body.Close()
+		return nil, contract.NewError(contract.CodeAuthExpired, "B 站登录状态已改变，请重新发起请求")
+	}
+	if err == nil {
+		response.Body = &sessionResponseBody{ReadCloser: response.Body, resources: resources, generation: generation}
+	}
+	return response, err
+}
+
+type sessionResponseBody struct {
+	io.ReadCloser
+	resources  *Resources
+	generation uint64
+}
+
+func (body *sessionResponseBody) Read(buffer []byte) (int, error) {
+	if body.generation != body.resources.SessionGeneration() {
+		return 0, contract.NewError(contract.CodeAuthExpired, "B 站登录状态已改变，请重新发起请求")
+	}
+	count, err := body.ReadCloser.Read(buffer)
+	if body.generation != body.resources.SessionGeneration() {
+		return 0, contract.NewError(contract.CodeAuthExpired, "B 站登录状态已改变，请重新发起请求")
+	}
+	return count, err
 }
 
 func (resources *Resources) HTTPClient() *http.Client {
