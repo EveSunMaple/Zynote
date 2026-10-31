@@ -49,6 +49,29 @@ func TestUnknownGenerationIsNotReplayedAfterRestart(t *testing.T) {
 	}
 }
 
+func TestLocalModelConfigurationFailureIsNotUnknown(t *testing.T) {
+	service, task := recoveryTask(t)
+	deps := Dependencies{
+		ValidateModel: func(context.Context) error { return fmt.Errorf("model configuration missing") },
+		Summarize: func(context.Context, string, string) (string, []Point, error) {
+			t.Fatal("model invoked after local validation failure")
+			return "", nil, nil
+		},
+	}
+	result, err := service.Run(context.Background(), task.ID, deps)
+	if err != nil || result.Items[0].GenerationState != "" {
+		t.Fatalf("local failure incorrectly became unknown: %+v %v", result, err)
+	}
+	// Repairing local configuration permits an explicit resume without clearing
+	// any dispatched/unknown marker.
+	deps.ValidateModel = nil
+	deps.Summarize = func(context.Context, string, string) (string, []Point, error) { return "# Ready", nil, nil }
+	result, err = service.Run(context.Background(), task.ID, deps)
+	if err != nil || len(result.Items[0].Outputs) != 2 {
+		t.Fatalf("configured task did not resume: %+v %v", result, err)
+	}
+}
+
 func TestPreparedGenerationResumesWithoutModel(t *testing.T) {
 	service, task := recoveryTask(t)
 	task.Items[0].Prepared = &Prepared{Markdown: "# 已生成", Points: []Point{{Quote: "第一句", Point: "结论"}}}
