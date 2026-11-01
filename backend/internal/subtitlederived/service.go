@@ -10,15 +10,19 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 
+	"github.com/EveSunMaple/Zynote/backend/internal/contract"
 	"github.com/EveSunMaple/Zynote/backend/internal/documents"
 	"github.com/EveSunMaple/Zynote/backend/internal/ids"
 	"github.com/EveSunMaple/Zynote/backend/internal/library"
 	"github.com/EveSunMaple/Zynote/backend/internal/subtitlesync"
+	"github.com/EveSunMaple/Zynote/backend/internal/videoppt"
 )
 
 type Source struct {
+	Kind       string `json:"kind,omitempty"`
 	URL        string `json:"url"`
 	Title      string `json:"title"`
 	Path       string `json:"path"`
@@ -32,45 +36,68 @@ type Output struct {
 }
 
 type Point struct {
-	Cue       float64 `json:"cue"`
-	Quote     string  `json:"quote"`
-	Point     string  `json:"point"`
-	Topic     string  `json:"topic"`
-	Timestamp string  `json:"timestamp"`
+	Anchor    *CueAnchor `json:"anchor,omitempty"`
+	Cue       float64    `json:"cue"`
+	Quote     string     `json:"quote"`
+	Point     string     `json:"point"`
+	Topic     string     `json:"topic"`
+	Timestamp string     `json:"timestamp"`
 }
 
 type Prepared struct {
-	Markdown string  `json:"markdown"`
-	Points   []Point `json:"points"`
+	Evidence *contract.SummaryEvidence `json:"evidence,omitempty"`
+	Markdown string                    `json:"markdown"`
+	Points   []Point                   `json:"points"`
 }
 
 type Item struct {
-	Source   Source    `json:"source"`
-	Mode     string    `json:"mode"`
-	Status   string    `json:"status"`
-	Error    string    `json:"error,omitempty"`
-	Outputs  []Output  `json:"outputs,omitempty"`
-	Prepared *Prepared `json:"prepared,omitempty"`
+	SourceBinding          *contract.PlaybackSourceBinding `json:"sourceBinding,omitempty"`
+	SourceBindingSHA256    string                          `json:"sourceBindingSHA256,omitempty"`
+	BindingAuthoritySHA256 string                          `json:"bindingAuthoritySHA256,omitempty"`
+	Source                 Source                          `json:"source"`
+	Mode                   string                          `json:"mode"`
+	Status                 string                          `json:"status"`
+	Error                  string                          `json:"error,omitempty"`
+	Outputs                []Output                        `json:"outputs,omitempty"`
+	Prepared               *Prepared                       `json:"prepared,omitempty"`
+	GenerationState        string                          `json:"generationState,omitempty"`
+	Recipe                 *ItemRecipe                     `json:"recipe,omitempty"`
+	AttemptEvidence        *AttemptEvidenceRef             `json:"attemptEvidence,omitempty"`
+	Received               *ReceivedSummary                `json:"received,omitempty"`
+	SummaryEvidence        *contract.SummaryEvidence       `json:"summaryEvidence,omitempty"`
+	PublicationPlan        *PublicationRef                 `json:"publicationPlan,omitempty"`
+	PublicationReceipt     *PublicationRef                 `json:"publicationReceipt,omitempty"`
+	PublicationRecord      *PublicationRecord              `json:"publicationRecord,omitempty"`
 }
 
 type Task struct {
-	ID          string `json:"id"`
-	CreatedAt   string `json:"createdAt"`
-	CourseName  string `json:"courseName,omitempty"`
-	Interrupted bool   `json:"interrupted"`
-	Items       []Item `json:"items"`
+	OutputVersion   int         `json:"outputVersion,omitempty"`
+	ID              string      `json:"id"`
+	CreatedAt       string      `json:"createdAt"`
+	CourseName      string      `json:"courseName,omitempty"`
+	Interrupted     bool        `json:"interrupted"`
+	Items           []Item      `json:"items"`
+	QueueState      string      `json:"queueState,omitempty"`
+	RequestHash     string      `json:"requestHash,omitempty"`
+	EvidenceVersion int         `json:"evidenceVersion,omitempty"`
+	Recipe          *TaskRecipe `json:"recipe,omitempty"`
 }
 
 type Dependencies struct {
-	Generation func(ctx context.Context, url string) (string, error)
-	Summarize  func(ctx context.Context, srt, mode string) (string, []Point, error)
-	RenderSVG  func(title string, points []Point) string
-	Progress   func(message string)
+	SummarizeWithEvidence func(ctx context.Context, srt, mode string) (SummaryResult, error)
+	Generation            func(ctx context.Context, url string) (string, error)
+	ValidateModel         func(ctx context.Context) error
+	Summarize             func(ctx context.Context, srt, mode string) (string, []Point, error)
+	RenderSVG             func(title string, points []Point) string
+	Progress              func(message string)
+	ResolveRecipes        func(context.Context, []string) (contract.RequestedGenerationConfig, map[string]ModeRecipe, error)
 }
 
 type Service struct {
-	Root    string
-	Library string
+	Root               string
+	Library            string
+	publicationHook    func(string) error
+	auditTraversalHook func()
 }
 
 func New(root, libraryRoot string) *Service {
@@ -115,7 +142,14 @@ func (service *Service) save(task Task) error {
 	}
 	path := filepath.Join(service.Root, task.ID+".json")
 	temporary := path + ".tmp"
-	if err := os.WriteFile(temporary, encoded, 0o644); err != nil {
+	file, err := os.OpenFile(temporary, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, 0o600)
+	if err != nil {
+		return fmt.Errorf("笔记任务保存失败")
+	}
+	_, writeErr := file.Write(encoded)
+	syncErr := file.Sync()
+	closeErr := file.Close()
+	if writeErr != nil || syncErr != nil || closeErr != nil {
 		return fmt.Errorf("笔记任务保存失败")
 	}
 	return os.Rename(temporary, path)
@@ -132,6 +166,9 @@ func (service *Service) Read(id string) (Task, error) {
 	var task Task
 	if json.Unmarshal(raw, &task) != nil || task.ID != id || len(task.Items) < 1 || len(task.Items) > 4000 {
 		return Task{}, fmt.Errorf("笔记任务身份不一致")
+	}
+	if err := service.validateTaskBinding(task); err != nil {
+		return Task{}, err
 	}
 	return task, nil
 }
@@ -179,38 +216,120 @@ func (service *Service) List() ([]Task, error) {
 }
 
 func (service *Service) Create(sources []Source, modes []string, courseName string) (Task, error) {
+	return service.CreateOperation(sources, modes, courseName, ids.New())
+}
+
+// CreateDirectOperation snapshots supplied subtitles before any model dispatch.
+func (service *Service) CreateDirectOperation(srt, title, mode, course, id string) (Task, error) {
+	return service.createDirectOperation(srt, title, mode, course, id, nil)
+}
+
+func (service *Service) CreateRetainedOperation(ctx context.Context, verified videoppt.VerifiedRetainedSubtitle, mode, course, id string) (Task, error) {
+	binding, srt, title, err := verified.ForCreation(ctx, service.Library, course)
+	if err != nil {
+		return Task{}, err
+	}
+	return service.createDirectOperation(srt, title, mode, course, id, &binding)
+}
+
+func (service *Service) createDirectOperation(srt, title, mode, course, id string, binding *contract.PlaybackSourceBinding) (Task, error) {
+	if !validUUID(id) || !validMode(mode) || title == "" || len([]rune(title)) > 200 || len(srt) == 0 || len(srt) > 4000000 {
+		return Task{}, fmt.Errorf("摘要参数无效")
+	}
+	if _, err := documents.ParseSrt(srt); err != nil {
+		return Task{}, err
+	}
+	directory := filepath.Join(service.Root, "inputs")
+	if err := os.MkdirAll(directory, 0o700); err != nil {
+		return Task{}, err
+	}
+	path := filepath.Join(directory, id+".srt")
+	// Publish a fully synced file without overwriting a concurrent/original input.
+	temporary, err := os.CreateTemp(directory, ".srt-*")
+	if err != nil {
+		return Task{}, err
+	}
+	defer os.Remove(temporary.Name())
+	_, writeErr := temporary.WriteString(srt)
+	syncErr := temporary.Sync()
+	closeErr := temporary.Close()
+	if writeErr != nil || syncErr != nil || closeErr != nil {
+		return Task{}, fmt.Errorf("字幕快照保存失败")
+	}
+	if err := os.Link(temporary.Name(), path); err != nil {
+		previous, readErr := os.ReadFile(path)
+		if readErr != nil || string(previous) != srt {
+			return Task{}, fmt.Errorf("同一提交标识不能更换字幕；原任务保留")
+		}
+	}
+	hash := digest(srt)
+	return service.createOperation([]Source{{Kind: "direct-srt", Title: title, Path: path, Hash: hash, Generation: "srt-sha256:" + hash}}, []string{mode}, course, id, binding)
+}
+
+var operationCreateMu sync.Mutex
+
+// CreateOperation binds a caller's stable operation ID to immutable validated
+// inputs. Repeating the same submission returns its existing checkpoints.
+// The application owns one backend process per library; this mutex does not
+// substitute for a distributed/multi-process lock.
+func (service *Service) CreateOperation(sources []Source, modes []string, courseName, operationID string) (Task, error) {
+	return service.createOperation(sources, modes, courseName, operationID, nil)
+}
+
+func (service *Service) createOperation(sources []Source, modes []string, courseName, operationID string, binding *contract.PlaybackSourceBinding) (Task, error) {
+	if !validUUID(operationID) {
+		return Task{}, fmt.Errorf("笔记任务标识无效")
+	}
 	if len(sources) < 1 || len(sources) > 1000 || len(modes) < 1 || len(modes) > 4 {
 		return Task{}, fmt.Errorf("不要重复选择分集或笔记形式")
 	}
-	seen := map[string]bool{}
-	checked := []Source{}
-	for _, source := range sources {
-		locator, err := subtitlesync.Locator(source.URL)
-		if err != nil || source.Title == "" || len([]rune(source.Title)) > 200 ||
-			!inside(service.Library, source.Path) || len(source.Hash) != 64 || source.Generation == "" {
-			return Task{}, fmt.Errorf("不要重复选择分集或笔记形式")
-		}
-		if seen[locator] {
-			return Task{}, fmt.Errorf("不要重复选择分集或笔记形式")
-		}
-		seen[locator] = true
-		source.URL = locator
-		checked = append(checked, source)
+	checked, err := service.validateSources(sources)
+	if err != nil {
+		return Task{}, err
 	}
-	modeSeen := map[string]bool{}
-	for _, mode := range modes {
-		if !validMode(mode) || modeSeen[mode] {
-			return Task{}, fmt.Errorf("不要重复选择分集或笔记形式")
+	if err := validateModes(modes); err != nil {
+		return Task{}, err
+	}
+	request, err := bindingRequest(checked, modes, courseName, binding)
+	if err != nil {
+		return Task{}, err
+	}
+	requestHash := digest(string(request))
+	operationCreateMu.Lock()
+	defer operationCreateMu.Unlock()
+	if binding == nil {
+		if _, err := os.Lstat(filepath.Join(service.Root, operationID+".playback-binding.json")); !os.IsNotExist(err) {
+			return Task{}, fmt.Errorf("原播放绑定身份不可通过未绑定入口更换")
 		}
-		modeSeen[mode] = true
+	}
+	if _, err := os.Stat(filepath.Join(service.Root, operationID+".json")); err == nil {
+		existing, err := service.Read(operationID)
+		if err != nil || existing.RequestHash != requestHash {
+			return Task{}, fmt.Errorf("同一提交标识不能更换字幕、课程或笔记形式；原任务保留")
+		}
+		return existing, nil
+	} else if !os.IsNotExist(err) {
+		return Task{}, err
 	}
 	task := Task{
-		ID: ids.New(), CreatedAt: time.Now().UTC().Format(time.RFC3339Nano),
+		OutputVersion: 2,
+		ID:            operationID, CreatedAt: time.Now().UTC().Format(time.RFC3339Nano), RequestHash: requestHash,
 		CourseName: courseName, Interrupted: true,
 	}
 	for _, source := range checked {
 		for _, mode := range modes {
 			task.Items = append(task.Items, Item{Source: source, Mode: mode, Status: "等待处理"})
+		}
+	}
+	if binding != nil {
+		if len(task.Items) != 1 || !videoppt.ValidPlaybackBinding(*binding) || task.Items[0].Source.Hash != binding.SubtitleSHA256 {
+			return Task{}, fmt.Errorf("播放绑定身份无效")
+		}
+		copy := *binding
+		task.Items[0].SourceBinding = &copy
+		task.Items[0].SourceBindingSHA256 = videoppt.PlaybackBindingSHA256(copy)
+		if err := service.createBindingAuthority(&task); err != nil {
+			return Task{}, err
 		}
 	}
 	if err := service.save(task); err != nil {
@@ -219,7 +338,50 @@ func (service *Service) Create(sources []Source, modes []string, courseName stri
 	return task, nil
 }
 
+func (service *Service) validateSources(sources []Source) ([]Source, error) {
+	seen := map[string]bool{}
+	checked := []Source{}
+	for _, source := range sources {
+		locator, err := subtitlesync.Locator(source.URL)
+		if source.Kind == "direct-srt" {
+			locator, err = source.Path, nil
+			if source.URL != "" || !inside(filepath.Join(service.Root, "inputs"), source.Path) || source.Generation != "srt-sha256:"+source.Hash {
+				return nil, fmt.Errorf("直接字幕来源身份无效")
+			}
+		} else if source.Kind != "" {
+			return nil, fmt.Errorf("字幕来源类型无效")
+		}
+		if err != nil || source.Title == "" || len([]rune(source.Title)) > 200 ||
+			!inside(service.Library, source.Path) || len(source.Hash) != 64 || source.Generation == "" {
+			return nil, fmt.Errorf("不要重复选择分集或笔记形式")
+		}
+		if seen[locator] {
+			return nil, fmt.Errorf("不要重复选择分集或笔记形式")
+		}
+		seen[locator] = true
+		if source.Kind != "direct-srt" {
+			source.URL = locator
+		}
+		checked = append(checked, source)
+	}
+	return checked, nil
+}
+
+func validateModes(modes []string) error {
+	modeSeen := map[string]bool{}
+	for _, mode := range modes {
+		if !validMode(mode) || modeSeen[mode] {
+			return fmt.Errorf("不要重复选择分集或笔记形式")
+		}
+		modeSeen[mode] = true
+	}
+	return nil
+}
+
 func (service *Service) current(source Source, dependencies Dependencies, ctx context.Context) (string, error) {
+	if _, err := service.validateSources([]Source{source}); err != nil {
+		return "", err
+	}
 	if !inside(service.Library, source.Path) {
 		return "", fmt.Errorf("笔记来源或成果不在课程资料目录")
 	}
@@ -231,7 +393,7 @@ func (service *Service) current(source Source, dependencies Dependencies, ctx co
 	if digest(text) != source.Hash {
 		return "", fmt.Errorf("字幕来源已有改变，请重新同步并建立笔记任务；旧成果保留")
 	}
-	if dependencies.Generation != nil {
+	if source.Kind != "direct-srt" && dependencies.Generation != nil {
 		generation, err := dependencies.Generation(ctx, source.URL)
 		if err != nil || generation != source.Generation {
 			return "", fmt.Errorf("字幕来源已有改变，请重新同步并建立笔记任务；旧成果保留")
@@ -263,16 +425,62 @@ func (service *Service) validDerivedOutputs(item *Item) error {
 
 func (service *Service) ensurePrepared(ctx context.Context, task *Task, item *Item, dependencies Dependencies, srt string) error {
 	if item.Prepared != nil {
+		if item.Prepared.Evidence != nil {
+			return service.verifyPointEvidence(ctx, task, item, item.Prepared.Points, item.Prepared.Evidence)
+		}
 		return nil
 	}
-	if dependencies.Summarize == nil {
+	if item.Received != nil {
+		return service.prepareReceived(ctx, task, item)
+	}
+	if dependencies.Summarize == nil && dependencies.SummarizeWithEvidence == nil {
 		return fmt.Errorf("摘要不可用")
 	}
-	markdown, points, err := dependencies.Summarize(ctx, srt, item.Mode)
+	if item.GenerationState != "" {
+		return fmt.Errorf("上次模型调用结果未知，未自动重试；请先核对服务端记录")
+	}
+	if dependencies.ValidateModel != nil {
+		if err := dependencies.ValidateModel(ctx); err != nil {
+			return err
+		}
+	}
+	if err := service.bindRecipe(ctx, task, dependencies); err != nil {
+		return err
+	}
+	observedContext, err := service.observationContext(ctx, task, item, srt)
+	if err != nil {
+		return err
+	}
+	if item.SourceBinding != nil {
+		checkContext, cancel := context.WithTimeout(ctx, 5*time.Second)
+		_, err := videoppt.New(filepath.Join(service.Library, "VideoTasks")).ValidateRetainedPlaybackBinding(checkContext, *item.SourceBinding, task.CourseName)
+		cancel()
+		if err != nil {
+			return err
+		}
+	}
+	item.GenerationState = "dispatched"
+	if err := service.save(*task); err != nil {
+		return err
+	}
+	if dependencies.SummarizeWithEvidence != nil {
+		result, err := dependencies.SummarizeWithEvidence(observedContext, srt, item.Mode)
+		if err != nil {
+			return err
+		}
+		return service.saveReceived(ctx, task, item, result)
+	}
+	markdown, points, err := dependencies.Summarize(observedContext, srt, item.Mode)
 	if err != nil {
 		return err
 	}
 	item.Prepared = &Prepared{Markdown: markdown, Points: points}
+	item.GenerationState = "prepared"
+	// Persist the received result before further validation/export so recovery
+	// never repeats a paid call merely because a later local step failed.
+	if err := service.save(*task); err != nil {
+		return err
+	}
 	if _, err := service.current(item.Source, dependencies, ctx); err != nil {
 		return err
 	}
@@ -288,10 +496,27 @@ func writeDerivedFiles(files []derivedFile, created *[]string) ([]Output, error)
 				return nil, fmt.Errorf("同名成果已有不同内容，未覆盖，请检查任务记录")
 			}
 		} else if os.IsNotExist(err) {
-			if err := os.WriteFile(file.Path, []byte(file.Text), 0o644); err != nil {
+			temporary, err := os.CreateTemp(filepath.Dir(file.Path), ".note-*")
+			if err != nil {
 				return nil, err
 			}
-			*created = append(*created, file.Path)
+			_, writeErr := temporary.WriteString(file.Text)
+			syncErr := temporary.Sync()
+			closeErr := temporary.Close()
+			if writeErr != nil || syncErr != nil || closeErr != nil {
+				_ = os.Remove(temporary.Name())
+				return nil, fmt.Errorf("笔记临时文件保存失败")
+			}
+			linkErr := os.Link(temporary.Name(), file.Path)
+			_ = os.Remove(temporary.Name())
+			if linkErr != nil {
+				existing, readErr := os.ReadFile(file.Path)
+				if readErr != nil || string(existing) != file.Text {
+					return nil, fmt.Errorf("同名成果已有不同内容，未覆盖，请检查任务记录")
+				}
+			} else {
+				*created = append(*created, file.Path)
+			}
 		} else {
 			return nil, err
 		}
@@ -308,9 +533,15 @@ func (service *Service) processDerivedItem(ctx context.Context, task *Task, inde
 	item := &task.Items[index]
 	srt, err := service.current(item.Source, dependencies, ctx)
 	if err != nil {
+		if item.PublicationPlan != nil || item.PublicationReceipt != nil || (item.Prepared != nil && item.Prepared.Evidence != nil) {
+			return publicationError()
+		}
 		return err
 	}
 	if len(item.Outputs) > 0 {
+		if item.PublicationReceipt != nil || item.PublicationPlan != nil {
+			return service.restorePublication(ctx, task, index, srt)
+		}
 		if err := service.validDerivedOutputs(item); err != nil {
 			return err
 		}
@@ -320,6 +551,9 @@ func (service *Service) processDerivedItem(ctx context.Context, task *Task, inde
 	}
 	if err := service.ensurePrepared(ctx, task, item, dependencies, srt); err != nil {
 		return err
+	}
+	if item.Prepared.Evidence != nil || item.PublicationPlan != nil {
+		return service.publishSummary(ctx, task, index, srt, dependencies)
 	}
 	if _, err := service.current(item.Source, dependencies, ctx); err != nil {
 		return err
@@ -333,10 +567,26 @@ func (service *Service) processDerivedItem(ctx context.Context, task *Task, inde
 		title = title[:40]
 	}
 	stem := string(title) + "-" + modeTitles[item.Mode] + "-" + task.ID[:8] + "-" + itoa(index+1)
-	provenance := "\n\n---\n字幕来源：" + item.Source.URL + "\n来源版本：" + item.Source.Generation +
+	sourceLabel := item.Source.URL
+	if item.Source.Kind == "direct-srt" {
+		sourceLabel = "传入 SRT 快照：" + item.Source.Path
+	}
+	anchorText := ""
+	if task.OutputVersion == 2 {
+		points, text, err := anchorPoints(srt, item.Prepared.Points)
+		if err != nil {
+			return err
+		}
+		anchorText = text
+		item.Prepared.Points = points
+		if err := service.save(*task); err != nil {
+			return err
+		}
+	}
+	provenance := "\n\n---\n字幕来源：" + sourceLabel + "\n来源版本：" + item.Source.Generation +
 		"\n字幕 SHA256：" + item.Source.Hash + "\n"
 	files := []derivedFile{
-		{Path: filepath.Join(directory, stem+".md"), Text: item.Prepared.Markdown + provenance},
+		{Path: filepath.Join(directory, stem+".md"), Text: item.Prepared.Markdown + anchorText + provenance},
 		{Path: filepath.Join(directory, stem+".json"), Text: prettyJSON(item.Prepared.Points)},
 	}
 	if item.Mode == "mindmap" && dependencies.RenderSVG != nil {
@@ -360,6 +610,9 @@ func (service *Service) Run(ctx context.Context, id string, dependencies Depende
 	task, err := service.Read(id)
 	if err != nil {
 		return Task{}, err
+	}
+	if task.OutputVersion != 0 && task.OutputVersion != 2 {
+		return Task{}, fmt.Errorf("笔记成果版本不受支持，原任务保留")
 	}
 	task.Interrupted = true
 	if err := service.save(task); err != nil {
@@ -386,6 +639,18 @@ func (service *Service) Run(ctx context.Context, id string, dependencies Depende
 			}
 			item.Status = "失败"
 			item.Error = err.Error()
+			if contract.IsObservationFailure(err) {
+				if saveErr := service.save(task); saveErr != nil {
+					return task, saveErr
+				}
+				return task, err
+			}
+			if item.GenerationState != "" && item.Prepared == nil && len(item.Outputs) == 0 {
+				if saveErr := service.save(task); saveErr != nil {
+					return task, saveErr
+				}
+				return task, nil
+			}
 		}
 		if err := service.save(task); err != nil {
 			return Task{}, err

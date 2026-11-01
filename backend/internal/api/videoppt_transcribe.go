@@ -5,25 +5,22 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
-	"strings"
 
-	"github.com/EveSunMaple/Zynote/backend/internal/asr"
+	"github.com/EveSunMaple/Zynote/backend/internal/config"
 	"github.com/EveSunMaple/Zynote/backend/internal/contract"
 	"github.com/EveSunMaple/Zynote/backend/internal/documents"
+	"github.com/EveSunMaple/Zynote/backend/internal/jobs"
 	"github.com/EveSunMaple/Zynote/backend/internal/library"
-	"github.com/EveSunMaple/Zynote/backend/internal/media"
-	"github.com/EveSunMaple/Zynote/backend/internal/media/bilibili"
 	"github.com/EveSunMaple/Zynote/backend/internal/videoppt"
 )
 
 const jobKindVideoSubtitle = "video-subtitle"
 
 func (inv *Invoker) videoProgress(message string) {
-	inv.emit(map[string]any{"kind": "progress", "data": map[string]any{
-		"stage": "视频提取 PPT", "message": message,
-	}})
+	inv.emit(map[string]any{"kind": "progress", "data": inv.jobs.Report(message)})
 }
 
 func (inv *Invoker) transcribeVideoTask(
@@ -32,20 +29,9 @@ func (inv *Invoker) transcribeVideoTask(
 	task videoppt.CreatedTask,
 ) (any, error) {
 	service := videoPptService(state)
-	result, err := asr.Pipeline{
-		Resources: state.ResourcesRoot, DataRoot: state.DataRoot,
-		Platform:            media.CurrentMediaPlatform(),
-		AllowSystemFallback: !state.Packaged || os.Getenv("ZYNOTE_SYSTEM_MEDIA") == "1",
-		Call: func(ctx context.Context, method string, params any, timeoutMS int) (json.RawMessage, error) {
-			if inv.asr == nil {
-				return nil, contract.Unavailable("本地字幕模型不可用")
-			}
-			return inv.asr.CallContext(ctx, method, params, timeoutMS)
-		},
-		Progress: inv.videoProgress,
-	}.Transcribe(ctx, task.Path, "zh")
+	result, recovered, err := inv.preparedVideoSubtitle(ctx, state, task)
 	if err != nil {
-		return nil, contract.Unavailable(err.Error())
+		return nil, err
 	}
 	meta, _, err := service.SubtitleTask(task.ID)
 	if err != nil {
@@ -56,55 +42,71 @@ func (inv *Invoker) transcribeVideoTask(
 	if err != nil {
 		return nil, err
 	}
-	path, err := library.ReserveFile(directory, meta.OutputName)
-	if err != nil {
-		return nil, err
-	}
-	cleanupWarning := ""
-	if err := os.WriteFile(path, []byte(result.SRT), 0o644); err != nil {
-		_ = os.Remove(path)
-		return nil, contract.Unavailable("保存字幕后校验失败")
-	}
-	if body, err := os.ReadFile(path); err != nil || string(body) != result.SRT {
-		_ = os.Remove(path)
-		return nil, contract.Unavailable("保存字幕后校验失败")
-	}
-	if err := service.MarkSubtitleSaved(task.ID, path); err != nil {
-		_ = os.Remove(path)
+	operation, err := service.Operation(task.ID)
+	if err != nil && !os.IsNotExist(err) {
 		return nil, videoPptError(err)
 	}
-	if err := result.Cleanup(); err != nil {
-		cleanupWarning = "字幕已保存，但临时音频清理失败：" + err.Error()
-	}
-	if err := service.DiscardCompleted(task.ID); err != nil {
-		if cleanupWarning == "" {
-			cleanupWarning = err.Error()
-		} else {
-			cleanupWarning += "；" + err.Error()
+	if operation.RetainPlayback {
+		if err := service.PreparePlaybackRetention(ctx, task.ID, result.SRT); err != nil {
+			return nil, videoPptError(err)
 		}
 	}
+	path, err := videoppt.PublishSubtitle(ctx, task, directory, meta.OutputName, []byte(result.SRT))
+	if err != nil {
+		return nil, videoPptError(err)
+	}
+	if err := service.MarkSubtitleSaved(task.ID, path); err != nil {
+		return nil, videoPptError(err)
+	}
+	cleanupWarning := ""
+	if recovered {
+		cleanupWarning = "已复用保存的转写；未自动清理先前临时音频，请核对后处理"
+	}
+
+	if result.Directory != "" {
+		if err := result.Cleanup(); err != nil {
+			cleanupWarning = "字幕已保存，但临时音频清理失败：" + err.Error()
+		}
+	}
+
 	warning := "自动转写可能有错，请核对后作为课堂原文使用。"
 	if cleanupWarning != "" {
 		warning += cleanupWarning
 	}
-	return map[string]any{
+	output := map[string]any{
 		"title": library.FolderName(videoppt.SubtitleTitle(task.Name)), "page": meta.Page,
 		"source": "本地 Whisper 转写", "warning": warning, "cleanupWarning": cleanupWarning,
 		"srt": result.SRT, "count": result.Count, "savedPath": path,
-	}, nil
+	}
+	if result.Provenance != nil {
+		output["provenance"], output["sourceSHA256"], output["srtSHA256"] = result.Provenance, result.SourceSHA256, result.SRTSHA256
+	}
+	return finishSubtitleTaskContext(ctx, state, task, output, path)
 }
 
 func (inv *Invoker) handleVideoSubtitleTranscribeLocal(store contract.StateStore, state *contract.State, params json.RawMessage) (any, error) {
 	var input struct {
-		CourseID string `json:"courseId"`
+		RetainPlayback bool    `json:"retainPlayback"`
+		ASRLanguage    *string `json:"asrLanguage"`
+		CourseID       string  `json:"courseId"`
+		OperationID    string  `json:"operationId"`
 	}
 	if err := json.Unmarshal(params, &input); err != nil {
 		return nil, contract.InputInvalid("字幕参数无效")
+	}
+	if input.ASRLanguage != nil {
+		if _, err := contract.NormalizeASRLanguage(*input.ASRLanguage); err != nil {
+			return nil, err
+		}
 	}
 	courseName, err := inv.subtitleCourseName(state, input.CourseID)
 	if err != nil {
 		return nil, err
 	}
+	if task, exists, err := inv.existingLocalSubtitle(state, input.OperationID, courseName, input.RetainPlayback, input.ASRLanguage); exists {
+		return inv.runBoundSubtitle(store, state, task, err)
+	}
+
 	reverse := store.Reverse()
 	if reverse == nil {
 		return nil, contract.Unavailable("文件选择器不可用")
@@ -125,26 +127,44 @@ func (inv *Invoker) handleVideoSubtitleTranscribeLocal(store contract.StateStore
 	if picked.Path == nil || *picked.Path == "" {
 		return nil, nil
 	}
-	return inv.runJob(jobKindVideoSubtitle, func(ctx context.Context) (any, error) {
-		inv.videoProgress("正在复制本地视频用于字幕转写；原文件保持不变")
-		outputName := library.FolderName(videoppt.SubtitleTitle(filepath.Base(*picked.Path))) + "-离线转写.srt"
-		task, err := videoPptService(state).CreateSubtitleTask(*picked.Path, outputName, courseName, 1)
-		if err != nil {
-			return nil, videoPptError(err)
-		}
-		return inv.transcribeVideoTask(ctx, state, task)
-	})
+	task, _, err := inv.createQueuedVideoTaskLanguage(state, *picked.Path, "", "subtitle", "", courseName, input.RetainPlayback, input.ASRLanguage, input.OperationID)
+	return inv.runBoundSubtitle(store, state, task, err)
 }
 
-func (inv *Invoker) handleVideoResumeSubtitle(state *contract.State, params json.RawMessage) (any, error) {
+func (inv *Invoker) runSubtitleQueued(state *contract.State, id string, run func(context.Context) (any, error)) (any, error) {
+	return inv.runSubtitleQueuedContext(context.Background(), state, id, run)
+}
+
+func (inv *Invoker) runSubtitleQueuedContext(ctx context.Context, state *contract.State, id string, run func(context.Context) (any, error)) (any, error) {
+	key := "subtitle-transcribe:" + id
+	result, err := inv.jobs.RunQueued(ctx, filepath.Join(state.LibraryRoot, "TaskQueue"), id, key, func(ctx context.Context) (any, error) { return videoPptService(state).RunVideoTask(ctx, id, run) })
+	if err != nil && ctx.Err() != nil {
+		err = videoPptError(ctx.Err())
+	} else if errors.Is(err, jobs.ErrCancelled) {
+		err = contract.NewError(contract.CodeCancelled, "字幕转写已取消，恢复文件保留")
+	}
+	return inv.finishJob(key, "", result, err)
+}
+
+func (inv *Invoker) handleVideoResumeSubtitle(store contract.StateStore, state *contract.State, params json.RawMessage) (any, error) {
+	return inv.handleVideoResumeSubtitleContext(context.Background(), store, state, params)
+}
+
+func (inv *Invoker) handleVideoResumeSubtitleContext(ctx context.Context, store contract.StateStore, state *contract.State, params json.RawMessage) (any, error) {
 	var input struct {
 		ID string `json:"id"`
 	}
-	if err := json.Unmarshal(params, &input); err != nil || !strings.HasPrefix(input.ID, "") || input.ID == "" {
+	if err := json.Unmarshal(params, &input); err != nil || !config.IsUUID(input.ID) {
 		return nil, contract.InputInvalid("任务编号无效")
 	}
-	return inv.runJob(jobKindVideoSubtitle, func(ctx context.Context) (any, error) {
+	if _, _, err := videoPptService(state).SubtitleTask(input.ID); err != nil {
+		return nil, videoPptError(err)
+	}
+	return inv.runSubtitleQueuedContext(ctx, state, input.ID, func(ctx context.Context) (any, error) {
 		service := videoPptService(state)
+		if err := service.EnsurePlaybackRetention(ctx, input.ID); err != nil {
+			return nil, videoPptError(err)
+		}
 		meta, directory, err := service.SubtitleTask(input.ID)
 		if err != nil {
 			return nil, videoPptError(err)
@@ -170,19 +190,49 @@ func (inv *Invoker) handleVideoResumeSubtitle(state *contract.State, params json
 			if err != nil {
 				return nil, contract.InputInvalid(err.Error())
 			}
-			if err := service.DiscardCompleted(meta.ID); err != nil {
-				return nil, videoPptError(err)
+			output := map[string]any{"title": meta.Name, "page": meta.Page, "source": "已保存的字幕", "warning": "已核对原有字幕。", "srt": string(body), "count": len(segments), "savedPath": path, "cleanupWarning": ""}
+			prepared, found, preparedErr := videoppt.LoadPreparedSubtitleForSavedOutput(videoppt.CreatedTask{Dir: directory}, string(body))
+			if preparedErr != nil {
+				return nil, videoPptError(preparedErr)
 			}
-			return map[string]any{
-				"title": meta.Name, "page": meta.Page, "source": "已保存的字幕",
-				"warning": "已核对原有字幕并清理本次临时视频。", "srt": string(body),
-				"count": len(segments), "savedPath": path, "cleanupWarning": "",
-			}, nil
+			if effectiveASRLanguage(meta.ASRLanguage) != "zh" && (!found || prepared.Version != 2) {
+				station, stationFound, stationErr := service.LoadStationSubtitle(videoppt.CreatedTask{ID: meta.ID, Dir: directory})
+				if found || stationErr != nil || !stationFound || station.State != "prepared" || station.SRT != string(body) {
+					return nil, contract.InputInvalid("已保存字幕缺少匹配的来源或语言凭据，请保留任务")
+				}
+			}
+			if found && prepared.Version == 2 {
+				if prepared.Provenance.RequestedLanguage != effectiveASRLanguage(meta.ASRLanguage) || prepared.SRT != string(body) {
+					return nil, contract.InputInvalid("已保存字幕与转写凭据不一致，请保留任务")
+				}
+				output["provenance"], output["sourceSHA256"], output["srtSHA256"] = prepared.Provenance, prepared.VideoSHA256, prepared.SRTSHA256
+				output["sourceVerification"] = "historical"
+			}
+			return finishSubtitleTaskContext(ctx, state, videoppt.CreatedTask{ID: meta.ID, Name: meta.Name, Dir: directory}, output, path)
 		}
+		if operation, err := service.Operation(input.ID); err == nil {
+			if operation.Stage == "subtitle-station" {
+				return inv.stationSubtitle(ctx, store, state, videoppt.CreatedTask{ID: meta.ID, Name: meta.Name, Dir: directory, Path: filepath.Join(directory, "video.mp4")})
+			}
+			if err := inv.ensureQueuedVideo(ctx, store, state, videoppt.CreatedTask{ID: meta.ID, Name: meta.Name, Dir: directory, Path: filepath.Join(directory, "video.mp4")}); err != nil {
+				return nil, err
+			}
+		} else if !os.IsNotExist(err) {
+			return nil, videoPptError(err)
+		}
+
 		video := filepath.Join(directory, "video.mp4")
 		if info, err := os.Stat(video); err != nil || !info.Mode().IsRegular() {
 			return nil, contract.InputInvalid("本地视频副本尚未准备完成，请重新选择原视频")
 		}
+		if _, err := os.Stat(filepath.Join(directory, "video-ready.json")); err == nil {
+			if err := videoppt.VerifyVideoReady(videoppt.CreatedTask{Dir: directory, Path: video}); err != nil {
+				return nil, videoPptError(err)
+			}
+		} else if !os.IsNotExist(err) {
+			return nil, err
+		}
+
 		return inv.transcribeVideoTask(ctx, state, videoppt.CreatedTask{
 			ID: meta.ID, Name: meta.Name, Dir: directory, Path: video,
 		})
@@ -191,38 +241,20 @@ func (inv *Invoker) handleVideoResumeSubtitle(state *contract.State, params json
 
 func (inv *Invoker) handleVideoSubtitleTranscribe(store contract.StateStore, state *contract.State, params json.RawMessage) (any, error) {
 	var input struct {
-		URL      string `json:"url"`
-		CourseID string `json:"courseId"`
+		URL         string  `json:"url"`
+		ASRLanguage *string `json:"asrLanguage"`
+		CourseID    string  `json:"courseId"`
+		OperationID string  `json:"operationId"`
 	}
-	if err := json.Unmarshal(params, &input); err != nil || input.URL == "" {
+	if err := json.Unmarshal(params, &input); err != nil || (input.URL == "" && input.OperationID == "") {
 		return nil, contract.InputInvalid("视频网址无效")
-	}
-	videoID, page, _, err := biliTaskName(input.URL, "")
-	if err != nil {
-		return nil, err
 	}
 	courseName, err := inv.subtitleCourseName(state, input.CourseID)
 	if err != nil {
 		return nil, err
 	}
-	normalized, err := bilibili.VideoURL(input.URL)
-	if err != nil {
-		return nil, err
-	}
-	return inv.runJob(jobKindVideoSubtitle, func(ctx context.Context) (any, error) {
-		inv.videoProgress("正在下载视频用于离线字幕转写")
-		task, err := videoPptService(state).CreateBlankTask(videoID+"-P"+page+"-字幕转写", map[string]any{
-			"kind": "subtitle", "outputName": videoID + "-P" + page + "-离线转写.srt",
-			"courseName": courseName, "url": normalized, "page": atoiSafe(page),
-		})
-		if err != nil {
-			return nil, videoPptError(err)
-		}
-		if err := inv.downloadBiliVideo(ctx, store, state, normalized, task.Path); err != nil {
-			return nil, err
-		}
-		return inv.transcribeVideoTask(ctx, state, task)
-	})
+	task, _, err := inv.createQueuedVideoTaskLanguage(state, "", input.URL, "subtitle", "", courseName, false, input.ASRLanguage, input.OperationID)
+	return inv.runBoundSubtitle(store, state, task, err)
 }
 
 func atoiSafe(value string) int {

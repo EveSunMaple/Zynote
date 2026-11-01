@@ -200,6 +200,7 @@ export interface LectureDetail {
  correction?: {completed: number; total: number}
 }
 export interface Progress {
+ key?: string
  lectureId?: string
  stage: string
  message: string
@@ -211,6 +212,7 @@ export interface JobState {
  key: string
  lectureId?: string
  progress?: Progress
+ source?: import('./media-source.js').MediaSource
 }
 export type EventPayload =
  | {kind: 'progress'; data: Progress}
@@ -220,7 +222,7 @@ export type EventPayload =
  | {kind: 'bili-import'; url: string; mode: 'videoNotes' | 'videoSubtitles' | 'videoPpt'}
  | {kind: 'window'; data: {maximized: boolean}}
  | {kind: 'update'; data: UpdateStatus}
- | {kind: 'video-batch'; items: VideoBatchItem[]}
+ | {kind: 'video-batch'; items: VideoBatchItem[]; operationId?: string; taskId?: string; batchKind?: '' | 'subtitle'}
  | {kind: 'zhiyun-task'; data: ZhiyunTask}
 export interface Bridge {
  invoke<T = unknown>(action: string, args?: unknown): Promise<T>

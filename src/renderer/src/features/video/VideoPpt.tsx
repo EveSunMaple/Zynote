@@ -1,6 +1,7 @@
 import {Button, Card, Checkbox, Input, TextArea} from '@heroui/react'
 import {learningViews, LearningIcon, type LearningView} from '@renderer/features/video/LearningNav'
 import {VideoMindmap} from '@renderer/features/video/VideoMindmap'
+import {SummaryReferences} from '@renderer/features/video/SummaryReferences'
 import {BiliResourcesPanel} from '@renderer/features/bilibili/BiliResources'
 import {notify} from '@renderer/ui/ToastHost'
 import {WindowMenuButton, WindowPanel} from '@renderer/ui/WindowPanel'
@@ -17,8 +18,16 @@ import {
  type VideoSeries,
  type VideoBatchItem
 } from '@shared/video-ppt'
+import {
+ retainVideoOperation,
+ settleLocalSubtitleOperation,
+ type VideoOperationDraft,
+ type ASRLanguage,
+ type VideoStartInput
+} from '@shared/video-ppt-operation'
 import type {SubtitleSyncTask} from '@shared/subtitle-sync'
 type BiliSubtitle = {
+ provenance?: {requestedLanguage: string}
  title: string
  page: number
  source: string
@@ -63,7 +72,69 @@ export function VideoPpt({
    cleaned: boolean
    cleanupWarning: string
   } | null>(null)
+ const [asrLanguage, setASRLanguage] = useState<ASRLanguage>('zh')
  const working = useRef(false)
+ const pptOperation = useRef<VideoOperationDraft | null>(null)
+ const batchOperation = useRef<VideoOperationDraft | null>(null)
+ const subtitleBatchOperation = useRef<VideoOperationDraft | null>(null)
+ const activeBatchId = useRef<string | null>(null)
+ const activeProgressKey = useRef<string | null>(null)
+ async function startPpt<T>(action: 'video-ppt:source' | 'video-ppt:auto', input: VideoStartInput): Promise<T> {
+  const draft = retainVideoOperation(pptOperation.current, action, input, () => crypto.randomUUID())
+  pptOperation.current = draft
+  activeProgressKey.current = `video-ppt:${draft.id}`
+  return invoke<T>(action, {...input, operationId: draft.id})
+ }
+ const summaryOperation = useRef<VideoOperationDraft | null>(null)
+ async function startSummary(input: VideoStartInput): Promise<VideoNoteResult> {
+  const draft = retainVideoOperation(summaryOperation.current, 'video-ppt:summary', input, () => crypto.randomUUID())
+  summaryOperation.current = draft
+  activeProgressKey.current = `subtitle-derived:${draft.id}`
+  const result = await invoke<VideoNoteResult>('video-ppt:summary', {...input, operationId: draft.id})
+  summaryOperation.current = null
+  return result
+ }
+ const remoteSubtitleOperation = useRef<VideoOperationDraft | null>(null)
+ const localSubtitleOperation = useRef<VideoOperationDraft | null>(null)
+ const [localSubtitleRetry, setLocalSubtitleRetry] = useState(false)
+ async function startRemoteSubtitle(input: VideoStartInput): Promise<BiliSubtitle> {
+  input = {...input, asrLanguage}
+  const draft = retainVideoOperation(remoteSubtitleOperation.current, 'video-ppt:subtitle-transcribe', input, () =>
+   crypto.randomUUID()
+  )
+  remoteSubtitleOperation.current = draft
+  activeProgressKey.current = `subtitle-transcribe:${draft.id}`
+  return invoke<BiliSubtitle>('video-ppt:subtitle-transcribe', {...input, operationId: draft.id})
+ }
+ async function startLocalSubtitle(newSelection = false): Promise<BiliSubtitle | null> {
+  const draft = retainVideoOperation(
+   newSelection ? null : localSubtitleOperation.current,
+   'video-ppt:subtitle-transcribe-local',
+   {courseId, asrLanguage},
+   () => crypto.randomUUID()
+  )
+  localSubtitleOperation.current = draft
+  activeProgressKey.current = `subtitle-transcribe:${draft.id}`
+  try {
+   const result = await invoke<BiliSubtitle | null>('video-ppt:subtitle-transcribe-local', {
+    courseId: courseId || undefined,
+    asrLanguage,
+    operationId: draft.id
+   })
+   localSubtitleOperation.current = settleLocalSubtitleOperation(draft, result ? 'completed' : 'cancelled')
+   setLocalSubtitleRetry(false)
+   return result
+  } catch (error) {
+   localSubtitleOperation.current = settleLocalSubtitleOperation(draft, 'failed')
+   setLocalSubtitleRetry(true)
+   throw error
+  }
+ }
+ useEffect(() => {
+  localSubtitleOperation.current = null
+  setLocalSubtitleRetry(false)
+ }, [courseId, asrLanguage])
+
  useEffect(
   () =>
    window.assistant.onEvent(event => {
@@ -89,7 +160,7 @@ export function VideoPpt({
        throw reason
       }
       setProgress('没有站内字幕，正在下载并使用本地模型转写')
-      acquired = await invoke<BiliSubtitle>('video-ppt:subtitle-transcribe', {
+      acquired = await startRemoteSubtitle({
        url: event.url,
        courseId: courseId || undefined
       })
@@ -97,7 +168,7 @@ export function VideoPpt({
      setSubtitle(acquired)
      if (event.mode === 'videoNotes') {
       setSummary(
-       await invoke<VideoNoteResult>('video-ppt:summary', {
+       await startSummary({
         mode: 'detailed',
         srt: acquired.srt,
         title: acquired.title,
@@ -109,7 +180,7 @@ export function VideoPpt({
      }
     })
    }),
-  [courseId, select]
+  [courseId, select, asrLanguage]
  )
 
  const [series, setSeries] = useState<VideoSeries | null>(null),
@@ -136,8 +207,18 @@ export function VideoPpt({
  useEffect(
   () =>
    window.assistant.onEvent(e => {
-    if (working.current && e.kind === 'progress') setProgress(e.data.message)
-    if (working.current && e.kind === 'video-batch') setBatch(e.items)
+    if (
+     working.current &&
+     e.kind === 'progress' &&
+     (!activeProgressKey.current || e.data.key === activeProgressKey.current)
+    )
+     setProgress(e.data.message)
+    if (working.current && e.kind === 'video-batch' && (!e.operationId || e.operationId === activeBatchId.current)) {
+     if (e.batchKind === 'subtitle') setSubtitleBatch(e.items)
+     else setBatch(e.items)
+     if (e.taskId)
+      activeProgressKey.current = `${e.batchKind === 'subtitle' ? 'subtitle-transcribe' : 'video-ppt'}:${e.taskId}`
+    }
    }),
   []
  )
@@ -151,15 +232,52 @@ export function VideoPpt({
    notify.error(e)
   } finally {
    working.current = false
+   activeProgressKey.current = null
+   activeBatchId.current = null
    setBusy(false)
   }
  }
  useEffect(() => {
   if (!visible || !restoreTaskId) return
   void run(async () => {
-   const restored = await invoke<{source: VideoSource; review: VideoReview | null}>('video-ppt:restore', {
-    id: restoreTaskId
-   })
+   const restored = await invoke<
+    | {source: VideoSource; review: VideoReview | null}
+    | {
+       resume: {
+        action: 'video-ppt:source' | 'video-ppt:auto' | 'video-ppt:batch' | 'video-ppt:batch-subtitles'
+        operationId: string
+       }
+      }
+   >('video-ppt:restore', {id: restoreTaskId})
+   if ('resume' in restored) {
+    if (restored.resume.action === 'video-ppt:batch' || restored.resume.action === 'video-ppt:batch-subtitles') {
+     activeBatchId.current = restored.resume.operationId
+     activeProgressKey.current = `video-batch-prepare:${restored.resume.operationId}`
+     if (restored.resume.action === 'video-ppt:batch-subtitles') select('videoSubtitles')
+     const items = await invoke<VideoBatchItem[]>(restored.resume.action, {operationId: restored.resume.operationId})
+     if (restored.resume.action === 'video-ppt:batch-subtitles') {
+      setSubtitleBatch(items)
+     } else setBatch(items)
+     setProgress(
+      `批次已处理：完成 ${items.filter(item => item.status === '已完成').length}，失败 ${items.filter(item => item.status === '失败').length}`
+     )
+     onTaskRestored?.()
+     return
+    }
+    activeProgressKey.current = `video-ppt:${restored.resume.operationId}`
+    setReview(null)
+    setChecked(false)
+    if (restored.resume.action === 'video-ppt:auto') {
+     setSaved(await invoke(restored.resume.action, {operationId: restored.resume.operationId}))
+     setSource(null)
+    } else {
+     setSource(await invoke<VideoSource>(restored.resume.action, {operationId: restored.resume.operationId}))
+     setSaved(null)
+    }
+    setProgress('已继续未完成的视频任务')
+    onTaskRestored?.()
+    return
+   }
    setSource(restored.source)
    setReview(restored.review)
    setSaved(null)
@@ -169,12 +287,12 @@ export function VideoPpt({
   })
  }, [visible, restoreTaskId])
 
- async function load(args: unknown) {
+ async function load(args: VideoStartInput) {
   setReview(null)
   setSource(null)
   setSaved(null)
   setChecked(false)
-  setSource(await invoke<VideoSource>('video-ppt:source', args))
+  setSource(await startPpt<VideoSource>('video-ppt:source', args))
  }
  async function open(path: string, reveal = false) {
   await run(async () => {
@@ -253,7 +371,7 @@ export function VideoPpt({
            setSource(null)
            setReview(null)
            setSaved(null)
-           setSaved(await invoke('video-ppt:auto', {url, prompt, courseId: courseId || undefined}))
+           setSaved(await startPpt('video-ppt:auto', {url, prompt, courseId: courseId || undefined}))
            notify.success('视频课件已生成')
           })
          }
@@ -271,7 +389,7 @@ export function VideoPpt({
             setSource(null)
             setReview(null)
             setSaved(null)
-            setSaved(await invoke('video-ppt:auto', {path, prompt, courseId: courseId || undefined}))
+            setSaved(await startPpt('video-ppt:auto', {path, prompt, courseId: courseId || undefined}))
             notify.success('视频课件已生成')
            }
           })
@@ -397,12 +515,18 @@ export function VideoPpt({
              setSaved(null)
              setSource(null)
              setReview(null)
+             const input = {url, pages: selected, prompt, courseId: courseId || undefined}
+             const draft = retainVideoOperation(batchOperation.current, 'video-ppt:batch', input, () =>
+              crypto.randomUUID()
+             )
+             batchOperation.current = draft
+             activeBatchId.current = draft.id
+             activeProgressKey.current = `video-batch-prepare:${draft.id}`
              const result = await invoke<VideoBatchItem[]>('video-ppt:batch', {
-              url,
-              pages: selected,
-              prompt,
-              courseId: courseId || undefined
+              ...input,
+              operationId: draft.id
              })
+             if (result.every(item => item.status === '已完成')) batchOperation.current = null
              setBatch(result)
              setProgress(
               `所选课程已处理：完成 ${result.filter(i => i.status === '已完成').length}，失败 ${result.filter(i => i.status === '失败').length}`
@@ -449,6 +573,23 @@ export function VideoPpt({
        >
         载入已保存的 SRT
        </Button>
+       <label>
+        离线转写语言
+        <SelectField
+         label="离线转写语言"
+         value={asrLanguage}
+         isDisabled={busy}
+         onChange={next => {
+          if (next === 'zh' || next === 'en' || next === 'auto') setASRLanguage(next)
+         }}
+         options={[
+          {value: 'zh', label: '中文（默认）'},
+          {value: 'en', label: '英语'},
+          {value: 'auto', label: '自动检测'}
+         ]}
+        />
+       </label>
+       <p className="hint">仅影响新建离线转写；恢复任务沿用原设置。自动检测不保证混讲更准确，已有站内字幕不会重转。</p>
        {series && (
         <label>
          选择分集
@@ -486,7 +627,7 @@ export function VideoPpt({
         onClick={() =>
          void run(async () => {
           const target = series?.episodes.find(e => e.page === subtitlePage)?.url || url
-          const result = await invoke<BiliSubtitle>('video-ppt:subtitle-transcribe', {
+          const result = await startRemoteSubtitle({
            url: target,
            courseId: courseId || undefined
           })
@@ -504,9 +645,7 @@ export function VideoPpt({
         isDisabled={busy}
         onClick={() =>
          void run(async () => {
-          const result = await invoke<BiliSubtitle | null>('video-ppt:subtitle-transcribe-local', {
-           courseId: courseId || undefined
-          })
+          const result = await startLocalSubtitle()
           if (result) {
            setSubtitle(result)
            setSubtitleSaved(result.savedPath || '')
@@ -515,13 +654,33 @@ export function VideoPpt({
          })
         }
        >
-        选择本地视频转写
+        {localSubtitleRetry ? '继续上次本地转写' : '选择本地视频转写'}
        </Button>
+       {localSubtitleRetry && (
+        <Button
+         variant="ghost"
+         size="sm"
+         isDisabled={busy}
+         onClick={() =>
+          void run(async () => {
+           const result = await startLocalSubtitle(true)
+           if (result) {
+            setSubtitle(result)
+            setSubtitleSaved(result.savedPath || '')
+           }
+          })
+         }
+        >
+         选择新视频
+        </Button>
+       )}
       </div>
       {subtitle && (
        <>
         <p>
          {subtitle.title} · {subtitle.source} · {subtitle.count} 条
+         {subtitle.provenance &&
+          ` · 转写语言：${subtitle.provenance.requestedLanguage === 'en' ? '英语' : subtitle.provenance.requestedLanguage === 'auto' ? '自动检测' : '中文'}`}
         </p>
         {subtitle.warning && (
          <p className="hint" role="alert">
@@ -605,11 +764,18 @@ export function VideoPpt({
         onClick={() =>
          void run(async () => {
           setSubtitleBatch([])
+          const input = {url, pages: selected, courseId: courseId || undefined, asrLanguage}
+          const draft = retainVideoOperation(subtitleBatchOperation.current, 'video-ppt:batch-subtitles', input, () =>
+           crypto.randomUUID()
+          )
+          subtitleBatchOperation.current = draft
+          activeBatchId.current = draft.id
+          activeProgressKey.current = `video-batch-prepare:${draft.id}`
           const result = await invoke<VideoBatchItem[]>('video-ppt:batch-subtitles', {
-           url,
-           pages: selected,
-           courseId: courseId || undefined
+           ...input,
+           operationId: draft.id
           })
+          if (result.every(item => item.status === '已完成')) subtitleBatchOperation.current = null
           setSubtitleBatch(result)
           setProgress(
            `字幕处理完成：成功 ${result.filter(i => i.status === '已完成').length}，失败 ${result.filter(i => i.status === '失败').length}`
@@ -732,7 +898,7 @@ export function VideoPpt({
         onClick={() =>
          void run(async () => {
           setSummary(null)
-          const result = await invoke<VideoNoteResult | null>('video-ppt:summary', {
+          const result = await startSummary({
            mode: summaryMode,
            srt: subtitle!.srt,
            title: subtitle!.title,
@@ -770,6 +936,7 @@ export function VideoPpt({
           <ReactMarkdown>{summary.markdown}</ReactMarkdown>
          )}
         </div>
+        <SummaryReferences key={summary.path} summary={summary} srt={subtitle?.srt || ''} />
         <div className="row">
          <Button variant="tertiary" size="sm" isDisabled={busy} onClick={() => void open(summary.path)}>
           打开 Markdown
@@ -904,6 +1071,7 @@ export function VideoPpt({
       onClick={() =>
        void run(async () => {
         setChecked(false)
+        activeProgressKey.current = `video-ppt:${source.id}`
         setReview(await invoke<VideoReview>('video-ppt:extract', {id: source.id, crop: source.crop, prompt}))
        })
       }
@@ -932,6 +1100,7 @@ export function VideoPpt({
        isDisabled={busy || !checked || !kept}
        onClick={() =>
         void run(async () => {
+         activeProgressKey.current = `video-ppt:${review.id}`
          setSaved(
           await invoke('video-ppt:export', {
            id: review.id,

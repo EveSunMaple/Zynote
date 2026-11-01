@@ -3,7 +3,7 @@ package bilibili
 import (
 	"context"
 	"encoding/json"
-	"fmt"
+	"errors"
 	"io"
 	"math"
 	"net/http"
@@ -24,6 +24,14 @@ const (
 	errBiliUrlRequired        = "请输入完整的 B 站视频网址"
 	errSubtitleContentInvalid = "字幕内容为空或格式错误"
 )
+
+// IsNoSubtitle is true only after a successful catalog response explicitly
+// reports no tracks. Network, login, rate-limit and track-content errors must
+// never authorize acquiring video or running ASR as a substitute.
+func IsNoSubtitle(err error) bool {
+	var application *contract.AppError
+	return errors.As(err, &application) && application.Code == contract.CodeNoSubtitle
+}
 
 type VideoEpisode struct {
 	Page     int     `json:"page"`
@@ -79,17 +87,23 @@ func biliGet(ctx context.Context, client *http.Client, target string) ([]byte, e
 	request.Header.Set("User-Agent", "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36")
 	response, err := client.Do(request)
 	if err != nil {
-		if ctx.Err() != nil {
-			return nil, ctx.Err()
+		if requestContext.Err() != nil {
+			return nil, biliTransportFailure(requestContext.Err())
 		}
-		return nil, contract.Unavailable("无法读取 B 站视频分集")
+		return nil, biliTransportFailure(err)
 	}
 	defer response.Body.Close()
 	if response.StatusCode < 200 || response.StatusCode >= 300 {
-		return nil, contract.Unavailable(fmt.Sprintf("B 站 %s 返回 HTTP %d", request.URL.Path, response.StatusCode))
+		if response.StatusCode == http.StatusTooManyRequests {
+			recordSubtitleRateLimit(client, response.Header)
+		}
+		return nil, biliHTTPFailure(response.StatusCode)
 	}
 	body, err := io.ReadAll(io.LimitReader(response.Body, 4*1024*1024+1))
-	if err != nil || len(body) > 4*1024*1024 {
+	if err != nil {
+		return nil, biliTransportFailure(err)
+	}
+	if len(body) > 4*1024*1024 {
 		return nil, contract.Unavailable("字幕响应过大")
 	}
 	return body, nil
@@ -126,10 +140,16 @@ func fetchPageList(ctx context.Context, client *http.Client, normalized string) 
 		return nil, err
 	}
 	var reply struct {
-		Code int       `json:"code"`
+		Code *int      `json:"code"`
 		Data []pageRow `json:"data"`
 	}
-	if json.Unmarshal(body, &reply) != nil || reply.Code != 0 || len(reply.Data) == 0 || len(reply.Data) > 1000 {
+	if json.Unmarshal(body, &reply) != nil || reply.Code == nil {
+		return nil, contract.Unavailable("未能读取视频分集目录，请稍后重试")
+	}
+	if *reply.Code != 0 {
+		return nil, subtitleCodeFailure(client, *reply.Code)
+	}
+	if len(reply.Data) == 0 || len(reply.Data) > 1000 {
 		return nil, contract.Unavailable("未能读取视频分集目录，请稍后重试")
 	}
 	for index, page := range reply.Data {
@@ -218,19 +238,25 @@ func fetchSubtitleTracks(ctx context.Context, client *http.Client, parsed *url.U
 		return nil, err
 	}
 	var detail struct {
-		Code int `json:"code"`
+		Code *int `json:"code"`
 		Data struct {
 			Subtitle struct { // NOSONAR: path is resolved and checked against the configured root.
-				Subtitles []subtitleTrack `json:"subtitles"`
+				Subtitles *[]subtitleTrack `json:"subtitles"`
 			} `json:"subtitle"`
 		} `json:"data"`
 	}
-	if json.Unmarshal(body, &detail) != nil || detail.Code != 0 {
+	if json.Unmarshal(body, &detail) != nil || detail.Code == nil {
 		return nil, contract.Unavailable("无法读取此分集的字幕目录")
 	}
-	tracks := detail.Data.Subtitle.Subtitles
+	if *detail.Code != 0 {
+		return nil, subtitleCodeFailure(client, *detail.Code)
+	}
+	if detail.Data.Subtitle.Subtitles == nil {
+		return nil, contract.Unavailable("无法读取此分集的字幕目录")
+	}
+	tracks := *detail.Data.Subtitle.Subtitles
 	if len(tracks) == 0 {
-		return nil, contract.InputInvalid("此分集没有站内字幕；可下载视频后在课程字幕功能中转写")
+		return nil, contract.NewError(contract.CodeNoSubtitle, "此分集没有站内字幕；可下载视频后在课程字幕功能中转写")
 	}
 	sort.SliceStable(tracks, func(left, right int) bool {
 		leftCN := subtitleCN.MatchString(tracks[left].Lan)
@@ -340,7 +366,10 @@ func FetchVideoSubtitles(ctx context.Context, client *http.Client, value string)
 		segments, warning, err := readSubtitleTrack(ctx, client, track, selected.Duration)
 		if err != nil {
 			if ctx.Err() != nil {
-				return FetchedSubtitle{}, ctx.Err()
+				return FetchedSubtitle{}, biliTransportFailure(ctx.Err())
+			}
+			if terminalSubtitleFailure(err) {
+				return FetchedSubtitle{}, err
 			}
 			lastErr = err
 			continue
@@ -357,5 +386,5 @@ func FetchVideoSubtitles(ctx context.Context, client *http.Client, value string)
 	if lastErr != nil {
 		return FetchedSubtitle{}, lastErr
 	}
-	return FetchedSubtitle{}, contract.InputInvalid("此分集没有可用字幕")
+	return FetchedSubtitle{}, contract.NewError(contract.CodeNoSubtitle, "此分集没有可用字幕")
 }

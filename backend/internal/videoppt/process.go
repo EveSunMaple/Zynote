@@ -11,7 +11,6 @@ import (
 	"image"
 	"image/jpeg"
 	"image/png"
-	"io"
 	"math"
 	"os"
 	"path/filepath"
@@ -19,6 +18,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/EveSunMaple/Zynote/backend/internal/framecandidate"
 	"github.com/EveSunMaple/Zynote/backend/internal/ids"
 	"github.com/EveSunMaple/Zynote/backend/internal/media"
 )
@@ -69,27 +69,12 @@ func (processor Processor) CreateTask(source string) (CreatedTask, error) {
 		return CreatedTask{}, requestError("任务目录不可创建")
 	}
 	video := filepath.Join(directory, "video.mp4")
-	input, err := os.Open(absolute)
-	if err != nil {
-		_ = os.RemoveAll(directory)
-		return CreatedTask{}, requestError(errSourceUnavailable)
-	}
-	output, err := os.OpenFile(video, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o644)
-	if err != nil {
-		input.Close()
-		_ = os.RemoveAll(directory)
-		return CreatedTask{}, requestError("视频复制失败")
-	}
-	_, copyErr := io.Copy(output, input)
-	input.Close()
-	output.Close()
-	if copyErr != nil {
+	if err := CopyVideoReady(context.Background(), absolute, video); err != nil {
 		_ = os.RemoveAll(directory)
 		return CreatedTask{}, requestError("视频复制失败")
 	}
 	record := map[string]any{"id": id, "name": filepath.Base(absolute)}
-	encoded, _ := json.Marshal(record)
-	if err := os.WriteFile(filepath.Join(directory, "task.json"), encoded, 0o644); err != nil {
+	if err := saveTaskJSON(filepath.Join(directory, "task.json"), record); err != nil {
 		_ = os.RemoveAll(directory)
 		return CreatedTask{}, requestError(errTaskRecordWrite)
 	}
@@ -288,6 +273,7 @@ func decodePNG(path string) (image.Image, error) {
 }
 
 type stableSlides struct {
+	Samples     []framecandidate.Sample
 	last        []byte
 	pending     []byte
 	pendingTime float64
@@ -295,29 +281,28 @@ type stableSlides struct {
 	Times       []float64
 }
 
-func pixelDifference(left, right []byte) float64 {
-	sum := 0
-	for index := range left {
-		difference := int(left[index]) - int(right[index])
-		if difference < 0 {
-			difference = -difference
-		}
-		sum += difference
+func (slides *stableSlides) push(pixels []byte, at float64) error {
+	metrics, err := framecandidate.MeasureGray(pixels, slides.last)
+	if err != nil {
+		return err
 	}
-	return float64(sum) / (float64(len(left)) * 255)
-}
-
-func (slides *stableSlides) push(pixels []byte, at float64) {
-	if slides.last == nil || pixelDifference(pixels, slides.last) > 0.0018 {
+	if slides.last == nil || metrics.NormalizedChange > 0.0018 {
 		slides.pending = append([]byte(nil), pixels...)
 		slides.pendingTime = at
-	} else if slides.pending != nil &&
-		(slides.accepted == nil || pixelDifference(slides.pending, slides.accepted) > 0.003) {
-		slides.Times = append(slides.Times, slides.pendingTime)
-		slides.accepted = append([]byte(nil), slides.pending...)
-		slides.pending = nil
+	} else if slides.pending != nil {
+		accepted, err := framecandidate.MeasureGray(slides.pending, slides.accepted)
+		if err != nil {
+			return err
+		}
+		if slides.accepted == nil || accepted.NormalizedChange > 0.003 {
+			slides.Samples = append(slides.Samples, framecandidate.Sample{SampleTimeMs: int64(math.Round(slides.pendingTime * 1000)), TimeMs: int64(math.Round(slides.pendingTime * 1000)), Reason: "stable-initial", GrayHash: framecandidate.GrayHash(slides.pending), Metrics: &accepted})
+			slides.Times = append(slides.Times, slides.pendingTime)
+			slides.accepted = append([]byte(nil), slides.pending...)
+			slides.pending = nil
+		}
 	}
 	slides.last = append([]byte(nil), pixels...)
+	return nil
 }
 
 type reviewDecision struct {
@@ -370,6 +355,7 @@ func scanStableSlides(ctx context.Context, processor Processor, task CreatedTask
 	pending := []byte{}
 	index := 0
 	last := time.Time{}
+	var scanErr error
 	_, err := processor.command(ctx, "ffmpeg", []string{
 		ffmpegHideBanner, ffmpegLogLevel, "error", ffmpegNoStdin, "-i", task.Path, "-an",
 		"-vf", fmt.Sprintf("fps=1,crop=%d:%d:%d:%d,scale=160:90,format=gray", w, h, x, y),
@@ -379,7 +365,9 @@ func scanStableSlides(ctx context.Context, processor Processor, task CreatedTask
 		for len(pending) >= 14400 {
 			pixels := append([]byte(nil), pending[:14400]...)
 			pending = pending[14400:]
-			detector.push(pixels, float64(index))
+			if scanErr == nil {
+				scanErr = detector.push(pixels, float64(index))
+			}
 			index++
 		}
 		if progress != nil && time.Since(last) > 1500*time.Millisecond {
@@ -391,7 +379,19 @@ func scanStableSlides(ctx context.Context, processor Processor, task CreatedTask
 			progress(fmt.Sprintf("扫描进度：%d%%", percent))
 		}
 	})
-	if err != nil || len(detector.Times) == 0 {
+	if ctx.Err() != nil {
+		return nil, ctx.Err()
+	}
+	if err != nil {
+		return nil, fmt.Errorf("PPT画面扫描失败，视频已保留: %w", err)
+	}
+	if scanErr != nil {
+		return nil, scanErr
+	}
+	if len(pending) != 0 {
+		return nil, fmt.Errorf("PPT画面扫描返回残帧，视频已保留")
+	}
+	if len(detector.Times) == 0 {
 		return nil, requestError("未找到稳定的 PPT 画面，请检查框选区域；视频已保留")
 	}
 	return detector, nil
@@ -596,6 +596,10 @@ func (processor Processor) Extract(
 	if !validCrop(crop) {
 		return Review{}, requestError("请框选有效的 PPT 区域")
 	}
+	sourceHash, err := VideoDigest(task.Path)
+	if err != nil {
+		return Review{}, err
+	}
 	source, err := extractSource(task)
 	if err != nil {
 		return Review{}, err
@@ -618,6 +622,17 @@ func (processor Processor) Extract(
 	if err := writeFramesJSON(task, frames); err != nil {
 		return Review{}, err
 	}
+	if after, err := VideoDigest(task.Path); err != nil || after != sourceHash {
+		return Review{}, requestError("扫描期间视频已改变，未发布候选证据")
+	}
+	samples := append([]framecandidate.Sample(nil), detector.Samples...)
+	for index := range samples {
+		samples[index].TimeMs = int64(math.Round(math.Max(0, math.Min(detector.Times[index]+0.5, source.Duration-0.1)) * 1000))
+	}
+	evidence, err := framecandidate.Publish(processor.Root, task.ID, framecandidate.Binding{SourceHash: sourceHash, Sampler: "ppt-stable-gray-v1", Policy: "stable-initial", Region: [4]int{x, y, w, h}, StepMs: 1000, GrayWidth: 160, GrayHeight: 90, DurationMs: int64(math.Round(source.Duration * 1000))}, samples)
+	if err != nil {
+		return Review{}, err
+	}
 	previews, err := framePreviews(frames)
 	if err != nil {
 		return Review{}, err
@@ -630,6 +645,9 @@ func (processor Processor) Extract(
 	if err != nil {
 		return Review{}, err
 	}
+	review.CandidateEvidence = evidence
+	scanCrop := crop
+	review.ScanCrop = &scanCrop
 	encoded, _ := json.Marshal(review)
 	if err := os.WriteFile(filepath.Join(task.Dir, "review.json"), encoded, 0o644); err != nil {
 		return Review{}, requestError(errTaskRecordWrite)

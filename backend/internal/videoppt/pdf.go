@@ -261,24 +261,11 @@ func (processor Processor) Export(
 			break
 		}
 	}
-	path, err := reserveExport(outputDirectory, name+"-视频课件.pdf")
+	result, err := publishExport(ctx, task, choices, outputDirectory, ExportResult{Kept: len(selected), Removed: len(choices) - len(selected), FileName: name}, data)
 	if err != nil {
 		return ExportResult{}, nil, err
 	}
-	if err := os.WriteFile(path, data, 0o644); err != nil {
-		_ = os.Remove(path)
-		return ExportResult{}, nil, requestError("PDF 保存失败")
-	}
-	check, err := os.ReadFile(path)
-	if err != nil || !bytes.Equal(check, data) {
-		_ = os.Remove(path)
-		return ExportResult{}, nil, requestError(errPdfSaveCheck)
-	}
-	if err := VerifyPDF(check, len(images)); err != nil {
-		_ = os.Remove(path)
-		return ExportResult{}, nil, err
-	}
-	return ExportResult{Path: path, Kept: len(selected), Removed: len(choices) - len(selected), FileName: name}, data, nil
+	return result, data, nil
 }
 
 func equalFoldSuffix(value, suffix string) bool {

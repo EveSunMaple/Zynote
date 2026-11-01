@@ -19,7 +19,6 @@ func subtitleDerivedService(state *contract.State) *subtitlederived.Service {
 }
 
 func (inv *Invoker) subtitleDerivedDependencies(store contract.StateStore, state *contract.State) subtitlederived.Dependencies {
-	knowledgeStore, _ := inv.knowledgeStoreFor(state)
 	var client *ai.Client
 	getClient := func() (*ai.Client, error) {
 		if client != nil {
@@ -36,7 +35,19 @@ func (inv *Invoker) subtitleDerivedDependencies(store contract.StateStore, state
 		return client, nil
 	}
 	return subtitlederived.Dependencies{
+		ResolveRecipes: func(_ context.Context, modes []string) (contract.RequestedGenerationConfig, map[string]subtitlederived.ModeRecipe, error) {
+			active, err := getClient()
+			if err != nil {
+				return contract.RequestedGenerationConfig{}, nil, err
+			}
+			return resolveSubtitleRecipes(active, modes)
+		},
+		ValidateModel: func(context.Context) error {
+			_, err := getClient()
+			return err
+		},
 		Generation: func(ctx context.Context, url string) (string, error) {
+			knowledgeStore, _ := inv.knowledgeStoreFor(state)
 			if knowledgeStore == nil {
 				return "", nil
 			}
@@ -49,23 +60,12 @@ func (inv *Invoker) subtitleDerivedDependencies(store contract.StateStore, state
 			}
 			return "", nil
 		},
-		Summarize: func(ctx context.Context, srt, mode string) (string, []subtitlederived.Point, error) {
+		SummarizeWithEvidence: func(ctx context.Context, srt, mode string) (subtitlederived.SummaryResult, error) {
 			active, err := getClient()
 			if err != nil {
-				return "", nil, err
+				return subtitlederived.SummaryResult{}, err
 			}
-			result, err := summarizeVideoText(ctx, active, srt, mode, inv.videoProgress)
-			if err != nil {
-				return "", nil, err
-			}
-			points := make([]subtitlederived.Point, 0, len(result.Points))
-			for _, point := range result.Points {
-				points = append(points, subtitlederived.Point{
-					Cue: float64(point.Cue), Quote: point.Quote, Point: point.Point,
-					Topic: point.Topic, Timestamp: point.Timestamp,
-				})
-			}
-			return result.Markdown, points, nil
+			return summarizeDerivedText(ctx, active, srt, mode, inv.videoProgress)
 		},
 		RenderSVG: func(title string, points []subtitlederived.Point) string {
 			converted := make([]notePoint, 0, len(points))
@@ -86,7 +86,26 @@ func (inv *Invoker) handleSubtitleDerivedList(state *contract.State) (any, error
 	if err != nil {
 		return nil, contract.Unavailable(err.Error())
 	}
+	for index := range tasks {
+		if record, err := inv.jobs.QueueRecord(filepath.Join(state.LibraryRoot, "TaskQueue"), tasks[index].ID); err == nil {
+			tasks[index].QueueState = record.State
+		}
+	}
+	for index := range tasks {
+		tasks[index] = projectSubtitleTask(tasks[index])
+	}
 	return tasks, nil
+}
+
+func (inv *Invoker) runDerivedQueued(store contract.StateStore, state *contract.State, id string) (any, error) {
+	key := "subtitle-derived:" + id
+	result, err := inv.jobs.RunQueued(context.Background(), filepath.Join(state.LibraryRoot, "TaskQueue"), id, key, func(ctx context.Context) (any, error) {
+		return subtitleDerivedService(state).Run(ctx, id, inv.subtitleDerivedDependencies(store, state))
+	})
+	if task, ok := result.(subtitlederived.Task); ok {
+		result = projectSubtitleTask(task)
+	}
+	return inv.finishJob(key, "", result, err)
 }
 
 func (inv *Invoker) handleSubtitleDerivedResume(store contract.StateStore, state *contract.State, params json.RawMessage) (any, error) {
@@ -96,20 +115,23 @@ func (inv *Invoker) handleSubtitleDerivedResume(store contract.StateStore, state
 	if err := json.Unmarshal(params, &input); err != nil || !config.IsUUID(input.ID) {
 		return nil, contract.InputInvalid("笔记任务标识无效")
 	}
-	return inv.runJob("批量课程笔记", func(ctx context.Context) (any, error) {
-		return subtitleDerivedService(state).Run(ctx, input.ID, inv.subtitleDerivedDependencies(store, state))
-	})
+	if _, err := subtitleDerivedService(state).Read(input.ID); err != nil {
+		return nil, contract.InputInvalid(err.Error())
+	}
+	return inv.runDerivedQueued(store, state, input.ID)
 }
 
 type subtitleDerivedInput struct {
-	ID    string   `json:"id"`
-	URLs  []string `json:"urls"`
-	Modes []string `json:"modes"`
+	ID          string   `json:"id"`
+	URLs        []string `json:"urls"`
+	Modes       []string `json:"modes"`
+	OperationID string   `json:"operationId,omitempty"`
 }
 
 func parseSubtitleDerivedInput(params json.RawMessage) (subtitleDerivedInput, error) {
 	var input subtitleDerivedInput
-	if err := json.Unmarshal(params, &input); err != nil || !config.IsUUID(input.ID) ||
+	if err := decodePlaybackInput(params, &input); err != nil || !config.IsUUID(input.ID) ||
+		(input.OperationID != "" && !config.IsUUID(input.OperationID)) ||
 		len(input.URLs) < 1 || len(input.URLs) > 1000 || len(input.Modes) < 1 || len(input.Modes) > 4 {
 		return input, contract.InputInvalid("笔记任务参数无效")
 	}
@@ -175,23 +197,77 @@ func (inv *Invoker) handleSubtitleDerivedStart(store contract.StateStore, state 
 	if err != nil {
 		return nil, err
 	}
-	return inv.runJob("批量课程笔记", func(ctx context.Context) (any, error) {
-		syncTask, err := findSubtitleSyncTask(state, input.ID)
+	syncTask, err := findSubtitleSyncTask(state, input.ID)
+	if err != nil {
+		return nil, err
+	}
+	locators, err := derivedLocators(input.URLs)
+	if err != nil {
+		return nil, err
+	}
+	sources, err := derivedSources(syncTask, locators)
+	if err != nil {
+		return nil, err
+	}
+	var task subtitlederived.Task
+	if input.OperationID != "" {
+		task, err = subtitleDerivedService(state).CreateOperation(sources, input.Modes, syncTask.CourseName, input.OperationID)
+	} else {
+		task, err = subtitleDerivedService(state).Create(sources, input.Modes, syncTask.CourseName)
+	}
+	if err != nil {
+		return nil, contract.InputInvalid(err.Error())
+	}
+	return inv.runDerivedQueued(store, state, task.ID)
+}
+
+// resolveSubtitleRecipes binds the same client and prompt construction used by dispatch.
+func resolveSubtitleRecipes(client *ai.Client, modes []string) (contract.RequestedGenerationConfig, map[string]subtitlederived.ModeRecipe, error) {
+	configuration, err := client.TextRequestConfiguration()
+	if err != nil {
+		return configuration, nil, err
+	}
+	recipes := map[string]subtitlederived.ModeRecipe{}
+	for _, mode := range modes {
+		recipe, err := summaryModeRecipe(mode)
 		if err != nil {
-			return nil, err
+			return configuration, nil, err
 		}
-		locators, err := derivedLocators(input.URLs)
-		if err != nil {
-			return nil, err
+		recipes[mode] = recipe
+	}
+	return configuration, recipes, nil
+}
+
+// projectSubtitleTask omits newly added detailed recipes from every API boundary.
+// The durable task remains untouched; pre-existing response fields retain shape.
+func projectSubtitleTask(task subtitlederived.Task) subtitlederived.Task {
+	task.Recipe = nil
+	task.Items = append([]subtitlederived.Item(nil), task.Items...)
+	for index := range task.Items {
+		task.Items[index].SourceBinding = nil
+		task.Items[index].BindingAuthoritySHA256 = ""
+		task.Items[index].PublicationRecord = subtitlederived.RecordedPublication(task.Items[index], task.OutputVersion)
+		task.Items[index].Recipe = nil
+		task.Items[index].Received = nil
+		task.Items[index].PublicationPlan = nil
+		task.Items[index].PublicationReceipt = nil
+		if task.Items[index].Prepared != nil {
+			copy := *task.Items[index].Prepared
+			copy.Evidence = nil
+			task.Items[index].Prepared = &copy
 		}
-		sources, err := derivedSources(syncTask, locators)
-		if err != nil {
-			return nil, err
-		}
-		task, err := subtitleDerivedService(state).Create(sources, input.Modes, syncTask.CourseName)
-		if err != nil {
-			return nil, contract.InputInvalid(err.Error())
-		}
-		return subtitleDerivedService(state).Run(ctx, task.ID, inv.subtitleDerivedDependencies(store, state))
-	})
+	}
+	return task
+}
+
+func summarizeDerivedText(ctx context.Context, client *ai.Client, srt, mode string, progress func(string)) (subtitlederived.SummaryResult, error) {
+	result, err := summarizeVideoText(ctx, client, srt, mode, progress)
+	if err != nil {
+		return subtitlederived.SummaryResult{}, err
+	}
+	points := make([]subtitlederived.Point, 0, len(result.Points))
+	for _, point := range result.Points {
+		points = append(points, subtitlederived.Point{Cue: float64(point.Cue), Quote: point.Quote, Point: point.Point, Topic: point.Topic, Timestamp: point.Timestamp})
+	}
+	return subtitlederived.SummaryResult{Markdown: result.Markdown, Points: points, Facts: result.Evidence}, nil
 }

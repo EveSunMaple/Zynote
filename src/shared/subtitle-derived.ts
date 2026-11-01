@@ -1,5 +1,13 @@
 import type {VideoNoteMode, VideoNotePoint} from './video-notes'
-export type DerivedSource = {url: string; title: string; path: string; hash: string; generation: string}
+import type {PublicationRecord} from './publication-audit'
+export type DerivedSource = {
+ kind?: 'direct-srt'
+ url: string
+ title: string
+ path: string
+ hash: string
+ generation: string
+}
 export type DerivedOutput = {path: string; hash: string}
 export type SubtitleDerivedItem = {
  source: DerivedSource
@@ -8,6 +16,7 @@ export type SubtitleDerivedItem = {
  error?: string
  outputs?: DerivedOutput[]
  prepared?: {markdown: string; points: VideoNotePoint[]}
+ publicationRecord?: PublicationRecord
 }
 export type SubtitleDerivedTask = {
  id: string
@@ -15,4 +24,5 @@ export type SubtitleDerivedTask = {
  courseName?: string
  items: SubtitleDerivedItem[]
  interrupted: boolean
+ queueState?: 'queued' | 'running' | 'completed' | 'failed' | 'cancelled' | 'interrupted'
 }

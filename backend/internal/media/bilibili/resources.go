@@ -37,11 +37,12 @@ type storedCookie struct {
 }
 
 type cookieStore struct {
-	mu      sync.Mutex
-	path    string
-	crypt   Crypt
-	cookies []storedCookie
-	loaded  bool
+	mu         sync.Mutex
+	path       string
+	crypt      Crypt
+	cookies    []storedCookie
+	loaded     bool
+	generation uint64
 }
 
 func newCookieStore(path string, crypt Crypt) *cookieStore {
@@ -110,6 +111,11 @@ func hostMatches(host, domain string) bool {
 }
 
 func (store *cookieStore) header(host, requestPath string, secure bool) string {
+	value, _ := store.snapshot(host, requestPath, secure)
+	return value
+}
+
+func (store *cookieStore) snapshot(host, requestPath string, secure bool) (string, uint64) {
 	store.mu.Lock()
 	defer store.mu.Unlock()
 	now := time.Now().Unix()
@@ -129,7 +135,7 @@ func (store *cookieStore) header(host, requestPath string, secure bool) string {
 		}
 		pairs = append(pairs, cookie.Name+"="+cookie.Value)
 	}
-	return strings.Join(pairs, "; ")
+	return strings.Join(pairs, "; "), store.generation
 }
 
 func responseCookie(cookie *http.Cookie, host string, now int64) (storedCookie, bool) {
@@ -160,8 +166,16 @@ func responseCookie(cookie *http.Cookie, host string, now int64) (storedCookie, 
 }
 
 func (store *cookieStore) setFromResponse(host string, response *http.Response) error {
+	_, err := store.applyResponse(host, response, nil, false)
+	return err
+}
+
+func (store *cookieStore) applyResponse(host string, response *http.Response, expected *uint64, rotate bool) (uint64, error) {
 	store.mu.Lock()
 	defer store.mu.Unlock()
+	if expected != nil && *expected != store.generation {
+		return store.generation, contract.NewError(contract.CodeAuthExpired, "B 站登录状态已改变，请重新发起请求")
+	}
 	previous := append([]storedCookie(nil), store.cookies...)
 	now := time.Now()
 	changed := false
@@ -182,13 +196,16 @@ func (store *cookieStore) setFromResponse(host string, response *http.Response) 
 		}
 	}
 	if !changed {
-		return nil
+		return store.generation, nil
 	}
 	if err := store.saveLocked(); err != nil {
 		store.cookies = previous
-		return err
+		return store.generation, err
 	}
-	return nil
+	if rotate {
+		store.generation++
+	}
+	return store.generation, nil
 }
 
 func (store *cookieStore) upsertLocked(cookie storedCookie) {
@@ -220,7 +237,17 @@ func (store *cookieStore) clear() error {
 		return contract.Unavailable("B 站登录状态不可清除")
 	}
 	store.cookies = []storedCookie{}
+	store.generation++
 	return nil
+}
+
+func (resources *Resources) SessionGeneration() uint64 {
+	if resources.cookies == nil {
+		return 0
+	}
+	resources.cookies.mu.Lock()
+	defer resources.cookies.mu.Unlock()
+	return resources.cookies.generation
 }
 
 var biliHeaders = map[string]string{
@@ -239,15 +266,17 @@ type qrState struct {
 }
 
 type Resources struct {
-	loginMu    sync.Mutex
-	client     *http.Client
-	cookies    *cookieStore
-	fetch      func(*http.Request) (*http.Response, error)
-	mu         sync.Mutex
-	qr         *qrState
-	signingKey *wbiKey
-	baseAPI    string
-	basePass   string
+	now           func() time.Time
+	cooldownUntil time.Time
+	loginMu       sync.Mutex
+	client        *http.Client
+	cookies       *cookieStore
+	fetch         func(*http.Request) (*http.Response, error)
+	mu            sync.Mutex
+	qr            *qrState
+	signingKey    *wbiKey
+	baseAPI       string
+	basePass      string
 }
 
 func NewResources(root string, crypt Crypt) *Resources {
@@ -312,26 +341,24 @@ func (resources *Resources) RawDiscussion(requestPath string, params map[string]
 	for key, value := range biliHeaders {
 		request.Header.Set(key, value)
 	}
+	var requestGeneration uint64
 	if resources.cookies != nil {
-		if cookie := resources.cookies.header(request.URL.Hostname(), request.URL.Path, request.URL.Scheme == "https"); cookie != "" {
+		cookie, generation := resources.cookies.snapshot(request.URL.Hostname(), request.URL.Path, request.URL.Scheme == "https")
+		requestGeneration = generation
+		if cookie != "" {
 			request.Header.Set("Cookie", cookie)
 		}
 	}
 	response, err := resources.do(request)
 	if err != nil {
 		if ctx.Err() != nil {
-			return nil, ctx.Err()
+			return nil, biliTransportFailure(ctx.Err())
 		}
-		return nil, fmt.Errorf("network_or_protocol")
+		return nil, biliTransportFailure(err)
 	}
 	defer response.Body.Close()
-	if resources.cookies != nil {
-		if err := resources.cookies.setFromResponse(request.URL.Hostname(), response); err != nil {
-			return nil, err
-		}
-	}
 	if response.StatusCode < 200 || response.StatusCode >= 300 {
-		return nil, fmt.Errorf("HTTP %d", response.StatusCode)
+		return nil, biliHTTPFailure(response.StatusCode)
 	}
 	if response.ContentLength > limit {
 		return nil, fmt.Errorf("danmaku_too_large")
@@ -343,14 +370,35 @@ func (resources *Resources) RawDiscussion(requestPath string, params map[string]
 	if int64(len(body)) > limit {
 		return nil, fmt.Errorf("danmaku_too_large")
 	}
+	if resources.cookies != nil {
+		if _, err := resources.cookies.applyResponse(request.URL.Hostname(), response, &requestGeneration, false); err != nil {
+			return nil, err
+		}
+	}
 	return body, nil
 }
 
 func (resources *Resources) do(request *http.Request) (*http.Response, error) {
-	if resources.fetch != nil {
-		return resources.fetch(request)
+	if err := request.Context().Err(); err != nil {
+		return nil, biliTransportFailure(err)
 	}
-	return resources.client.Do(request)
+	if err := resources.rateLimitFailure(); err != nil {
+		return nil, err
+	}
+	var response *http.Response
+	var err error
+	if resources.fetch != nil {
+		response, err = resources.fetch(request)
+	} else {
+		response, err = resources.client.Do(request)
+	}
+	if err == nil && (response == nil || response.Body == nil) {
+		return nil, contract.Unavailable("B 站服务返回响应无效")
+	}
+	if err == nil && response.StatusCode == http.StatusTooManyRequests {
+		resources.recordRateLimit(response.Header)
+	}
+	return response, err
 }
 
 type ScopedFetcher func(url string, headers map[string]string, ctx context.Context) (*http.Response, error)
@@ -383,13 +431,19 @@ func biliTarget(base, requestPath string, params map[string]string) string {
 
 func (resources *Resources) decodeBiliResponse(requestPath string, response *http.Response) (any, error) {
 	if response.StatusCode < 200 || response.StatusCode >= 300 {
-		return nil, contract.Unavailable(fmt.Sprintf("B 站服务暂不可用（HTTP %d）", response.StatusCode))
+		if response.StatusCode == http.StatusTooManyRequests {
+			resources.recordRateLimit(response.Header)
+		}
+		return nil, biliHTTPFailure(response.StatusCode)
 	}
 	var payload struct {
 		Code *int            `json:"code"`
 		Data json.RawMessage `json:"data"`
 	}
 	if err := json.NewDecoder(response.Body).Decode(&payload); err != nil {
+		if failure := biliTransportFailure(err); failure.Code != contract.CodeUnavailable {
+			return nil, failure
+		}
 		return nil, contract.Unavailable("B 站服务返回格式异常，请稍后重试")
 	}
 	if payload.Code == nil {
@@ -404,10 +458,11 @@ func (resources *Resources) decodeBiliResponse(requestPath string, response *htt
 		return result, nil
 	}
 	if *payload.Code != 0 {
-		if *payload.Code == -101 {
-			return nil, contract.Unavailable("B 站登录已失效，请重新扫码")
+		failure := biliCodeFailure(*payload.Code)
+		if failure.Code == contract.CodeRateLimited {
+			resources.recordRateLimit(response.Header)
 		}
-		return nil, contract.Unavailable(fmt.Sprintf("B 站读取失败（%d），请稍后重试", *payload.Code))
+		return nil, failure
 	}
 	var data any
 	if len(payload.Data) > 0 {
@@ -416,7 +471,7 @@ func (resources *Resources) decodeBiliResponse(requestPath string, response *htt
 	return data, nil
 }
 
-func (resources *Resources) readContext(ctx context.Context, requestPath string, params map[string]string, passport bool) (any, error) {
+func (resources *Resources) readContext(ctx context.Context, requestPath string, params map[string]string, passport bool, sessionTokens ...*uint64) (any, error) {
 	if resources.cookies != nil {
 		if err := resources.cookies.load(); err != nil {
 			return nil, err
@@ -433,17 +488,20 @@ func (resources *Resources) readContext(ctx context.Context, requestPath string,
 	for key, value := range biliHeaders {
 		request.Header.Set(key, value)
 	}
+	var requestGeneration uint64
 	if resources.cookies != nil {
-		if cookie := resources.cookies.header(request.URL.Hostname(), request.URL.Path, request.URL.Scheme == "https"); cookie != "" {
+		cookie, generation := resources.cookies.snapshot(request.URL.Hostname(), request.URL.Path, request.URL.Scheme == "https")
+		requestGeneration = generation
+		if cookie != "" {
 			request.Header.Set("Cookie", cookie)
 		}
 	}
 	response, err := resources.do(request)
 	if err != nil {
 		if ctx.Err() != nil {
-			return nil, ctx.Err()
+			return nil, biliTransportFailure(ctx.Err())
 		}
-		return nil, contract.Unavailable("B 站服务暂不可用，请稍后重试")
+		return nil, biliTransportFailure(err)
 	}
 	defer response.Body.Close()
 	data, err := resources.decodeBiliResponse(requestPath, response)
@@ -466,8 +524,14 @@ func (resources *Resources) readContext(ctx context.Context, requestPath string,
 		}
 	}
 	if resources.cookies != nil {
-		if err := resources.cookies.setFromResponse(request.URL.Hostname(), response); err != nil {
+		generation, err := resources.cookies.applyResponse(request.URL.Hostname(), response, &requestGeneration, requestPath == "/x/passport-login/web/qrcode/poll")
+		if err != nil {
 			return nil, err
+		}
+		for _, token := range sessionTokens {
+			if token != nil {
+				*token = generation
+			}
 		}
 	}
 	return data, nil
@@ -693,7 +757,8 @@ func (resources *Resources) Browse(kind, query string, page int) (map[string]any
 func (resources *Resources) Begin() (string, error) {
 	resources.loginMu.Lock()
 	defer resources.loginMu.Unlock()
-	data, err := resources.read("/x/passport-login/web/qrcode/generate", nil, true)
+	var generation uint64
+	data, err := resources.readContext(context.Background(), "/x/passport-login/web/qrcode/generate", nil, true, &generation)
 	if err != nil {
 		return "", err
 	}
@@ -707,12 +772,21 @@ func (resources *Resources) Begin() (string, error) {
 		return "", contract.Unavailable("扫码地址不是 B 站官方地址")
 	}
 	resources.mu.Lock()
+	if generation != resources.SessionGeneration() {
+		resources.mu.Unlock()
+		return "", contract.NewError(contract.CodeAuthExpired, "B 站登录状态已改变，请重新生成二维码")
+	}
 	resources.qr = &qrState{key: key, expires: time.Now().UnixMilli() + 180000}
 	resources.mu.Unlock()
 	return qrURL, nil
 }
 
 func (resources *Resources) Poll() (map[string]any, error) {
+	result, _, err := resources.PollWithSession()
+	return result, err
+}
+
+func (resources *Resources) PollWithSession() (map[string]any, uint64, error) {
 	resources.loginMu.Lock()
 	defer resources.loginMu.Unlock()
 	resources.mu.Lock()
@@ -720,18 +794,19 @@ func (resources *Resources) Poll() (map[string]any, error) {
 	if current == nil || current.expires <= time.Now().UnixMilli() {
 		resources.qr = nil
 		resources.mu.Unlock()
-		return map[string]any{"status": "expired"}, nil
+		return map[string]any{"status": "expired"}, 0, nil
 	}
 	resources.mu.Unlock()
-	data, err := resources.read("/x/passport-login/web/qrcode/poll", map[string]string{"qrcode_key": current.key}, true)
+	var generation uint64
+	data, err := resources.readContext(context.Background(), "/x/passport-login/web/qrcode/poll", map[string]string{"qrcode_key": current.key}, true, &generation)
 	if err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 	resources.mu.Lock()
 	unchanged := resources.qr == current
 	if !unchanged {
 		resources.mu.Unlock()
-		return map[string]any{"status": "expired"}, nil
+		return map[string]any{"status": "expired"}, 0, nil
 	}
 	resources.mu.Unlock()
 	row, _ := data.(map[string]any)
@@ -741,14 +816,14 @@ func (resources *Resources) Poll() (map[string]any, error) {
 	}
 	status, known := map[int]string{0: "success", 86101: "waiting", 86090: "scanning", 86038: "expired"}[code]
 	if !known {
-		return nil, contract.Unavailable("B 站扫码服务暂不可用，请重新生成二维码")
+		return nil, 0, contract.Unavailable("B 站扫码服务暂不可用，请重新生成二维码")
 	}
 	if code == 0 || code == 86038 {
 		resources.mu.Lock()
 		resources.qr = nil
 		resources.mu.Unlock()
 	}
-	return map[string]any{"status": status}, nil
+	return map[string]any{"status": status}, generation, nil
 }
 
 func (resources *Resources) CancelLogin() {
@@ -760,18 +835,17 @@ func (resources *Resources) CancelLogin() {
 }
 
 func (resources *Resources) Logout() (map[string]any, error) {
-	resources.loginMu.Lock()
-	defer resources.loginMu.Unlock()
+	if err := resources.cookies.load(); err != nil {
+		return nil, err
+	}
+	// Cookie CAS and generation advance are atomic; no network lock is held.
+	if err := resources.cookies.clear(); err != nil {
+		return nil, err
+	}
 	resources.mu.Lock()
 	resources.qr = nil
 	resources.signingKey = nil
 	resources.mu.Unlock()
-	if err := resources.cookies.load(); err != nil {
-		return nil, err
-	}
-	if err := resources.cookies.clear(); err != nil {
-		return nil, err
-	}
 	return map[string]any{"loggedIn": false}, nil
 }
 

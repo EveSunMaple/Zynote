@@ -1,6 +1,7 @@
 package api
 
 import (
+	"context"
 	"encoding/json"
 	"log/slog"
 	"os"
@@ -26,33 +27,38 @@ const msgHandshakePending = "后台尚未完成握手"
 type handlerFunc func(store contract.StateStore, state *contract.State, params json.RawMessage) (any, error)
 
 type Invoker struct {
-	handlers      map[string]handlerFunc
-	actions       map[string]actionFunc
-	native        *helper.Native
-	youtube       *helper.Native
-	embed         *helper.Native
-	asr           *helper.Native
-	wechat        *helper.Native
-	media         *media.MediaService
-	mediaRoot     string
-	bili          *bilibili.Resources
-	biliRoot      string
-	download      *download.Service
-	downloadRoot  string
-	knowledge     *knowledge.Store
-	knowledgeRoot string
-	textbook      *textbook.Service
-	tokens        map[string]catalogToken
-	tokenMu       sync.Mutex
-	mediaMu       sync.Mutex
-	notifier      contract.Notifier
-	jobs          *jobs.Registry
-	im            *im.Service
-	imRoot        string
-	imMu          sync.Mutex
-	zhiyunTaskMu  sync.Mutex
-	zhiyunTasks   *zhiyunTaskStore
-	zhiyunTaskDir string
+	biliSessionMu        sync.Mutex
+	videoBatchMu         sync.Mutex
+	videoBatches         map[string]context.CancelFunc
+	handlers             map[string]handlerFunc
+	actions              map[string]actionFunc
+	native               *helper.Native
+	youtube              *helper.Native
+	embed                *helper.Native
+	asr                  *helper.Native
+	wechat               *helper.Native
+	media                *media.MediaService
+	mediaRoot            string
+	bili                 *bilibili.Resources
+	biliRoot             string
+	download             *download.Service
+	downloadRoot         string
+	knowledge            *knowledge.Store
+	knowledgeRoot        string
+	textbook             *textbook.Service
+	tokens               map[string]catalogToken
+	tokenMu              sync.Mutex
+	mediaMu              sync.Mutex
+	notifier             contract.Notifier
+	jobs                 *jobs.Registry
+	im                   *im.Service
+	imRoot               string
+	imMu                 sync.Mutex
+	zhiyunTaskMu         sync.Mutex
+	zhiyunTasks          *zhiyunTaskStore
+	zhiyunTaskDir        string
+	publicationAuditOnce sync.Once
+	publicationAuditGate chan struct{}
 }
 
 func NewInvoker() *Invoker {
@@ -229,6 +235,7 @@ func registerActions(inv *Invoker) map[string]actionFunc {
 		"study:save":                          actionWithState(inv.handleStudySave),
 		"study:parse":                         actionWithState(inv.handleStudyParse),
 		"subtitle-derived:list":               actionWithState(actionStateOnly(inv.handleSubtitleDerivedList)),
+		"subtitle-derived:audit-publication":  actionWithState(inv.handlePublicationAudit),
 		"subtitle-derived:resume":             actionWithState(inv.handleSubtitleDerivedResume),
 		"subtitle-derived:start":              actionWithState(inv.handleSubtitleDerivedStart),
 		"subtitle-sync:list":                  actionWithState(actionStateOnly(inv.handleSubtitleSyncList)),
@@ -245,12 +252,19 @@ func registerActions(inv *Invoker) map[string]actionFunc {
 		"video-ppt:series":                    actionWithState(inv.handleVideoPptSeries),
 		"video-ppt:subtitle":                  actionWithState(inv.handleVideoPptSubtitle),
 		"video-ppt:subtitle-transcribe-local": actionWithState(inv.handleVideoSubtitleTranscribeLocal),
-		"video-ppt:resume-subtitle":           actionWithState(actionStateParams(inv.handleVideoResumeSubtitle)),
+		"video-ppt:resume-subtitle":           actionWithState(inv.handleVideoResumeSubtitle),
+		"video-ppt:playback-source":           actionWithState(inv.handleVideoPlaybackSource),
+		"video-ppt:retained":                  actionWithState(inv.handleRetainedPlayback),
+		"video-ppt:prepare-playback-release":  actionWithState(inv.handlePreparePlaybackRelease),
+		"video-ppt:finalize-playback-release": actionWithState(inv.handleFinalizePlaybackRelease),
 		"video-ppt:source":                    actionWithState(inv.handleVideoPptSource),
 		"video-ppt:extract":                   actionWithState(inv.handleVideoPptExtract),
 		"video-ppt:export":                    actionWithState(inv.handleVideoPptExport),
 		"video-ppt:auto":                      actionWithState(inv.handleVideoPptAuto),
 		"video-ppt:summary":                   actionWithState(inv.handleVideoSummary),
+		"video-ppt:summary-from-retained":     actionWithState(inv.handleSummaryFromRetained),
+		"video-ppt:bound-playback-source":     actionWithState(inv.handleBoundPlaybackSource),
+		"video-ppt:bound-playback-check":      actionWithState(inv.handleBoundPlaybackCheck),
 		"video-ppt:notes-export":              actionWithState(inv.handleVideoNotesExport),
 		"video-ppt:batch":                     actionWithState(inv.handleVideoBatch),
 		"video-ppt:batch-subtitles":           actionWithState(inv.handleVideoBatchSubtitles),

@@ -28,7 +28,7 @@ func TestCreateAndRun(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	run, err := service.Run(context.Background(), task.ID, Dependencies{
+	run, err := service.Run(context.Background(), task.ID, Dependencies{ResolveRecipes: fixtureRecipes,
 		Generation: func(context.Context, string) (string, error) { return "gen_1", nil },
 		Summarize: func(context.Context, string, string) (string, []Point, error) {
 			return "# 摘要", []Point{{Cue: 0, Quote: "第一句", Point: "要点", Topic: "主题", Timestamp: "00:00:01"}}, nil

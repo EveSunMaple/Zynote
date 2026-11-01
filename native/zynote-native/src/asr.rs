@@ -8,6 +8,24 @@ const FRAME: usize = 512;
 const CONTEXT: usize = 64;
 const BATCH: usize = 10_000;
 
+// Whisper decodes zero-padded 30-second windows. A valid speech cue may end
+// inside that padding, especially for sub-second VAD ranges. The actual audio
+// boundary is authoritative; never extend the recording to a model timestamp.
+fn bounded_span(from: f64, to: f64, duration: f64) -> Result<(f64, f64), String> {
+    if !from.is_finite()
+        || !to.is_finite()
+        || !duration.is_finite()
+        || duration <= 0.0
+        || from < 0.0
+        || to <= from
+        || from >= duration
+        || to > duration + 30.0
+    {
+        return Err(format!("转写结果缺少可靠的字幕时间点：from={from:.3}, to={to:.3}, range_duration={duration:.3}"));
+    }
+    Ok((from, to.min(duration)))
+}
+
 pub struct AsrService {
     transcriber: Mutex<docling_asr::whisper::Transcriber>,
     vad: Mutex<Session>,
@@ -73,8 +91,14 @@ pub fn speech_ranges(probabilities: &[f32], samples: usize) -> Result<Vec<(usize
 
 impl AsrService {
     pub fn new(directory: &str) -> Result<Self, String> {
-        std::env::set_var("DOCLING_ASR_ENCODER", format!("{directory}/onnx/encoder_model_fp16.onnx"));
-        std::env::set_var("DOCLING_ASR_DECODER", format!("{directory}/onnx/decoder_model_quantized.onnx"));
+        std::env::set_var(
+            "DOCLING_ASR_ENCODER",
+            format!("{directory}/onnx/encoder_model_fp16.onnx"),
+        );
+        std::env::set_var(
+            "DOCLING_ASR_DECODER",
+            format!("{directory}/onnx/decoder_model_quantized.onnx"),
+        );
         std::env::set_var("DOCLING_ASR_VOCAB", format!("{directory}/vocab.json"));
         std::env::set_var(
             "DOCLING_ASR_ADDED_TOKENS",
@@ -182,7 +206,11 @@ impl AsrService {
         speech_ranges(&probabilities, samples.len())
     }
 
-    pub fn transcribe(&self, path: &str, language: &str) -> Result<(f64, Vec<serde_json::Value>), String> {
+    pub fn transcribe(
+        &self,
+        path: &str,
+        language: &str,
+    ) -> Result<(f64, Vec<serde_json::Value>), String> {
         let info = std::fs::metadata(path).map_err(|error| format!("音频文件不可读：{error}"))?;
         if !info.is_file() || info.len() > 512 * 1024 * 1024 || info.len() % 4 != 0 {
             return Err("音频文件无效".to_string());
@@ -199,7 +227,11 @@ impl AsrService {
         if ranges.is_empty() {
             return Err("未检测到语音，原视频保留以便检查".to_string());
         }
-        let language = if language.is_empty() { "auto" } else { language };
+        let language = if language.is_empty() {
+            "auto"
+        } else {
+            language
+        };
         let mut transcriber = self
             .transcriber
             .lock()
@@ -219,14 +251,10 @@ impl AsrService {
                 if text.is_empty() {
                     continue;
                 }
-                let from = segment.start;
-                let to = segment.end;
-                if !from.is_finite() || !to.is_finite() || from < 0.0 || to <= from || from >= duration || to > duration + 1.0 {
-                    return Err("转写结果缺少可靠的字幕时间点".to_string());
-                }
+                let (from, to) = bounded_span(segment.start, segment.end, duration)?;
                 cues.push(serde_json::json!({
                     "from": from + offset,
-                    "to": to.min(duration) + offset,
+                    "to": to + offset,
                     "content": text
                 }));
             }
@@ -240,7 +268,28 @@ impl AsrService {
 
 #[cfg(test)]
 mod tests {
-    use super::speech_ranges;
+    use super::{bounded_span, speech_ranges};
+
+    #[test]
+    fn padded_short_speech_ends_at_real_audio_boundary() {
+        assert_eq!(bounded_span(0.0, 2.0, 0.832).unwrap(), (0.0, 0.832));
+        assert_eq!(bounded_span(1.0, 2.0, 3.0).unwrap(), (1.0, 2.0));
+    }
+
+    #[test]
+    fn invalid_spans_are_not_repaired_into_fake_timestamps() {
+        for (from, to, duration) in [
+            (1.0, 2.0, 0.832),
+            (0.0, 0.0, 1.0),
+            (-1.0, 1.0, 2.0),
+            (0.0, f64::NAN, 2.0),
+            (f64::INFINITY, 2.0, 3.0),
+            (0.0, 50.0, 0.832),
+            (0.0, 2.0, 0.0),
+        ] {
+            assert!(bounded_span(from, to, duration).is_err());
+        }
+    }
 
     #[test]
     fn silence_has_no_ranges() {

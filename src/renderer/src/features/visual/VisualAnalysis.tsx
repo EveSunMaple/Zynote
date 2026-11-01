@@ -3,9 +3,11 @@ import {useEffect, useState} from 'react'
 import {SelectField} from '@renderer/ui/SelectField'
 import {notify} from '@renderer/ui/ToastHost'
 import {SettingsLink} from '@renderer/app/settings-navigation'
+import {visualCoverageRows, type VisualCoverage} from '@shared/visual'
 
 type Frame = {time: number; status: string; text?: string; error?: string}
 type Task = {
+ coverage?: VisualCoverage
  id: string
  source: string
  duration: number
@@ -239,6 +241,14 @@ export function VisualAnalysisPanel({visible}: Readonly<{visible: boolean}>) {
        共 {task.frames.length} 个画面 · 已完成 {completed} · 未完成{' '}
        {task.frames.filter(frame => frame.status !== '已完成').length}
       </p>
+      <ul className="hint" aria-label="事实覆盖">
+       {visualCoverageRows(task.coverage).map(row => (
+        <li key={row.key}>
+         {row.title}：{row.value}
+        </li>
+       ))}
+      </ul>
+      <p className="hint">仅统计所选画面。识别记录表示已保存返回文字，不代表文字正确率。</p>
       {task.gaps?.length > 0 ? (
        <details>
         <summary>抽样缺口 · {task.gaps.length}</summary>

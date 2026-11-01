@@ -6,6 +6,7 @@ import {StringDecoder} from 'node:string_decoder'
 import {z} from 'zod'
 import type {EventPayload} from '@shared/types'
 import type {ShellService} from '@main/backend/shell-service'
+import {backendFailure} from '@shared/ipc-result'
 
 const HELLO_TIMEOUT_MS = 8000
 const CALL_TIMEOUT_MS = 10000
@@ -17,6 +18,8 @@ const STDERR_TAIL_LIMIT = 8000
 // used to reject them while the Go backend kept running, which made the task
 // center report a failure even though the download completed.
 const LONG_RUNNING_ACTIONS = new Set([
+ 'video-ppt:prepare-playback-release',
+ 'video-ppt:finalize-playback-release',
  'chat',
  'settings:probe',
  'settings:test',
@@ -25,19 +28,25 @@ const LONG_RUNNING_ACTIONS = new Set([
  'knowledge:import',
  'knowledge:organize',
  'knowledge:rebuild',
+ 'knowledge:vector-rebuild',
+ 'knowledge:classification-suggest',
  'notes:generate',
  'practice:generate',
+ 'practice:answer',
  'practice:prepare',
  'questions:split',
  'study:parse',
- 'subtitlederived:start',
- 'subtitlederived:resume',
- 'subtitlesync:attach',
- 'subtitlesync:mixed',
- 'subtitlesync:resume',
- 'subtitlesync:start',
+ 'subtitle-derived:start',
+ 'subtitle-derived:resume',
+ 'subtitle-sync:attach',
+ 'subtitle-sync:mixed',
+ 'subtitle-sync:resume',
+ 'subtitle-sync:start',
  'subtitles:generate',
  'textbook:analyze',
+ 'textbook:manual',
+ 'textbook:clear',
+ 'textbook:apply',
  'textbook:analyze-images',
  'textbook:ppt-ocr',
  'video-ppt:auto',
@@ -53,27 +62,31 @@ const LONG_RUNNING_ACTIONS = new Set([
  'video-ppt:subtitle-transcribe',
  'video-ppt:subtitle-transcribe-local',
  'video-ppt:summary',
+ 'video-ppt:summary-from-retained',
  'visual:prepare',
+ 'visual:prepare-resume',
+ 'visual:recover-output',
  'visual:recognize',
  'ppt-extract:analyze',
  'ppt-extract:export'
 ])
-const SLOW_ACTIONS = new Set(['zhiyun:search', 'zhiyun:lessons', 'settings:models'])
+const SLOW_ACTIONS = new Set([
+ 'zhiyun:search',
+ 'zhiyun:lessons',
+ 'settings:models',
+ 'subtitle-derived:audit-publication',
+ 'video-ppt:playback-source'
+])
 // 单行回包上限：超出时丢弃这一行，并让对应请求明确报错，而不是一直等到超时。
 const MAX_LINE_CHARS = 16_000_000
 // 研究模型请求要等整节课字幕，单次常需 60–90 秒，两步工作流更久；其他 tools:request 动作保持 90 秒。
 const LONG_TOOL_ACTIONS = new Set(['agent-create', 'workflow-action'])
-function timeoutError(message: string) {
- const error = new Error(message) as Error & {code?: string}
- error.code = 'TIMEOUT'
- return error
-}
-
 function callTimeout(action: string, params?: Record<string, unknown>) {
  if (action === 'tools:request') {
   const inner = typeof params?.action === 'string' ? params.action : ''
   return LONG_TOOL_ACTIONS.has(inner) ? LONG_CALL_TIMEOUT_MS : SLOW_CALL_TIMEOUT_MS
  }
+ if (action === 'video-ppt:bound-playback-source' || action === 'video-ppt:bound-playback-check') return 6000
  if (LONG_RUNNING_ACTIONS.has(action)) return LONG_CALL_TIMEOUT_MS
  if (SLOW_ACTIONS.has(action)) return SLOW_CALL_TIMEOUT_MS
  return CALL_TIMEOUT_MS
@@ -82,9 +95,37 @@ function callTimeout(action: string, params?: Record<string, unknown>) {
 export type GoCoreStatus = 'starting' | 'ready' | 'restarting' | 'failed' | 'disposed'
 
 type Pending = {
+ tracked: boolean
  resolve: (value: unknown) => void
  reject: (error: Error) => void
  timer: NodeJS.Timeout
+}
+
+export type TrackedGoCall = {requestID: string; result: Promise<unknown>; physicalSettled: Promise<void>}
+
+function isTerminalFrame(value: unknown): value is Record<string, unknown> & {id: string} {
+ if (!value || typeof value !== 'object' || Array.isArray(value)) return false
+ const frame = value as Record<string, unknown>
+ if (
+  frame.jsonrpc !== '2.0' ||
+  Object.hasOwn(frame, 'method') ||
+  typeof frame.id !== 'string' ||
+  Object.hasOwn(frame, 'result') === Object.hasOwn(frame, 'error')
+ )
+  return false
+ if (Object.hasOwn(frame, 'error')) {
+  const error = frame.error as Record<string, unknown>
+  if (
+   !error ||
+   typeof error !== 'object' ||
+   Array.isArray(error) ||
+   typeof error.code !== 'string' ||
+   error.code.length === 0 ||
+   typeof error.message !== 'string'
+  )
+   return false
+ }
+ return true
 }
 
 export type GoCoreOptions = {
@@ -101,6 +142,7 @@ export type GoCoreOptions = {
  services: Record<string, ShellService>
  onEvent: (event: EventPayload) => void
  onFailed: (reason: string) => void
+ onUnavailable?: () => void
 }
 
 export function nativeBinaryPath() {
@@ -121,6 +163,8 @@ export class GoCore {
  private stderrTail = ''
  private status: GoCoreStatus = 'starting'
  private readonly pending = new Map<string, Pending>()
+ private readonly physical = new Map<ChildProcess, Map<string, () => void>>()
+ private readonly physicalBuffers = new Map<ChildProcess, string>()
  private nextID = 0
  private restarts = 0
  private disposed = false
@@ -143,19 +187,37 @@ export class GoCore {
   const binary = coreBinaryPath()
   if (!existsSync(binary)) throw new Error('Go 后端二进制缺失，请先运行 pnpm backend:build')
   this.status = 'starting'
-  this.child = spawn(binary, [], {
+  const child = spawn(binary, [], {
    stdio: ['pipe', 'pipe', 'pipe'],
    windowsHide: true,
    detached: process.platform !== 'win32'
   })
+  this.child = child
   this.buffer = ''
   this.dropping = false
-  this.child.stdout!.on('data', chunk => this.consume(this.stdoutDecoder.write(chunk)))
+  let spawned = false
+  child.once('spawn', () => {
+   spawned = true
+  })
+  child.stdout!.on('data', chunk => {
+   const text = this.stdoutDecoder.write(chunk)
+   this.observePhysical(child, text)
+   if (this.child === child) this.consume(text)
+  })
   this.child.stderr!.on('data', chunk => {
    this.stderrTail = (this.stderrTail + this.stderrDecoder.write(chunk)).slice(-STDERR_TAIL_LIMIT)
   })
-  this.child.on('exit', (code, signal) => this.handleExit(code, signal))
-  this.child.on('error', error => this.handleExit(undefined, undefined, String(error)))
+  child.on('exit', (code, signal) => {
+   this.settlePhysicalChild(child)
+   if (this.child === child) this.handleExit(code, signal)
+  })
+  child.once('close', () => this.settlePhysicalChild(child))
+  child.on('error', error => {
+   // Failed spawn with no PID cannot have executed a request. Errors on a
+   // spawned child, logical dispose and handshake timeout are not termination.
+   if (!spawned && child.pid === undefined) this.settlePhysicalChild(child)
+   if (this.child === child) this.handleExit(undefined, undefined, String(error))
+  })
   this.send({
    jsonrpc: '2.0',
    id: 'c-hello',
@@ -183,19 +245,66 @@ export class GoCore {
  }
 
  async call(action: string, params: Record<string, unknown>): Promise<unknown> {
+  return await this.beginCall(action, params, false).result
+ }
+
+ callTracked(action: string, params: Record<string, unknown>): TrackedGoCall {
+  return this.beginCall(action, params, true)
+ }
+
+ private beginCall(action: string, params: Record<string, unknown>, tracked: boolean): TrackedGoCall {
   if (this.status !== 'ready' || !this.child) throw new Error('Go 后端不可用')
+  const child = this.child
   const id = 'c-' + ++this.nextID
-  return await new Promise<unknown>((resolve, reject) => {
+  const physicalSettled = tracked
+   ? new Promise<void>(resolve => {
+      let requests = this.physical.get(child)
+      if (!requests) {
+       requests = new Map()
+       this.physical.set(child, requests)
+      }
+      requests.set(id, resolve)
+     })
+   : Promise.resolve()
+  const result = new Promise<unknown>((resolve, reject) => {
    const timer = setTimeout(
     () => {
      this.pending.delete(id)
-     reject(timeoutError('Go 后端请求超时'))
+     reject(backendFailure({code: 'TIMEOUT', message: 'Go 后端请求超时'}))
     },
     callTimeout(action, params)
    )
-   this.pending.set(id, {resolve, reject, timer})
+   this.pending.set(id, {resolve, reject, timer, tracked})
    this.send({jsonrpc: '2.0', id, method: action, params})
   })
+  return {requestID: id, result, physicalSettled}
+ }
+
+ private settlePhysicalChild(child: ChildProcess) {
+  for (const settle of this.physical.get(child)?.values() || []) settle()
+  this.physical.delete(child)
+  this.physicalBuffers.delete(child)
+ }
+
+ private observePhysical(child: ChildProcess, chunk: string) {
+  if (!this.physical.has(child)) return
+  let buffer = (this.physicalBuffers.get(child) || '') + chunk
+  for (let index = buffer.indexOf('\n'); index >= 0; index = buffer.indexOf('\n')) {
+   const line = buffer.slice(0, index)
+   buffer = buffer.slice(index + 1)
+   try {
+    const frame: unknown = JSON.parse(line)
+    if (!isTerminalFrame(frame)) continue
+    const requests = this.physical.get(child)
+    requests?.get(frame.id)?.()
+    requests?.delete(frame.id)
+    if (requests?.size === 0) this.physical.delete(child)
+   } catch {}
+  }
+  // Malformed/oversized transport data cannot confirm termination; keep its
+  // request fenced until an actual child exit/close if no terminal is parsed.
+  if (this.physical.has(child)) this.physicalBuffers.set(child, buffer.length > 1_000_000 ? '' : buffer)
+  else this.physicalBuffers.delete(child)
  }
 
  dispose() {
@@ -261,8 +370,10 @@ export class GoCore {
   } catch {
    return
   }
+  if (!frame || typeof frame !== 'object' || Array.isArray(frame)) return
   const id = typeof frame.id === 'string' ? frame.id : undefined
   const method = typeof frame.method === 'string' ? frame.method : undefined
+  if (id !== undefined && this.pending.get(id)?.tracked && !isTerminalFrame(frame)) return
   if (method && id !== undefined) {
    void this.handleReverse(id, method, frame.params).catch(() => {})
    return
@@ -291,7 +402,7 @@ export class GoCore {
    clearTimeout(item.timer)
    if (frame.error) {
     const error = frame.error as {code?: string; message?: string}
-    item.reject(new Error(error.message || 'Go 后端请求失败'))
+    item.reject(backendFailure(error))
    } else item.resolve(frame.result)
   }
  }
@@ -316,6 +427,7 @@ export class GoCore {
  }
 
  private handleExit(code: number | null | undefined, signal: string | null | undefined, reason?: string) {
+  this.options.onUnavailable?.()
   const wasReady = this.status === 'ready'
   this.child = undefined
   this.status = wasReady ? 'restarting' : 'failed'
@@ -333,7 +445,7 @@ export class GoCore {
   this.restarts++
   if (this.restarts > MAX_RESTARTS) {
    this.status = 'failed'
-   this.options.onFailed('Go 后端反复崩溃，已切换回 TS 后端: ' + detail)
+   this.options.onFailed('Go 后端反复崩溃，已停止；请重启应用后重试: ' + detail)
    return
   }
   const delay = 1000 * this.restarts

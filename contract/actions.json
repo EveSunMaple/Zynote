@@ -1,6 +1,6 @@
 {
  "schema": 1,
- "total": 159,
+ "total": 171,
  "actions": [
   {
    "action": "runtime:install",
@@ -771,6 +771,12 @@
    "backend": "go"
   },
   {
+   "action": "subtitle-derived:audit-publication",
+   "source": "courseware.ts",
+   "phase": 4,
+   "backend": "go"
+  },
+  {
    "action": "subtitle-derived:list",
    "source": "courseware.ts",
    "phase": 4,
@@ -862,6 +868,7 @@
   },
   {
    "action": "video-ppt:batch-subtitles",
+   "requestSchema": "schema/asr-subtitle-request.schema.json#/$defs/batch",
    "source": "courseware.ts",
    "phase": 4,
    "backend": "go"
@@ -874,12 +881,14 @@
   },
   {
    "action": "video-ppt:subtitle-transcribe",
+   "requestSchema": "schema/asr-subtitle-request.schema.json#/$defs/remote",
    "source": "courseware.ts",
    "phase": 4,
    "backend": "go"
   },
   {
    "action": "video-ppt:subtitle-transcribe-local",
+   "requestSchema": "schema/asr-subtitle-request.schema.json#/$defs/local",
    "source": "courseware.ts",
    "phase": 4,
    "backend": "go"
@@ -955,6 +964,72 @@
    "source": "bili.go",
    "phase": 6,
    "backend": "go"
+  },
+  {
+   "action": "managed-media:open",
+   "source": "managed-playback.ts",
+   "phase": 6,
+   "backend": "shell"
+  },
+  {
+   "action": "managed-media:close",
+   "source": "managed-playback.ts",
+   "phase": 6,
+   "backend": "shell"
+  },
+  {
+   "action": "video-ppt:summary-from-retained",
+   "source": "videoppt_bound.go",
+   "phase": 6,
+   "backend": "go"
+  },
+  {
+   "action": "video-ppt:retained",
+   "source": "managed-playback.ts",
+   "phase": 6,
+   "backend": "go"
+  },
+  {
+   "action": "video-ppt:playback-source",
+   "source": "videoppt_playback.go",
+   "phase": 6,
+   "backend": "go"
+  },
+  {
+   "action": "video-ppt:bound-playback-source",
+   "source": "videoppt_playback.go",
+   "phase": 6,
+   "backend": "go"
+  },
+  {
+   "action": "video-ppt:bound-playback-check",
+   "source": "videoppt_playback.go",
+   "phase": 6,
+   "backend": "go"
+  },
+  {
+   "action": "video-ppt:prepare-playback-release",
+   "source": "videoppt_playback.go",
+   "phase": 6,
+   "backend": "go"
+  },
+  {
+   "action": "video-ppt:finalize-playback-release",
+   "source": "videoppt_playback.go",
+   "phase": 6,
+   "backend": "go"
+  },
+  {
+   "action": "managed-media:release",
+   "source": "managed-playback.ts",
+   "phase": 6,
+   "backend": "shell"
+  },
+  {
+   "action": "managed-media:open-bound",
+   "source": "managed-playback.ts",
+   "phase": 6,
+   "backend": "shell"
   }
  ]
 }

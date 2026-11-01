@@ -1,12 +1,18 @@
 package videoppt
 
 import (
+	"context"
 	"encoding/json"
 	"math"
 	"os"
 	"path/filepath"
 	"regexp"
+	"runtime"
 	"strings"
+	"time"
+
+	"github.com/EveSunMaple/Zynote/backend/internal/contract"
+	"github.com/EveSunMaple/Zynote/backend/internal/framecandidate"
 )
 
 const (
@@ -48,18 +54,22 @@ type Page struct {
 }
 
 type Review struct {
-	ID         string `json:"id"`
-	SourceName string `json:"sourceName"`
-	Warning    string `json:"warning,omitempty"`
-	Pages      []Page `json:"pages"`
+	ScanCrop          *Region                   `json:"scanCrop,omitempty"`
+	CandidateEvidence *framecandidate.Reference `json:"candidateEvidence,omitempty"`
+	ID                string                    `json:"id"`
+	SourceName        string                    `json:"sourceName"`
+	Warning           string                    `json:"warning,omitempty"`
+	Pages             []Page                    `json:"pages"`
 }
 
 type Pending struct {
-	ID        string `json:"id"`
-	Name      string `json:"name"`
-	Kind      string `json:"kind,omitempty"`
-	SavedPath string `json:"savedPath,omitempty"`
-	Error     string `json:"error,omitempty"`
+	ID         string                `json:"id"`
+	Name       string                `json:"name"`
+	Kind       string                `json:"kind,omitempty"`
+	SavedPath  string                `json:"savedPath,omitempty"`
+	Error      string                `json:"error,omitempty"`
+	QueueState string                `json:"queueState,omitempty"`
+	Source     *contract.MediaSource `json:"source,omitempty"`
 }
 
 type Service struct{ Root string }
@@ -92,7 +102,11 @@ func (service *Service) location(id string) (string, error) {
 		return "", requestError("任务目录无效")
 	}
 	resolved, err := filepath.EvalSymlinks(directory)
-	if err != nil || resolved != directory {
+	samePath := filepath.Clean(resolved) == filepath.Clean(directory)
+	if runtime.GOOS == "windows" {
+		samePath = strings.EqualFold(filepath.Clean(resolved), filepath.Clean(directory))
+	}
+	if err != nil || !samePath {
 		return "", requestError("任务目录无效")
 	}
 	return directory, nil
@@ -128,6 +142,31 @@ func (service *Service) Restore(id string) (map[string]any, error) {
 	}
 	result := map[string]any{"source": source, "review": nil}
 	if review != nil {
+		if review.CandidateEvidence != nil {
+			if review.ScanCrop == nil || !validCrop(*review.ScanCrop) {
+				return nil, requestError("候选证据缺少本次扫描区域")
+			}
+			x, y, w, h, err := extractCropRect(source, *review.ScanCrop)
+			if err != nil {
+				return nil, err
+			}
+			hash, err := VideoDigest(filepath.Join(directory, videoFileName))
+			if err != nil {
+				return nil, err
+			}
+			expected := review.CandidateEvidence.Binding
+			expected.SourceHash = hash
+			expected.Sampler = "ppt-stable-gray-v1"
+			expected.Policy = "stable-initial"
+			expected.Region = [4]int{x, y, w, h}
+			expected.Cap = 0
+			expected.StepMs = 1000
+			expected.GrayWidth, expected.GrayHeight = 160, 90
+			expected.DurationMs = int64(math.Round(source.Duration * 1000))
+			if _, err := framecandidate.Read(service.Root, id, *review.CandidateEvidence, expected); err != nil {
+				return nil, err
+			}
+		}
 		result["review"] = review
 	}
 	return result, nil
@@ -187,6 +226,8 @@ func readReview(directory, id string, frames []storedFrame) (*Review, error) {
 }
 
 func (service *Service) Pending() ([]Pending, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
 	if err := os.MkdirAll(service.Root, 0o755); err != nil {
 		return nil, requestError("视频任务目录不可用")
 	}
@@ -194,10 +235,24 @@ func (service *Service) Pending() ([]Pending, error) {
 	if err != nil {
 		return nil, requestError("视频任务目录不可用")
 	}
+	// Atomic index replacement permits one read-only snapshot without waiting
+	// behind a release hash. This projection never authorizes dispatch.
+	retention, _, retentionErr := service.retentionIndex(ctx, false)
 	result := []Pending{}
+	batches, err := service.PendingBatches()
+	if err != nil {
+		return nil, err
+	}
+	result = append(result, batches...)
 	for _, entry := range entries {
 		id := entry.Name()
 		if !taskIDPattern.MatchString(id) {
+			continue
+		}
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
+		if service.releasedTaskProjection(ctx, id) || (retentionErr == nil && service.retainedCompleted(ctx, id, retention)) {
 			continue
 		}
 		pending, err := service.pendingOne(id)

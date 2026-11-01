@@ -2,7 +2,10 @@ package api
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
 
@@ -11,7 +14,6 @@ import (
 	"github.com/EveSunMaple/Zynote/backend/internal/contract"
 	"github.com/EveSunMaple/Zynote/backend/internal/library"
 	"github.com/EveSunMaple/Zynote/backend/internal/media"
-	mediaBilibili "github.com/EveSunMaple/Zynote/backend/internal/media/bilibili"
 	"github.com/EveSunMaple/Zynote/backend/internal/videoppt"
 )
 
@@ -28,6 +30,10 @@ func videoProcessor(state *contract.State) videoppt.Processor {
 }
 
 func (inv *Invoker) videoChat(store contract.StateStore, state *contract.State) (videoppt.ChatFunc, error) {
+	return inv.videoChatConfigured(store, state, nil, "")
+}
+
+func (inv *Invoker) videoChatConfigured(store contract.StateStore, state *contract.State, task *videoppt.CreatedTask, stage string) (videoppt.ChatFunc, error) {
 	profile, err := config.ActiveProfile(state.ConfigRoot, store.Reverse())
 	if err != nil {
 		return nil, err
@@ -36,7 +42,7 @@ func (inv *Invoker) videoChat(store contract.StateStore, state *contract.State) 
 		BaseURL: profile.BaseURL, Model: profile.Model, VisionModel: profile.VisionModel,
 		APIFormat: profile.APIFormat, Key: profile.Key, Parameters: profile.Parameters,
 	})
-	return func(ctx context.Context, system, text string, images []videoppt.Image) (string, error) {
+	chat := func(ctx context.Context, system, text string, images []videoppt.Image) (string, error) {
 		parts := []ai.ContentPart{{Type: "text", Text: text}}
 		for _, image := range images {
 			parts = append(parts, ai.ContentPart{Type: "text", Text: image.Label})
@@ -46,49 +52,35 @@ func (inv *Invoker) videoChat(store contract.StateStore, state *contract.State) 
 			{Role: "system", Content: system},
 			{Role: "user", Content: parts},
 		}, nil)
-	}, nil
+	}
+	if task != nil {
+		body, err := json.Marshal(map[string]any{"baseURL": profile.BaseURL, "model": profile.Model, "visionModel": profile.VisionModel, "apiFormat": profile.APIFormat, "parameters": profile.Parameters})
+		if err != nil {
+			return nil, err
+		}
+		sum := sha256.Sum256(body)
+		return videoppt.CheckpointChat(*task, stage, hex.EncodeToString(sum[:]), chat), nil
+	}
+	return chat, nil
 }
 
 func (inv *Invoker) handleVideoPptSource(store contract.StateStore, state *contract.State, params json.RawMessage) (any, error) {
 	var input struct {
-		Path string `json:"path"`
-		URL  string `json:"url"`
+		Path        string `json:"path"`
+		OperationID string `json:"operationId"`
+		URL         string `json:"url"`
 	}
-	if err := json.Unmarshal(params, &input); err != nil || (input.Path == "" && input.URL == "") {
+	if err := json.Unmarshal(params, &input); err != nil || (input.Path == "" && input.URL == "" && input.OperationID == "") {
 		return nil, contract.InputInvalid("视频来源无效")
 	}
-	return inv.runJob(jobKindVideoPpt, func(ctx context.Context) (any, error) {
-		chat, err := inv.videoChat(store, state)
+	task, _, err := inv.createQueuedVideoTask(state, input.Path, input.URL, "source", "", "", input.OperationID)
+	if err != nil {
+		return nil, videoPptError(err)
+	}
+	return inv.runVideoPptQueued(state, task, "source", nil, func(ctx context.Context) (any, error) {
+		prepared, err := inv.prepareQueuedVideo(ctx, store, state, task)
 		if err != nil {
 			return nil, err
-		}
-		var task videoppt.CreatedTask
-		if input.Path != "" {
-			task, err = videoProcessor(state).CreateTask(input.Path)
-			if err != nil {
-				return nil, videoPptError(err)
-			}
-		} else {
-			videoID, page, _, nameErr := biliTaskName(input.URL, "")
-			if nameErr != nil {
-				return nil, nameErr
-			}
-			normalized, nameErr := mediaBilibili.VideoURL(input.URL)
-			if nameErr != nil {
-				return nil, nameErr
-			}
-			task, err = videoPptService(state).CreateBlankTask(videoID+"-P"+page, nil)
-			if err != nil {
-				return nil, videoPptError(err)
-			}
-			inv.videoProgress("正在下载视频")
-			if err := inv.downloadBiliVideo(ctx, store, state, normalized, task.Path); err != nil {
-				return nil, err
-			}
-		}
-		prepared, err := videoProcessor(state).Prepare(ctx, task, chat, inv.videoProgress)
-		if err != nil {
-			return nil, videoPptError(err)
 		}
 		return prepared.Source, nil
 	})
@@ -107,12 +99,16 @@ func (inv *Invoker) handleVideoPptExtract(store contract.StateStore, state *cont
 	if prompt == "" {
 		prompt = defaultVideoPrompt
 	}
-	return inv.runJob(jobKindVideoPpt, func(ctx context.Context) (any, error) {
-		task, err := videoPptService(state).VideoTask(input.ID)
+	task, err := queuedVideoTask(state, input.ID)
+	if err != nil {
+		return nil, videoPptError(err)
+	}
+	return inv.runVideoPptQueued(state, task, "extract", map[string]any{"crop": input.Crop, "prompt": prompt}, func(ctx context.Context) (any, error) {
+		task, err := queuedVideoTask(state, input.ID)
 		if err != nil {
 			return nil, videoPptError(err)
 		}
-		chat, err := inv.videoChat(store, state)
+		chat, err := inv.videoChatConfigured(store, state, &task, "extract")
 		if err != nil {
 			return nil, err
 		}
@@ -138,8 +134,12 @@ func (inv *Invoker) handleVideoPptExport(store contract.StateStore, state *contr
 	if err != nil {
 		return nil, err
 	}
-	return inv.runJob(jobKindVideoPpt, func(ctx context.Context) (any, error) {
-		task, err := videoPptService(state).VideoTask(input.ID)
+	task, err := queuedVideoTask(state, input.ID)
+	if err != nil {
+		return nil, videoPptError(err)
+	}
+	return inv.runVideoPptQueued(state, task, "export", map[string]any{"pages": input.Pages, "courseName": courseName, "checked": input.Checked}, func(ctx context.Context) (any, error) {
+		task, err := queuedVideoTask(state, input.ID)
 		if err != nil {
 			return nil, videoPptError(err)
 		}
@@ -151,27 +151,23 @@ func (inv *Invoker) handleVideoPptExport(store contract.StateStore, state *contr
 		if err != nil {
 			return nil, videoPptError(err)
 		}
-		cleaned := true
-		cleanupWarning := ""
-		if err := videoPptService(state).DiscardCompleted(input.ID); err != nil {
-			cleaned = false
-			cleanupWarning = err.Error()
-		}
-		return map[string]any{
-			"path": result.Path, "kept": result.Kept, "removed": result.Removed,
-			"cleaned": cleaned, "cleanupWarning": cleanupWarning,
-		}, nil
+		return finishVideoPptExport(state, task, result)
 	})
 }
 
 func (inv *Invoker) handleVideoPptAuto(store contract.StateStore, state *contract.State, params json.RawMessage) (any, error) {
+	return inv.handleVideoPptAutoContext(context.Background(), store, state, params)
+}
+
+func (inv *Invoker) handleVideoPptAutoContext(ctx context.Context, store contract.StateStore, state *contract.State, params json.RawMessage) (any, error) {
 	var input struct {
-		Path     string `json:"path"`
-		URL      string `json:"url"`
-		CourseID string `json:"courseId"`
-		Prompt   string `json:"prompt"`
+		Path        string `json:"path"`
+		OperationID string `json:"operationId"`
+		URL         string `json:"url"`
+		CourseID    string `json:"courseId"`
+		Prompt      string `json:"prompt"`
 	}
-	if err := json.Unmarshal(params, &input); err != nil || (input.Path == "" && input.URL == "") {
+	if err := json.Unmarshal(params, &input); err != nil || (input.Path == "" && input.URL == "" && input.OperationID == "") {
 		return nil, contract.InputInvalid("视频来源无效")
 	}
 	prompt := input.Prompt
@@ -182,41 +178,38 @@ func (inv *Invoker) handleVideoPptAuto(store contract.StateStore, state *contrac
 	if err != nil {
 		return nil, err
 	}
-	return inv.runJob(jobKindVideoPpt, func(ctx context.Context) (any, error) {
-		chat, err := inv.videoChat(store, state)
+	if input.Path == "" && input.URL == "" {
+		operation, err := videoPptService(state).Operation(input.OperationID)
+		if err != nil || operation.Stage != "auto" {
+			return nil, contract.InputInvalid("任务来源或阶段无效")
+		}
+		prompt = operation.Prompt
+		courseName = operation.CourseName
+	}
+
+	task, _, err := inv.createQueuedVideoTask(state, input.Path, input.URL, "auto", prompt, courseName, input.OperationID)
+	if err != nil {
+		var completed *videoppt.CompletedOperationError
+		if errors.As(err, &completed) {
+			var result map[string]any
+			if json.Unmarshal(completed.Result, &result) != nil {
+				return nil, contract.Unavailable("已完成任务记录无效")
+			}
+			return result, nil
+		}
+		return nil, videoPptError(err)
+	}
+	return inv.runVideoPptQueuedContext(ctx, state, task, "auto", nil, func(ctx context.Context) (any, error) {
+		prepared, err := inv.prepareQueuedVideo(ctx, store, state, task)
 		if err != nil {
 			return nil, err
 		}
-		var task videoppt.CreatedTask
-		if input.Path != "" {
-			task, err = videoProcessor(state).CreateTask(input.Path)
-			if err != nil {
-				return nil, videoPptError(err)
-			}
-		} else {
-			videoID, page, _, nameErr := biliTaskName(input.URL, "")
-			if nameErr != nil {
-				return nil, nameErr
-			}
-			normalized, nameErr := mediaBilibili.VideoURL(input.URL)
-			if nameErr != nil {
-				return nil, nameErr
-			}
-			task, err = videoPptService(state).CreateBlankTask(videoID+"-P"+page, nil)
-			if err != nil {
-				return nil, videoPptError(err)
-			}
-			inv.videoProgress("正在下载视频")
-			if err := inv.downloadBiliVideo(ctx, store, state, normalized, task.Path); err != nil {
-				return nil, err
-			}
-		}
-		prepared, err := videoProcessor(state).Prepare(ctx, task, chat, inv.videoProgress)
-		if err != nil {
-			return nil, videoPptError(err)
-		}
 		if prepared.Source.Warning != "" {
 			return nil, contract.InputInvalid(prepared.Source.Warning + " 可在“未完成的任务”继续检查；视频已保留。")
+		}
+		chat, err := inv.videoChatConfigured(store, state, &task, "extract")
+		if err != nil {
+			return nil, err
 		}
 		review, err := videoProcessor(state).Extract(ctx, task, prepared.Source.Crop, prompt, chat, inv.videoProgress)
 		if err != nil {
@@ -237,15 +230,6 @@ func (inv *Invoker) handleVideoPptAuto(store contract.StateStore, state *contrac
 		if err != nil {
 			return nil, videoPptError(err)
 		}
-		cleaned := true
-		cleanupWarning := ""
-		if err := videoPptService(state).DiscardCompleted(task.ID); err != nil {
-			cleaned = false
-			cleanupWarning = err.Error()
-		}
-		return map[string]any{
-			"path": result.Path, "kept": result.Kept, "removed": result.Removed,
-			"cleaned": cleaned, "cleanupWarning": cleanupWarning,
-		}, nil
+		return finishVideoPptExport(state, task, result)
 	})
 }

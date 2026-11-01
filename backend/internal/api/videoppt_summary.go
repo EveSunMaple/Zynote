@@ -2,6 +2,8 @@ package api
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -9,14 +11,28 @@ import (
 	"strings"
 
 	"github.com/EveSunMaple/Zynote/backend/internal/ai"
-	"github.com/EveSunMaple/Zynote/backend/internal/config"
 	"github.com/EveSunMaple/Zynote/backend/internal/contract"
 	"github.com/EveSunMaple/Zynote/backend/internal/documents"
+	"github.com/EveSunMaple/Zynote/backend/internal/ids"
 	"github.com/EveSunMaple/Zynote/backend/internal/learning"
 	"github.com/EveSunMaple/Zynote/backend/internal/library"
+	"github.com/EveSunMaple/Zynote/backend/internal/subtitlederived"
+	"github.com/EveSunMaple/Zynote/backend/internal/summaryinput"
 )
 
 const msgSummarySaveInvalid = "摘要保存校验失败"
+const summaryChunkLimit = summaryinput.ChunkLimit
+
+func summaryModeRecipe(mode string) (subtitlederived.ModeRecipe, error) {
+	if !validVideoNoteMode(mode) {
+		return subtitlederived.ModeRecipe{}, contract.InputInvalid("摘要模式无效")
+	}
+	prompt := summaryPrompt(mode, summaryMaxPoints(mode))
+	sum := sha256.Sum256([]byte(prompt))
+	return subtitlederived.ModeRecipe{Version: 1, Mode: mode, SystemPromptSHA256: hex.EncodeToString(sum[:]), ChunkPolicy: "subtitle-text-runes", ChunkLimit: summaryChunkLimit, MaxPoints: summaryMaxPoints(mode), JSONPolicy: ai.JSONRecipePolicy()}, nil
+}
+
+func validVideoNoteMode(mode string) bool { _, ok := videoNoteTitles[mode]; return ok }
 
 var videoNoteTitles = map[string]string{
 	"brief": "简要摘要", "detailed": "详细摘要", "keypoints": "课程要点", "mindmap": "思维导图",
@@ -30,13 +46,10 @@ type videoNotePoint struct {
 	Timestamp string `json:"timestamp"`
 }
 
-type summaryCue struct {
-	Cue  int    `json:"cue"`
-	Time string `json:"time"`
-	Text string `json:"text"`
-}
+type summaryCue = summaryinput.Cue
 
 type summaryResult struct {
+	Evidence *contract.SummaryEvidence
 	Markdown string
 	Points   []videoNotePoint
 }
@@ -52,29 +65,10 @@ func summaryMaxPoints(mode string) int {
 }
 
 func summaryChunks(segments []documents.Segment) [][]documents.Segment {
-	chunks := [][]documents.Segment{}
-	chunkLength := 0
-	for _, segment := range segments {
-		length := len([]rune(segment.Text))
-		if len(chunks) == 0 || chunkLength+length > 15000 {
-			chunks = append(chunks, []documents.Segment{segment})
-			chunkLength = length
-			continue
-		}
-		chunks[len(chunks)-1] = append(chunks[len(chunks)-1], segment)
-		chunkLength += length
-	}
-	return chunks
+	return summaryinput.Chunks(segments, summaryChunkLimit)
 }
-
-func summaryCues(part []documents.Segment, startIndex int) []summaryCue {
-	cues := make([]summaryCue, 0, len(part))
-	for offset, segment := range part {
-		cues = append(cues, summaryCue{
-			Cue: startIndex + offset, Time: subtitleClock(segment.Start, false), Text: segment.Text,
-		})
-	}
-	return cues
+func summaryCues(part []documents.Segment, start int) []summaryCue {
+	return summaryinput.Cues(part, start)
 }
 
 func summaryPrompt(mode string, maxPoints int) string {
@@ -183,12 +177,24 @@ func summarizeVideoText(
 		if progress != nil {
 			progress(fmt.Sprintf("正在整理字幕 %d/%d", index+1, len(chunks)))
 		}
-		inputValue := struct {
-			Mode string       `json:"mode"`
-			Cues []summaryCue `json:"cues"`
-		}{mode, summaryCues(part, startIndex)}
+		inputValue := summaryinput.New(mode, part, startIndex)
 		var points []videoNotePoint
-		_, err := client.JSON(ctx, summaryPrompt(mode, maxPoints), inputValue, func(value []byte) error {
+		chunkContext := ctx
+		if metadata, observer := contract.GenerationObservationFrom(ctx); observer != nil {
+			metadata.ChunkIndex = index
+			metadata.ChunkCount = len(chunks)
+			metadata.CueIDs = make([]int, len(inputValue.Cues))
+			for i, cue := range inputValue.Cues {
+				metadata.CueIDs[i] = cue.Cue
+			}
+			inputHash, err := summaryinput.Digest(inputValue)
+			if err != nil {
+				return summaryResult{}, err
+			}
+			metadata.InputSHA256 = inputHash
+			chunkContext = contract.WithGenerationObservation(ctx, metadata, observer)
+		}
+		_, err := client.JSON(chunkContext, summaryPrompt(mode, maxPoints), inputValue, func(value []byte) error {
 			parsed, err := parseSummaryPoints(value, maxPoints, heading)
 			if err != nil {
 				return err
@@ -200,6 +206,9 @@ func summarizeVideoText(
 			return summaryResult{}, err
 		}
 		verified := verifySummaryPoints(points, part, startIndex, segments, heading)
+		if err := recordValidatedSummaryPoints(chunkContext, verified); err != nil {
+			return summaryResult{}, err
+		}
 		var section []videoNotePoint
 		lines, section = appendSummarySection(lines, part, verified)
 		allPoints = append(allPoints, section...)
@@ -208,71 +217,118 @@ func summarizeVideoText(
 	if len(allPoints) == 0 {
 		return summaryResult{}, contract.InputInvalid("模型没有给出能在字幕中核实的要点，未保存摘要")
 	}
-	return summaryResult{Markdown: strings.Join(lines, "\n"), Points: allPoints}, nil
+	result := summaryResult{Markdown: strings.Join(lines, "\n"), Points: allPoints}
+	if metadata, observer := contract.GenerationObservationFrom(ctx); observer != nil {
+		receipt, err := contract.ReadGenerationReceipt(ctx)
+		if err != nil {
+			return summaryResult{}, err
+		}
+		if receipt.Event.State != "validated-points" || receipt.Ref.Version != 2 {
+			return summaryResult{}, contract.ObservationFailure(fmt.Errorf("摘要已验证记录缺失"))
+		}
+		digest, err := contract.SummaryPointsDigest(canonicalVideoPoints(allPoints))
+		if err != nil {
+			return summaryResult{}, contract.ObservationFailure(err)
+		}
+		result.Evidence = &contract.SummaryEvidence{Version: 1, SourceSHA256: metadata.SourceSHA256, ItemRecipeHash: metadata.ItemRecipeSHA256, FinalPointsSHA256: digest, PointCount: len(allPoints), ValidatedHead: receipt.Ref}
+	}
+	return result, nil
 }
 
 func (inv *Invoker) handleVideoSummary(store contract.StateStore, state *contract.State, params json.RawMessage) (any, error) {
 	var input struct {
-		Mode     string `json:"mode"`
-		SRT      string `json:"srt"`
-		Title    string `json:"title"`
-		CourseID string `json:"courseId"`
+		OperationID string `json:"operationId,omitempty"`
+		Mode        string `json:"mode"`
+		SRT         string `json:"srt"`
+		Title       string `json:"title"`
+		CourseID    string `json:"courseId"`
 	}
-	if err := json.Unmarshal(params, &input); err != nil || len(input.SRT) < 1 || len(input.SRT) > 4000000 ||
+	if err := decodePlaybackInput(params, &input); err != nil || len(input.SRT) < 1 || len(input.SRT) > 4000000 ||
 		len([]rune(input.Title)) < 1 || len([]rune(input.Title)) > 200 {
 		return nil, contract.InputInvalid("摘要参数无效")
 	}
-	heading, ok := videoNoteTitles[input.Mode]
-	if !ok {
+	if _, ok := videoNoteTitles[input.Mode]; !ok {
 		return nil, contract.InputInvalid("摘要模式无效")
 	}
-	title := library.FolderName(input.Title)
 	courseName, err := inv.subtitleCourseName(state, input.CourseID)
 	if err != nil {
 		return nil, err
 	}
-	return inv.runJob("video-summary", func(ctx context.Context) (any, error) {
-		profile, err := config.ActiveProfile(state.ConfigRoot, store.Reverse())
+	if input.OperationID == "" {
+		input.OperationID = ids.New()
+	}
+	service := subtitleDerivedService(state)
+	task, err := service.CreateDirectOperation(input.SRT, input.Title, input.Mode, courseName, input.OperationID)
+	if err != nil {
+		return nil, contract.InputInvalid(err.Error())
+	}
+	return inv.finishVideoSummary(store, state, task.ID)
+}
+
+func (inv *Invoker) finishVideoSummary(store contract.StateStore, state *contract.State, taskID string) (any, error) {
+	value, err := inv.runDerivedQueued(store, state, taskID)
+	if err != nil {
+		return nil, err
+	}
+	completed, ok := value.(subtitlederived.Task)
+	if !ok || len(completed.Items) != 1 {
+		return nil, contract.Unavailable("摘要任务结果无效")
+	}
+	item := completed.Items[0]
+	if item.Status != "已完成" {
+		return nil, contract.Unavailable(item.Error)
+	}
+	var markdown, path string
+	var points []subtitlederived.Point
+	for _, output := range item.Outputs {
+		body, err := os.ReadFile(output.Path)
 		if err != nil {
-			return nil, err
+			return nil, contract.Unavailable(msgSummarySaveInvalid)
 		}
-		client := ai.New(ai.Profile{
-			BaseURL: profile.BaseURL, Model: profile.Model, VisionModel: profile.VisionModel,
-			APIFormat: profile.APIFormat, Key: profile.Key, Parameters: profile.Parameters,
-		})
-		result, err := summarizeVideoText(ctx, client, input.SRT, input.Mode, inv.videoProgress)
-		if err != nil {
-			return nil, err
+		switch filepath.Ext(output.Path) {
+		case ".md":
+			markdown, path = string(body), output.Path
+		case ".json":
+			if json.Unmarshal(body, &points) != nil {
+				return nil, contract.Unavailable(msgSummarySaveInvalid)
+			}
 		}
-		directory, err := library.CourseDirectory(state.LibraryRoot, "Notes", courseName)
-		if err != nil {
-			return nil, err
+	}
+	if path == "" || len(points) == 0 {
+		return nil, contract.Unavailable(msgSummarySaveInvalid)
+	}
+	result := map[string]any{"path": path, "count": len(points), "markdown": markdown, "points": points, "sourceHash": item.Source.Hash, "auditTarget": map[string]any{"id": completed.ID, "itemIndex": 0, "record": item.PublicationRecord}}
+	if item.SourceBindingSHA256 != "" {
+		result["sourceBinding"] = map[string]any{"version": 1, "summaryTaskID": completed.ID, "itemIndex": 0, "sourceBindingSHA256": item.SourceBindingSHA256}
+	}
+	return result, nil
+}
+
+// Reserve both names exclusively: an orphan sidecar belongs to its original
+// producer and must not be truncated or removed by this request.
+func reserveSummaryPair(directory, stem string) (string, string, error) {
+	for index := 1; ; index++ {
+		name := stem
+		if index > 1 {
+			name = fmt.Sprintf("%s (%d)", stem, index)
 		}
-		path, err := library.ReserveFile(directory, title+"-"+heading+".md")
+		path, err := library.ReserveFile(directory, name+".md")
 		if err != nil {
-			return nil, err
+			return "", "", err
 		}
 		evidence := strings.TrimSuffix(path, filepath.Ext(path)) + ".json"
-		encoded, _ := json.MarshalIndent(result.Points, "", "  ")
-		if err := os.WriteFile(path, []byte(result.Markdown), 0o644); err != nil {
-			_ = os.Remove(path)
-			return nil, contract.Unavailable(msgSummarySaveInvalid)
-		}
-		if err := os.WriteFile(evidence, encoded, 0o644); err != nil {
-			_ = os.Remove(path)
+		file, err := os.OpenFile(evidence, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o644)
+		if err == nil {
+			if closeErr := file.Close(); closeErr == nil {
+				return path, evidence, nil
+			}
 			_ = os.Remove(evidence)
-			return nil, contract.Unavailable(msgSummarySaveInvalid)
 		}
-		check, err := os.ReadFile(path)
-		if err != nil || string(check) != result.Markdown {
-			_ = os.Remove(path)
-			_ = os.Remove(evidence)
-			return nil, contract.Unavailable(msgSummarySaveInvalid)
+		_ = os.Remove(path)
+		if !os.IsExist(err) {
+			return "", "", contract.Unavailable(msgSummarySaveInvalid)
 		}
-		return map[string]any{
-			"path": path, "count": len(result.Points), "markdown": result.Markdown, "points": result.Points,
-		}, nil
-	})
+	}
 }
 
 func sortNotePoints(points []videoNotePoint) {
@@ -281,4 +337,34 @@ func sortNotePoints(points []videoNotePoint) {
 			points[current], points[current-1] = points[current-1], points[current]
 		}
 	}
+}
+
+func canonicalVideoPoints(points []videoNotePoint) []contract.ValidatedSummaryPoint {
+	rows := make([]contract.ValidatedSummaryPoint, 0, len(points))
+	for _, point := range points {
+		rows = append(rows, contract.ValidatedSummaryPoint{Cue: point.Cue, Quote: point.Quote, Point: point.Point, Topic: point.Topic, Timestamp: point.Timestamp})
+	}
+	return rows
+}
+func recordValidatedSummaryPoints(ctx context.Context, points []videoNotePoint) error {
+	metadata, observer := contract.GenerationObservationFrom(ctx)
+	if observer == nil {
+		return nil
+	}
+	receipt, err := contract.ReadGenerationReceipt(ctx)
+	if err != nil {
+		return err
+	}
+	event := receipt.Event
+	m := event.Observation
+	if receipt.Ref.Version != 2 || event.State != "format-result" || event.FormatValid == nil || !*event.FormatValid || m.TaskID != metadata.TaskID || m.ItemIndex != metadata.ItemIndex || m.SourceSHA256 != metadata.SourceSHA256 || m.ItemRecipeSHA256 != metadata.ItemRecipeSHA256 || m.ChunkIndex != metadata.ChunkIndex || m.ChunkCount != metadata.ChunkCount || m.InputSHA256 != metadata.InputSHA256 {
+		return contract.ObservationFailure(fmt.Errorf("摘要格式记录与实际分块不匹配"))
+	}
+	digest, err := contract.SummaryPointsDigest(canonicalVideoPoints(points))
+	if err != nil {
+		return contract.ObservationFailure(err)
+	}
+	event.State = "validated-points"
+	event.ValidatedPoints = &contract.ValidatedPointEvidence{AcceptedFormatRef: receipt.Ref, PointsSHA256: digest, PointCount: len(points)}
+	return contract.ObservationFailure(observer(ctx, event))
 }

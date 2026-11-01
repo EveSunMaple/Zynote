@@ -23,6 +23,8 @@ func (inv *Invoker) fetchVideoSubtitles(ctx context.Context, store contract.Stat
 	return resources.FetchSubtitles(ctx, value)
 }
 func (inv *Invoker) handleBiliOpen(store contract.StateStore, state *contract.State, params json.RawMessage) (any, error) {
+	inv.biliSessionMu.Lock()
+	defer inv.biliSessionMu.Unlock()
 	var input struct {
 		URL string `json:"url"`
 	}

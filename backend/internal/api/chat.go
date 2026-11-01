@@ -3,6 +3,7 @@ package api
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"regexp"
 	"strings"
 
@@ -11,6 +12,7 @@ import (
 	"github.com/EveSunMaple/Zynote/backend/internal/contract"
 	"github.com/EveSunMaple/Zynote/backend/internal/courseware"
 	"github.com/EveSunMaple/Zynote/backend/internal/documents"
+	"github.com/EveSunMaple/Zynote/backend/internal/jobs"
 	"github.com/EveSunMaple/Zynote/backend/internal/storage"
 )
 
@@ -246,6 +248,16 @@ func (inv *Invoker) runJob(key string, run func(context.Context) (any, error)) (
 		lectureID = ""
 	}
 	result, err := inv.jobs.Run(key, lectureID, run)
+	return inv.finishJob(key, lectureID, result, err)
+}
+
+func (inv *Invoker) finishJob(key, lectureID string, result any, err error) (any, error) {
+	if errors.Is(err, jobs.ErrBusy) {
+		return nil, contract.NewError(contract.CodeBusy, err.Error())
+	}
+	if errors.Is(err, jobs.ErrCancelled) {
+		return nil, contract.NewError(contract.CodeCancelled, err.Error())
+	}
 	event := map[string]any{"key": key, "state": "finished"}
 	if lectureID != "" {
 		event["lectureId"] = lectureID
@@ -267,6 +279,7 @@ func (inv *Invoker) runJob(key string, run func(context.Context) (any, error)) (
 }
 
 func (inv *Invoker) handleCancel(_ contract.StateStore, state *contract.State, _ json.RawMessage) (any, error) {
+	inv.cancelVideoBatches()
 	if state != nil {
 		tasks := inv.zhiyunTaskStore(state)
 		if rows, err := tasks.List(); err == nil {

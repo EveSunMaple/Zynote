@@ -2,6 +2,7 @@ package visual
 
 import (
 	"encoding/json"
+	"github.com/EveSunMaple/Zynote/backend/internal/framecandidate"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -14,21 +15,24 @@ const (
 )
 
 const (
-	StatusWaiting = "等待识别"
-	StatusDone    = "已完成"
-	StatusFailed  = "失败"
+	StatusWaiting    = "等待识别"
+	StatusDone       = "已完成"
+	StatusFailed     = "失败"
+	StatusDispatched = "结果未知"
 )
 
 var idPattern = regexp.MustCompile(`^[a-f0-9]{32}$`)
 var hashPattern = regexp.MustCompile(`^[a-f0-9]{64}$`)
 
 type Frame struct {
-	Path   string  `json:"path"`
-	Time   float64 `json:"time"`
-	Hash   string  `json:"hash"`
-	Status string  `json:"status"`
-	Text   string  `json:"text,omitempty"`
-	Error  string  `json:"error,omitempty"`
+	Extraction  *ExtractionReceipt  `json:"extraction,omitempty"`
+	Recognition *RecognitionReceipt `json:"recognition,omitempty"`
+	Path        string              `json:"path"`
+	Time        float64             `json:"time"`
+	Hash        string              `json:"hash"`
+	Status      string              `json:"status"`
+	Text        string              `json:"text,omitempty"`
+	Error       string              `json:"error,omitempty"`
 }
 
 type Journal struct {
@@ -47,29 +51,33 @@ type Preparation struct {
 }
 
 type Task struct {
-	ID             string       `json:"id"`
-	Source         string       `json:"source"`
-	SourceHash     string       `json:"sourceHash"`
-	Duration       float64      `json:"duration"`
-	Frames         []Frame      `json:"frames"`
-	Gaps           []any        `json:"gaps"`
-	Connection     string       `json:"connection"`
-	Output         string       `json:"output,omitempty"`
-	OutputHash     string       `json:"outputHash,omitempty"`
-	OutputJournal  *Journal     `json:"outputJournal,omitempty"`
-	OutputPending  bool         `json:"outputPending,omitempty"`
-	OutputRecovery string       `json:"outputRecovery,omitempty"`
-	Cleaned        bool         `json:"cleaned,omitempty"`
-	Preparation    *Preparation `json:"preparation,omitempty"`
+	CoverageInvalidation string                    `json:"coverageInvalidation,omitempty"`
+	Coverage             *Coverage                 `json:"coverage,omitempty"`
+	CandidateEvidence    *framecandidate.Reference `json:"candidateEvidence,omitempty"`
+	ID                   string                    `json:"id"`
+	Source               string                    `json:"source"`
+	SourceHash           string                    `json:"sourceHash"`
+	Duration             float64                   `json:"duration"`
+	Frames               []Frame                   `json:"frames"`
+	Gaps                 []any                     `json:"gaps"`
+	Connection           string                    `json:"connection"`
+	Output               string                    `json:"output,omitempty"`
+	OutputHash           string                    `json:"outputHash,omitempty"`
+	OutputJournal        *Journal                  `json:"outputJournal,omitempty"`
+	OutputPending        bool                      `json:"outputPending,omitempty"`
+	OutputRecovery       string                    `json:"outputRecovery,omitempty"`
+	Cleaned              bool                      `json:"cleaned,omitempty"`
+	Preparation          *Preparation              `json:"preparation,omitempty"`
 }
 
 type Capture struct {
-	ID         string  `json:"id"`
-	Source     string  `json:"source"`
-	SourceHash string  `json:"sourceHash"`
-	Duration   float64 `json:"duration"`
-	Frames     []Frame `json:"frames"`
-	Gaps       []any   `json:"gaps"`
+	CandidateEvidence *framecandidate.Reference `json:"candidateEvidence,omitempty"`
+	ID                string                    `json:"id"`
+	Source            string                    `json:"source"`
+	SourceHash        string                    `json:"sourceHash"`
+	Duration          float64                   `json:"duration"`
+	Frames            []Frame                   `json:"frames"`
+	Gaps              []any                     `json:"gaps"`
 }
 
 func OutputRecoveryReason(task Task, currentHash string, hasOutput, hasLegacyOutput bool) string {
@@ -109,6 +117,7 @@ func (service *Service) load(id string) (Task, error) {
 	if json.Unmarshal(raw, &task) != nil {
 		return Task{}, badRequest("画面任务记录无效")
 	}
+	task.Coverage = nil // Never accept serialized derived counters.
 	if task.ID != id {
 		return Task{}, badRequest("画面任务记录不一致")
 	}
@@ -116,6 +125,7 @@ func (service *Service) load(id string) (Task, error) {
 }
 
 func (service *Service) save(task Task) error {
+	task.Coverage = nil // Derived evidence is projected, never trusted from disk.
 	if err := os.MkdirAll(service.Root, 0o755); err != nil {
 		return badRequest("画面任务目录不可用")
 	}
@@ -125,8 +135,20 @@ func (service *Service) save(task Task) error {
 		return badRequest(errTaskSaveFailed)
 	}
 	path := filepath.Join(service.Root, task.ID+".json")
-	temporary := path + ".tmp"
-	if err := os.WriteFile(temporary, encoded, 0o644); err != nil {
+	file, err := os.CreateTemp(service.Root, ".visual-task-*")
+	if err != nil {
+		return badRequest(errTaskSaveFailed)
+	}
+	temporary := file.Name()
+	defer os.Remove(temporary)
+	defer file.Close()
+	if _, err := file.Write(encoded); err != nil {
+		return badRequest(errTaskSaveFailed)
+	}
+	if err := file.Sync(); err != nil {
+		return badRequest(errTaskSaveFailed)
+	}
+	if err := file.Close(); err != nil {
 		return badRequest(errTaskSaveFailed)
 	}
 	if err := os.Rename(temporary, path); err != nil {

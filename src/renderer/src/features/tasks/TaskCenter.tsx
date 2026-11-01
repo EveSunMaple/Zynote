@@ -1,11 +1,14 @@
 import {Button, Chip} from '@heroui/react'
 import {RefreshCw} from 'lucide-react'
-import {useEffect, useState, type ReactNode} from 'react'
+import {useEffect, useRef, useState, type ReactNode} from 'react'
 import {SettingsLink} from '@renderer/app/settings-navigation'
 import {SubtitleBatchRecords} from '@renderer/features/video/SubtitleBatchRecords'
 import {WindowMenuButton, WindowPanel} from '@renderer/ui/WindowPanel'
 import {notify} from '@renderer/ui/ToastHost'
+import {createRefreshQueue, settleRefreshReads} from '@shared/refresh-queue'
+import {TaskActions} from './TaskActions'
 import type {MediaJob} from '@shared/media'
+import {mediaSourceSummary} from '@shared/media-source'
 import type {SubtitleDerivedTask} from '@shared/subtitle-derived'
 import type {SubtitleSyncTask} from '@shared/subtitle-sync'
 import type {PendingVideoTask} from '@shared/video-ppt'
@@ -30,7 +33,7 @@ type Row = {
  detail: string
  course?: string
  status: string
- actions: ReactNode
+ actions: (busy: boolean) => ReactNode
 }
 const states: Record<string, string> = {
  queued: '排队中',
@@ -47,13 +50,14 @@ const zhiyunStates: Record<string, string> = {
  completed: '已完成',
  failed: '失败',
  cancelled: '已取消',
- interrupted: '待继续'
+ interrupted: '待继续',
+ review: '待检查'
 }
 const statusColor = (status: string): 'default' | 'accent' | 'success' | 'warning' | 'danger' => {
  if (status === '已完成') return 'success'
  if (status === '失败') return 'danger'
  if (status === '进行中') return 'accent'
- if (status === '取消中') return 'warning'
+ if (status === '取消中' || status === '待检查') return 'warning'
  if (status === '待处理' || status === '待继续' || status === '已取消' || status === '排队中') return 'default'
  return 'default'
 }
@@ -81,7 +85,8 @@ function groupStatus(rows: Row[]) {
     row.status === '待处理' ||
     row.status === '待继续' ||
     row.status === '排队中' ||
-    row.status === '取消中'
+    row.status === '取消中' ||
+    row.status === '待检查'
   ),
   failed: rows.filter(row => row.status === '失败'),
   done: rows.filter(row => row.status === '已完成' || row.status === '已取消')
@@ -104,8 +109,13 @@ export function TaskCenter({ // NOSONAR: transitional TS fallback/UI flow retain
  const [syncTasks, setSyncTasks] = useState<SubtitleSyncTask[]>([])
  const [derivedTasks, setDerivedTasks] = useState<SubtitleDerivedTask[]>([])
  const [busy, setBusy] = useState(false)
- async function load() { // NOSONAR: retained cohesive flow; decomposition tracked separately to avoid behavior regressions.
-  const [pending, sync, derived, media, visual, research, zhiyun] = await Promise.all([
+ const snapshotRef = useRef<(isCurrent: () => boolean) => Promise<void>>(async () => {})
+ const refreshRef = useRef<ReturnType<typeof createRefreshQueue> | null>(null)
+ refreshRef.current ??= createRefreshQueue(isCurrent => snapshotRef.current(isCurrent))
+ const refresh = refreshRef.current
+ const load = () => refresh.request()
+ async function readSnapshot(isCurrent: () => boolean) { // NOSONAR: retained cohesive flow; decomposition tracked separately to avoid behavior regressions.
+  const [pending, sync, derived, media, visual, research, zhiyun] = await settleRefreshReads([
    invoke<PendingVideoTask[]>('video-ppt:pending'),
    invoke<SubtitleSyncTask[]>('subtitle-sync:list'),
    invoke<SubtitleDerivedTask[]>('subtitle-derived:list'),
@@ -114,17 +124,18 @@ export function TaskCenter({ // NOSONAR: transitional TS fallback/UI flow retain
    invoke<ResearchOverview>('tools:request', {action: 'overview'}).catch(() => ({tasks: [], workflows: []})),
    invoke<ZhiyunTask[]>('zhiyun:tasks')
   ])
+  if (!isCurrent()) return
   setSyncTasks(sync)
   setDerivedTasks(derived)
   const next: Row[] = []
   for (const task of pending) {
    next.push({
     key: 'video:' + task.id,
-    domain: task.kind === 'subtitle' ? '字幕' : '视频',
+    domain: task.kind === 'subtitle' || task.kind === 'batch-subtitle' ? '字幕' : '视频',
     title: task.name,
-    detail: task.error || (task.kind === 'subtitle' ? '字幕转写可继续' : '课件任务待继续'),
-    status: task.error ? '失败' : '待处理',
-    actions: (
+    detail: [task.error || (task.kind === 'subtitle' ? '字幕转写可继续' : task.kind === 'batch' ? '批量课件可继续' : task.kind === 'batch-subtitle' ? '批量字幕可继续' : '课件任务待继续'), mediaSourceSummary(task.source)].filter(Boolean).join(' · '),
+    status: task.queueState ? (zhiyunStates[task.queueState] || '待处理') : task.error ? '失败' : '待处理',
+    actions: busy => (
      <>
       <Button
        variant="tertiary"
@@ -157,7 +168,7 @@ export function TaskCenter({ // NOSONAR: transitional TS fallback/UI flow retain
     )
    })
   }
-  const downloadAction = (job: MediaJob) => {
+  const downloadAction = (job: MediaJob, busy: boolean) => {
    if (['queued', 'running'].includes(job.state))
     return (
      <Button
@@ -199,7 +210,7 @@ export function TaskCenter({ // NOSONAR: transitional TS fallback/UI flow retain
     title: job.title,
     detail: job.error_message || job.warning || status,
     status,
-    actions: downloadAction(job)
+    actions: busy => downloadAction(job, busy)
    })
   }
   for (const task of zhiyun) {
@@ -214,7 +225,7 @@ export function TaskCenter({ // NOSONAR: transitional TS fallback/UI flow retain
     course: task.courseName,
     detail: task.error || task.warning || (active ? task.stage || status : `${kind} · ${task.stage || status}`),
     status,
-    actions: (
+    actions: busy => (
      <>
       {active && (
        <Button
@@ -261,7 +272,7 @@ export function TaskCenter({ // NOSONAR: transitional TS fallback/UI flow retain
     title: task.source.split(/[\\/]/).pop() || task.source,
     detail: task.preparation?.error || task.frames.find(frame => frame.error)?.error || '画面识别',
     status: visualStatus(!!done, !!failed, !!running),
-    actions: (
+    actions: busy => (
      <>
       {task.output && (
        <Button
@@ -301,7 +312,7 @@ export function TaskCenter({ // NOSONAR: transitional TS fallback/UI flow retain
     title: task.question,
     detail: task.error_code || '研究 Agent',
     status: researchStatus(task.status),
-    actions: (
+    actions: busy => (
      <Button variant="tertiary" size="sm" isDisabled={busy} onClick={() => open('tools')}>
       去研究
      </Button>
@@ -315,15 +326,16 @@ export function TaskCenter({ // NOSONAR: transitional TS fallback/UI flow retain
     title: flow.question,
     detail: flow.notice || (flow.outcome_unknown ? '上次结果未确认' : '两步工作流'),
     status: researchStatus(flow.status),
-    actions: (
+    actions: busy => (
      <Button variant="tertiary" size="sm" isDisabled={busy} onClick={() => open('tools')}>
       去研究
      </Button>
     )
    })
   }
-  setRows(next)
+  if (isCurrent()) setRows(next)
  }
+ snapshotRef.current = readSnapshot
  async function run(fn: () => Promise<void>) {
   setBusy(true)
   try {
@@ -335,6 +347,10 @@ export function TaskCenter({ // NOSONAR: transitional TS fallback/UI flow retain
    setBusy(false)
   }
  }
+ useEffect(() => {
+  refresh.setActive(visible)
+  return () => refresh.setActive(false)
+ }, [visible, refresh])
  useEffect(() => {
   if (visible) void load().catch(reason => notify.error(reason, {title: '读取任务失败'}))
  }, [visible])
@@ -357,10 +373,10 @@ export function TaskCenter({ // NOSONAR: transitional TS fallback/UI flow retain
   )
    return
   const timer = setInterval(() => {
-   void load().catch(reason => notify.error(reason, {title: '刷新任务失败', key: 'tasks:refresh', dedupeWindow: 8000}))
+   void refresh.request(false).catch(reason => notify.error(reason, {title: '刷新任务失败', key: 'tasks:refresh', dedupeWindow: 8000}))
   }, 3000)
   return () => clearInterval(timer)
- }, [visible, rows])
+ }, [visible, rows, syncTasks, derivedTasks, refresh])
  const visibleRows = filterRows(rows, filter)
  const groups = groupStatus(visibleRows)
  const allGroups = groupStatus(rows)
@@ -404,7 +420,7 @@ export function TaskCenter({ // NOSONAR: transitional TS fallback/UI flow retain
        取消当前任务
       </Button>
      )}
-     <Button variant="ghost" size="sm" isDisabled={busy} onClick={() => void run(load)}>
+     <Button variant="ghost" size="sm" isDisabled={busy} onClick={() => void run(async () => {})}>
       <RefreshCw size={14} aria-hidden="true" />
       刷新
      </Button>
@@ -425,7 +441,7 @@ export function TaskCenter({ // NOSONAR: transitional TS fallback/UI flow retain
     <section className="ppt-export-history">
      <h3>进行中与待处理</h3>
      {groups.active.map(row => (
-      <TaskRow key={row.key} row={row} />
+      <TaskRow key={row.key} row={row} busy={busy} />
      ))}
     </section>
    )}
@@ -433,7 +449,7 @@ export function TaskCenter({ // NOSONAR: transitional TS fallback/UI flow retain
     <section className="ppt-export-history">
      <h3>失败</h3>
      {groups.failed.map(row => (
-      <TaskRow key={row.key} row={row} />
+      <TaskRow key={row.key} row={row} busy={busy} />
      ))}
     </section>
    )}
@@ -441,7 +457,7 @@ export function TaskCenter({ // NOSONAR: transitional TS fallback/UI flow retain
     <section className="ppt-export-history">
      <h3>最近完成</h3>
      {groups.done.map(row => (
-      <TaskRow key={row.key} row={row} />
+      <TaskRow key={row.key} row={row} busy={busy} />
      ))}
     </section>
    )}
@@ -455,7 +471,7 @@ export function TaskCenter({ // NOSONAR: transitional TS fallback/UI flow retain
   </WindowPanel>
  )
 }
-function TaskRow({row}: Readonly<{row: Row}>) {
+function TaskRow({row, busy}: Readonly<{row: Row; busy: boolean}>) {
  return (
   <article className="task-row">
    <div className="task-row__copy">
@@ -470,7 +486,7 @@ function TaskRow({row}: Readonly<{row: Row}>) {
     <Chip className="task-status-chip" color={statusColor(row.status)} size="sm" variant="soft">
      {row.status}
     </Chip>
-    <div className="task-row__actions">{row.actions}</div>
+    <TaskActions actions={row.actions} busy={busy} />
    </div>
   </article>
  )

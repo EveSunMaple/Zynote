@@ -45,6 +45,7 @@ func (service *Service) List() ([]Task, error) {
 		if err != nil {
 			continue
 		}
+		task.Coverage = service.projectCoverage(&task)
 		output, outputErr := service.outputPath(task)
 		if outputErr != nil {
 			task.OutputRecovery = "changed"
@@ -101,6 +102,9 @@ func (service *Service) Prepare(ctx context.Context, id, connection string) (Tas
 		return Task{}, badRequest("任务没有待提取记录")
 	}
 	if len(task.Frames) > 0 {
+		if err := service.checkVisualSource(&task); err != nil {
+			return Task{}, err
+		}
 		return task, nil
 	}
 	hash, err := fileDigest(task.Source)
@@ -141,6 +145,7 @@ func (service *Service) Prepare(ctx context.Context, id, connection string) (Tas
 		task.Frames = append(task.Frames, frame)
 	}
 	task.Duration = captured.Duration
+	task.CandidateEvidence = captured.CandidateEvidence
 	task.Gaps = captured.Gaps
 	task.Preparation.Status = "已提取"
 	task.Preparation.Error = ""
@@ -156,6 +161,9 @@ func (service *Service) checkVisualSource(task *Task) error {
 	hash, err := fileDigest(task.Source)
 	if err != nil || hash != task.SourceHash {
 		return badRequest("源文件已经改变，请新建画面识别任务")
+	}
+	if err := service.validateFrameReceipts(task); err != nil {
+		return err
 	}
 	return nil
 }
@@ -178,18 +186,31 @@ func (service *Service) failVisualFrame(task *Task, frame *Frame, message string
 
 func (service *Service) recognizeFrame(ctx context.Context, task *Task, index int, recognize RecognizeFunc, progress func(string)) error {
 	frame := &task.Frames[index]
+	if frame.Status == StatusDispatched {
+		return badRequest("画面识别请求的结果未知，不能重复调用；请保留任务并核对服务端结果")
+	}
 	if progress != nil {
 		progress("识别画面 " + itoa(index+1) + "/" + itoa(len(task.Frames)))
 	}
 	if hash, err := fileDigest(frame.Path); err != nil || hash != frame.Hash {
 		return service.failVisualFrame(task, frame, "所选画面已改变")
 	}
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	frame.Status = StatusDispatched
+	frame.Error = "识别请求已发出，尚未保存确认结果"
+	if err := service.save(*task); err != nil {
+		return err
+	}
 	text, err := recognize(ctx, *frame)
 	if err != nil {
 		if ctx.Err() != nil {
 			return ctx.Err()
 		}
-		return service.failVisualFrame(task, frame, err.Error())
+		// Even a transport error can follow provider acceptance. Keep the synced
+		// dispatch record; explicit resume must not silently charge again.
+		return err
 	}
 	if ctx.Err() != nil {
 		return ctx.Err()
@@ -205,6 +226,11 @@ func (service *Service) recognizeFrame(ctx context.Context, task *Task, index in
 		frame.Text = text
 		frame.Status = StatusDone
 		frame.Error = ""
+		if frame.Extraction != nil {
+			receipt := RecognitionReceipt{Version: 1, ExtractionID: frame.Extraction.ID, ResponseHash: digestText(text), Connection: task.Connection}
+			receipt.ID = recognitionID(receipt)
+			frame.Recognition = &receipt
+		}
 	}
 	return service.save(*task)
 }
@@ -253,6 +279,7 @@ func (service *Service) Recognize(
 	if err := service.checkVisualSource(&task); err != nil {
 		return Task{}, err
 	}
+	task.Coverage = service.projectCoverage(&task)
 	if err := service.commitOutput(&task, outputText(&task)); err != nil {
 		return Task{}, err
 	}
@@ -272,6 +299,7 @@ func (service *Service) Recognize(
 			return Task{}, err
 		}
 	}
+	task.Coverage = service.projectCoverage(&task)
 	return task, nil
 }
 
@@ -284,6 +312,7 @@ func (service *Service) RecoverOutput(id string) (Task, error) {
 		if err := service.recoverJournal(&task); err != nil {
 			return Task{}, err
 		}
+		task.Coverage = service.projectCoverage(&task)
 		return task, nil
 	}
 	completed := false
@@ -303,6 +332,9 @@ func (service *Service) RecoverOutput(id string) (Task, error) {
 	}
 	tracked := task.Output != "" && task.OutputHash != "" && current == task.OutputHash
 	if (!tracked && current != "") || (task.Output != "" && current == "") {
+		if hasFrameReceipts(&task) {
+			task.CoverageInvalidation = "output-recovery-unverified"
+		}
 		task.Output = filepath.Join(service.Root, task.ID+"-画面识别-恢复-"+strings.ReplaceAll(ids.New(), "-", "")+".md")
 		task.OutputHash = ""
 	}
@@ -310,6 +342,7 @@ func (service *Service) RecoverOutput(id string) (Task, error) {
 	if err := service.save(task); err != nil {
 		return Task{}, err
 	}
+	task.Coverage = service.projectCoverage(&task)
 	if err := service.commitOutput(&task, outputText(&task)); err != nil {
 		return Task{}, err
 	}

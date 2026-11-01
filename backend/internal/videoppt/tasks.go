@@ -1,15 +1,16 @@
 package videoppt
 
 import (
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
-	"io"
 	"os"
 	"path/filepath"
 	"regexp"
 	"strings"
 
+	"github.com/EveSunMaple/Zynote/backend/internal/contract"
 	"github.com/EveSunMaple/Zynote/backend/internal/ids"
 )
 
@@ -22,14 +23,15 @@ const (
 var subtitleFilePattern = regexp.MustCompile(`(?i)\.srt$`)
 
 type SubtitleTask struct {
-	ID         string `json:"id"`
-	Name       string `json:"name"`
-	Kind       string `json:"kind"`
-	OutputName string `json:"outputName"`
-	CourseName string `json:"courseName,omitempty"`
-	URL        string `json:"url,omitempty"`
-	Page       int    `json:"page"`
-	Saved      *struct {
+	ASRLanguage string `json:"asrLanguage,omitempty"`
+	ID          string `json:"id"`
+	Name        string `json:"name"`
+	Kind        string `json:"kind"`
+	OutputName  string `json:"outputName"`
+	CourseName  string `json:"courseName,omitempty"`
+	URL         string `json:"url,omitempty"`
+	Page        int    `json:"page"`
+	Saved       *struct {
 		Path   string `json:"path"`
 		SHA256 string `json:"sha256"`
 	} `json:"saved,omitempty"`
@@ -43,21 +45,7 @@ type CreatedTask struct {
 }
 
 func copyFile(source, destination string) error {
-	input, err := os.Open(source)
-	if err != nil {
-		return err
-	}
-	defer input.Close()
-	output, err := os.OpenFile(destination, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o644)
-	if err != nil {
-		return err
-	}
-	if _, err := io.Copy(output, input); err != nil {
-		output.Close()
-		_ = os.Remove(destination)
-		return err
-	}
-	return output.Close()
+	return CopyVideoReady(context.Background(), source, destination)
 }
 
 func (service *Service) CreateSubtitleTask(source, outputName, courseName string, page int) (CreatedTask, error) {
@@ -83,13 +71,7 @@ func (service *Service) CreateSubtitleTask(source, outputName, courseName string
 		ID: id, Name: filepath.Base(absolute), Kind: "subtitle",
 		OutputName: outputName, CourseName: courseName, Page: page,
 	}
-	encoded, _ := json.Marshal(task)
-	temporary := filepath.Join(directory, "task.json.tmp")
-	if err := os.WriteFile(temporary, encoded, 0o644); err != nil {
-		_ = os.RemoveAll(directory)
-		return CreatedTask{}, requestError(errTaskRecordWrite)
-	}
-	if err := os.Rename(temporary, filepath.Join(directory, taskFileName)); err != nil {
+	if err := saveTaskJSON(filepath.Join(directory, taskFileName), task); err != nil {
 		_ = os.RemoveAll(directory)
 		return CreatedTask{}, requestError(errTaskRecordWrite)
 	}
@@ -106,14 +88,15 @@ func (service *Service) SubtitleTask(id string) (SubtitleTask, string, error) {
 		return SubtitleTask{}, "", err
 	}
 	var meta struct {
-		ID         string `json:"id"`
-		Name       string `json:"name"`
-		Kind       string `json:"kind"`
-		OutputName string `json:"outputName"`
-		CourseName string `json:"courseName"`
-		URL        string `json:"url"`
-		Page       int    `json:"page"`
-		Saved      *struct {
+		ASRLanguage string `json:"asrLanguage"`
+		ID          string `json:"id"`
+		Name        string `json:"name"`
+		Kind        string `json:"kind"`
+		OutputName  string `json:"outputName"`
+		CourseName  string `json:"courseName"`
+		URL         string `json:"url"`
+		Page        int    `json:"page"`
+		Saved       *struct {
 			Path   string `json:"path"`
 			SHA256 string `json:"sha256"`
 		} `json:"saved"`
@@ -127,7 +110,19 @@ func (service *Service) SubtitleTask(id string) (SubtitleTask, string, error) {
 	}
 	task := SubtitleTask{
 		ID: meta.ID, Name: meta.Name, Kind: meta.Kind, OutputName: meta.OutputName,
-		CourseName: meta.CourseName, URL: meta.URL, Page: meta.Page, Saved: meta.Saved,
+		CourseName: meta.CourseName, URL: meta.URL, Page: meta.Page, Saved: meta.Saved, ASRLanguage: meta.ASRLanguage,
+	}
+	language, err := contract.NormalizeASRLanguage(meta.ASRLanguage)
+	if err != nil {
+		return SubtitleTask{}, "", err
+	}
+	if operation, err := service.Operation(id); err == nil {
+		boundLanguage, languageErr := contract.NormalizeASRLanguage(operation.ASRLanguage)
+		if languageErr != nil || boundLanguage != language {
+			return SubtitleTask{}, "", requestError("任务转写语言与来源绑定不一致")
+		}
+	} else if !os.IsNotExist(err) {
+		return SubtitleTask{}, "", err
 	}
 	return task, directory, nil
 }
@@ -146,12 +141,7 @@ func (service *Service) MarkSubtitleSaved(id, path string) error {
 		Path   string `json:"path"`
 		SHA256 string `json:"sha256"`
 	}{Path: path, SHA256: hex.EncodeToString(sum[:])}
-	encoded, _ := json.Marshal(task)
-	temporary := filepath.Join(directory, "task-result.tmp")
-	if err := os.WriteFile(temporary, encoded, 0o644); err != nil {
-		return requestError("字幕任务记录写入失败")
-	}
-	if err := os.Rename(temporary, filepath.Join(directory, taskFileName)); err != nil {
+	if err := saveTaskJSON(filepath.Join(directory, taskFileName), task); err != nil {
 		return requestError("字幕任务记录写入失败")
 	}
 	return nil
@@ -225,8 +215,7 @@ func (service *Service) CreateBlankTask(name string, meta map[string]any) (Creat
 	for key, value := range meta {
 		record[key] = value
 	}
-	encoded, _ := json.Marshal(record)
-	if err := os.WriteFile(filepath.Join(directory, taskFileName), encoded, 0o644); err != nil {
+	if err := saveTaskJSON(filepath.Join(directory, taskFileName), record); err != nil {
 		_ = os.RemoveAll(directory)
 		return CreatedTask{}, requestError(errTaskRecordWrite)
 	}

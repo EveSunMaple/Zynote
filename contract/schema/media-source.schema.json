@@ -1,0 +1,92 @@
+{
+ "$schema": "https://json-schema.org/draft/2020-12/schema",
+ "title": "MediaSource",
+ "description": "Allowlisted identity projection. Resolved Bili identity is catalog-backed; sha256 is exposed only after independent content readiness verification. Local paths are absolute; URL, locator, page and BVID consistency are additionally checked by the producer.",
+ "oneOf": [
+  {
+   "type": "object",
+   "additionalProperties": false,
+   "properties": {
+    "kind": {
+     "const": "local"
+    },
+    "status": {
+     "enum": ["unresolved", "resolved"]
+    },
+    "path": {
+     "type": "string",
+     "minLength": 1
+    },
+    "sha256": {
+     "type": "string",
+     "pattern": "^[a-f0-9]{64}$"
+    }
+   },
+   "required": ["kind", "status", "path", "sha256"]
+  },
+  {
+   "type": "object",
+   "additionalProperties": false,
+   "properties": {
+    "kind": {
+     "const": "bili"
+    },
+    "status": {
+     "enum": ["unresolved"]
+    },
+    "url": {
+     "type": "string",
+     "pattern": "^https://www\\.bilibili\\.com/video/(BV[A-Za-z0-9]{10}|av[1-9][0-9]*)/\\?p=[1-9][0-9]{0,4}$"
+    },
+    "videoId": {
+     "type": "string",
+     "pattern": "^(BV[A-Za-z0-9]{10}|av[1-9][0-9]*)$"
+    },
+    "page": {
+     "type": "integer",
+     "minimum": 1,
+     "maximum": 99999
+    }
+   },
+   "required": ["kind", "status", "url", "videoId", "page"]
+  },
+  {
+   "type": "object",
+   "additionalProperties": false,
+   "properties": {
+    "kind": {
+     "const": "bili"
+    },
+    "status": {
+     "enum": ["resolved"]
+    },
+    "url": {
+     "type": "string",
+     "pattern": "^https://www\\.bilibili\\.com/video/(BV[A-Za-z0-9]{10}|av[1-9][0-9]*)/\\?p=[1-9][0-9]{0,4}$"
+    },
+    "videoId": {
+     "type": "string",
+     "pattern": "^(BV[A-Za-z0-9]{10}|av[1-9][0-9]*)$"
+    },
+    "page": {
+     "type": "integer",
+     "minimum": 1,
+     "maximum": 99999
+    },
+    "bvid": {
+     "type": "string",
+     "pattern": "^BV[A-Za-z0-9]{10}$"
+    },
+    "cid": {
+     "type": "integer",
+     "minimum": 1
+    },
+    "sha256": {
+     "type": "string",
+     "pattern": "^[a-f0-9]{64}$"
+    }
+   },
+   "required": ["kind", "status", "url", "videoId", "page", "bvid", "cid"]
+  }
+ ]
+}
