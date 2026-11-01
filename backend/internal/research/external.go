@@ -214,7 +214,18 @@ func numberList(input any) []int {
 	return values
 }
 
+// 一般网页、检索接口的响应上限；论文 PDF 另有更大的上限（arxivPDFLimit）。
+const externalResponseLimit = 2 * 1024 * 1024
+
+const arxivPDFLimit = 8 * 1024 * 1024
+
+var errExternalTooLarge = errors.New("外部响应过大")
+
 func (external *External) getResponse(ctx context.Context, target string) ([]byte, string, error) {
+	return external.getResponseLimit(ctx, target, externalResponseLimit)
+}
+
+func (external *External) getResponseLimit(ctx context.Context, target string, limit int64) ([]byte, string, error) {
 	parsed, err := publicHTTPS(target)
 	if err != nil {
 		return nil, "", err
@@ -247,9 +258,12 @@ func (external *External) getResponse(ctx context.Context, target string) ([]byt
 	if response.StatusCode < 200 || response.StatusCode >= 300 {
 		return nil, "", fmt.Errorf("检索服务返回 %d", response.StatusCode)
 	}
-	body, err := io.ReadAll(io.LimitReader(response.Body, 2*1024*1024+1))
-	if err != nil || len(body) > 2*1024*1024 {
-		return nil, "", fmt.Errorf("外部响应过大")
+	body, err := io.ReadAll(io.LimitReader(response.Body, limit+1))
+	if err != nil {
+		return nil, "", fmt.Errorf("外部响应读取失败")
+	}
+	if int64(len(body)) > limit {
+		return nil, "", errExternalTooLarge
 	}
 	return body, response.Header.Get("Content-Type"), nil
 }
@@ -277,15 +291,15 @@ func validateArxivChoice(channels []string, choice FulltextChoice, parsed *url.U
 
 func downloadArxivPDF(ctx context.Context, external *External, parsed *url.URL) (string, string, []byte, error) {
 	target := "https://arxiv.org/pdf/" + strings.TrimPrefix(strings.TrimPrefix(parsed.Path, "/abs/"), "/pdf/")
-	body, _, err := external.getResponse(ctx, target)
+	body, _, err := external.getResponseLimit(ctx, target, arxivPDFLimit)
 	if err != nil {
+		if errors.Is(err, errExternalTooLarge) {
+			return "", "", nil, fmt.Errorf("论文正文超过大小上限（8 MB）")
+		}
 		return "", "", nil, err
 	}
 	if len(body) < 5 || string(body[:5]) != "%PDF-" {
 		return "", "", nil, fmt.Errorf("论文接口未返回 PDF")
-	}
-	if len(body) > 8*1024*1024 {
-		return "", "", nil, fmt.Errorf("论文正文超过大小上限")
 	}
 	file, err := os.CreateTemp("", "zynote-arxiv-*.pdf")
 	if err != nil {
