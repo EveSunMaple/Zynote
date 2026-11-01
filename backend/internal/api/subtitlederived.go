@@ -130,7 +130,7 @@ type subtitleDerivedInput struct {
 
 func parseSubtitleDerivedInput(params json.RawMessage) (subtitleDerivedInput, error) {
 	var input subtitleDerivedInput
-	if err := json.Unmarshal(params, &input); err != nil || !config.IsUUID(input.ID) ||
+	if err := decodePlaybackInput(params, &input); err != nil || !config.IsUUID(input.ID) ||
 		(input.OperationID != "" && !config.IsUUID(input.OperationID)) ||
 		len(input.URLs) < 1 || len(input.URLs) > 1000 || len(input.Modes) < 1 || len(input.Modes) > 4 {
 		return input, contract.InputInvalid("笔记任务参数无效")
@@ -244,6 +244,8 @@ func projectSubtitleTask(task subtitlederived.Task) subtitlederived.Task {
 	task.Recipe = nil
 	task.Items = append([]subtitlederived.Item(nil), task.Items...)
 	for index := range task.Items {
+		task.Items[index].SourceBinding = nil
+		task.Items[index].BindingAuthoritySHA256 = ""
 		task.Items[index].PublicationRecord = subtitlederived.RecordedPublication(task.Items[index], task.OutputVersion)
 		task.Items[index].Recipe = nil
 		task.Items[index].Received = nil

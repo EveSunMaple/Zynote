@@ -15,6 +15,7 @@ export type VideoNoteResult = {
  points: VideoNotePoint[]
  sourceHash?: string
  auditTarget?: PublicationAuditTarget
+ sourceBinding?: {version: 1; summaryTaskID: string; itemIndex: 0; sourceBindingSHA256: string}
 }
 export function verifiedNoteAnchor(
  point: VideoNotePoint,

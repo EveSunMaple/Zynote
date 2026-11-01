@@ -64,7 +64,7 @@ afterEach(async () => {
 
 // Exercise the real GoCore framing, pending map and clock against isolated Node pipes.
 describe('GoCore request timeouts', () => {
- it('keeps sixteen corrected long operations alive past 10s and preserves all three timeout budgets', async () => {
+ it('keeps long operations alive past 10s and bounds private bound playback independently', async () => {
   const received: string[] = []
   core = new GoCore({
    appVersion: 'test',
@@ -100,7 +100,8 @@ describe('GoCore request timeouts', () => {
    'textbook:clear',
    'textbook:apply',
    'video-ppt:prepare-playback-release',
-   'video-ppt:finalize-playback-release'
+   'video-ppt:finalize-playback-release',
+   'video-ppt:summary-from-retained'
   ]
   let completed = 0
   const requests = actions.map(action =>
@@ -118,7 +119,10 @@ describe('GoCore request timeouts', () => {
   expect(await allRequests).toEqual(actions.map(action => ({action})))
   expect(completed).toBe(actions.length)
 
-  let defaultError: unknown, slowError: unknown, longError: unknown
+  let defaultError: unknown, slowError: unknown, longError: unknown, boundError: unknown
+  const bound = core.call('video-ppt:bound-playback-source', {}).catch(error => {
+   boundError = error
+  })
   const ordinary = core.call('health', {}).catch(error => {
    defaultError = error
   })
@@ -128,8 +132,13 @@ describe('GoCore request timeouts', () => {
   const long = core.call('subtitle-derived:start', {}).catch(error => {
    longError = error
   })
-  await until(() => received.length === actions.length + 3)
-  await vi.advanceTimersByTimeAsync(9999)
+  await until(() => received.length === actions.length + 4)
+  await vi.advanceTimersByTimeAsync(5999)
+  expect(boundError).toBeUndefined()
+  await vi.advanceTimersByTimeAsync(1)
+  expect(boundError).toEqual(new Error('Go 后端请求超时'))
+  expect(defaultError).toBeUndefined()
+  await vi.advanceTimersByTimeAsync(3999)
   expect(defaultError).toBeUndefined()
   await vi.advanceTimersByTimeAsync(1)
   expect(defaultError).toEqual(new Error('Go 后端请求超时'))
@@ -144,6 +153,6 @@ describe('GoCore request timeouts', () => {
   expect(longError).toBeUndefined()
   await vi.advanceTimersByTimeAsync(1)
   expect(longError).toEqual(new Error('Go 后端请求超时'))
-  await Promise.all([ordinary, slow, long])
+  await Promise.all([bound, ordinary, slow, long])
  }, 15000)
 })

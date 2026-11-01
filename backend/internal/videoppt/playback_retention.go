@@ -483,7 +483,7 @@ func retentionFile(ctx context.Context, path string, maximum int64) ([]byte, err
 		}
 	}
 	after, err := playbackPath(path, false)
-	if err != nil || !os.SameFile(opened, after) || opened.Size() != after.Size() || !opened.ModTime().Equal(after.ModTime()) {
+	if err != nil || int64(buffer.Len()) != opened.Size() || before.Size() != opened.Size() || !before.ModTime().Equal(opened.ModTime()) || !os.SameFile(opened, after) || opened.Size() != after.Size() || !opened.ModTime().Equal(after.ModTime()) {
 		return nil, retentionConflict()
 	}
 	return buffer.Bytes(), nil

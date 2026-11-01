@@ -18,6 +18,7 @@ import (
 	"github.com/EveSunMaple/Zynote/backend/internal/ids"
 	"github.com/EveSunMaple/Zynote/backend/internal/library"
 	"github.com/EveSunMaple/Zynote/backend/internal/subtitlesync"
+	"github.com/EveSunMaple/Zynote/backend/internal/videoppt"
 )
 
 type Source struct {
@@ -50,20 +51,23 @@ type Prepared struct {
 }
 
 type Item struct {
-	Source             Source                    `json:"source"`
-	Mode               string                    `json:"mode"`
-	Status             string                    `json:"status"`
-	Error              string                    `json:"error,omitempty"`
-	Outputs            []Output                  `json:"outputs,omitempty"`
-	Prepared           *Prepared                 `json:"prepared,omitempty"`
-	GenerationState    string                    `json:"generationState,omitempty"`
-	Recipe             *ItemRecipe               `json:"recipe,omitempty"`
-	AttemptEvidence    *AttemptEvidenceRef       `json:"attemptEvidence,omitempty"`
-	Received           *ReceivedSummary          `json:"received,omitempty"`
-	SummaryEvidence    *contract.SummaryEvidence `json:"summaryEvidence,omitempty"`
-	PublicationPlan    *PublicationRef           `json:"publicationPlan,omitempty"`
-	PublicationReceipt *PublicationRef           `json:"publicationReceipt,omitempty"`
-	PublicationRecord  *PublicationRecord        `json:"publicationRecord,omitempty"`
+	SourceBinding          *contract.PlaybackSourceBinding `json:"sourceBinding,omitempty"`
+	SourceBindingSHA256    string                          `json:"sourceBindingSHA256,omitempty"`
+	BindingAuthoritySHA256 string                          `json:"bindingAuthoritySHA256,omitempty"`
+	Source                 Source                          `json:"source"`
+	Mode                   string                          `json:"mode"`
+	Status                 string                          `json:"status"`
+	Error                  string                          `json:"error,omitempty"`
+	Outputs                []Output                        `json:"outputs,omitempty"`
+	Prepared               *Prepared                       `json:"prepared,omitempty"`
+	GenerationState        string                          `json:"generationState,omitempty"`
+	Recipe                 *ItemRecipe                     `json:"recipe,omitempty"`
+	AttemptEvidence        *AttemptEvidenceRef             `json:"attemptEvidence,omitempty"`
+	Received               *ReceivedSummary                `json:"received,omitempty"`
+	SummaryEvidence        *contract.SummaryEvidence       `json:"summaryEvidence,omitempty"`
+	PublicationPlan        *PublicationRef                 `json:"publicationPlan,omitempty"`
+	PublicationReceipt     *PublicationRef                 `json:"publicationReceipt,omitempty"`
+	PublicationRecord      *PublicationRecord              `json:"publicationRecord,omitempty"`
 }
 
 type Task struct {
@@ -163,6 +167,9 @@ func (service *Service) Read(id string) (Task, error) {
 	if json.Unmarshal(raw, &task) != nil || task.ID != id || len(task.Items) < 1 || len(task.Items) > 4000 {
 		return Task{}, fmt.Errorf("笔记任务身份不一致")
 	}
+	if err := service.validateTaskBinding(task); err != nil {
+		return Task{}, err
+	}
 	return task, nil
 }
 
@@ -214,6 +221,18 @@ func (service *Service) Create(sources []Source, modes []string, courseName stri
 
 // CreateDirectOperation snapshots supplied subtitles before any model dispatch.
 func (service *Service) CreateDirectOperation(srt, title, mode, course, id string) (Task, error) {
+	return service.createDirectOperation(srt, title, mode, course, id, nil)
+}
+
+func (service *Service) CreateRetainedOperation(ctx context.Context, verified videoppt.VerifiedRetainedSubtitle, mode, course, id string) (Task, error) {
+	binding, srt, title, err := verified.ForCreation(ctx, service.Library, course)
+	if err != nil {
+		return Task{}, err
+	}
+	return service.createDirectOperation(srt, title, mode, course, id, &binding)
+}
+
+func (service *Service) createDirectOperation(srt, title, mode, course, id string, binding *contract.PlaybackSourceBinding) (Task, error) {
 	if !validUUID(id) || !validMode(mode) || title == "" || len([]rune(title)) > 200 || len(srt) == 0 || len(srt) > 4000000 {
 		return Task{}, fmt.Errorf("摘要参数无效")
 	}
@@ -244,7 +263,7 @@ func (service *Service) CreateDirectOperation(srt, title, mode, course, id strin
 		}
 	}
 	hash := digest(srt)
-	return service.CreateOperation([]Source{{Kind: "direct-srt", Title: title, Path: path, Hash: hash, Generation: "srt-sha256:" + hash}}, []string{mode}, course, id)
+	return service.createOperation([]Source{{Kind: "direct-srt", Title: title, Path: path, Hash: hash, Generation: "srt-sha256:" + hash}}, []string{mode}, course, id, binding)
 }
 
 var operationCreateMu sync.Mutex
@@ -254,6 +273,10 @@ var operationCreateMu sync.Mutex
 // The application owns one backend process per library; this mutex does not
 // substitute for a distributed/multi-process lock.
 func (service *Service) CreateOperation(sources []Source, modes []string, courseName, operationID string) (Task, error) {
+	return service.createOperation(sources, modes, courseName, operationID, nil)
+}
+
+func (service *Service) createOperation(sources []Source, modes []string, courseName, operationID string, binding *contract.PlaybackSourceBinding) (Task, error) {
 	if !validUUID(operationID) {
 		return Task{}, fmt.Errorf("笔记任务标识无效")
 	}
@@ -267,17 +290,18 @@ func (service *Service) CreateOperation(sources []Source, modes []string, course
 	if err := validateModes(modes); err != nil {
 		return Task{}, err
 	}
-	request, err := json.Marshal(struct {
-		Sources []Source
-		Modes   []string
-		Course  string
-	}{checked, modes, courseName})
+	request, err := bindingRequest(checked, modes, courseName, binding)
 	if err != nil {
 		return Task{}, err
 	}
 	requestHash := digest(string(request))
 	operationCreateMu.Lock()
 	defer operationCreateMu.Unlock()
+	if binding == nil {
+		if _, err := os.Lstat(filepath.Join(service.Root, operationID+".playback-binding.json")); !os.IsNotExist(err) {
+			return Task{}, fmt.Errorf("原播放绑定身份不可通过未绑定入口更换")
+		}
+	}
 	if _, err := os.Stat(filepath.Join(service.Root, operationID+".json")); err == nil {
 		existing, err := service.Read(operationID)
 		if err != nil || existing.RequestHash != requestHash {
@@ -295,6 +319,17 @@ func (service *Service) CreateOperation(sources []Source, modes []string, course
 	for _, source := range checked {
 		for _, mode := range modes {
 			task.Items = append(task.Items, Item{Source: source, Mode: mode, Status: "等待处理"})
+		}
+	}
+	if binding != nil {
+		if len(task.Items) != 1 || !videoppt.ValidPlaybackBinding(*binding) || task.Items[0].Source.Hash != binding.SubtitleSHA256 {
+			return Task{}, fmt.Errorf("播放绑定身份无效")
+		}
+		copy := *binding
+		task.Items[0].SourceBinding = &copy
+		task.Items[0].SourceBindingSHA256 = videoppt.PlaybackBindingSHA256(copy)
+		if err := service.createBindingAuthority(&task); err != nil {
+			return Task{}, err
 		}
 	}
 	if err := service.save(task); err != nil {
@@ -415,6 +450,14 @@ func (service *Service) ensurePrepared(ctx context.Context, task *Task, item *It
 	observedContext, err := service.observationContext(ctx, task, item, srt)
 	if err != nil {
 		return err
+	}
+	if item.SourceBinding != nil {
+		checkContext, cancel := context.WithTimeout(ctx, 5*time.Second)
+		_, err := videoppt.New(filepath.Join(service.Library, "VideoTasks")).ValidateRetainedPlaybackBinding(checkContext, *item.SourceBinding, task.CourseName)
+		cancel()
+		if err != nil {
+			return err
+		}
 	}
 	item.GenerationState = "dispatched"
 	if err := service.save(*task); err != nil {

@@ -1,6 +1,6 @@
 {
  "schema": 1,
- "total": 164,
+ "total": 165,
  "actions": [
   {
    "action": "runtime:install",
@@ -973,6 +973,12 @@
    "source": "managed-playback.ts",
    "phase": 6,
    "backend": "shell"
+  },
+  {
+   "action": "video-ppt:summary-from-retained",
+   "source": "videoppt_bound.go",
+   "phase": 6,
+   "backend": "go"
   },
   {
    "action": "video-ppt:retained",

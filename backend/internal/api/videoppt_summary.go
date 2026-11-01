@@ -243,7 +243,7 @@ func (inv *Invoker) handleVideoSummary(store contract.StateStore, state *contrac
 		Title       string `json:"title"`
 		CourseID    string `json:"courseId"`
 	}
-	if err := json.Unmarshal(params, &input); err != nil || len(input.SRT) < 1 || len(input.SRT) > 4000000 ||
+	if err := decodePlaybackInput(params, &input); err != nil || len(input.SRT) < 1 || len(input.SRT) > 4000000 ||
 		len([]rune(input.Title)) < 1 || len([]rune(input.Title)) > 200 {
 		return nil, contract.InputInvalid("摘要参数无效")
 	}
@@ -262,7 +262,11 @@ func (inv *Invoker) handleVideoSummary(store contract.StateStore, state *contrac
 	if err != nil {
 		return nil, contract.InputInvalid(err.Error())
 	}
-	value, err := inv.runDerivedQueued(store, state, task.ID)
+	return inv.finishVideoSummary(store, state, task.ID)
+}
+
+func (inv *Invoker) finishVideoSummary(store contract.StateStore, state *contract.State, taskID string) (any, error) {
+	value, err := inv.runDerivedQueued(store, state, taskID)
 	if err != nil {
 		return nil, err
 	}
@@ -293,7 +297,11 @@ func (inv *Invoker) handleVideoSummary(store contract.StateStore, state *contrac
 	if path == "" || len(points) == 0 {
 		return nil, contract.Unavailable(msgSummarySaveInvalid)
 	}
-	return map[string]any{"path": path, "count": len(points), "markdown": markdown, "points": points, "sourceHash": item.Source.Hash, "auditTarget": map[string]any{"id": completed.ID, "itemIndex": 0, "record": item.PublicationRecord}}, nil
+	result := map[string]any{"path": path, "count": len(points), "markdown": markdown, "points": points, "sourceHash": item.Source.Hash, "auditTarget": map[string]any{"id": completed.ID, "itemIndex": 0, "record": item.PublicationRecord}}
+	if item.SourceBindingSHA256 != "" {
+		result["sourceBinding"] = map[string]any{"version": 1, "summaryTaskID": completed.ID, "itemIndex": 0, "sourceBindingSHA256": item.SourceBindingSHA256}
+	}
+	return result, nil
 }
 
 // Reserve both names exclusively: an orphan sidecar belongs to its original

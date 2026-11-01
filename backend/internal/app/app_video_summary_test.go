@@ -55,6 +55,9 @@ func TestVideoSummary(t *testing.T) {
 	if err := json.Unmarshal(raw, &result); err != nil {
 		t.Fatal(err)
 	}
+	if result["sourceBinding"] != nil {
+		t.Fatal("old unbound summary gained playback authority")
+	}
 	if result["count"] != float64(1) || !strings.Contains(result["markdown"].(string), "# 简要摘要") ||
 		!strings.Contains(result["markdown"].(string), "核心结论") ||
 		!strings.Contains(result["markdown"].(string), "00:00:01") {

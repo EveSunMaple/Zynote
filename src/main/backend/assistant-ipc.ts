@@ -15,9 +15,12 @@ export function createAssistantInvoke(
    const object = z.record(z.string(), z.unknown()).parse(args || {})
    validated = z.string().min(1).max(100).parse(action)
    if (
-    ['video-ppt:playback-source', 'video-ppt:prepare-playback-release', 'video-ppt:finalize-playback-release'].includes(
-     validated
-    )
+    [
+     'video-ppt:playback-source',
+     'video-ppt:bound-playback-source',
+     'video-ppt:prepare-playback-release',
+     'video-ppt:finalize-playback-release'
+    ].includes(validated)
    )
     return {ok: false, error: {code: 'INPUT_INVALID', message: '不允许直接请求内部媒体来源'}}
    return {ok: true, result: await dispatch(validated, object)}
