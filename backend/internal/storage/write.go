@@ -528,6 +528,17 @@ func (w *WriteDB) DeleteManagedFile(path string) error {
 	return w.Checkpoint()
 }
 
+// Native file selection is the only caller allowed to register a textbook path.
+func (w *WriteDB) RegisterTextbook(path string) (string, error) {
+	var id string
+	err := w.db.QueryRow(`INSERT INTO textbook_files(id,path) VALUES(?,?)
+		ON CONFLICT(path) DO UPDATE SET path=excluded.path RETURNING id`, NewID(), path).Scan(&id)
+	if err != nil {
+		return "", contract.Unavailable("教材登记失败")
+	}
+	return id, nil
+}
+
 func (w *WriteDB) StudyEntries() ([]map[string]any, error) {
 	rows, err := queryAll(w.db, "SELECT json FROM study_entries ORDER BY rowid")
 	if err != nil {
@@ -557,6 +568,15 @@ func (w *WriteDB) SaveStudyEntries(entries []map[string]any) error {
 		id := toStringValue(entry["id"])
 		courseID := toStringValue(entry["courseId"])
 		lectureID := toStringValue(entry["lectureId"])
+		if textbookID, ok := entry["textbookId"].(string); ok {
+			var exists bool
+			if err := tx.QueryRow("SELECT EXISTS(SELECT 1 FROM textbook_files WHERE id=?)", textbookID).Scan(&exists); err != nil {
+				return err
+			}
+			if !exists {
+				return contract.InputInvalid("此教材尚未登记，请重新选择原教材 PDF")
+			}
+		}
 		if lectureID != "" {
 			lecture, err := queryOneTx(tx, "SELECT course_id,title FROM lectures WHERE id=?", lectureID)
 			if err != nil {
@@ -608,6 +628,19 @@ func (w *WriteDB) SetStatus(id, status string) error {
 
 func (w *WriteDB) SetLecturePptText(id, text string) error {
 	_, err := w.db.Exec("UPDATE lectures SET ppt_text=? WHERE id=?", text, id)
+	return err
+}
+
+// Courseware can be replaced while its OCR is running. Only update the file we actually read.
+func (w *WriteDB) SetLecturePptTextForSource(id, path, text string) error {
+	result, err := w.db.Exec("UPDATE lectures SET ppt_text=? WHERE id=? AND ppt_path=?", text, id, path)
+	if err != nil {
+		return err
+	}
+	count, err := result.RowsAffected()
+	if err == nil && count == 0 {
+		return contract.InputInvalid("课次或课件已改变，请重新分析")
+	}
 	return err
 }
 

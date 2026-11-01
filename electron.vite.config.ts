@@ -7,6 +7,12 @@ const sharedAlias = {'@shared': resolve('src/shared')}
 // Vite injects <style> tags and talks to its HMR server; production keeps the strict CSP from index.html.
 const devCsp: Plugin = {
  name: 'zynote-dev-csp',
+ config(_, {command}) {
+  if (command !== 'serve') return
+  // Use the workspace path even when pnpm resolves the package through a junction on a different drive.
+  const assets = resolve('node_modules/pdfjs-dist').replaceAll('\\', '/')
+  return {define: {'import.meta.env.VITE_TEXTBOOK_PDF_ASSETS': JSON.stringify(`/@fs/${assets}/`)}}
+ },
  transformIndexHtml(html, context) {
   if (!context.server) return html
   const content =

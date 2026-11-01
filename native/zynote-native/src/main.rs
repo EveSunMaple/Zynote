@@ -6,6 +6,8 @@ mod annotations;
 mod asr;
 mod embed;
 mod pdf;
+mod pdf_body;
+mod pdf_glyphs;
 mod wechat;
 mod youtube;
 
@@ -204,6 +206,11 @@ fn dispatch(
             .as_ref()
             .ok_or("wechat service not ready")?
             .dispatch(method, params),
+        (Mode::Pdf, "pdf.renderPage") => {
+            let path = params.get("path").and_then(|value| value.as_str()).ok_or("path missing")?;
+            let page = params.get("page").and_then(|value| value.as_u64()).ok_or("page missing")?;
+            pdf.as_ref().ok_or("pdfium not bound")?.render_page(path, page)
+        }
         (Mode::Pdf, "pdf.text") => {
             let path = params
                 .get("path")
@@ -213,7 +220,8 @@ fn dispatch(
                 .get("page")
                 .and_then(|value| value.as_u64())
                 .map(|value| value as usize);
-            pdf.as_ref().ok_or("pdfium not bound")?.text(path, page)
+            let glyphs = params.get("glyphs").and_then(Value::as_bool).unwrap_or(false);
+            pdf.as_ref().ok_or("pdfium not bound")?.text(path, page, glyphs)
         }
         (Mode::Pdf, "pdf.plainText") => {
             let path = params

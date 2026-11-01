@@ -1,37 +1,37 @@
 import {useEffect, useRef, useState} from 'react'
-import {
- getDocument,
- GlobalWorkerOptions,
- type PDFDocumentProxy,
- type PDFPageProxy,
- type PageViewport
-} from 'pdfjs-dist/legacy/build/pdf.mjs'
-import workerUrl from 'pdfjs-dist/legacy/build/pdf.worker.mjs?url'
+import type {PDFDocumentProxy, PDFPageProxy, PageViewport} from 'pdfjs-dist/legacy/build/pdf.mjs'
+import {openStudyPdf} from '@renderer/features/study/pdf-document'
 import type {Book} from '@renderer/features/study/types'
-
-GlobalWorkerOptions.workerSrc = workerUrl
 
 const invoke = <T>(action: string, args?: unknown) => window.assistant.invoke<T>(action, args)
 
 export function usePdfPage(book: Book | null, pageNumber: number, frameWidth: number, zoom: number, version = 0) {
  const canvas = useRef<HTMLCanvasElement | null>(null),
-  [document, setDocument] = useState<PDFDocumentProxy | null>(null),
-  [viewport, setViewport] = useState<PageViewport | null>(null),
-  [size, setSize] = useState({width: 1, height: 1}),
+  [opened, setOpened] = useState<{document: PDFDocumentProxy; id: string; version: number} | null>(null),
+  [renderedPage, setRenderedPage] = useState<PDFPageProxy | null>(null),
+  [layout, setLayout] = useState<{viewport: PageViewport; zoom: number; page: number; book: string} | null>(null),
+  [opening, setOpening] = useState(false),
   [rendering, setRendering] = useState(false),
   [error, setError] = useState('')
 
+ const document = opened?.id === book?.id && opened?.version === version ? opened.document : null
  useEffect(() => {
+  setOpened(null)
+  setRenderedPage(null)
+  setLayout(null)
+  setError('')
+  setOpening(!!book)
+  setRendering(false)
+  const target = canvas.current
+  if (target) target.getContext('2d')?.clearRect(0, 0, target.width, target.height)
   if (!book) {
-   setDocument(null)
-   setViewport(null)
    return
   }
   let active = true,
-   loading: Awaited<ReturnType<typeof getDocument>> | null = null
+   loading: ReturnType<typeof openStudyPdf> | null = null
   const task = (async () => {
    const url = await invoke<string>('textbook:bytes', {id: book.id})
-   return getDocument({
+   return openStudyPdf({
     url,
     disableAutoFetch: true,
     disableStream: true,
@@ -46,12 +46,16 @@ export function usePdfPage(book: Book | null, pageNumber: number, frameWidth: nu
    })
    .then(value => {
     if (active) {
-     setDocument(value)
+     setOpening(false)
+     setOpened({document: value, id: book.id, version})
      setError('')
     }
    })
    .catch(reason => {
-    if (active) setError(reason instanceof Error ? reason.message : String(reason))
+    if (active) {
+     setOpening(false)
+     setError(reason instanceof Error ? reason.message : String(reason))
+    }
    })
   return () => {
    active = false
@@ -62,6 +66,7 @@ export function usePdfPage(book: Book | null, pageNumber: number, frameWidth: nu
 
  useEffect(() => {
   if (!document || !canvas.current || frameWidth <= 1) return
+  setRenderedPage(null)
   let active = true,
    page: PDFPageProxy | null = null,
    renderTask: ReturnType<PDFPageProxy['render']> | null = null
@@ -70,15 +75,20 @@ export function usePdfPage(book: Book | null, pageNumber: number, frameWidth: nu
    page = await document.getPage(pageNumber)
    if (!active) return
    const base = page.getViewport({scale: 1}),
-    scale = Math.max(0.2, Math.min(4, (frameWidth * zoom) / base.width)),
+    scale = (frameWidth * zoom) / base.width,
     next = page.getViewport({scale}),
     target = canvas.current
-   if (!target || !active) return
-   const ratio = Math.min(2, window.devicePixelRatio || 1)
+   if (!target || !book || !active) return
+   // Commit the page geometry before a slow rasterization, so zoom anchors and overlays use the same viewport.
+   setLayout({viewport: next, zoom, page: pageNumber, book: book.id})
+   const ratio = Math.min(
+    2,
+    window.devicePixelRatio || 1,
+    Math.sqrt(8000000 / (next.width * next.height)),
+    32767 / Math.max(next.width, next.height)
+   )
    target.width = Math.max(1, Math.floor(next.width * ratio))
    target.height = Math.max(1, Math.floor(next.height * ratio))
-   target.style.width = `${Math.floor(next.width)}px`
-   target.style.height = `${Math.floor(next.height)}px`
    const context = target.getContext('2d')
    if (!context) throw new Error('无法创建教材画布')
    renderTask = page.render({
@@ -89,8 +99,7 @@ export function usePdfPage(book: Book | null, pageNumber: number, frameWidth: nu
    })
    await renderTask.promise
    if (active) {
-    setViewport(next)
-    setSize({width: next.width, height: next.height})
+    setRenderedPage(page)
     setError('')
    }
   })()
@@ -108,7 +117,19 @@ export function usePdfPage(book: Book | null, pageNumber: number, frameWidth: nu
    renderTask?.cancel()
    page?.cleanup()
   }
- }, [document, pageNumber, frameWidth, zoom, book?.id, version])
+ }, [document, book?.id, pageNumber, frameWidth, zoom])
 
- return {canvas, viewport, size, rendering, error}
+ const activeLayout = layout?.book === book?.id && layout?.page === pageNumber ? layout : null
+ const viewport = activeLayout?.viewport ?? null
+ const size = {width: viewport?.width ?? 1, height: viewport?.height ?? 1}
+ return {
+  canvas,
+  document,
+  viewport,
+  appliedZoom: activeLayout?.zoom,
+  renderedPage,
+  size,
+  rendering: opening || rendering,
+  error
+ }
 }

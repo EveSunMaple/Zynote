@@ -1,0 +1,11 @@
+.study-bookmarks {
+ display: flex;
+ align-items: center;
+ flex-wrap: wrap;
+ gap: 6px;
+ margin-bottom: 6px;
+}
+.study-bookmarks__select {
+ flex: 1;
+ min-width: 140px;
+}

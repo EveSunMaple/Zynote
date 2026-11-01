@@ -87,6 +87,10 @@ describe('GoCore request timeouts', () => {
   core.start()
   await until(() => core?.currentStatus === 'ready')
   vi.useFakeTimers({toFake: ['setTimeout', 'clearTimeout']})
+  const unsent = core.callTracked('video-ppt:bound-playback-source', {text: '界'.repeat(3 * 1024 * 1024)})
+  await expect(unsent.result).rejects.toThrow('8 MiB')
+  await unsent.physicalSettled
+  expect(received).toEqual([])
   const actions = [
    'subtitle-derived:start',
    'subtitle-derived:resume',
@@ -102,6 +106,9 @@ describe('GoCore request timeouts', () => {
    'textbook:manual',
    'textbook:clear',
    'textbook:apply',
+   'textbook:analyze',
+   'textbook:ocr-page',
+   'zhiyun:match-course',
    'video-ppt:prepare-playback-release',
    'video-ppt:finalize-playback-release',
    'video-ppt:summary-from-retained'

@@ -14,6 +14,7 @@ const SLOW_CALL_TIMEOUT_MS = 90 * 1000
 const LONG_CALL_TIMEOUT_MS = 30 * 60 * 1000
 const MAX_RESTARTS = 3
 const STDERR_TAIL_LIMIT = 8000
+const MAX_FRAME_BYTES = 8 * 1024 * 1024
 // These actions wait for real media/transcription work.  A 10s IPC timeout
 // used to reject them while the Go backend kept running, which made the task
 // center report a failure even though the download completed.
@@ -43,11 +44,16 @@ const LONG_RUNNING_ACTIONS = new Set([
  'subtitle-sync:resume',
  'subtitle-sync:start',
  'subtitles:generate',
- 'textbook:analyze',
+ 'textbook:comment',
  'textbook:manual',
- 'textbook:clear',
  'textbook:apply',
+ 'textbook:clear',
+ 'textbook:chapter-summary',
+ 'textbook:analyze',
  'textbook:analyze-images',
+ 'textbook:ocr-page',
+ 'textbook:pick', // Includes time spent choosing the file, followed by native PDF inspection.
+ 'textbook:resolve', // Restoring a cold selection inspects and hashes the complete PDF.
  'textbook:ppt-ocr',
  'video-ppt:auto',
  'video-ppt:batch',
@@ -73,6 +79,7 @@ const LONG_RUNNING_ACTIONS = new Set([
 const SLOW_ACTIONS = new Set([
  'zhiyun:search',
  'zhiyun:lessons',
+ 'zhiyun:match-course',
  'settings:models',
  'subtitle-derived:audit-publication',
  'video-ppt:playback-source'
@@ -204,6 +211,10 @@ export class GoCore {
    this.observePhysical(child, text)
    if (this.child === child) this.consume(text)
   })
+  // A closed helper pipe emits an asynchronous 'error', even if write() returned normally.
+  child.stdin!.on('error', () => {
+   if (this.child === child) child.kill()
+  })
   this.child.stderr!.on('data', chunk => {
    this.stderrTail = (this.stderrTail + this.stderrDecoder.write(chunk)).slice(-STDERR_TAIL_LIMIT)
   })
@@ -256,16 +267,7 @@ export class GoCore {
   if (this.status !== 'ready' || !this.child) throw new Error('Go 后端不可用')
   const child = this.child
   const id = 'c-' + ++this.nextID
-  const physicalSettled = tracked
-   ? new Promise<void>(resolve => {
-      let requests = this.physical.get(child)
-      if (!requests) {
-       requests = new Map()
-       this.physical.set(child, requests)
-      }
-      requests.set(id, resolve)
-     })
-   : Promise.resolve()
+  let physicalSettled = Promise.resolve()
   const result = new Promise<unknown>((resolve, reject) => {
    const timer = setTimeout(
     () => {
@@ -275,7 +277,24 @@ export class GoCore {
     callTimeout(action, params)
    )
    this.pending.set(id, {resolve, reject, timer, tracked})
-   this.send({jsonrpc: '2.0', id, method: action, params})
+   const error = this.send({jsonrpc: '2.0', id, method: action, params})
+   if (error) {
+    clearTimeout(timer)
+    this.pending.delete(id)
+    reject(error)
+    return
+   }
+   // A request rejected before writing to the pipe has no outstanding backend work.
+   if (tracked) {
+    physicalSettled = new Promise<void>(settle => {
+     let requests = this.physical.get(child)
+     if (!requests) {
+      requests = new Map()
+      this.physical.set(child, requests)
+     }
+     requests.set(id, settle)
+    })
+   }
   })
   return {requestID: id, result, physicalSettled}
  }
@@ -416,7 +435,8 @@ export class GoCore {
   try {
    const object = z.record(z.string(), z.unknown()).parse(params || {})
    const result = await service(object)
-   this.send({jsonrpc: '2.0', id, result: result ?? {}})
+   const error = this.send({jsonrpc: '2.0', id, result: result ?? {}})
+   if (error) throw error
   } catch (error) {
    this.send({
     jsonrpc: '2.0',
@@ -461,9 +481,14 @@ export class GoCore {
   }, delay)
  }
 
- private send(frame: Record<string, unknown>) {
+ private send(frame: Record<string, unknown>): Error | undefined {
   try {
-   this.child?.stdin?.write(JSON.stringify(frame) + '\n')
-  } catch {}
+   const line = JSON.stringify(frame) + '\n'
+   if (Buffer.byteLength(line) > MAX_FRAME_BYTES) return new Error('请求数据超过 8 MiB，请减少本次发送的数据')
+   if (!this.child?.stdin?.writable) return new Error('Go 后端连接已关闭')
+   this.child.stdin.write(line)
+  } catch {
+   return new Error('发送 Go 后端请求失败')
+  }
  }
 }

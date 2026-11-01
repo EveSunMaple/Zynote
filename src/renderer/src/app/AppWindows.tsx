@@ -6,6 +6,7 @@ import {ToolsWorkbench} from '@renderer/features/tools/ToolsWorkbench'
 import {learningViews, type LearningView} from '@renderer/features/video/LearningNav'
 import {VideoPpt} from '@renderer/features/video/VideoPpt'
 import {ZhiyunImporter} from '@renderer/features/zhiyun/ZhiyunImporter'
+import {useSettingsNavigation} from '@renderer/app/settings-navigation'
 import type {Course} from '@shared/types'
 
 /** 二级功能窗口：统一按 modal 状态挂载，App 只保留状态与业务回调。 */
@@ -37,16 +38,23 @@ export function AppWindows({
  courses: Course[]
  courseId: string
  courseName?: string
- reloadCourse: () => Promise<unknown>
+ reloadCourse: (id: string) => Promise<unknown>
  zhiyunImported: (lectureId: string, courseId: string) => Promise<void>
  videoRestoreId: string
  openVideoTask: (id: string) => void
  clearVideoTask: () => void
 }>) {
  const videoVisible = learningViews.some(item => item.id === current)
+ const settings = useSettingsNavigation()
  return (
   <>
-   <Study visible={current === 'study'} courses={courses} close={() => setModal(null)} refresh={reloadCourse} />
+   <Study
+    visible={current === 'study'}
+    courses={courses}
+    close={() => setModal(null)}
+    refresh={courseId ? () => reloadCourse(courseId) : undefined}
+    openZhiyun={() => settings.open('zhiyun')}
+   />
    <ToolsWorkbench visible={current === 'tools'} close={() => setModal(null)} />
    <KnowledgeBase visible={current === 'knowledge'} close={() => setModal(null)} />
    <TaskCenter

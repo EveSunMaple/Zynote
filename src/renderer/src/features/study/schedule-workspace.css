@@ -1,0 +1,35 @@
+.schedule-workspace__toolbar {
+ flex-wrap: wrap;
+}
+.schedule-workspace__actions {
+ display: flex;
+ flex-wrap: wrap;
+ align-items: center;
+ gap: 6px;
+}
+.schedule-workspace__tools {
+ min-width: 0;
+}
+.schedule-workspace__tools .study-fold__body {
+ gap: 14px;
+}
+.schedule-workspace__materials {
+ display: grid;
+ gap: 8px;
+ min-width: 0;
+ padding-block: 14px;
+ border-top: 1px solid var(--line);
+ scroll-margin-block: 75px;
+}
+.schedule-workspace__subheading {
+ margin: 4px 0 0;
+ color: var(--text);
+ font-size: 14px;
+ font-weight: 600;
+}
+.study-file-start .study-import-status {
+ max-width: 360px;
+}
+.study-import-status + .study-week {
+ margin-top: 16px;
+}

@@ -171,19 +171,19 @@ async function startApplication() {
    if (!window.isDestroyed()) window.webContents.send('assistant:event', event)
   }
  })
- const shellServices = createShellServices(window, paths.libraryRoot)
- const biliBrowser = new BiliBrowser(window, event => {
-  if (!window.isDestroyed()) window.webContents.send('assistant:event', event)
- })
- shellServices['shell.biliOpen'] = params => biliBrowser.open(z.string().parse(params.url), params.cookies)
- shellServices['shell.biliClear'] = () => biliBrowser.clear()
-
  const zhiyunBrowser = new ZhiyunBrowser(window, message =>
   window.webContents.send('assistant:event', {
    kind: 'progress',
    data: {stage: '智云登录', message, error: true}
   })
  )
+ const shellServices = createShellServices(window, paths.libraryRoot, () => zhiyunBrowser.currentReplay())
+ const biliBrowser = new BiliBrowser(window, event => {
+  if (!window.isDestroyed()) window.webContents.send('assistant:event', event)
+ })
+ shellServices['shell.biliOpen'] = params => biliBrowser.open(z.string().parse(params.url), params.cookies)
+ shellServices['shell.biliClear'] = () => biliBrowser.clear()
+
  shellServices['zhiyun.login'] = async () => {
   await zhiyunBrowser.home()
   return true

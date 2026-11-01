@@ -6,7 +6,6 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
-	"strings"
 	"sync"
 	"time"
 
@@ -35,15 +34,14 @@ func (server *fileServer) URL(path string) (string, error) {
 			_ = http.Serve(listener, server)
 		}()
 	}
-	token := ids.New()
-	server.paths[token] = path
-	return "http://" + server.listener.Addr().String() + "/" + token, nil // NOSONAR: endpoint is fixed by the provider protocol.
+	route := "/textbooks/" + ids.New()
+	server.paths[route] = path
+	return "http://" + server.listener.Addr().String() + route, nil // NOSONAR: endpoint is fixed by the provider protocol.
 }
 
 func (server *fileServer) ServeHTTP(writer http.ResponseWriter, request *http.Request) {
-	token := strings.TrimPrefix(strings.SplitN(request.URL.Path, "?", 2)[0], "/")
 	server.mu.Lock()
-	path := server.paths[token]
+	path := server.paths[request.URL.Path]
 	server.mu.Unlock()
 	if path == "" {
 		http.NotFound(writer, request)

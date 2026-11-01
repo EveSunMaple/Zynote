@@ -19,10 +19,13 @@ import (
 )
 
 const DefaultBase = "https://onlineroom.cmc.zju.edu.cn"
+const accountEndpoint = "/userapi/v1/infosimple"
+const coursePageSize = 20
 
 type Session struct {
-	Cookie        string
-	Authorization string
+	Cookie        string     `json:"cookie"`
+	Authorization string     `json:"authorization"`
+	CurrentReplay *ReplayRef `json:"currentReplay,omitempty"`
 }
 
 type Client struct {
@@ -30,6 +33,7 @@ type Client struct {
 	Session  Session
 	HTTP     *http.Client
 	Progress func(string)
+	Calendar *CalendarCache
 }
 
 type Resource struct {
@@ -42,7 +46,7 @@ func New(base string, session Session) *Client {
 		base = DefaultBase
 	}
 	return &Client{
-		Base: strings.TrimRight(base, "/"), Session: session,
+		Base: strings.TrimRight(base, "/"), Session: session, Calendar: &CalendarCache{},
 		HTTP: &http.Client{Timeout: 30 * time.Second, Transport: &http.Transport{Proxy: http.ProxyFromEnvironment}},
 	}
 }
@@ -131,14 +135,27 @@ func waitRequestRetry(ctx context.Context, attempt int) error {
 	}
 }
 
-func readZhiyunResponse(response *http.Response) (map[string]any, bool, error) {
+func accessError(code int, endpoint string) error {
+	switch code {
+	case http.StatusForbidden:
+		if endpoint != accountEndpoint {
+			return fmt.Errorf("智云课堂未允许此账号访问该资源，请检查课程权限")
+		}
+		fallthrough
+	case http.StatusUnauthorized, 5002:
+		return fmt.Errorf("请先登录智云课堂，再重试")
+	}
+	return nil
+}
+
+func readZhiyunResponse(response *http.Response, endpoint string) (map[string]any, bool, error) {
 	body, err := io.ReadAll(io.LimitReader(response.Body, 4*1024*1024))
 	response.Body.Close()
 	if err != nil {
 		return nil, true, nil
 	}
-	if response.StatusCode == 401 || response.StatusCode == 403 {
-		return nil, false, fmt.Errorf("请先登录智云课堂，再重试")
+	if err := accessError(response.StatusCode, endpoint); err != nil {
+		return nil, false, err
 	}
 	if response.StatusCode < 200 || response.StatusCode >= 300 {
 		return nil, false, fmt.Errorf("智云课堂暂时无法访问（%d）", response.StatusCode)
@@ -152,8 +169,8 @@ func readZhiyunResponse(response *http.Response) (map[string]any, bool, error) {
 		return nil, false, fmt.Errorf("智云课堂响应格式异常，请稍后重试")
 	}
 	code := int(numberValue(value["code"]))
-	if code == 5002 || code == 401 || code == 403 {
-		return nil, false, fmt.Errorf("请先登录智云课堂，再重试")
+	if err := accessError(code, endpoint); err != nil {
+		return nil, false, err
 	}
 	return value, false, nil
 }
@@ -176,7 +193,7 @@ func (client *Client) request(ctx context.Context, path string, params map[strin
 			}
 			continue
 		}
-		value, retry, err := readZhiyunResponse(response)
+		value, retry, err := readZhiyunResponse(response, path)
 		if retry {
 			continue
 		}
@@ -213,7 +230,7 @@ func searchParams(account map[string]any, keyword string, page int) map[string]s
 	return map[string]string{
 		"tenant_id": tenant, "tenant_code": tenant, "user_id": stringValue(account["id"]),
 		"user_name": stringValue(account["account"]), "title": keyword, "realname": "", "trans": "",
-		"page": strconv.Itoa(page), "per_page": "20",
+		"page": strconv.Itoa(page), "per_page": strconv.Itoa(coursePageSize),
 	}
 }
 
@@ -276,29 +293,51 @@ func searchCourses(rows []any) []Course {
 	return courses
 }
 
-func (client *Client) Search(ctx context.Context, keyword string, page int) (map[string]any, error) {
-	user, err := client.request(ctx, "/userapi/v1/infosimple", nil)
+func (client *Client) account(ctx context.Context) (map[string]any, error) {
+	user, err := client.request(ctx, accountEndpoint, nil)
 	if err != nil {
 		return nil, err
 	}
 	account, _ := user["params"].(map[string]any)
 	if stringValue(account["id"]) == "" || stringValue(account["account"]) == "" {
-		return nil, fmt.Errorf("请先在左侧智云登录页面完成登录，再重试搜索")
+		return nil, fmt.Errorf("请先在设置中的智云课堂完成登录，再重试搜索")
 	}
+	return account, nil
+}
+
+func (client *Client) searchPage(ctx context.Context, account map[string]any, keyword string, page int) ([]Course, bool, error) {
 	data, err := client.request(ctx, "/pptnote/v1/searchlist", searchParams(account, keyword, page))
 	if err != nil {
-		return nil, err
+		return nil, false, err
 	}
-	if int(numberValue(data["code"])) != 0 {
-		return nil, fmt.Errorf("搜索失败，请在智云课堂确认登录后重试")
+	code := numberValue(data["code"])
+	if code == -1 && strings.TrimSpace(stringValue(data["msg"])) == "没有数据" {
+		return []Course{}, false, nil
+	}
+	if code != 0 {
+		return nil, false, fmt.Errorf("智云课程搜索失败，请稍后重试")
 	}
 	result, rows, err := searchRows(data)
 	if err != nil {
+		return nil, false, err
+	}
+	more := len(rows) >= coursePageSize
+	if total := result["total"]; total != nil {
+		more = float64(page*coursePageSize) < numberValue(total)
+	}
+	return searchCourses(rows), more, nil
+}
+
+func (client *Client) Search(ctx context.Context, keyword string, page int) (map[string]any, error) {
+	account, err := client.account(ctx)
+	if err != nil {
 		return nil, err
 	}
-	return map[string]any{
-		"courses": searchCourses(rows), "hasMore": float64(page*20) < numberValue(result["total"]),
-	}, nil
+	courses, more, err := client.searchPage(ctx, account, keyword, page)
+	if err != nil {
+		return nil, err
+	}
+	return map[string]any{"courses": courses, "hasMore": more}, nil
 }
 
 func lessonID(row map[string]any) string {
@@ -385,9 +424,10 @@ func (client *Client) Lessons(ctx context.Context, courseID string) ([]Lesson, e
 }
 
 type TranscriptSegment struct {
-	Start int
-	End   int
-	Text  string
+	Start        int
+	End          int
+	Text         string
+	StartUnknown bool
 }
 
 // Transcript reads the ASR transcript the replay page shows under
@@ -421,7 +461,9 @@ func (client *Client) Transcript(ctx context.Context, subID string) ([]Transcrip
 			if text == "" {
 				continue
 			}
-			start := int(numberValue(value["BeginSec"]))
+			startSeconds, parseErr := strconv.ParseFloat(stringValue(value["BeginSec"]), 64)
+			start := int(startSeconds)
+			startUnknown := parseErr != nil || start < 0
 			end := int(numberValue(value["EndSec"]))
 			if start < 0 {
 				start = 0
@@ -429,7 +471,7 @@ func (client *Client) Transcript(ctx context.Context, subID string) ([]Transcrip
 			if end < start {
 				end = start
 			}
-			segments = append(segments, TranscriptSegment{Start: start, End: end, Text: text})
+			segments = append(segments, TranscriptSegment{Start: start, End: end, Text: text, StartUnknown: startUnknown})
 		}
 		if len(segments) > 0 {
 			return segments, nil
