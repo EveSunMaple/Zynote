@@ -1,6 +1,6 @@
 import {Button, Card, Checkbox, Input, TextArea} from '@heroui/react'
 import {useEffect, useState} from 'react'
-import ReactMarkdown from 'react-markdown'
+import {MathMarkdown} from '@renderer/ui/MathMarkdown'
 import {notify} from '@renderer/ui/ToastHost'
 import {MemorySuggestions} from '@renderer/features/tools/MemorySuggestions'
 import {SelectField} from '@renderer/ui/SelectField'
@@ -249,7 +249,7 @@ export function LearningRecords() {
         )}
         {task.note && (
          <div className="learning-summary">
-          <ReactMarkdown>{task.note}</ReactMarkdown>
+          <MathMarkdown>{task.note}</MathMarkdown>
          </div>
         )}
         <details>

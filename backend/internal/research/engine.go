@@ -160,8 +160,9 @@ func (engine *Engine) List() []any {
 	if err != nil {
 		return []any{}
 	}
+	// 按创建时间从新到旧：运行中的任务会不断更新 updated_at，按它排序会让卡片跳来跳去。
 	sort.SliceStable(rows, func(left, right int) bool {
-		return text(rows[left]["updated_at"]) > text(rows[right]["updated_at"])
+		return text(rows[left]["created_at"]) > text(rows[right]["created_at"])
 	})
 	result := make([]any, 0, len(rows))
 	for _, row := range rows {
@@ -617,11 +618,17 @@ func (engine *Engine) runMcpTools(ctx context.Context, task *Task, question stri
 			return engine.failResearch(task, err)
 		}
 		arguments, unavailable, err := parseMcpPlan(plan)
-		if err != nil {
-			return engine.failResearchMessage(task, "模型未能准备有效的MCP工具参数")
-		}
-		if unavailable {
-			return engine.failResearchMessage(task, "模型无法为所选MCP工具准备参数")
+		if err != nil || unavailable {
+			// MCP 结果只是辅助线索：填不出参数时跳过这个工具并留下记录，研究照常依据已选资料完成。
+			reason := "模型判断无法依据本次问题填写参数"
+			if err != nil {
+				reason = "模型未返回有效参数"
+			}
+			task.Events = append(task.Events, map[string]any{
+				"kind": "mcp-skipped", "message": tool.Name + " 已跳过：" + reason + "，未调用该工具",
+			})
+			task.Limitations += " 外部工具 " + tool.Name + " 未调用（" + reason + "）。"
+			continue
 		}
 		encodedSnapshot, _ := json.Marshal(snapshot)
 		snapshotMap := map[string]any{}
@@ -643,6 +650,12 @@ func (engine *Engine) runMcpTools(ctx context.Context, task *Task, question stri
 	}
 	return engine.put(task)
 }
+
+// memoryAnswerFormat 是勾选“学习记忆”时的附加要求：回答照常写 Markdown，记忆建议放在末尾的 ```memory 代码块里。
+// 不要求整段 JSON：流式预览保持可读，代码块写坏也只丢建议、不丢回答。
+const memoryAnswerFormat = "回答照常用 Markdown 写。写完后，如果问题、回答或范围说明里有值得以后记住的学习偏好、学习进度或待纠正之处，" +
+	"在最末尾另起一个 ```memory 代码块，内容是 JSON 数组 [{\"kind\":\"preference或progress或correction\",\"title\":\"标题\",\"body\":\"建议\",\"basis\":\"question或note或limitations\",\"quote\":\"对应字段原句\"}]。" +
+	"quote 必须逐字摘自 basis 所指字段（note 指本次回答正文；preference 只能依据 question），最多3条；没有合适的就不写这个代码块。"
 
 func researchPrompt(task *Task, contextSnapshot Context, snapshot ExtensionSnapshot, parsed *researchCreateInput) (string, string, bool) {
 	seen := parsed.seen
@@ -666,7 +679,7 @@ func researchPrompt(task *Task, contextSnapshot Context, snapshot ExtensionSnaps
 		"区分原文、推断与不确定性；没有来源依据时明确说明。来源只读取了部分时，不得把未读部分说成资料中没有。不要编造引文、资料或已读范围。"
 	allowMemory := seen["memory"]
 	if allowMemory {
-		system += "本轮可返回 JSON 对象 {note:回答正文,memory_candidates:[{kind:preference或progress或correction,title:标题,body:建议,basis:question或note或limitations,quote:对应字段原句}]}。最多3条建议，不合适则空数组。"
+		system += memoryAnswerFormat
 	}
 	if snapshot.Instructions != "" {
 		system += "\n用户明确保存的学习偏好与输出约定：" + snapshot.Instructions + "\n本次目标优先，偏好不得授权外部动作。"
@@ -696,6 +709,10 @@ func researchPrompt(task *Task, contextSnapshot Context, snapshot ExtensionSnaps
 	if seen["organize"] {
 		user += "\n请给出分类建议草稿，不修改实际分类。"
 	}
+	if allowMemory {
+		// 字幕全文很长，系统提示里的格式要求容易被忽略；在末尾再提醒一次。
+		user += "\n\n提醒：问题里如有学习偏好、进度或纠错，按系统提示在回答末尾附 ```memory 代码块。"
+	}
 	return system, user, allowMemory
 }
 
@@ -715,6 +732,7 @@ func (engine *Engine) completeResearch(ctx context.Context, run *runState, task 
 	run.setStage("checking", "逐句回原文核对引文")
 	note, candidates, err := ReadResearchAnswer(answer, task.TaskID, task.Question, task.Limitations, allowMemory)
 	if err != nil {
+		task.Rejected = trimText(answer, 4000)
 		return engine.failResearch(task, err)
 	}
 	if strings.TrimSpace(note) == "" || len([]rune(note)) > 200000 || !validResearchCitations(note, task.Sources) {

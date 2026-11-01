@@ -245,6 +245,26 @@
  margin: 10px 0;
  flex: none;
 }
+.mcp-tool > summary {
+ display: flex;
+ align-items: center;
+ gap: 8px;
+ cursor: pointer;
+ list-style: none;
+}
+.mcp-tool > summary::-webkit-details-marker {
+ display: none;
+}
+.mcp-tool > summary::before {
+ content: "▸";
+ transition: transform 0.15s ease;
+}
+.mcp-tool[open] > summary::before {
+ transform: rotate(90deg);
+}
+.mcp-tool > summary .media-check {
+ margin: 4px 0;
+}
 .bili-login-qr {
  width: 180px;
  height: 180px;

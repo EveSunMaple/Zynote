@@ -206,10 +206,12 @@ func skillByID(catalog extensionCatalog, id string) *Skill {
 }
 
 func validateSkillInput(catalog extensionCatalog, id, name, description, body string) error {
-	if !skillNamePattern.MatchString(name) || len([]rune(name)) > 64 ||
-		!validSkillText(description, 500) || strings.TrimSpace(description) == "" ||
+	if !skillNamePattern.MatchString(name) || len([]rune(name)) > 64 {
+		return fmt.Errorf("方法名称须为英文小写短名，用连字符分隔，例如 compare-sources")
+	}
+	if !validSkillText(description, 500) || strings.TrimSpace(description) == "" ||
 		!validSkillText(body, 6000) || strings.TrimSpace(body) == "" {
-		return fmt.Errorf("学习方法内容无效")
+		return fmt.Errorf("学习方法内容无效：说明（500 字内）和正文（6000 字内）都不能为空")
 	}
 	for _, skill := range catalog.Skills {
 		if skill.Name == name && skill.ID != id {

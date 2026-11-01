@@ -1,6 +1,6 @@
 import {Button, Card, Input, TextArea} from '@heroui/react'
 import {useEffect, useState} from 'react'
-import ReactMarkdown from 'react-markdown'
+import {MathMarkdown} from '@renderer/ui/MathMarkdown'
 import {notify} from '@renderer/ui/ToastHost'
 import {SelectField} from '@renderer/ui/SelectField'
 const request = <T,>(action: string, args: unknown = {}) => window.assistant.invoke<T>('tools:request', {action, args})
@@ -81,7 +81,7 @@ export function SavedLearningNotes() {
     {preview && (
      <>
       <div className="learning-summary">
-       <ReactMarkdown>{preview.markdown}</ReactMarkdown>
+       <MathMarkdown>{preview.markdown}</MathMarkdown>
       </div>
       <Button
        variant="primary"
@@ -143,7 +143,7 @@ export function SavedLearningNotes() {
        aria-label={`打开笔记 ${item.title}`}
        onClick={() => void run(() => read(item.note_id))}
       >
-       {item.title} · {item.created_at}
+       {item.title} · {new Date(item.created_at).toLocaleString('zh-CN', {dateStyle: 'short', timeStyle: 'short'})}
       </Button>
      ))}
     </div>

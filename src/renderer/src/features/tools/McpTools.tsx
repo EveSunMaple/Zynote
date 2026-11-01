@@ -125,7 +125,7 @@ export function McpToolsPanel() {
         </Button>
        </div>
        {server.tools.map(tool => (
-        <details key={tool.name}>
+        <details className="mcp-tool" key={tool.name}>
          <summary>
           <Checkbox
            className="media-check"

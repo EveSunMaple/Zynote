@@ -12,15 +12,16 @@ const inlineComponents: Components = {
 export function MathMarkdown({
  children,
  inline = false,
- className
-}: Readonly<{children: string; inline?: boolean; className?: string}>) {
+ className,
+ components
+}: Readonly<{children: string; inline?: boolean; className?: string; components?: Components}>) {
  const Tag = inline ? 'span' : 'div'
  return (
   <Tag className={'math-markdown' + (className ? ' ' + className : '')}>
    <ReactMarkdown
     remarkPlugins={[remarkGfm, remarkMath]}
     rehypePlugins={[[rehypeKatex, {strict: 'ignore', output: 'html'}]]}
-    components={inline ? inlineComponents : undefined}
+    components={inline ? {...inlineComponents, ...components} : components}
    >
     {children}
    </ReactMarkdown>

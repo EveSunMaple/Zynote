@@ -1,14 +1,13 @@
 import {useEffect, useState, type ReactNode} from 'react'
 import {Button, Card, Checkbox, Chip, Input, TextArea} from '@heroui/react'
 import {WindowMenuButton, WindowPanel} from '@renderer/ui/WindowPanel'
-import ReactMarkdown from 'react-markdown'
+import {MathMarkdown} from '@renderer/ui/MathMarkdown'
 import {LearningRecords} from '@renderer/features/tools/LearningRecords'
 import {SavedLearningNotes} from '@renderer/features/tools/SavedLearningNotes'
 import {RunProgress, type RunProgressValue} from '@renderer/features/tools/RunProgress'
 import {DeleteRecord} from '@renderer/features/tools/DeleteRecord'
 import {notify} from '@renderer/ui/ToastHost'
 import {SettingsLink} from '@renderer/app/settings-navigation'
-import remarkGfm from 'remark-gfm'
 import type {Settings} from '@shared/types'
 
 function MarkdownLink({href, children}: Readonly<{href?: string; children?: ReactNode}>) {
@@ -27,9 +26,7 @@ function MarkdownLink({href, children}: Readonly<{href?: string; children?: Reac
 function Result({text}: Readonly<{text: string}>) {
  return (
   <div className="learning-summary">
-   <ReactMarkdown remarkPlugins={[remarkGfm]} components={{a: MarkdownLink}}>
-    {text}
-   </ReactMarkdown>
+   <MathMarkdown components={{a: MarkdownLink}}>{text}</MathMarkdown>
   </div>
  )
 }
@@ -91,16 +88,24 @@ const quoteLabels: Record<string, {label: string; color: 'success' | 'warning' |
  moved: {label: '时间不符', color: 'warning'},
  unverified: {label: '待核对', color: 'danger'}
 }
+// 原话核对默认只展开前几条，其余折叠，避免几十条引文把页面撑得很长。
+const QUOTES_SHOWN = 3
 function QuoteChecks({quotes, sources}: Readonly<{quotes?: Quote[]; sources: Agent['sources']}>) {
+ const [expanded, setExpanded] = useState(false)
  if (!quotes?.length) return null
  const verified = quotes.filter(quote => quote.status !== 'unverified').length
  const seen = new Map<string, number>()
+ // 折叠时先列出有删改、时间不符、待核对的，问题不会被折叠藏起来。
+ const flagged = quotes.filter(quote => quote.status !== 'exact')
+ const visible = expanded
+  ? quotes
+  : [...flagged, ...quotes.filter(quote => quote.status === 'exact')].slice(0, Math.max(QUOTES_SHOWN, flagged.length))
  return (
   <section className="research-quotes" aria-label="原话核对">
    <h4>
     原话核对：{verified}/{quotes.length} 条已在原文中找到
    </h4>
-   {quotes.map(quote => {
+   {visible.map(quote => {
     const base = `${quote.source_id}:${quote.at ?? ''}:${quote.quote}`
     const count = (seen.get(base) ?? 0) + 1
     seen.set(base, count)
@@ -129,6 +134,11 @@ function QuoteChecks({quotes, sources}: Readonly<{quotes?: Quote[]; sources: Age
      </div>
     )
    })}
+   {(expanded || quotes.length > visible.length) && (
+    <Button variant="ghost" size="sm" onClick={() => setExpanded(!expanded)}>
+     {expanded ? '收起核对结果' : `展开其余 ${quotes.length - visible.length} 条核对结果`}
+    </Button>
+   )}
   </section>
  )
 }
@@ -205,7 +215,8 @@ export function ToolsWorkbench({visible, close}: Readonly<{visible: boolean; clo
   [skills, setSkills] = useState<string[]>([]),
   [mcp, setMcp] = useState<string[]>([]),
   [flow, setFlow] = useState(false),
-  [busy, setBusy] = useState(false)
+  [busy, setBusy] = useState(false),
+  [focus, setFocus] = useState<string>()
  const [retryConsent, setRetryConsent] = useState<string[]>([]),
   [settings, setSettings] = useState<Settings>(),
   [fulltextTargets, setFulltextTargets] = useState('')
@@ -218,6 +229,14 @@ export function ToolsWorkbench({visible, close}: Readonly<{visible: boolean; clo
   setMaterials(start ? old => [...old, ...result.items] : result.items)
   setOffset(result.next_offset)
  }
+ // 新建的研究或工作流刷新出来后滚动到它的卡片，不必在长列表里找。
+ useEffect(() => {
+  if (!focus || !data) return
+  const card = document.getElementById(`research-${focus}`)
+  if (!card) return
+  card.scrollIntoView({block: 'start', behavior: 'smooth'})
+  setFocus(undefined)
+ }, [focus, data])
  async function run(fn: () => Promise<unknown>) {
   setBusy(true)
   try {
@@ -260,6 +279,10 @@ export function ToolsWorkbench({visible, close}: Readonly<{visible: boolean; clo
  const provider = settings?.searchProvider ?? 'duckduckgo'
  const toggle = (value: string, list: string[], set: (values: string[]) => void) =>
   set(list.includes(value) ? list.filter(item => item !== value) : [...list, value])
+ // 工作流每一步各是一条研究，已在工作流卡片里展示，不再单独成卡。
+ const stepTasks = new Set(
+  data?.workflows.flatMap(flow => flow.steps.flatMap(step => (step.task_id ? [step.task_id] : [])))
+ )
  return (
   <WindowPanel
    visible={visible}
@@ -459,41 +482,45 @@ export function ToolsWorkbench({visible, close}: Readonly<{visible: boolean; clo
        size="sm"
        isDisabled={busy || !question.trim() || (flow && !chosen.length) || (!flow && !channels.length)}
        onClick={() =>
-        void run(() =>
-         request(flow ? 'workflow-create' : 'agent-create', {
-          op: op(),
-          question,
-          channels,
-          web_search: provider === 'searxng' ? {provider, endpoint: settings?.searchEndpoint ?? ''} : {provider},
-          fulltext: fulltextTargets.trim()
-           ? fulltextTargets
-              .trim()
-              .split(/\r?\n/)
-              .filter(line => line.trim())
-              .map(line => {
-               const [url, pages, ...extra] = line.split('|').map(value => value.trim())
-               if (extra.length) throw new Error('正文网址格式无效')
-               return {url, ...(pages ? {pages: pages.split(/[,，]/).map(value => Number(value.trim()))} : {})}
-              })
-           : [],
-          materials: chosen.map(item => item.binding),
-          skills: {revision: data.extensions.revision, ids: skills},
-          mcp: {
-           revision: data.mcp.revision,
-           items: mcp.map(value => {
-            const [server_id, name] = value.split(':')
-            return {server_id, tool: name}
-           })
+        void run(async () => {
+         const created = await request<{task_id?: string; workflow_id?: string}>(
+          flow ? 'workflow-create' : 'agent-create',
+          {
+           op: op(),
+           question,
+           channels,
+           web_search: provider === 'searxng' ? {provider, endpoint: settings?.searchEndpoint ?? ''} : {provider},
+           fulltext: fulltextTargets.trim()
+            ? fulltextTargets
+               .trim()
+               .split(/\r?\n/)
+               .filter(line => line.trim())
+               .map(line => {
+                const [url, pages, ...extra] = line.split('|').map(value => value.trim())
+                if (extra.length) throw new Error('正文网址格式无效')
+                return {url, ...(pages ? {pages: pages.split(/[,，]/).map(value => Number(value.trim()))} : {})}
+               })
+            : [],
+           materials: chosen.map(item => item.binding),
+           skills: {revision: data.extensions.revision, ids: skills},
+           mcp: {
+            revision: data.mcp.revision,
+            items: mcp.map(value => {
+             const [server_id, name] = value.split(':')
+             return {server_id, tool: name}
+            })
+           }
           }
-         })
-        )
+         )
+         setFocus(created.workflow_id ?? created.task_id)
+        })
        }
       >
        开始研究
       </Button>
      </Card>
      {data.workflows.map(task => (
-      <Card className="knowledge-card" key={task.workflow_id}>
+      <Card className="knowledge-card" key={task.workflow_id} id={`research-${task.workflow_id}`}>
        <h3>{task.question}</h3>
        <StatusChip status={task.status} />
        {task.status === 'running' && <RunProgress progress={task.progress} />}
@@ -585,72 +612,78 @@ export function ToolsWorkbench({visible, close}: Readonly<{visible: boolean; clo
        )}
       </Card>
      ))}
-     {data.tasks.map(task => (
-      <Card className="knowledge-card" key={task.task_id}>
-       <header>
-        <h3>{task.question}</h3>
-        <span>
-         <StatusChip status={task.status} />
-        </span>
-       </header>
-       {task.status === 'running' && (
-        <>
-         <RunProgress progress={task.progress} />
-         <Button variant="tertiary" size="sm" onClick={() => void run(() => request('agent-stop', {id: task.task_id}))}>
-          停止研究
-         </Button>
-        </>
-       )}
-       {task.error_code && (
-        <p className="hint" role="alert">
-         {task.error_code}
-        </p>
-       )}
-       {task.note && <LongResult text={task.note} truncated={task.note_truncated} taskId={task.task_id} />}
-       <QuoteChecks quotes={task.quotes} sources={task.sources} />
-       {task.quotes_truncated && <p className="hint">引文较多，仅显示前 50 条核对结果。</p>}
-       {task.limitations && <p className="hint">{task.limitations}</p>}
-       <details>
-        <summary>处理过程与来源</summary>
-        {task.events.map(event => (
-         <p key={`${event.kind}-${event.message ?? ''}`}>{event.message || event.kind}</p>
-        ))}
-        {task.sources.map(source => (
-         <p key={source.source_id}>
-          {source.source_id} · {source.title} · {source.read ? source.coverage || '已读取' : '尚未读取'}
-         </p>
-        ))}
-        {task.rejected_answer && (
+     {data.tasks
+      .filter(task => !stepTasks.has(task.task_id))
+      .map(task => (
+       <Card className="knowledge-card" key={task.task_id} id={`research-${task.task_id}`}>
+        <header>
+         <h3>{task.question}</h3>
+         <span>
+          <StatusChip status={task.status} />
+         </span>
+        </header>
+        {task.status === 'running' && (
          <>
-          <p className="hint">模型原始回答（未通过核验，仅供排查，不作为研究成果）：</p>
-          <p className="knowledge-text">{task.rejected_answer}</p>
+          <RunProgress progress={task.progress} />
+          <Button
+           variant="tertiary"
+           size="sm"
+           onClick={() => void run(() => request('agent-stop', {id: task.task_id}))}
+          >
+           停止研究
+          </Button>
          </>
         )}
-       </details>
-       {task.status === 'completed' && (
-        <Button
-         variant="tertiary"
-         size="sm"
-         onClick={() =>
-          void run(async () => {
-           const path = await request<string>('agent-export', {id: task.task_id})
-           await invoke('library:open-file', {path})
-           notify.success('已保存并核验研究 Markdown', {description: path, timeout: 6000})
-          })
-         }
-        >
-         保存研究成果
-        </Button>
-       )}
-       {task.status !== 'running' && (
-        <DeleteRecord
-         label="删除这条研究"
-         isDisabled={busy}
-         onDelete={() => void run(() => request('agent-delete', {id: task.task_id}))}
-        />
-       )}
-      </Card>
-     ))}
+        {task.error_code && (
+         <p className="hint" role="alert">
+          {task.error_code}
+         </p>
+        )}
+        {task.note && <LongResult text={task.note} truncated={task.note_truncated} taskId={task.task_id} />}
+        <QuoteChecks quotes={task.quotes} sources={task.sources} />
+        {task.quotes_truncated && <p className="hint">引文较多，仅显示前 50 条核对结果。</p>}
+        {task.limitations && <p className="hint">{task.limitations}</p>}
+        <details>
+         <summary>处理过程与来源</summary>
+         {task.events.map(event => (
+          <p key={`${event.kind}-${event.message ?? ''}`}>{event.message || event.kind}</p>
+         ))}
+         {task.sources.map(source => (
+          <p key={source.source_id}>
+           {source.source_id} · {source.title} · {source.read ? source.coverage || '已读取' : '尚未读取'}
+          </p>
+         ))}
+         {task.rejected_answer && (
+          <>
+           <p className="hint">模型原始回答（未通过核验，仅供排查，不作为研究成果）：</p>
+           <p className="knowledge-text">{task.rejected_answer}</p>
+          </>
+         )}
+        </details>
+        {task.status === 'completed' && (
+         <Button
+          variant="tertiary"
+          size="sm"
+          onClick={() =>
+           void run(async () => {
+            const path = await request<string>('agent-export', {id: task.task_id})
+            await invoke('library:open-file', {path})
+            notify.success('已保存并核验研究 Markdown', {description: path, timeout: 6000})
+           })
+          }
+         >
+          保存研究成果
+         </Button>
+        )}
+        {task.status !== 'running' && (
+         <DeleteRecord
+          label="删除这条研究"
+          isDisabled={busy}
+          onDelete={() => void run(() => request('agent-delete', {id: task.task_id}))}
+         />
+        )}
+       </Card>
+      ))}
     </>
    )}
    {tab === '研究笔记' && <SavedLearningNotes />}
