@@ -8,11 +8,14 @@ import {snapanyDownload} from '@main/media/sources/snapany'
 import {diagnostic} from '@main/app/diagnostics'
 import {createMainWindow} from '@main/app/window'
 import {ZhiyunBrowser} from '@main/zhiyun/zhiyun-browser'
-import {app, BrowserWindow, dialog, ipcMain, shell} from 'electron'
+import {app, BrowserWindow, dialog, ipcMain, shell, protocol} from 'electron'
 import {existsSync} from 'node:fs'
 import {join, dirname} from 'node:path'
 import {fileURLToPath} from 'node:url'
 import {z} from 'zod'
+import {ManagedPlayback} from '@main/media/managed-playback'
+import {installMediaProtocol} from '@main/media/media-protocol'
+import {playbackCloseSchema} from '@shared/managed-playback'
 
 const mainDir = fileURLToPath(new URL('.', import.meta.url))
 let mainWindow: BrowserWindow | undefined
@@ -27,6 +30,12 @@ function showMainWindow() {
  }
 }
 
+protocol.registerSchemesAsPrivileged([
+ {
+  scheme: 'lecture-media',
+  privileges: {standard: true, secure: true, supportFetchAPI: true, corsEnabled: true, stream: true}
+ }
+])
 app.setPath('userData', process.env.LISTENING_ASSISTANT_DATA || join(app.getPath('appData'), 'listening-assistant'))
 if (!app.requestSingleInstanceLock()) app.quit()
 else app.whenReady().then(startApplication).catch(showStartupError)
@@ -43,10 +52,16 @@ async function invokeShellAction(
  window: BrowserWindow,
  libraryRoot: string,
  updater: Updater,
+ playback: ManagedPlayback,
  action: string,
  object: Record<string, unknown>
 ) {
  switch (action) {
+  case 'managed-media:open':
+   return playback.open(object)
+  case 'managed-media:close':
+   playback.close(playbackCloseSchema.parse(object).requestID)
+   return null
   case 'update:status':
    return updater.status()
   case 'update:check':
@@ -196,6 +211,7 @@ async function startApplication() {
   return true
  }
  shellServices['tools.configure'] = async () => true
+ let playback: ManagedPlayback | undefined
  const goCore = new GoCore({
   appVersion: app.getVersion(),
   dataRoot: paths.dataRoot,
@@ -211,6 +227,7 @@ async function startApplication() {
   onEvent: e => {
    if (!window.isDestroyed()) window.webContents.send('assistant:event', e)
   },
+  onUnavailable: () => playback?.closeAll(),
   onFailed: reason => {
    diagnostic(root, 'go-core', 'backend-failed', {code: 'START_FAILED'})
    console.error('[go-core]', reason)
@@ -219,12 +236,22 @@ async function startApplication() {
  goCore.start()
  await waitForCore(goCore)
  await goCore.call('db:bootstrap', {})
+ playback = new ManagedPlayback(paths.libraryRoot, (id, expectedSourceSHA256) =>
+  goCore.call('video-ppt:playback-source', {id, expectedSourceSHA256})
+ )
+ const media = playback
+ const removeMedia = installMediaProtocol(
+  window.webContents.session,
+  window,
+  media,
+  process.env.ELECTRON_RENDERER_URL ? new URL(process.env.ELECTRON_RENDERER_URL).origin : undefined
+ )
  ipcMain.handle(
   'assistant:invoke',
   createAssistantInvoke(
    window,
    async (action, object) => {
-    const shellResult = await invokeShellAction(window, paths.libraryRoot, updater, action, object)
+    const shellResult = await invokeShellAction(window, paths.libraryRoot, updater, media, action, object)
     if (shellResult !== unhandled) return shellResult
     await waitForCore(goCore)
     return await goCore.call(action, object)
@@ -238,6 +265,7 @@ async function startApplication() {
  else await window.loadFile(join(mainDir, '../renderer/index.html'))
  showMainWindow()
  shutdownBackends = async () => {
+  await removeMedia()
   updater.dispose()
   zhiyunBrowser.dispose()
   biliBrowser.dispose()

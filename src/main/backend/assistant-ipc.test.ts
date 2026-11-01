@@ -44,3 +44,15 @@ describe('assistant main IPC handler', () => {
   expect(dispatch).toHaveBeenCalledTimes(3)
  })
 })
+
+it('rejects a raw internal playback action from even the trusted main frame before dispatch', async () => {
+ const {window, event} = fixture(),
+  dispatch = vi.fn(),
+  failed = vi.fn()
+ const invoke = createAssistantInvoke(window, dispatch, failed)
+ expect(await invoke(event, 'video-ppt:playback-source', {id: 'ignored'})).toEqual({
+  ok: false,
+  error: {code: 'INPUT_INVALID', message: '不允许直接请求内部媒体来源'}
+ })
+ expect(dispatch).not.toHaveBeenCalled()
+})

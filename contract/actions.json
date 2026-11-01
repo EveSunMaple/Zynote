@@ -1,6 +1,6 @@
 {
  "schema": 1,
- "total": 160,
+ "total": 162,
  "actions": [
   {
    "action": "runtime:install",
@@ -961,6 +961,18 @@
    "source": "bili.go",
    "phase": 6,
    "backend": "go"
+  },
+  {
+   "action": "managed-media:open",
+   "source": "managed-playback.ts",
+   "phase": 6,
+   "backend": "shell"
+  },
+  {
+   "action": "managed-media:close",
+   "source": "managed-playback.ts",
+   "phase": 6,
+   "backend": "shell"
   }
  ]
 }

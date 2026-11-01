@@ -69,7 +69,8 @@ const SLOW_ACTIONS = new Set([
  'zhiyun:lessons',
  'settings:models',
  'tools:request',
- 'subtitle-derived:audit-publication'
+ 'subtitle-derived:audit-publication',
+ 'video-ppt:playback-source'
 ])
 function callTimeout(action: string) {
  if (LONG_RUNNING_ACTIONS.has(action)) return LONG_CALL_TIMEOUT_MS
@@ -99,6 +100,7 @@ export type GoCoreOptions = {
  services: Record<string, ShellService>
  onEvent: (event: EventPayload) => void
  onFailed: (reason: string) => void
+ onUnavailable?: () => void
 }
 
 export function nativeBinaryPath() {
@@ -294,6 +296,7 @@ export class GoCore {
  }
 
  private handleExit(code: number | null | undefined, signal: string | null | undefined, reason?: string) {
+  this.options.onUnavailable?.()
   const wasReady = this.status === 'ready'
   this.child = undefined
   this.status = wasReady ? 'restarting' : 'failed'
