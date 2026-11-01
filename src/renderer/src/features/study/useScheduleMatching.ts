@@ -264,7 +264,7 @@ export function useScheduleMatching(
      continue
     }
     try {
-     await processGroup(group, current)
+     await processGroup(group, current) // NOSONAR: 队列逐个处理以保持匹配顺序并复用同一批状态更新。
     } catch (error) {
      const message = errorMessage(error)
      if (loginNeeded(message)) loginError = message
