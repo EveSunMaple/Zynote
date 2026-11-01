@@ -20,6 +20,8 @@ const LONG_RUNNING_ACTIONS = new Set([
  'settings:probe',
  'settings:test',
  'knowledge:ask',
+ // 导入时先弹出文件选择框（用户可能停留很久），再逐个解析 PDF/Word。
+ 'knowledge:import',
  'knowledge:organize',
  'knowledge:rebuild',
  'notes:generate',

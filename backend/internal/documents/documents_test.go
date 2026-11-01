@@ -5,6 +5,9 @@ import (
 	"bytes"
 	"strings"
 	"testing"
+
+	"golang.org/x/text/encoding/traditionalchinese"
+	"golang.org/x/text/encoding/unicode"
 )
 
 func TestParseSrt(t *testing.T) {
@@ -111,6 +114,41 @@ func writeDocxZip(t *testing.T, xml string) []byte {
 		t.Fatal(err)
 	}
 	return buffer.Bytes()
+}
+
+func TestDecodeTextFileEncodings(t *testing.T) {
+	utf16, err := unicode.UTF16(unicode.LittleEndian, unicode.IgnoreBOM).NewEncoder().Bytes([]byte("UTF-16 讲义"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := DecodeTextFile(append([]byte{0xFF, 0xFE}, utf16...)); got != "UTF-16 讲义" {
+		t.Fatalf("utf-16 decode mismatch: %q", got)
+	}
+	big5, err := traditionalchinese.Big5.NewEncoder().Bytes([]byte("繁體講義"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := decodeTextWith(traditionalchinese.Big5, big5); got != "繁體講義" {
+		t.Fatalf("big5 decode mismatch: %q", got)
+	}
+	if got := DecodeTextFile(append([]byte{0xEF, 0xBB, 0xBF}, []byte("BOM 文本")...)); got != "BOM 文本" {
+		t.Fatalf("utf-8 bom decode mismatch: %q", got)
+	}
+}
+
+func TestParseDocxTabAndTrackedChanges(t *testing.T) {
+	xml := `<w:document><w:body><w:p><w:r><w:t>第一段</w:t><w:tab/><w:t>同段</w:t></w:r></w:p>` +
+		`<w:p><w:r><w:delText>已删除</w:delText><w:instrText>域代码</w:instrText><w:t>保留</w:t></w:r></w:p></w:body></w:document>`
+	text, err := ParseDocx(writeDocxZip(t, xml))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(text, "第一段 同段") {
+		t.Fatalf("tab should become a space: %q", text)
+	}
+	if strings.Contains(text, "已删除") || strings.Contains(text, "域代码") || !strings.Contains(text, "保留") {
+		t.Fatalf("tracked changes should be removed: %q", text)
+	}
 }
 
 func TestParseDocx(t *testing.T) {
