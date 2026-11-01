@@ -8,6 +8,8 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"runtime"
+	"strings"
 
 	"github.com/EveSunMaple/Zynote/backend/internal/contract"
 	"github.com/EveSunMaple/Zynote/backend/internal/videoppt"
@@ -16,6 +18,78 @@ import (
 // Completed journals contain generated text as well as metadata. Only this new
 // bound observer has a 64MiB read ceiling; legacy text recovery retains Read.
 const boundJournalMaximumBytes = int64(64 * 1024 * 1024)
+
+func bindingSafeRegular(path string) (os.FileInfo, error) {
+	info, err := os.Lstat(path)
+	if err != nil || !info.Mode().IsRegular() {
+		return nil, fmt.Errorf("播放绑定记录不可用")
+	}
+	resolved, err := filepath.EvalSymlinks(path)
+	equal := filepath.Clean(resolved) == filepath.Clean(path)
+	if runtime.GOOS == "windows" {
+		equal = strings.EqualFold(filepath.Clean(resolved), filepath.Clean(path))
+	}
+	if err != nil || !equal {
+		return nil, fmt.Errorf("播放绑定记录路径无效")
+	}
+	return info, nil
+}
+
+// ReadBoundAuthority observes the original immutable creation authority. It
+// checks that the journal remains safely readable, but does not read or attest
+// its mutable generated text. New opens still use the full ReadBoundTask.
+func (service *Service) ReadBoundAuthority(ctx context.Context, id, bindingSHA, authoritySHA string) (Task, error) {
+	if !validUUID(id) || !recipeHashPattern.MatchString(bindingSHA) || !recipeHashPattern.MatchString(authoritySHA) {
+		return Task{}, fmt.Errorf("播放绑定引用无效")
+	}
+	if err := ctx.Err(); err != nil {
+		return Task{}, err
+	}
+	journal := filepath.Join(service.Root, id+".json")
+	before, err := bindingSafeRegular(journal)
+	if err != nil {
+		return Task{}, err
+	}
+	file, err := os.Open(journal)
+	if err != nil {
+		return Task{}, err
+	}
+	opened, statErr := file.Stat()
+	closeErr := file.Close()
+	after, afterErr := bindingSafeRegular(journal)
+	if statErr != nil || closeErr != nil || afterErr != nil || !os.SameFile(before, opened) || !os.SameFile(opened, after) {
+		return Task{}, fmt.Errorf("播放绑定任务不可读")
+	}
+	path := filepath.Join(service.Root, id+".playback-binding.json")
+	if _, err := bindingSafeRegular(path); err != nil {
+		return Task{}, err
+	}
+	body, err := readBindingAuthority(path)
+	if err != nil {
+		return Task{}, err
+	}
+	if digest(string(body)) != authoritySHA {
+		return Task{}, fmt.Errorf("播放绑定权威记录已改变")
+	}
+	var authority bindingAuthority
+	decoder := json.NewDecoder(bytes.NewReader(body))
+	decoder.DisallowUnknownFields()
+	if decoder.Decode(&authority) != nil || decoder.Decode(&struct{}{}) != io.EOF || authority.Version != 1 || authority.TaskID != id {
+		return Task{}, fmt.Errorf("播放绑定权威身份无效")
+	}
+	binding := authority.Binding
+	task := Task{ID: id, CourseName: authority.Course, RequestHash: authority.RequestHash, Items: []Item{{Source: authority.Source, Mode: authority.Mode, SourceBinding: &binding, SourceBindingSHA256: bindingSHA, BindingAuthoritySHA256: authoritySHA}}}
+	if err := service.validateTaskBinding(task); err != nil {
+		return Task{}, err
+	}
+	if _, err := service.validateSources([]Source{authority.Source}); err != nil || !validMode(authority.Mode) {
+		return Task{}, fmt.Errorf("播放绑定来源无效")
+	}
+	if err := ctx.Err(); err != nil {
+		return Task{}, err
+	}
+	return task, nil
+}
 
 // ExistingRetainedOperation checks immutable creation identity, not current
 // media availability. Run still live-checks any as-yet undispatched provider.
@@ -47,7 +121,7 @@ func (service *Service) ReadBoundTask(ctx context.Context, id string) (Task, err
 		return Task{}, err
 	}
 	path := filepath.Join(service.Root, id+".json")
-	before, err := os.Lstat(path)
+	before, err := bindingSafeRegular(path)
 	if err != nil || !before.Mode().IsRegular() || before.Size() > boundJournalMaximumBytes {
 		return Task{}, fmt.Errorf("播放绑定任务过大或不可用；文字成果保留")
 	}
@@ -79,7 +153,7 @@ func (service *Service) ReadBoundTask(ctx context.Context, id string) (Task, err
 			return Task{}, readErr
 		}
 	}
-	after, err := os.Lstat(path)
+	after, err := bindingSafeRegular(path)
 	if err != nil || int64(body.Len()) != opened.Size() || before.Size() != opened.Size() || !before.ModTime().Equal(opened.ModTime()) || !os.SameFile(opened, after) || after.Size() != opened.Size() || !after.ModTime().Equal(opened.ModTime()) {
 		return Task{}, fmt.Errorf("播放绑定任务身份不一致")
 	}
@@ -147,7 +221,7 @@ func (service *Service) createBindingAuthority(task *Task) error {
 }
 
 func readBindingAuthority(path string) ([]byte, error) {
-	before, err := os.Lstat(path)
+	before, err := bindingSafeRegular(path)
 	if err != nil || !before.Mode().IsRegular() || before.Size() > 65536 {
 		return nil, fmt.Errorf("播放绑定记录无效")
 	}
@@ -161,7 +235,7 @@ func readBindingAuthority(path string) ([]byte, error) {
 		return nil, fmt.Errorf("播放绑定记录无效")
 	}
 	body, err := io.ReadAll(io.LimitReader(file, 65537))
-	after, statErr := os.Lstat(path)
+	after, statErr := bindingSafeRegular(path)
 	if err != nil || statErr != nil || len(body) > 65536 || int64(len(body)) != opened.Size() || !os.SameFile(opened, after) || after.Size() != opened.Size() || !after.ModTime().Equal(opened.ModTime()) {
 		return nil, fmt.Errorf("播放绑定记录无效")
 	}

@@ -61,8 +61,17 @@ func TestPrivateBoundPlaybackUsesOriginalAuthorityAndExactSavedSRT(t *testing.T)
 	body, _ := json.Marshal(declaration)
 	var projected map[string]any
 	_ = json.Unmarshal(body, &projected)
-	if len(projected) != 8 || projected["taskID"] != video.ID {
+	if len(projected) != 10 || projected["taskID"] != video.ID {
 		t.Fatal("unexpected declaration", projected)
+	}
+	checkQuery, _ := json.Marshal(map[string]any{"summaryTaskID": task.ID, "itemIndex": 0, "expectedSourceBindingSHA256": task.Items[0].SourceBindingSHA256, "expectedBindingAuthoritySHA256": projected["bindingAuthoritySHA256"]})
+	checked, err := inv.handleBoundPlaybackCheck(nil, state, checkQuery)
+	if err != nil {
+		t.Fatal(err)
+	}
+	checkedBody, _ := json.Marshal(checked)
+	if string(checkedBody) != string(body) {
+		t.Fatal("initial and continuous declaration differ", string(body), string(checkedBody))
 	}
 	public := projectSubtitleTask(task)
 	if public.Items[0].SourceBinding != nil || public.Items[0].BindingAuthoritySHA256 != "" || public.Items[0].SourceBindingSHA256 == "" {
@@ -82,6 +91,9 @@ func TestPrivateBoundPlaybackUsesOriginalAuthorityAndExactSavedSRT(t *testing.T)
 	}
 	if _, err := inv.handleBoundPlaybackSource(nil, state, request); err == nil {
 		t.Fatal("changed saved SRT playable")
+	}
+	if _, err := inv.handleBoundPlaybackCheck(nil, state, checkQuery); err == nil {
+		t.Fatal("continuous check accepted changed SRT")
 	}
 	if _, err := subtitleDerivedService(state).Read(task.ID); err != nil {
 		t.Fatal("live failure invalidated historical identity", err)

@@ -122,9 +122,12 @@ describe('GoCore request timeouts', () => {
   expect(await allRequests).toEqual(actions.map(action => ({action})))
   expect(completed).toBe(actions.length)
 
-  let defaultError: unknown, slowError: unknown, longError: unknown, boundError: unknown
+  let defaultError: unknown, slowError: unknown, longError: unknown, boundError: unknown, boundCheckError: unknown
   const bound = core.call('video-ppt:bound-playback-source', {}).catch(error => {
    boundError = error
+  })
+  const boundCheck = core.call('video-ppt:bound-playback-check', {}).catch(error => {
+   boundCheckError = error
   })
   const ordinary = core.call('health', {}).catch(error => {
    defaultError = error
@@ -135,11 +138,13 @@ describe('GoCore request timeouts', () => {
   const long = core.call('subtitle-derived:start', {}).catch(error => {
    longError = error
   })
-  await until(() => received.length === actions.length + 4)
+  await until(() => received.length === actions.length + 5)
   await vi.advanceTimersByTimeAsync(5999)
   expect(boundError).toBeUndefined()
+  expect(boundCheckError).toBeUndefined()
   await vi.advanceTimersByTimeAsync(1)
   expect(boundError).toEqual(new Error('Go 后端请求超时'))
+  expect(boundCheckError).toEqual(new Error('Go 后端请求超时'))
   expect(defaultError).toBeUndefined()
   await vi.advanceTimersByTimeAsync(3999)
   expect(defaultError).toBeUndefined()
@@ -156,7 +161,7 @@ describe('GoCore request timeouts', () => {
   expect(longError).toBeUndefined()
   await vi.advanceTimersByTimeAsync(1)
   expect(longError).toEqual(new Error('Go 后端请求超时'))
-  await Promise.all([bound, ordinary, slow, long])
+  await Promise.all([bound, boundCheck, ordinary, slow, long])
 
   const malformed = (id: string) => [
    null,

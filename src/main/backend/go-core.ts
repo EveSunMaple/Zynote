@@ -76,7 +76,7 @@ const SLOW_ACTIONS = new Set([
  'video-ppt:playback-source'
 ])
 function callTimeout(action: string) {
- if (action === 'video-ppt:bound-playback-source') return 6000
+ if (action === 'video-ppt:bound-playback-source' || action === 'video-ppt:bound-playback-check') return 6000
  if (LONG_RUNNING_ACTIONS.has(action)) return LONG_CALL_TIMEOUT_MS
  if (SLOW_ACTIONS.has(action)) return SLOW_CALL_TIMEOUT_MS
  return CALL_TIMEOUT_MS

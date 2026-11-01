@@ -22,6 +22,10 @@ export const playbackDeclarationSchema = z
  })
  .strict()
 export type PlaybackDeclaration = z.infer<typeof playbackDeclarationSchema>
+export const boundPlaybackDeclarationSchema = playbackDeclarationSchema
+ .extend({sourceBindingSHA256: playbackSHA, bindingAuthoritySHA256: playbackSHA})
+ .strict()
+export type BoundPlaybackDeclaration = z.infer<typeof boundPlaybackDeclarationSchema>
 
 export const playbackReleaseSchema = z
  .object({

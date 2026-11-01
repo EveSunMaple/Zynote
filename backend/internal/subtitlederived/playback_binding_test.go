@@ -1,6 +1,7 @@
 package subtitlederived
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -185,5 +186,85 @@ func TestBoundDerivedObserverHasJournalReadBoundAndCancellation(t *testing.T) {
 	_ = file.Close()
 	if _, err := service.ReadBoundTask(context.Background(), task.ID); err == nil {
 		t.Fatal("oversized bound journal accepted")
+	}
+}
+
+func TestBoundAuthorityObservesExactOriginalRecordWithoutJournalBody(t *testing.T) {
+	service, task, _, _ := boundDerivedFixture(t)
+	item := task.Items[0]
+	read := func() (Task, error) {
+		return service.ReadBoundAuthority(context.Background(), task.ID, item.SourceBindingSHA256, item.BindingAuthoritySHA256)
+	}
+	if _, err := read(); err != nil {
+		t.Fatal(err)
+	}
+	journal := filepath.Join(service.Root, task.ID+".json")
+	// Existing-token checks observe the immutable creation identity, not mutable
+	// generated content. A new open must still reject a damaged full journal.
+	if err := os.WriteFile(journal, []byte("not valid task JSON"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if original, err := read(); err != nil || original.Items[0].SourceBindingSHA256 != item.SourceBindingSHA256 {
+		t.Fatal("small authority incorrectly reread mutable journal body", err)
+	}
+	if _, err := service.ReadBoundTask(context.Background(), task.ID); err == nil {
+		t.Fatal("new open accepted damaged journal")
+	}
+	if err := os.Remove(journal); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := read(); err == nil {
+		t.Fatal("missing journal remained observable")
+	}
+	if err := service.save(task); err != nil {
+		t.Fatal(err)
+	}
+	authority := filepath.Join(service.Root, task.ID+".playback-binding.json")
+	before, err := os.Stat(authority)
+	if err != nil {
+		t.Fatal(err)
+	}
+	body, err := os.ReadFile(authority)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Reordering object keys keeps valid JSON semantics, byte length, and mtime;
+	// only an exact byte check can distinguish it from the original authority.
+	var fields map[string]json.RawMessage
+	if err := json.Unmarshal(body, &fields); err != nil {
+		t.Fatal(err)
+	}
+	reordered, err := json.Marshal(fields)
+	if err != nil || len(reordered) != len(body) || bytes.Equal(reordered, body) {
+		t.Fatal("fixture must change valid authority bytes without changing length", err)
+	}
+	if err := os.WriteFile(authority, reordered, 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chtimes(authority, before.ModTime(), before.ModTime()); err != nil {
+		t.Fatal(err)
+	}
+	after, err := os.Stat(authority)
+	if err != nil || after.Size() != before.Size() || !after.ModTime().Equal(before.ModTime()) {
+		t.Fatal("fixture did not preserve authority size and mtime", err)
+	}
+	if _, err := read(); err == nil {
+		t.Fatal("same-size authority bytes accepted with restored mtime")
+	}
+	// Whitespace preserves JSON meaning but changes the exact immutable bytes.
+	body = append(body, ' ')
+	if err := os.WriteFile(authority, body, 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chtimes(authority, before.ModTime(), before.ModTime()); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := read(); err == nil {
+		t.Fatal("changed authority bytes accepted with restored mtime")
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	if _, err := service.ReadBoundAuthority(ctx, task.ID, item.SourceBindingSHA256, item.BindingAuthoritySHA256); !errors.Is(err, context.Canceled) {
+		t.Fatal(err)
 	}
 }

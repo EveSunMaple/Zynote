@@ -59,6 +59,7 @@ it('rejects a raw internal playback action from even the trusted main frame befo
 
 it.each([
  'video-ppt:bound-playback-source',
+ 'video-ppt:bound-playback-check',
  'video-ppt:prepare-playback-release',
  'video-ppt:finalize-playback-release'
 ])('denies private release action %s before dispatch', async action => {

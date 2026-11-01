@@ -18,6 +18,7 @@ export function createAssistantInvoke(
     [
      'video-ppt:playback-source',
      'video-ppt:bound-playback-source',
+     'video-ppt:bound-playback-check',
      'video-ppt:prepare-playback-release',
      'video-ppt:finalize-playback-release'
     ].includes(validated)

@@ -105,8 +105,13 @@ func TestRetainedSummaryPublicQueueHTTPAndPrivateDeclaration(t *testing.T) {
 	}
 	var declared map[string]any
 	_ = json.Unmarshal(declaration, &declared)
-	if len(declared) != 8 || declared["taskID"] != task.ID || declared["sourceSHA256"] != hash {
+	if len(declared) != 10 || declared["taskID"] != task.ID || declared["sourceSHA256"] != hash {
 		t.Fatal("declaration mismatch", string(declaration))
+	}
+	continuousQuery := map[string]any{"summaryTaskID": ref["summaryTaskID"], "itemIndex": 0, "expectedSourceBindingSHA256": ref["sourceBindingSHA256"], "expectedBindingAuthoritySHA256": declared["bindingAuthoritySHA256"]}
+	continuous, reply := f.call("video-ppt:bound-playback-check", continuousQuery)
+	if reply != nil || string(continuous) != string(declaration) {
+		t.Fatal("continuous authority wire mismatch", reply, string(continuous))
 	}
 	if _, reply := f.call("video-ppt:summary-from-retained", request); reply != nil || calls.Load() != 1 {
 		t.Fatal("new public retry replayed provider", reply, calls.Load())
@@ -120,6 +125,9 @@ func TestRetainedSummaryPublicQueueHTTPAndPrivateDeclaration(t *testing.T) {
 	}
 	if _, reply := f.call("video-ppt:bound-playback-source", query); reply == nil {
 		t.Fatal("missing video remained live")
+	}
+	if _, reply := f.call("video-ppt:bound-playback-check", continuousQuery); reply == nil {
+		t.Fatal("continuous check accepted missing media")
 	}
 	if _, reply := f.call("video-ppt:summary-from-retained", request); reply != nil || calls.Load() != 2 {
 		t.Fatal("same-ID text recovery required live media", reply, calls.Load())

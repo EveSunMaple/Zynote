@@ -264,6 +264,7 @@ func registerActions(inv *Invoker) map[string]actionFunc {
 		"video-ppt:summary":                   actionWithState(inv.handleVideoSummary),
 		"video-ppt:summary-from-retained":     actionWithState(inv.handleSummaryFromRetained),
 		"video-ppt:bound-playback-source":     actionWithState(inv.handleBoundPlaybackSource),
+		"video-ppt:bound-playback-check":      actionWithState(inv.handleBoundPlaybackCheck),
 		"video-ppt:notes-export":              actionWithState(inv.handleVideoNotesExport),
 		"video-ppt:batch":                     actionWithState(inv.handleVideoBatch),
 		"video-ppt:batch-subtitles":           actionWithState(inv.handleVideoBatchSubtitles),
