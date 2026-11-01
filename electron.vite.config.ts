@@ -17,7 +17,9 @@ const devCsp: Plugin = {
   if (!context.server) return html
   // Only add the listening Vite server's WebSocket origins for hot reload.
   const sockets = context.server.resolvedUrls?.local.map(url => new URL(url.replace(/^http/, 'ws')).origin) ?? []
-  return html.replace("connect-src 'self'", ["connect-src 'self'", ...sockets].join(' '))
+  return html
+   .replace("connect-src 'self'", ["connect-src 'self'", ...sockets].join(' '))
+   .replace("style-src 'self';", "style-src 'self' 'unsafe-inline';")
  }
 }
 const mainAlias = {...sharedAlias, '@main': resolve('src/main')}

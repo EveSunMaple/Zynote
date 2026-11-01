@@ -7,8 +7,7 @@ import {_electron, type ElectronApplication} from 'playwright'
 const appIndex = process.argv.indexOf('--app')
 if (appIndex < 0 || !process.argv[appIndex + 1])
  throw new Error('Usage: node scripts/migration-drill.mts --app <packaged executable>')
-// NOSONAR: manual migration drill intentionally requires the operator-provided sqlite3 CLI on PATH.
-if (spawnSync('sqlite3', ['--version']).status !== 0) throw new Error('sqlite3 CLI is required for the migration drill')
+if (spawnSync('sqlite3', ['--version']).status !== 0) throw new Error('sqlite3 CLI is required for the migration drill') // NOSONAR: manual migration drill intentionally requires the operator-provided sqlite3 CLI on PATH.
 const executablePath = resolve(process.argv[appIndex + 1])
 const root = await mkdtemp(join(tmpdir(), 'zynote-migration-drill-'))
 const legacy = join(root, '资料')
@@ -16,12 +15,10 @@ const library = join(root, 'Library')
 const database = join(root, 'assistant.db')
 let application: ElectronApplication | undefined
 function sql(lines: string, db = database) {
- // NOSONAR: manual drill uses the operator-provided sqlite3 CLI.
- execFileSync('sqlite3', [db], {input: lines})
+ execFileSync('sqlite3', [db], {input: lines}) // NOSONAR: manual drill uses the operator-provided sqlite3 CLI.
 }
 function query(statement: string, db = database) {
- // NOSONAR: manual drill uses the operator-provided sqlite3 CLI.
- return execFileSync('sqlite3', [db, statement], {encoding: 'utf8'}).trim()
+ return execFileSync('sqlite3', [db, statement], {encoding: 'utf8'}).trim() // NOSONAR: manual drill uses the operator-provided sqlite3 CLI.
 }
 try {
  await mkdir(join(legacy, 'PPT'), {recursive: true})
