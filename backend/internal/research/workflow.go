@@ -339,3 +339,53 @@ func marshalJSON(value any) ([]byte, error)        { return jsonMarshal(value) }
 func unmarshalJSON(value []byte, target any) error { return jsonUnmarshal(value, target) }
 func jsonMarshal(value any) ([]byte, error)        { return json.Marshal(value) }
 func jsonUnmarshal(value []byte, target any) error { return json.Unmarshal(value, target) }
+
+// DeleteTask 删除一条研究记录。运行中的要先停止；属于工作流某一步的只能随工作流一起删除，
+// 否则工作流会因缺少步骤记录而无法再核验导出。已保存的笔记是独立副本，不受影响。
+func (engine *Engine) DeleteTask(id string) (any, error) {
+	task, err := engine.readTask(id)
+	if err != nil {
+		return nil, err
+	}
+	if task.Status == "running" {
+		return nil, fmt.Errorf("研究仍在运行，请先停止")
+	}
+	for _, row := range engine.ListWorkflows() {
+		encoded, _ := marshalJSON(row)
+		var flow Workflow
+		if unmarshalJSON(encoded, &flow) != nil {
+			continue
+		}
+		for _, step := range flow.Steps {
+			if step.TaskID != nil && *step.TaskID == id {
+				return nil, fmt.Errorf("这条研究是工作流的一步，请删除整个工作流")
+			}
+		}
+	}
+	if err := engine.Store.Delete("task", id); err != nil {
+		return nil, err
+	}
+	return map[string]any{"id": id, "deleted": true}, nil
+}
+
+// DeleteWorkflow 删除工作流及其各步研究记录；运行中的要先停止。
+func (engine *Engine) DeleteWorkflow(id string) (any, error) {
+	flow, err := engine.readWorkflow(id)
+	if err != nil {
+		return nil, err
+	}
+	if flow.Status == "running" {
+		return nil, fmt.Errorf("工作流仍在运行，请先停止")
+	}
+	for _, step := range flow.Steps {
+		if step.TaskID != nil {
+			if err := engine.Store.Delete("task", *step.TaskID); err != nil {
+				return nil, err
+			}
+		}
+	}
+	if err := engine.Store.Delete("workflow", id); err != nil {
+		return nil, err
+	}
+	return map[string]any{"id": id, "deleted": true}, nil
+}

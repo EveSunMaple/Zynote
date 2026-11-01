@@ -5,6 +5,7 @@ import ReactMarkdown from 'react-markdown'
 import {LearningRecords} from '@renderer/features/tools/LearningRecords'
 import {SavedLearningNotes} from '@renderer/features/tools/SavedLearningNotes'
 import {RunProgress, type RunProgressValue} from '@renderer/features/tools/RunProgress'
+import {DeleteRecord} from '@renderer/features/tools/DeleteRecord'
 import {notify} from '@renderer/ui/ToastHost'
 import {SettingsLink} from '@renderer/app/settings-navigation'
 import remarkGfm from 'remark-gfm'
@@ -537,6 +538,13 @@ export function ToolsWorkbench({visible, close}: Readonly<{visible: boolean; clo
          保存工作流成果
         </Button>
        )}
+       {task.status !== 'running' && (
+        <DeleteRecord
+         label="删除工作流"
+         isDisabled={busy}
+         onDelete={() => void run(() => request('workflow-delete', {id: task.workflow_id}))}
+        />
+       )}
       </Card>
      ))}
      {data.tasks.map(task => (
@@ -594,6 +602,13 @@ export function ToolsWorkbench({visible, close}: Readonly<{visible: boolean; clo
         >
          保存研究成果
         </Button>
+       )}
+       {task.status !== 'running' && (
+        <DeleteRecord
+         label="删除这条研究"
+         isDisabled={busy}
+         onDelete={() => void run(() => request('agent-delete', {id: task.task_id}))}
+        />
        )}
       </Card>
      ))}

@@ -133,6 +133,11 @@ func (store *Store) Put(kind, id string, revision int, value any) error {
 	return err
 }
 
+func (store *Store) Delete(kind, id string) error {
+	_, err := store.db.Exec("DELETE FROM research_records WHERE kind=? AND id=?", kind, id)
+	return err
+}
+
 func (store *Store) Operation(op string, request any, run func() (any, error)) (any, error) {
 	if !opPattern.MatchString(op) {
 		return nil, fmt.Errorf("操作编号无效")

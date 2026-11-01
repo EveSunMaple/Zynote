@@ -827,7 +827,11 @@ func (external *External) searchChannel(ctx context.Context, channel, query stri
 
 // Search 逐渠道独立检索：单个渠道失败记为跳过，只有所有渠道都失败时才返回错误。
 func (external *External) Search(ctx context.Context, channels []string, question string, web any) ([]ExternalEvidence, []ExternalSkip, error) {
-	query := trimText(strings.TrimSpace(question), 200)
+	return external.SearchQueries(ctx, channels, nil, question, web)
+}
+
+// SearchQueries 按渠道使用各自的检索词（如学术渠道用英文关键词），未指定的渠道用 question。
+func (external *External) SearchQueries(ctx context.Context, channels []string, queries map[string]string, question string, web any) ([]ExternalEvidence, []ExternalSkip, error) {
 	rows := []ExternalEvidence{}
 	skips := []ExternalSkip{}
 	failures := externalChannelErrors{}
@@ -835,7 +839,11 @@ func (external *External) Search(ctx context.Context, channels []string, questio
 		if err := ctx.Err(); err != nil {
 			return nil, nil, err
 		}
-		values, err := external.searchChannel(ctx, channel, query, web)
+		query := queries[channel]
+		if query == "" {
+			query = question
+		}
+		values, err := external.searchChannel(ctx, channel, trimText(strings.TrimSpace(query), 200), web)
 		if err != nil {
 			if ctxErr := ctx.Err(); ctxErr != nil {
 				return nil, nil, ctxErr

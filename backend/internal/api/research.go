@@ -297,7 +297,7 @@ func (inv *Invoker) handleToolsRequest(storeState contract.StateStore, state *co
 		}
 		return result, nil
 	case "agent-create", "agent-read", "agent-stop", "agent-export", "memory-accept", "note-preview", "note-save",
-		"workflow-create", "workflow-action", "workflow-export":
+		"workflow-create", "workflow-action", "workflow-export", "agent-delete", "workflow-delete":
 		engine, err := inv.researchEngine(storeState, state, store)
 		if err != nil {
 			return nil, err
@@ -330,6 +330,10 @@ func (inv *Invoker) handleToolsRequest(storeState contract.StateStore, state *co
 			return engine.CreateWorkflow(context.Background(), input.Args)
 		case "workflow-action":
 			return engine.ActionWorkflow(context.Background(), input.Args)
+		case "agent-delete":
+			return engine.DeleteTask(textValue(input.Args["id"]))
+		case "workflow-delete":
+			return engine.DeleteWorkflow(textValue(input.Args["id"]))
 		default:
 			return engine.ExportWorkflow(textValue(input.Args["id"]))
 		}
