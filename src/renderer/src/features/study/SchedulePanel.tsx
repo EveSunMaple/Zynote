@@ -8,6 +8,7 @@ import {Modal} from '@renderer/ui/UiParts'
 import {WindowMenuButton} from '@renderer/ui/WindowPanel'
 import {StudyField} from '@renderer/features/study/Field'
 import {StudyNextStep} from '@renderer/features/study/StudyNextStep'
+import {ScheduleExamples} from '@renderer/features/study/ScheduleExamples'
 import {ScheduleImportStatus, type ScheduleImportState} from '@renderer/features/study/ScheduleImportStatus'
 import {WeeklyFields, WeeklySchedule, periodName, weekdayName} from '@renderer/features/study/WeeklySchedule'
 import {
@@ -219,7 +220,10 @@ export function ScheduleContent(props: ScheduleProps & {children: (toolsOpen: bo
         保存空课表
        </Button>
       )}
-      {uploadButton}
+      <div className="schedule-workspace__actions">
+       {uploadButton}
+       <ScheduleExamples />
+      </div>
       {!uploading && feedback}
      </section>
     ) : (
@@ -241,6 +245,7 @@ export function ScheduleContent(props: ScheduleProps & {children: (toolsOpen: bo
        </div>
        <div className="schedule-workspace__actions">
         {uploadButton}
+        <ScheduleExamples />
         {reviewId && (
          <Button
           variant={reviewRequired && !importStatus?.error ? 'primary' : 'tertiary'}

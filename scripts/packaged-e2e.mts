@@ -80,6 +80,17 @@ try {
   if ((await more.getAttribute('aria-expanded')) !== 'true') await more.click()
  }
  await upload.waitFor()
+ await page.getByRole('button', {name: '查看示例', exact: true}).click()
+ const examples = page.getByRole('dialog', {name: '课表截图示例', exact: true})
+ for (const label of ['教务系统', '手机彩色', '手机单色']) {
+  await examples.getByRole('tab', {name: label, exact: true}).click()
+  await examples
+   .getByRole('tabpanel', {name: label, exact: true})
+   .locator('img')
+   .evaluate((image: HTMLImageElement) => image.decode())
+ }
+ await page.keyboard.press('Escape')
+ await examples.waitFor({state: 'hidden'})
  const guide = page.locator('.study-next-step:visible')
  check((await guide.innerText()).includes('上传课表图片'), 'empty schedule guide must name the import action')
  check(
