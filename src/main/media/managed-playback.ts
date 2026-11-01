@@ -1,7 +1,14 @@
-import {createHash, randomBytes} from 'node:crypto'
+import {createHash, randomBytes, randomUUID} from 'node:crypto'
 import {open, lstat, realpath, type FileHandle} from 'node:fs/promises'
 import {join, resolve, isAbsolute} from 'node:path'
-import {playbackDeclarationSchema, playbackOpenSchema, type PlaybackDeclaration} from '@shared/managed-playback'
+import {
+ playbackDeclarationSchema,
+ playbackOpenSchema,
+ playbackReleaseSchema,
+ playbackReleaseResultSchema,
+ playbackReleasePrepareSchema,
+ type PlaybackDeclaration
+} from '@shared/managed-playback'
 
 const BLOCK = 1024 * 1024
 const MAX_SIZE = 8 * 1024 ** 3
@@ -11,6 +18,13 @@ const LIMIT = 32 * 1024 ** 3
 let globalReservations = 0
 let globalHashing = false
 let globalStreams = 0
+const playbackOwners = new Set<ManagedPlayback>()
+const releaseFences = new Set<string>()
+const releasesInFlight = new Set<string>()
+function taskFence(root: string, id: string) {
+ const key = join(managedRoot(root), 'VideoTasks', id)
+ return process.platform === 'win32' ? key.toLowerCase() : key
+}
 export function playbackFailure(code: string, message: string) {
  return Object.assign(new Error(message), {code})
 }
@@ -43,6 +57,7 @@ function waitWithAbort<T>(work: Promise<T>, signal: AbortSignal): Promise<T> {
 export type PlaybackToken = {
  id: string
  requestID: string
+ taskID: string
  file: FileHandle
  size: number
  hashes: string[]
@@ -82,23 +97,11 @@ async function openManaged(libraryRoot: string, taskID: string) {
  const path = join(base, 'VideoTasks', taskID, 'video.mp4')
  const before = await safeFile(path)
  const file = await open(path, 'r')
- try {
-  const info = await file.stat(),
-   after = await safeFile(path)
-  if (
-   info.dev !== before.dev ||
-   info.ino !== before.ino ||
-   info.dev !== after.dev ||
-   info.ino !== after.ino ||
-   !info.isFile()
-  )
-   throw unavailable()
-  return {file, info}
- } catch (error) {
-  await file.close()
-  throw error
- }
+ // No await/validation after open here: the caller must own the handle before
+ // any fallible post-open work so every failure enters its physical-close ledger.
+ return {file, before, path}
 }
+
 async function readBlock(file: FileHandle, index: number, size: number, signal: AbortSignal) {
  check(signal)
  const position = index * BLOCK,
@@ -121,9 +124,14 @@ function containerMime(block: Buffer) {
  return 'application/octet-stream'
 }
 
+type ClosingHandle = Pick<PlaybackToken, 'taskID' | 'file' | 'reads'>
 export class ManagedPlayback {
  private readonly tokens = new Map<string, PlaybackToken>()
  private readonly pending = new Map<string, AbortController>()
+ private readonly pendingTasks = new Map<string, string>()
+ private readonly mintTasks = new Map<Promise<unknown>, string>()
+ private readonly failedCloses = new Set<ClosingHandle>()
+ private readonly closingTasks = new Map<Promise<void>, string>()
  private readonly requests = new Map<string, {fingerprint: string; tokenID?: string}>()
  private readonly closing = new Set<Promise<void>>()
  private readonly mints = new Set<Promise<unknown>>()
@@ -132,8 +140,10 @@ export class ManagedPlayback {
  private readonly cleanupTimer: ReturnType<typeof setInterval>
  constructor(
   private readonly libraryRoot: string,
-  private readonly declaration: (taskID: string, sha: string) => Promise<unknown>
+  private readonly declaration: (taskID: string, sha: string) => Promise<unknown>,
+  private readonly releaseCall?: (action: string, input: Record<string, unknown>) => Promise<unknown>
  ) {
+  playbackOwners.add(this)
   this.cleanupTimer = setInterval(() => this.expire(), 15000)
   this.cleanupTimer.unref?.()
  }
@@ -141,6 +151,7 @@ export class ManagedPlayback {
   const input = playbackOpenSchema.parse(raw)
   managedRoot(this.libraryRoot)
   if (this.disposed) throw unavailable()
+  if (releaseFences.has(taskFence(this.libraryRoot, input.videoTaskID))) throw playbackFailure('BUSY', '该视频正在释放')
   const fingerprint = JSON.stringify(input),
    existing = this.requests.get(input.requestID)
   if (existing) throw playbackFailure(existing.fingerprint === fingerprint ? 'BUSY' : 'CONFLICT', '媒体请求编号已使用')
@@ -152,11 +163,18 @@ export class ManagedPlayback {
   globalHashing = true
   const controller = new AbortController()
   this.pending.set(input.requestID, controller)
+  this.pendingTasks.set(input.requestID, input.videoTaskID)
   this.requests.set(input.requestID, {fingerprint})
   const deadline = setTimeout(() => controller.abort(playbackFailure('TIMEOUT', '媒体核验超时')), 120000)
   const work = this.mint(input, controller, fingerprint, deadline)
   this.mints.add(work)
-  void work.finally(() => this.mints.delete(work)).catch(() => {})
+  this.mintTasks.set(work, input.videoTaskID)
+  void work
+   .finally(() => {
+    this.mints.delete(work)
+    this.mintTasks.delete(work)
+   })
+   .catch(() => {})
   return await waitWithAbort(work, controller.signal)
  }
  private async mint(
@@ -172,7 +190,17 @@ export class ManagedPlayback {
    check(controller.signal)
    const opened = await openManaged(this.libraryRoot, input.videoTaskID)
    file = opened.file
-   if (opened.info.size !== declared.size || opened.info.size <= 0 || opened.info.size > MAX_SIZE)
+   const openedInfo = await file.stat(),
+    afterOpen = await safeFile(opened.path)
+   if (
+    openedInfo.dev !== opened.before.dev ||
+    openedInfo.ino !== opened.before.ino ||
+    openedInfo.dev !== afterOpen.dev ||
+    openedInfo.ino !== afterOpen.ino ||
+    !openedInfo.isFile()
+   )
+    throw unavailable()
+   if (openedInfo.size !== declared.size || openedInfo.size <= 0 || openedInfo.size > MAX_SIZE)
     throw playbackFailure('CONFLICT', '媒体长度与任务绑定不一致')
    const hash = createHash('sha256'),
     hashes: string[] = []
@@ -193,6 +221,7 @@ export class ManagedPlayback {
    const token: PlaybackToken = {
     id,
     requestID: input.requestID,
+    taskID: input.videoTaskID,
     file,
     size: declared.size,
     hashes,
@@ -224,12 +253,12 @@ export class ManagedPlayback {
   } finally {
    clearTimeout(deadline)
    this.pending.delete(input.requestID)
+   this.pendingTasks.delete(input.requestID)
    globalHashing = false
    if (!registered) {
     this.requests.delete(input.requestID)
-    try {
-     await file?.close()
-    } finally {
+    if (file) await this.closeHandle({taskID: input.videoTaskID, file, reads: new Set()})
+    else {
      globalReservations--
      this.ownerReservations--
     }
@@ -258,17 +287,30 @@ export class ManagedPlayback {
   this.requests.delete(token.requestID)
   token.revoked = true
   for (const stream of token.streams) stream.abort(playbackFailure('CANCELLED', '媒体已关闭'))
-  // FileHandle.close waits for currently pending reads; no path is reopened.
-  const closing = Promise.allSettled([...token.reads])
-   .then(() => token.file.close())
-   .catch(() => {})
-   .finally(() => {
+  void this.closeHandle(token).catch(() => {})
+ }
+ private closeHandle(held: ClosingHandle) {
+  this.failedCloses.delete(held)
+  const closing = Promise.allSettled([...held.reads])
+   .then(() => held.file.close())
+   .then(() => {
     globalReservations--
     this.ownerReservations--
+   })
+   .catch(error => {
+    this.failedCloses.add(held)
+    throw error
+   })
+   .finally(() => {
     this.closing.delete(closing)
+    this.closingTasks.delete(closing)
    })
   this.closing.add(closing)
+  this.closingTasks.set(closing, held.taskID)
+  void closing.catch(() => {})
+  return closing
  }
+
  closeAll() {
   for (const pending of this.pending.values()) pending.abort(playbackFailure('CANCELLED', '媒体核验已取消'))
   for (const id of this.tokens.keys()) this.revoke(id)
@@ -276,9 +318,77 @@ export class ManagedPlayback {
  async dispose() {
   this.disposed = true
   clearInterval(this.cleanupTimer)
+  for (const held of this.failedCloses) void this.closeHandle(held).catch(() => {})
   this.closeAll()
   await Promise.allSettled([...this.mints, ...this.closing])
   await Promise.allSettled([...this.closing])
+  if (this.failedCloses.size === 0) playbackOwners.delete(this)
+ }
+ private async quiesceTask(taskID: string) {
+  for (const held of [...this.failedCloses]) if (held.taskID === taskID) void this.closeHandle(held).catch(() => {})
+  for (const [requestID, id] of this.pendingTasks)
+   if (id === taskID) this.pending.get(requestID)?.abort(playbackFailure('CANCELLED', '媒体正在释放'))
+  for (const [id, token] of this.tokens) if (token.taskID === taskID) this.revoke(id)
+  await Promise.allSettled([...this.mintTasks].filter(([, id]) => id === taskID).map(([work]) => work))
+  await Promise.all([...this.closingTasks].filter(([, id]) => id === taskID).map(([work]) => work))
+  if ([...this.failedCloses].some(held => held.taskID === taskID)) throw unavailable()
+  if (this.disposed && this.failedCloses.size === 0) playbackOwners.delete(this)
+ }
+ async release(raw: unknown) {
+  const input = playbackReleaseSchema.parse(raw)
+  const fence = taskFence(this.libraryRoot, input.videoTaskID)
+  if (this.disposed || !this.releaseCall) throw unavailable()
+  // This happens synchronously before the first await, across all owners.
+  if (releasesInFlight.has(fence)) throw playbackFailure('BUSY', '该视频正在释放')
+  if (!releaseFences.has(fence) && releaseFences.size >= 64) throw playbackFailure('BUSY', '待对账的视频释放请求过多')
+  const previouslyUncertain = releaseFences.has(fence)
+  releasesInFlight.add(fence)
+  releaseFences.add(fence)
+  try {
+   const candidate = {
+    id: input.videoTaskID,
+    expectedRefKind: input.expectedRefKind,
+    expectedRefSHA256: input.expectedRefSHA256,
+    releaseID: randomUUID()
+   }
+   const prepared = playbackReleasePrepareSchema.parse(
+    await this.releaseCall('video-ppt:prepare-playback-release', candidate)
+   )
+   if ('status' in prepared) {
+    if (!previouslyUncertain) releaseFences.delete(fence)
+    throw playbackFailure(prepared.code, prepared.message)
+   }
+   const plan = prepared.plan
+   if (
+    plan.id !== candidate.id ||
+    plan.refKind !== candidate.expectedRefKind ||
+    plan.refSHA256 !== candidate.expectedRefSHA256
+   )
+    throw playbackFailure('CONFLICT', '视频释放计划不一致')
+   const owners = [...playbackOwners].filter(owner => taskFence(owner.libraryRoot, input.videoTaskID) === fence)
+   await Promise.all(owners.map(owner => owner.quiesceTask(input.videoTaskID)))
+   const finalized = playbackReleaseResultSchema.parse(
+    await this.releaseCall('video-ppt:finalize-playback-release', {
+     ...candidate,
+     releaseID: plan.releaseID,
+     expectedTombstoneSHA256: prepared.tombstoneSHA256
+    })
+   )
+   const result = finalized.plan
+   if (
+    result.id !== plan.id ||
+    result.refKind !== plan.refKind ||
+    result.refSHA256 !== plan.refSHA256 ||
+    result.releaseID !== plan.releaseID ||
+    result.state !== 'released' ||
+    JSON.stringify(result.files) !== JSON.stringify(plan.files)
+   )
+    throw playbackFailure('CONFLICT', '视频释放结果不一致')
+   releaseFences.delete(fence)
+   return {videoTaskID: result.id, state: result.state}
+  } finally {
+   releasesInFlight.delete(fence)
+  }
  }
  private expire() {
   for (const id of this.tokens.keys()) this.get(id, false)

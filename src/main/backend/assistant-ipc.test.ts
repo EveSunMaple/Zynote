@@ -56,3 +56,15 @@ it('rejects a raw internal playback action from even the trusted main frame befo
  })
  expect(dispatch).not.toHaveBeenCalled()
 })
+
+it.each(['video-ppt:prepare-playback-release', 'video-ppt:finalize-playback-release'])(
+ 'denies private release action %s before dispatch',
+ async action => {
+  const dispatch = vi.fn(async () => null)
+  const webContents = {mainFrame: {}}
+  const invoke = createAssistantInvoke({webContents} as never, dispatch, vi.fn())
+  const result = await invoke({sender: webContents, senderFrame: webContents.mainFrame} as never, action, {})
+  expect(result).toMatchObject({ok: false, error: {code: 'INPUT_INVALID'}})
+  expect(dispatch).not.toHaveBeenCalled()
+ }
+)

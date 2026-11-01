@@ -57,6 +57,8 @@ async function invokeShellAction(
  object: Record<string, unknown>
 ) {
  switch (action) {
+  case 'managed-media:release':
+   return playback.release(object)
   case 'managed-media:open':
    return playback.open(object)
   case 'managed-media:close':
@@ -236,8 +238,10 @@ async function startApplication() {
  goCore.start()
  await waitForCore(goCore)
  await goCore.call('db:bootstrap', {})
- playback = new ManagedPlayback(paths.libraryRoot, (id, expectedSourceSHA256) =>
-  goCore.call('video-ppt:playback-source', {id, expectedSourceSHA256})
+ playback = new ManagedPlayback(
+  paths.libraryRoot,
+  (id, expectedSourceSHA256) => goCore.call('video-ppt:playback-source', {id, expectedSourceSHA256}),
+  (action, input) => goCore.call(action, input)
  )
  const media = playback
  const removeMedia = installMediaProtocol(

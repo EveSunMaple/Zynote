@@ -17,6 +17,8 @@ const STDERR_TAIL_LIMIT = 8000
 // used to reject them while the Go backend kept running, which made the task
 // center report a failure even though the download completed.
 const LONG_RUNNING_ACTIONS = new Set([
+ 'video-ppt:prepare-playback-release',
+ 'video-ppt:finalize-playback-release',
  'chat',
  'settings:probe',
  'settings:test',

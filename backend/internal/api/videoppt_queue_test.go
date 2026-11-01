@@ -13,7 +13,11 @@ import (
 
 func TestVideoPptStagesShareQueueIdentity(t *testing.T) {
 	inv := NewInvoker()
-	state := &contract.State{LibraryRoot: t.TempDir()}
+	root, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	state := &contract.State{LibraryRoot: root}
 	task, err := videoPptService(state).CreateBlankTask("fixture", nil)
 	if err != nil {
 		t.Fatal(err)

@@ -42,6 +42,15 @@ func (inv *Invoker) transcribeVideoTask(
 	if err != nil {
 		return nil, err
 	}
+	operation, err := service.Operation(task.ID)
+	if err != nil && !os.IsNotExist(err) {
+		return nil, videoPptError(err)
+	}
+	if operation.RetainPlayback {
+		if err := service.PreparePlaybackRetention(ctx, task.ID, result.SRT); err != nil {
+			return nil, videoPptError(err)
+		}
+	}
 	path, err := videoppt.PublishSubtitle(ctx, task, directory, meta.OutputName, []byte(result.SRT))
 	if err != nil {
 		return nil, videoPptError(err)
@@ -72,13 +81,14 @@ func (inv *Invoker) transcribeVideoTask(
 	if result.Provenance != nil {
 		output["provenance"], output["sourceSHA256"], output["srtSHA256"] = result.Provenance, result.SourceSHA256, result.SRTSHA256
 	}
-	return finishSubtitleTask(state, task, output, path)
+	return finishSubtitleTaskContext(ctx, state, task, output, path)
 }
 
 func (inv *Invoker) handleVideoSubtitleTranscribeLocal(store contract.StateStore, state *contract.State, params json.RawMessage) (any, error) {
 	var input struct {
-		CourseID    string `json:"courseId"`
-		OperationID string `json:"operationId"`
+		RetainPlayback bool   `json:"retainPlayback"`
+		CourseID       string `json:"courseId"`
+		OperationID    string `json:"operationId"`
 	}
 	if err := json.Unmarshal(params, &input); err != nil {
 		return nil, contract.InputInvalid("字幕参数无效")
@@ -87,7 +97,7 @@ func (inv *Invoker) handleVideoSubtitleTranscribeLocal(store contract.StateStore
 	if err != nil {
 		return nil, err
 	}
-	if task, exists, err := inv.existingLocalSubtitle(state, input.OperationID, courseName); exists {
+	if task, exists, err := inv.existingLocalSubtitle(state, input.OperationID, courseName, input.RetainPlayback); exists {
 		return inv.runBoundSubtitle(store, state, task, err)
 	}
 
@@ -111,7 +121,7 @@ func (inv *Invoker) handleVideoSubtitleTranscribeLocal(store contract.StateStore
 	if picked.Path == nil || *picked.Path == "" {
 		return nil, nil
 	}
-	task, _, err := inv.createQueuedVideoTask(state, *picked.Path, "", "subtitle", "", courseName, input.OperationID)
+	task, _, err := inv.createQueuedVideoTaskRetained(state, *picked.Path, "", "subtitle", "", courseName, input.RetainPlayback, input.OperationID)
 	return inv.runBoundSubtitle(store, state, task, err)
 }
 
@@ -121,7 +131,7 @@ func (inv *Invoker) runSubtitleQueued(state *contract.State, id string, run func
 
 func (inv *Invoker) runSubtitleQueuedContext(ctx context.Context, state *contract.State, id string, run func(context.Context) (any, error)) (any, error) {
 	key := "subtitle-transcribe:" + id
-	result, err := inv.jobs.RunQueued(ctx, filepath.Join(state.LibraryRoot, "TaskQueue"), id, key, run)
+	result, err := inv.jobs.RunQueued(ctx, filepath.Join(state.LibraryRoot, "TaskQueue"), id, key, func(ctx context.Context) (any, error) { return videoPptService(state).RunVideoTask(ctx, id, run) })
 	if err != nil && ctx.Err() != nil {
 		err = videoPptError(ctx.Err())
 	} else if errors.Is(err, jobs.ErrCancelled) {
@@ -146,6 +156,9 @@ func (inv *Invoker) handleVideoResumeSubtitleContext(ctx context.Context, store 
 	}
 	return inv.runSubtitleQueuedContext(ctx, state, input.ID, func(ctx context.Context) (any, error) {
 		service := videoPptService(state)
+		if err := service.EnsurePlaybackRetention(ctx, input.ID); err != nil {
+			return nil, videoPptError(err)
+		}
 		meta, directory, err := service.SubtitleTask(input.ID)
 		if err != nil {
 			return nil, videoPptError(err)
@@ -183,7 +196,7 @@ func (inv *Invoker) handleVideoResumeSubtitleContext(ctx context.Context, store 
 				output["provenance"], output["sourceSHA256"], output["srtSHA256"] = prepared.Provenance, prepared.VideoSHA256, prepared.SRTSHA256
 				output["sourceVerification"] = "historical"
 			}
-			return finishSubtitleTask(state, videoppt.CreatedTask{ID: meta.ID, Name: meta.Name, Dir: directory}, output, path)
+			return finishSubtitleTaskContext(ctx, state, videoppt.CreatedTask{ID: meta.ID, Name: meta.Name, Dir: directory}, output, path)
 		}
 		if operation, err := service.Operation(input.ID); err == nil {
 			if operation.Stage == "subtitle-station" {

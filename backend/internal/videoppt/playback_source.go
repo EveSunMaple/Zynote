@@ -95,7 +95,7 @@ func (service *Service) PlaybackSource(ctx context.Context, id, expectedSHA256 s
 	if err := ctx.Err(); err != nil {
 		return empty, err
 	}
-	if !filepath.IsAbs(service.Root) || (runtime.GOOS == "windows" && (strings.HasPrefix(service.Root, `\\`) || (len(service.Root) > 2 && strings.Contains(service.Root[2:], ":")))) {
+	if err := service.playbackRoot(); err != nil {
 		return empty, playbackUnavailable()
 	}
 	root, err := filepath.Abs(service.Root)
@@ -103,6 +103,9 @@ func (service *Service) PlaybackSource(ctx context.Context, id, expectedSHA256 s
 		return empty, playbackUnavailable()
 	}
 	if _, err := playbackPath(root, true); err != nil {
+		return empty, err
+	}
+	if err := service.CheckPlaybackDispatch(ctx, id); err != nil {
 		return empty, err
 	}
 	directory := filepath.Join(root, id)
@@ -172,4 +175,12 @@ func (service *Service) PlaybackSource(ctx context.Context, id, expectedSHA256 s
 		return empty, err
 	}
 	return PlaybackDeclaration{1, "declared", id, source.Kind, identity, ready.SHA256, info.Size(), hex.EncodeToString(fence[:])}, nil
+}
+
+// Reject unsupported roots before any filesystem operation in playback lifecycles.
+func (service *Service) playbackRoot() error {
+	if !filepath.IsAbs(service.Root) || (runtime.GOOS == "windows" && (strings.HasPrefix(service.Root, `\\`) || (len(service.Root) > 2 && strings.Contains(service.Root[2:], ":")))) {
+		return playbackUnavailable()
+	}
+	return nil
 }

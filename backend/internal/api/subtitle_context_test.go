@@ -17,8 +17,15 @@ func TestSubtitleQueueUserCancellationPreservesClassification(t *testing.T) {
 	for _, all := range []bool{false, true} {
 		t.Run(map[bool]string{false: "cancel-one", true: "cancel-all"}[all], func(t *testing.T) {
 			inv := NewInvoker()
-			state := &contract.State{LibraryRoot: t.TempDir()}
+			root, err := filepath.EvalSymlinks(t.TempDir())
+			if err != nil {
+				t.Fatal(err)
+			}
+			state := &contract.State{LibraryRoot: root}
 			const id = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb"
+			if err := os.MkdirAll(filepath.Join(root, "VideoTasks", id), 0700); err != nil {
+				t.Fatal(err)
+			}
 			entered := make(chan struct{})
 			done := make(chan error, 1)
 			go func() {

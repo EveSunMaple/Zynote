@@ -17,15 +17,16 @@ import (
 var operationIDPattern = regexp.MustCompile(`^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$`)
 
 type VideoOperation struct {
-	Version    int    `json:"version"`
-	Stage      string `json:"stage"`
-	OutputName string `json:"outputName,omitempty"`
-	Page       int    `json:"page,omitempty"`
-	Path       string `json:"path,omitempty"`
-	SourceHash string `json:"sourceHash,omitempty"`
-	URL        string `json:"url,omitempty"`
-	Prompt     string `json:"prompt,omitempty"`
-	CourseName string `json:"courseName,omitempty"`
+	RetainPlayback bool   `json:"retainPlayback,omitempty"`
+	Version        int    `json:"version"`
+	Stage          string `json:"stage"`
+	OutputName     string `json:"outputName,omitempty"`
+	Page           int    `json:"page,omitempty"`
+	Path           string `json:"path,omitempty"`
+	SourceHash     string `json:"sourceHash,omitempty"`
+	URL            string `json:"url,omitempty"`
+	Prompt         string `json:"prompt,omitempty"`
+	CourseName     string `json:"courseName,omitempty"`
 }
 
 type CompletedOperationError struct {
@@ -87,6 +88,14 @@ func (service *Service) CreateOperationTask(id, name string, operation VideoOper
 	if !operationIDPattern.MatchString(id) {
 		return CreatedTask{}, requestError("任务编号无效")
 	}
+	for _, name := range []string{"playback-release.json", ".playback-release-preparing.json"} {
+		if _, err := os.Lstat(filepath.Join(service.Root, id, name)); err == nil {
+			return CreatedTask{}, requestError("该视频已进入释放流程")
+		} else if !os.IsNotExist(err) {
+			return CreatedTask{}, err
+		}
+	}
+
 	completedPath := filepath.Join(service.Root, ".completed", id+".json")
 	if body, err := os.ReadFile(completedPath); err == nil {
 		var completed operationCompletion
@@ -108,6 +117,9 @@ func (service *Service) CreateOperationTask(id, name string, operation VideoOper
 	}
 	if operation.Version != 1 || (operation.Stage != "source" && operation.Stage != "auto" && operation.Stage != "subtitle" && operation.Stage != "subtitle-station") {
 		return CreatedTask{}, requestError("任务来源记录无效")
+	}
+	if operation.RetainPlayback && (operation.Stage != "subtitle" || operation.Path == "" || operation.URL != "") {
+		return CreatedTask{}, requestError("视频留存仅支持本地字幕任务")
 	}
 	if operation.Stage == "subtitle-station" && (operation.URL == "" || operation.Path != "") {
 		return CreatedTask{}, requestError("站内字幕必须绑定远程来源")
@@ -185,6 +197,9 @@ func (service *Service) Operation(id string) (VideoOperation, error) {
 	var operation VideoOperation
 	if json.Unmarshal(body, &operation) != nil || operation.Version != 1 || (operation.Stage != "source" && operation.Stage != "auto" && operation.Stage != "subtitle" && operation.Stage != "subtitle-station") {
 		return VideoOperation{}, requestError("任务来源记录无效")
+	}
+	if operation.RetainPlayback && (operation.Stage != "subtitle" || operation.Path == "" || operation.URL != "") {
+		return VideoOperation{}, requestError("视频留存来源无效")
 	}
 	return operation, nil
 }

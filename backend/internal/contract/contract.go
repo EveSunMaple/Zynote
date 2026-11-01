@@ -69,7 +69,7 @@ type State struct {
 
 var DefaultCapabilities = []string{
 	"subtitle-derived:audit-publication",
-	"video-ppt:playback-source",
+	"video-ppt:playback-source", "video-ppt:retained", "video-ppt:prepare-playback-release", "video-ppt:finalize-playback-release",
 	"app:info", "settings:get", "appearance:get", "appearance:save", "appearance:clear", "identity:get", "identity:save",
 	"db:health", "db:backup", "settings:save", "chat", "cancel", "job:current", "settings:models", "settings:probe", "settings:test", "zhiyun:search", "zhiyun:lessons",
 	"library:delete", "library:open", "library:open-file", "library:reveal", "media:open", "study:get", "study:save", "study:parse", "textbook:pick", "textbook:bytes", "textbook:open", "textbook:manual", "textbook:clear", "textbook:apply",

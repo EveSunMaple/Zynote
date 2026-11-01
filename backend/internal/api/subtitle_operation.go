@@ -35,7 +35,7 @@ func (inv *Invoker) runBoundSubtitleContext(ctx context.Context, store contract.
 	return inv.handleVideoResumeSubtitleContext(ctx, store, state, params)
 }
 
-func (inv *Invoker) existingLocalSubtitle(state *contract.State, id, courseName string) (videoppt.CreatedTask, bool, error) {
+func (inv *Invoker) existingLocalSubtitle(state *contract.State, id, courseName string, retain bool) (videoppt.CreatedTask, bool, error) {
 	var task videoppt.CreatedTask
 	if id == "" {
 		return task, false, nil
@@ -51,7 +51,7 @@ func (inv *Invoker) existingLocalSubtitle(state *contract.State, id, courseName 
 		}
 		return task, true, videoPptError(err)
 	}
-	if operation.Stage != "subtitle" || operation.Path == "" || operation.URL != "" || operation.CourseName != courseName {
+	if operation.Stage != "subtitle" || operation.Path == "" || operation.URL != "" || operation.CourseName != courseName || operation.RetainPlayback != retain {
 		return task, true, contract.InputInvalid("任务编号已绑定其他来源或课程")
 	}
 	task, _, err = inv.createQueuedVideoTask(state, "", "", "subtitle", "", courseName, id)
@@ -72,6 +72,9 @@ func (inv *Invoker) preparedVideoSubtitle(ctx context.Context, state *contract.S
 			return asr.Result{}, true, contract.InputInvalid("已保存转写内容与记录不一致")
 		}
 		return asr.Result{SRT: prepared.SRT, Count: prepared.Count, SourceSHA256: prepared.VideoSHA256, SRTSHA256: prepared.SRTSHA256, Provenance: prepared.Provenance}, true, nil
+	}
+	if videoPptService(state).HasRetentionCandidate(task.ID) {
+		return asr.Result{}, false, contract.Unavailable("留存候选已存在但转写检查点缺失，请保留任务，未重复转写")
 	}
 	result, err := asr.Pipeline{
 		Resources: state.ResourcesRoot, DataRoot: state.DataRoot,
@@ -95,5 +98,32 @@ func (inv *Invoker) preparedVideoSubtitle(ctx context.Context, state *contract.S
 }
 
 func finishSubtitleTask(state *contract.State, task videoppt.CreatedTask, output map[string]any, path string) (any, error) {
-	return finishManagedVideoTask(state, task, output, path, false)
+	return finishSubtitleTaskContext(context.Background(), state, task, output, path)
+}
+
+func finishSubtitleTaskContext(ctx context.Context, state *contract.State, task videoppt.CreatedTask, output map[string]any, path string) (any, error) {
+	service := videoPptService(state)
+	operation, err := service.Operation(task.ID)
+	if err != nil && !os.IsNotExist(err) {
+		return nil, videoPptError(err)
+	}
+	if err != nil || !operation.RetainPlayback {
+		return finishManagedVideoTask(state, task, output, path, false)
+	}
+	// Legacy saved-only recovery preserves output/media but cannot fabricate a
+	// pre-publication candidate or receipt. A later explicit release remains possible.
+	if !service.HasRetentionCandidate(task.ID) {
+		output["playbackUnavailable"] = true
+		output["cleanupWarning"] = "字幕已保存，但缺少发布前留存候选；视频保留，未创建播放绑定"
+	} else {
+		binding, err := service.CompletePlaybackRetention(ctx, task.ID, path)
+		if err != nil {
+			return nil, videoPptError(err)
+		}
+		output["playbackBinding"] = binding
+	}
+	if err := service.CompleteOperation(task, output, path); err != nil {
+		return nil, videoPptError(err)
+	}
+	return output, nil
 }

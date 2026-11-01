@@ -12,6 +12,10 @@ import (
 )
 
 func (inv *Invoker) createQueuedVideoTask(state *contract.State, path, videoURL, stage, prompt, courseName string, operationIDs ...string) (videoppt.CreatedTask, string, error) {
+	return inv.createQueuedVideoTaskRetained(state, path, videoURL, stage, prompt, courseName, false, operationIDs...)
+}
+
+func (inv *Invoker) createQueuedVideoTaskRetained(state *contract.State, path, videoURL, stage, prompt, courseName string, retain bool, operationIDs ...string) (videoppt.CreatedTask, string, error) {
 	var task videoppt.CreatedTask
 	id := ""
 	if len(operationIDs) > 0 {
@@ -28,8 +32,9 @@ func (inv *Invoker) createQueuedVideoTask(state *contract.State, path, videoURL,
 		task, err = videoPptService(state).CreateOperationTask(id, "", operation)
 		return task, operation.URL, err
 	}
-	operation := videoppt.VideoOperation{Version: 1, Stage: stage, Prompt: prompt, CourseName: courseName}
+	operation := videoppt.VideoOperation{RetainPlayback: retain, Version: 1, Stage: stage, Prompt: prompt, CourseName: courseName}
 	name := ""
+	var sourceSize int64
 	if stage == "subtitle" || stage == "subtitle-station" {
 		operation.Page = 1
 	}
@@ -42,6 +47,10 @@ func (inv *Invoker) createQueuedVideoTask(state *contract.State, path, videoURL,
 		if err != nil || !info.Mode().IsRegular() || info.Mode()&os.ModeSymlink != 0 {
 			return task, "", contract.InputInvalid("所选源文件不可用")
 		}
+		if retain && (info.Size() <= 0 || info.Size() > 8*1024*1024*1024) {
+			return task, "", contract.InputInvalid("留存视频不得超过8GiB")
+		}
+		sourceSize = info.Size()
 		hash, err := videoppt.VideoDigest(absolute)
 		if err != nil {
 			return task, "", err
@@ -76,6 +85,11 @@ func (inv *Invoker) createQueuedVideoTask(state *contract.State, path, videoURL,
 	}
 	if err := videoppt.PersistStageInput(task, stage, operation); err != nil {
 		return task, "", videoPptError(err)
+	}
+	if retain {
+		if _, err := videoPptService(state).ReservePlaybackRetention(context.Background(), task.ID, sourceSize); err != nil {
+			return task, "", videoPptError(err)
+		}
 	}
 	return task, operation.URL, nil
 }
@@ -147,12 +161,12 @@ func (inv *Invoker) runVideoPptQueued(state *contract.State, task videoppt.Creat
 
 func (inv *Invoker) runVideoPptQueuedContext(ctx context.Context, state *contract.State, task videoppt.CreatedTask, stage string, input any, run func(context.Context) (any, error)) (any, error) {
 	if input != nil {
-		if err := videoppt.PersistStageInput(task, stage, input); err != nil {
+		if _, err := videoPptService(state).RunVideoTask(ctx, task.ID, func(context.Context) (any, error) { return nil, videoppt.PersistStageInput(task, stage, input) }); err != nil {
 			return nil, videoPptError(err)
 		}
 	}
 	key := "video-ppt:" + task.ID
-	result, err := inv.jobs.RunQueued(ctx, filepath.Join(state.LibraryRoot, "TaskQueue"), task.ID, key, run)
+	result, err := inv.jobs.RunQueued(ctx, filepath.Join(state.LibraryRoot, "TaskQueue"), task.ID, key, func(ctx context.Context) (any, error) { return videoPptService(state).RunVideoTask(ctx, task.ID, run) })
 	return inv.finishJob(key, "", result, err)
 }
 

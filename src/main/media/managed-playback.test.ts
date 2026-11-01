@@ -21,7 +21,10 @@ afterEach(async () => {
  for (const manager of managers.splice(0)) await manager.dispose()
  for (const root of roots.splice(0)) await rm(root, {recursive: true, force: true, maxRetries: 5, retryDelay: 20})
 })
-async function fixture(size = 2 * 1024 * 1024 + 19) {
+async function fixture(
+ size = 2 * 1024 * 1024 + 19,
+ releaseCall?: (action: string, input: Record<string, unknown>) => Promise<unknown>
+) {
  const root = await realpath(await mkdtemp(join(tmpdir(), 'zynote-playback-')))
  roots.push(root)
  const path = join(root, 'VideoTasks', taskID, 'video.mp4')
@@ -41,7 +44,7 @@ async function fixture(size = 2 * 1024 * 1024 + 19) {
   bindingRevision: 'a'.repeat(64)
  }
  const declare = vi.fn(async () => declaration)
- const manager = new ManagedPlayback(root, declare)
+ const manager = new ManagedPlayback(root, declare, releaseCall)
  managers.push(manager)
  const open = (id = requestID) => manager.open({requestID: id, videoTaskID: taskID, expectedSourceSHA256: sha})
  return {root, path, bytes, manager, open, declare, declaration, sha}
@@ -390,3 +393,231 @@ it.skipIf(process.platform !== 'win32')(
   }
  }
 )
+
+const releaseSHA = 'b'.repeat(64)
+function releaseReply(input: Record<string, unknown>, state: 'prepared' | 'released' = 'prepared') {
+ return {
+  plan: {
+   version: 1,
+   id: input.id,
+   refKind: input.expectedRefKind,
+   refSHA256: input.expectedRefSHA256,
+   releaseID: input.releaseID,
+   state,
+   files: []
+  },
+  tombstoneSHA256: releaseSHA
+ }
+}
+const releaseArgs = {videoTaskID: taskID, expectedRefKind: 'intent', expectedRefSHA256: 'c'.repeat(64)}
+describe('managed playback fenced release', () => {
+ it('fences every owner synchronously, awaits pending metadata and reuses original release identity', async () => {
+  const ready = deferred<unknown>(),
+   prepare = deferred<unknown>()
+  const release = vi.fn(async (action: string, input: Record<string, unknown>) =>
+   action.includes('prepare-') ? prepare.promise : releaseReply(input, 'released')
+  )
+  const f = await fixture(1024, release)
+  const other = new ManagedPlayback(f.root, async () => ready.promise)
+  managers.push(other)
+  const opening = other
+   .open({requestID: request2, videoTaskID: taskID, expectedSourceSHA256: f.sha})
+   .catch(error => error)
+  const releasing = f.manager.release(releaseArgs)
+  await expect(f.open()).rejects.toMatchObject({code: 'BUSY'})
+  await expect(
+   other.open({requestID: request3, videoTaskID: taskID, expectedSourceSHA256: f.sha})
+  ).rejects.toMatchObject({code: 'BUSY'})
+  const candidate = release.mock.calls[0][1]
+  const originalID = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'
+  prepare.resolve(releaseReply({...candidate, releaseID: originalID}))
+  await new Promise(resolve => setImmediate(resolve))
+  expect(release).toHaveBeenCalledTimes(1)
+  ready.resolve(f.declaration)
+  expect(await opening).toMatchObject({code: 'CANCELLED'})
+  await expect(releasing).resolves.toEqual({videoTaskID: taskID, state: 'released'})
+  expect(release.mock.calls[1]).toEqual([
+   'video-ppt:finalize-playback-release',
+   {...candidate, releaseID: originalID, expectedTombstoneSHA256: releaseSHA}
+  ])
+ })
+ it('awaits cancelled physical read and actual close before finalize, without revoking another task', async () => {
+  const release = vi.fn(async (action: string, input: Record<string, unknown>) =>
+   releaseReply(input, action.includes('prepare-') ? 'prepared' : 'released')
+  )
+  const f = await fixture(1024, release),
+   opened = await f.open(),
+   token = f.manager.get(opened.tokenURL.split('/').at(-1)!)!
+  const task2 = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'
+  await mkdir(join(f.root, 'VideoTasks', task2))
+  await writeFile(join(f.root, 'VideoTasks', task2, 'video.mp4'), f.bytes)
+  const other = new ManagedPlayback(f.root, async () => ({...f.declaration, taskID: task2}))
+  managers.push(other)
+  const untouched = await other.open({requestID: request2, videoTaskID: task2, expectedSourceSHA256: f.sha})
+  const read = deferred<{bytesRead: number; buffer: Buffer}>(),
+   close = deferred<void>()
+  const realClose = token.file.close.bind(token.file)
+  const readSpy = vi.spyOn(token.file, 'read').mockImplementation(() => read.promise as never)
+  const closeSpy = vi.spyOn(token.file, 'close').mockImplementation(async () => {
+   await close.promise
+   await realClose()
+  })
+  const reading = f.manager
+   .stream(token, 0, 9)
+   .getReader()
+   .read()
+   .catch(() => undefined)
+  await Promise.resolve()
+  await Promise.resolve()
+  const releasing = f.manager.release(releaseArgs)
+  await new Promise(resolve => setImmediate(resolve))
+  expect(release).toHaveBeenCalledTimes(1)
+  read.resolve({bytesRead: 0, buffer: Buffer.alloc(0)})
+  await reading
+  await new Promise(resolve => setImmediate(resolve))
+  expect(closeSpy).toHaveBeenCalledTimes(1)
+  expect(release).toHaveBeenCalledTimes(1)
+  expect(other.get(untouched.tokenURL.split('/').at(-1)!)).toBeDefined()
+  close.resolve()
+  await releasing
+  expect(release).toHaveBeenCalledTimes(2)
+  readSpy.mockRestore()
+  closeSpy.mockRestore()
+ })
+ it.each(['prepare', 'finalize'])(
+  'keeps mint fence after UNKNOWN %s, but explicit release can reconcile',
+  async phase => {
+   let fail = true
+   const release = vi.fn(async (action: string, input: Record<string, unknown>) => {
+    if (fail && action.includes(phase + '-'))
+     throw Object.assign(new Error('RPC disconnected after durable write'), {code: 'UNAVAILABLE'})
+    return releaseReply(input, action.includes('prepare-') ? 'prepared' : 'released')
+   })
+   const f = await fixture(1024, release)
+   await expect(f.manager.release(releaseArgs)).rejects.toThrow('RPC disconnected')
+   await expect(f.open()).rejects.toMatchObject({code: 'BUSY'})
+   fail = false
+   await expect(f.manager.release(releaseArgs)).resolves.toMatchObject({state: 'released'})
+  }
+ )
+ it('retains fence while deferred RPC rejects after prepare-write and permits reconciliation', async () => {
+  let reject!: (reason: unknown) => void
+  const failed = new Promise((_, no) => {
+   reject = no
+  })
+  let first = true
+  const release = vi.fn(async (action: string, input: Record<string, unknown>) => {
+   if (first) {
+    first = false
+    return failed
+   }
+   return releaseReply(input, action.includes('prepare-') ? 'prepared' : 'released')
+  })
+  const f = await fixture(1024, release)
+  const releasing = f.manager.release(releaseArgs)
+  await expect(f.open()).rejects.toMatchObject({code: 'BUSY'})
+  reject(new Error('durable plan persisted, reply lost'))
+  await expect(releasing).rejects.toThrow('reply lost')
+  await expect(f.open()).rejects.toMatchObject({code: 'BUSY'})
+  await f.manager.release(releaseArgs)
+ })
+ it('does not finalize or free failed-close quota; disposed owner remains visible for controlled retry', async () => {
+  const release = vi.fn(async (action: string, input: Record<string, unknown>) =>
+   releaseReply(input, action.includes('prepare-') ? 'prepared' : 'released')
+  )
+  const f = await fixture(1024, release),
+   opened = await f.open(),
+   token = f.manager.get(opened.tokenURL.split('/').at(-1)!)!
+  const realClose = token.file.close.bind(token.file)
+  let fail = true
+  const closeSpy = vi.spyOn(token.file, 'close').mockImplementation(async () => {
+   if (fail) throw new Error('close unconfirmed')
+   await realClose()
+  })
+  await expect(f.manager.release(releaseArgs)).rejects.toThrow('close unconfirmed')
+  expect(release.mock.calls.every(([action]) => action.includes('prepare-'))).toBe(true)
+  await expect(f.open()).rejects.toMatchObject({code: 'BUSY'})
+  // The failed physical reservation still consumes the owner's two-slot quota.
+  const otherTask = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'
+  await mkdir(join(f.root, 'VideoTasks', otherTask))
+  await writeFile(join(f.root, 'VideoTasks', otherTask, 'video.mp4'), f.bytes)
+  f.declare.mockImplementation(async () => ({...f.declaration, taskID: otherTask}))
+  const kept = await f.manager.open({requestID: request2, videoTaskID: otherTask, expectedSourceSHA256: f.sha})
+  await expect(
+   f.manager.open({requestID: request3, videoTaskID: otherTask, expectedSourceSHA256: f.sha})
+  ).rejects.toMatchObject({code: 'BUSY'})
+  f.manager.close(request2)
+  await f.manager.dispose()
+  const reconciler = new ManagedPlayback(f.root, async () => f.declaration, release)
+  managers.push(reconciler)
+  await expect(reconciler.release(releaseArgs)).rejects.toThrow('close unconfirmed')
+  expect(release.mock.calls.some(([action]) => action.includes('finalize-'))).toBe(false)
+  fail = false
+  await expect(reconciler.release(releaseArgs)).resolves.toMatchObject({state: 'released'})
+  expect(closeSpy).toHaveBeenCalledTimes(4)
+  expect(kept).toBeDefined()
+  closeSpy.mockRestore()
+ })
+ it('rejects changed finalize plan and keeps mint blocked', async () => {
+  const release = vi.fn(async (action: string, input: Record<string, unknown>) => {
+   const reply = releaseReply(input, action.includes('prepare-') ? 'prepared' : 'released')
+   if (action.includes('finalize-')) reply.plan.files = [{name: 'video.mp4', size: 1, sha256: 'a'.repeat(64)}] as never
+   return reply
+  })
+  const f = await fixture(1024, release)
+  await expect(f.manager.release(releaseArgs)).rejects.toMatchObject({code: 'CONFLICT'})
+  await expect(f.open()).rejects.toMatchObject({code: 'BUSY'})
+ })
+})
+
+it('owns a handle before failing post-open stat; rejected cleanup stays indexed and charged', async () => {
+ const release = vi.fn(async (action: string, input: Record<string, unknown>) =>
+  releaseReply(input, action.includes('prepare-') ? 'prepared' : 'released')
+ )
+ const f = await fixture(1024, release)
+ const realOpen = vi.mocked(fsPromises.open).getMockImplementation()!
+ let restore = () => {}
+ vi.mocked(fsPromises.open).mockImplementationOnce(async (...args) => {
+  const file = await realOpen(...args)
+  const stat = vi.spyOn(file, 'stat').mockRejectedValue(new Error('post-open stat failed'))
+  const close = vi.spyOn(file, 'close').mockRejectedValue(new Error('post-open close unconfirmed'))
+  restore = () => {
+   stat.mockRestore()
+   close.mockRestore()
+  }
+  return file
+ })
+ await expect(f.open()).rejects.toThrow('post-open close unconfirmed')
+ await expect(f.manager.release(releaseArgs)).rejects.toThrow('post-open close unconfirmed')
+ expect(release.mock.calls.some(([action]) => action.includes('finalize-'))).toBe(false)
+ const otherTask = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'
+ await mkdir(join(f.root, 'VideoTasks', otherTask))
+ await writeFile(join(f.root, 'VideoTasks', otherTask, 'video.mp4'), f.bytes)
+ f.declare.mockImplementation(async () => ({...f.declaration, taskID: otherTask}))
+ await f.manager.open({requestID: request2, videoTaskID: otherTask, expectedSourceSHA256: f.sha})
+ await expect(
+  f.manager.open({requestID: request3, videoTaskID: otherTask, expectedSourceSHA256: f.sha})
+ ).rejects.toMatchObject({code: 'BUSY'})
+ restore()
+ await expect(f.manager.release(releaseArgs)).resolves.toMatchObject({state: 'released'})
+})
+
+it('rolls back an initial confirmed no-mutation BUSY, but never clears a preceding UNKNOWN fence', async () => {
+ let phase: 'busy' | 'unknown' | 'success' = 'busy'
+ const release = vi.fn(async (action: string, input: Record<string, unknown>) => {
+  if (phase === 'unknown') throw new Error('reply lost')
+  if (phase === 'busy') return {status: 'rejected', mutation: 'none', code: 'BUSY', message: 'active callback'}
+  return releaseReply(input, action.includes('prepare-') ? 'prepared' : 'released')
+ })
+ const f = await fixture(1024, release)
+ await expect(f.manager.release(releaseArgs)).rejects.toMatchObject({code: 'BUSY'})
+ const opened = await f.open()
+ f.manager.close(opened.requestID)
+ phase = 'unknown'
+ await expect(f.manager.release(releaseArgs)).rejects.toThrow('reply lost')
+ phase = 'busy'
+ await expect(f.manager.release(releaseArgs)).rejects.toMatchObject({code: 'BUSY'})
+ await expect(f.open(request2)).rejects.toMatchObject({code: 'BUSY'})
+ phase = 'success'
+ await f.manager.release(releaseArgs)
+})

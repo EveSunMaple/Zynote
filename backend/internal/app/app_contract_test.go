@@ -196,8 +196,20 @@ func TestP0Contract(t *testing.T) { // NOSONAR: end-to-end test intentionally ex
 	if err := json.Unmarshal(state, &hello); err != nil {
 		t.Fatal(err)
 	}
-	if hello.Protocol != 1 || hello.Platform != testPlatform() || len(hello.Capabilities) != 160 {
+	if hello.Protocol != 1 || hello.Platform != testPlatform() || len(hello.Capabilities) != 163 {
 		t.Fatalf("unexpected hello: %+v", hello)
+	}
+
+	for _, wanted := range []string{"video-ppt:retained", "video-ppt:prepare-playback-release", "video-ppt:finalize-playback-release"} {
+		found := false
+		for _, action := range hello.Capabilities {
+			if action == wanted {
+				found = true
+			}
+		}
+		if !found {
+			t.Fatalf("missing playback retention capability: %s", wanted)
+		}
 	}
 
 	if _, errReply = f.call("app:info", nil); errReply != nil {

@@ -64,7 +64,7 @@ afterEach(async () => {
 
 // Exercise the real GoCore framing, pending map and clock against isolated Node pipes.
 describe('GoCore request timeouts', () => {
- it('keeps fourteen corrected long operations alive past 10s and preserves all three timeout budgets', async () => {
+ it('keeps sixteen corrected long operations alive past 10s and preserves all three timeout budgets', async () => {
   const received: string[] = []
   core = new GoCore({
    appVersion: 'test',
@@ -98,7 +98,9 @@ describe('GoCore request timeouts', () => {
    'practice:answer',
    'textbook:manual',
    'textbook:clear',
-   'textbook:apply'
+   'textbook:apply',
+   'video-ppt:prepare-playback-release',
+   'video-ppt:finalize-playback-release'
   ]
   let completed = 0
   const requests = actions.map(action =>
@@ -114,7 +116,7 @@ describe('GoCore request timeouts', () => {
   expect(completed).toBe(0)
   fixture.child!.stdin!.write(JSON.stringify({method: 'fixture.release'}) + '\n')
   expect(await allRequests).toEqual(actions.map(action => ({action})))
-  expect(completed).toBe(14)
+  expect(completed).toBe(actions.length)
 
   let defaultError: unknown, slowError: unknown, longError: unknown
   const ordinary = core.call('health', {}).catch(error => {

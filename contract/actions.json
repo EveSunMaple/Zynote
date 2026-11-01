@@ -1,6 +1,6 @@
 {
  "schema": 1,
- "total": 162,
+ "total": 164,
  "actions": [
   {
    "action": "runtime:install",
@@ -970,6 +970,18 @@
   },
   {
    "action": "managed-media:close",
+   "source": "managed-playback.ts",
+   "phase": 6,
+   "backend": "shell"
+  },
+  {
+   "action": "video-ppt:retained",
+   "source": "managed-playback.ts",
+   "phase": 6,
+   "backend": "go"
+  },
+  {
+   "action": "managed-media:release",
    "source": "managed-playback.ts",
    "phase": 6,
    "backend": "shell"

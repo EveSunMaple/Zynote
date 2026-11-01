@@ -121,7 +121,10 @@ const hello = (await call('core.hello', {
 })) as HelloResult
 check('hello protocol', hello.protocol === 1)
 check('hello platform', hello.platform === platform)
-check('hello capabilities', hello.capabilities.length === 160)
+check('hello capabilities', hello.capabilities.length === 163)
+check('retained playback capability', hello.capabilities.includes('video-ppt:retained'))
+check('prepare release capability', hello.capabilities.includes('video-ppt:prepare-playback-release'))
+check('finalize release capability', hello.capabilities.includes('video-ppt:finalize-playback-release'))
 check('private playback capability', hello.capabilities.includes('video-ppt:playback-source'))
 check('publication audit capability', hello.capabilities.includes('subtitle-derived:audit-publication'))
 
