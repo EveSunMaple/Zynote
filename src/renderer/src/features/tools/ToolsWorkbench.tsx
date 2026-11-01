@@ -79,9 +79,10 @@ type Agent = {
  events: {kind: string; message?: string}[]
  sources: {source_id: string; title: string; read: boolean; url: string; coverage?: string}[]
  quotes?: Quote[]
+ quotes_truncated?: boolean
+ note_truncated?: boolean
  rejected_answer?: string
  progress?: RunProgressValue
- note_truncated?: boolean
 }
 type Quote = {source_id: string; quote: string; cited_at?: string; status: string; at?: string; original?: string}
 const quoteLabels: Record<string, {label: string; color: 'success' | 'warning' | 'danger'}> = {
@@ -119,9 +120,11 @@ function QuoteChecks({quotes, sources}: Readonly<{quotes?: Quote[]; sources: Age
       </div>
       <blockquote>“{quote.quote}”</blockquote>
       {quote.original ? (
-       <p className="research-quote-original">原始字幕：{quote.original}</p>
+       <p className="research-quote-original">
+        {quote.at ? '原始字幕' : '原文'}：{quote.original}
+       </p>
       ) : (
-       <p className="hint">所读原文中找不到这句话，不能当作老师原话。</p>
+       <p className="hint">所读原文中找不到这句话，不能当作原文引用。</p>
       )}
      </div>
     )
@@ -137,7 +140,14 @@ type Flow = {
  fence: number
  outcome_unknown: boolean
  notice?: string
- steps: {name: string; status: string; answer: string; answer_truncated?: boolean; task_id?: string | null}[]
+ steps: {
+  name: string
+  status: string
+  answer: string
+  answer_truncated?: boolean
+  task_id?: string | null
+  quotes?: Quote[]
+ }[]
  progress?: RunProgressValue
 }
 type Overview = {
@@ -442,7 +452,7 @@ export function ToolsWorkbench({visible, close}: Readonly<{visible: boolean; clo
        </>
       )}
       <p className="hint">
-       点击开始才将已选资料交给当前模型，只执行勾选的渠道和工具。回答中的老师原话会逐句回原始字幕核对，对不上的标为待核对；来源核对不等于结论正确。两步工作流保留每一步结果，失败后可继续。
+       点击开始才将已选资料交给当前模型，只执行勾选的渠道和工具。回答中带来源编号的引号原话会逐句回原文核对，对不上的标为待核对；来源核对不等于结论正确。两步工作流保留每一步结果，失败后可继续。
       </p>
       <Button
        variant="primary"
@@ -493,6 +503,7 @@ export function ToolsWorkbench({visible, close}: Readonly<{visible: boolean; clo
           {step.name} · {labels[step.status] || step.status}
          </summary>
          <LongResult text={step.answer} truncated={step.answer_truncated} taskId={step.task_id} />
+         <QuoteChecks quotes={step.quotes} sources={[]} />
         </details>
        ))}
        {task.notice && <p className="hint">{task.notice}</p>}
@@ -597,6 +608,7 @@ export function ToolsWorkbench({visible, close}: Readonly<{visible: boolean; clo
        )}
        {task.note && <LongResult text={task.note} truncated={task.note_truncated} taskId={task.task_id} />}
        <QuoteChecks quotes={task.quotes} sources={task.sources} />
+       {task.quotes_truncated && <p className="hint">引文较多，仅显示前 50 条核对结果。</p>}
        {task.limitations && <p className="hint">{task.limitations}</p>}
        <details>
         <summary>处理过程与来源</summary>

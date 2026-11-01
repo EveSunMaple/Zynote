@@ -7,6 +7,7 @@ import (
 	"strconv"
 	"strings"
 	"unicode"
+	"unicode/utf8"
 )
 
 // 字幕类资料以紧凑形式交给模型：每条字幕一行 "[hh:mm:ss]原话"，
@@ -21,13 +22,15 @@ var srtTimePattern = regexp.MustCompile(`^(\d{1,2}):(\d{2}):(\d{2})[,.]\d{1,3}\s
 var srtBlockPattern = regexp.MustCompile(`\r?\n\s*\r?\n`)
 var compactLinePattern = regexp.MustCompile(`^\[(\d{2}):(\d{2}):(\d{2})\](.*)$`)
 
-// parseSRT 把字幕切成带时间的片段。资料里夹杂的非字幕段落（讲义正文、说明）按原位置保留为
-// 无时间片段，不会因为压缩字幕而被丢掉；少于 3 条字幕的资料不当作字幕处理。
+// parseSRT 把字幕切成带时间的片段。只有整份资料都由字幕块组成时才压缩；
+// 混合笔记（字幕夹着讲义正文）原样交给模型，保证正文不丢。
 func parseSRT(text string) ([]cue, bool) {
 	blocks := srtBlockPattern.Split(strings.TrimPrefix(text, "\uFEFF"), -1)
 	cues := []cue{}
-	timed := 0
 	for _, block := range blocks {
+		if strings.TrimSpace(block) == "" {
+			continue
+		}
 		lines := strings.Split(strings.TrimSpace(block), "\n")
 		timeLine := -1
 		for index, line := range lines {
@@ -40,10 +43,7 @@ func parseSRT(text string) ([]cue, bool) {
 			}
 		}
 		if timeLine < 0 {
-			if body := untimedBlock(lines); body != "" {
-				cues = append(cues, cue{Start: -1, Text: body})
-			}
-			continue
+			return nil, false
 		}
 		match := srtTimePattern.FindStringSubmatch(strings.TrimSpace(lines[timeLine]))
 		body := []string{}
@@ -56,24 +56,8 @@ func parseSRT(text string) ([]cue, bool) {
 			continue
 		}
 		cues = append(cues, cue{Start: clockSeconds(match[1], match[2], match[3]), Text: strings.Join(body, " ")})
-		timed++
 	}
-	return cues, timed >= 3
-}
-
-// untimedBlock 把非字幕段落合成一行；单独的序号行是 SRT 残留，不算正文。
-func untimedBlock(lines []string) string {
-	body := []string{}
-	for _, line := range lines {
-		if value := strings.TrimSpace(line); value != "" {
-			body = append(body, value)
-		}
-	}
-	text := strings.Join(body, " ")
-	if strings.TrimFunc(text, unicode.IsDigit) == "" {
-		return ""
-	}
-	return text
+	return cues, len(cues) >= 3
 }
 
 func clockSeconds(hours, minutes, seconds string) int {
@@ -168,7 +152,7 @@ type citationRef struct {
 	End   int
 }
 
-var citationPattern = regexp.MustCompile(`[\[【]\s*(S\d+[^\[\]【】\n]{0,48})[\]】]`)
+var citationPattern = regexp.MustCompile(`[\[【［]\s*(S\d+[^\[\]【】［］\n]{0,48})[\]】］]`)
 var citationIDPattern = regexp.MustCompile(`S(\d+)`)
 var citationTimePattern = regexp.MustCompile(`(\d{1,2})[:：](\d{2})(?:[:：](\d{2}))?`)
 
@@ -183,16 +167,20 @@ func parseTime(value string) int {
 	return clockSeconds(match[1], match[2], match[3])
 }
 
-// runeOffsets 返回每个字节位置对应的 rune 下标，避免对每处引用重新转换整段前缀（O(n²)）。
-func runeOffsets(text string) []int {
-	// 只会用 rune 边界上的字节位置查询（正则匹配的起止都在边界上）。
-	offsets := make([]int, len(text)+1)
+// runeOffsets 预计算每个字节位置对应的 rune 下标，避免每个引用都重扫前缀。
+func runeOffsets(value string) []int {
+	offsets := make([]int, len(value)+1)
 	count := 0
-	for position := range text {
-		offsets[position] = count
+	for index := 0; index < len(value); {
+		offsets[index] = count
+		_, size := utf8.DecodeRuneInString(value[index:])
+		for offset := 1; offset < size; offset++ {
+			offsets[index+offset] = count
+		}
+		index += size
 		count++
 	}
-	offsets[len(text)] = count
+	offsets[len(value)] = count
 	return offsets
 }
 
@@ -246,7 +234,38 @@ type QuoteCheck struct {
 	Original string `json:"original,omitempty"`
 }
 
-var quotePattern = regexp.MustCompile(`[“「『"]([^”」』"\n]{2,400})[”」』"]`)
+var quotePattern = regexp.MustCompile(`[“「『]([^”」』\n]{2,1000})[”」』]`)
+var asciiQuotePattern = regexp.MustCompile(`"([^"\n]{2,1000})"`)
+
+type quoteMatch struct {
+	Text  string
+	Start int
+	End   int
+}
+
+func findQuotes(note string) []quoteMatch {
+	offsets := runeOffsets(note)
+	matches := []quoteMatch{}
+	for _, match := range quotePattern.FindAllStringSubmatchIndex(note, -1) {
+		matches = append(matches, quoteMatch{Text: note[match[2]:match[3]], Start: offsets[match[0]], End: offsets[match[1]]})
+	}
+	for _, match := range asciiQuotePattern.FindAllStringSubmatchIndex(note, -1) {
+		start, end := offsets[match[0]], offsets[match[1]]
+		inside := false
+		for _, existing := range matches {
+			if start >= existing.Start && end <= existing.End {
+				inside = true
+				break
+			}
+		}
+		if !inside {
+			matches = append(matches, quoteMatch{Text: note[match[2]:match[3]], Start: start, End: end})
+		}
+	}
+	sort.SliceStable(matches, func(left, right int) bool { return matches[left].Start < matches[right].Start })
+	return matches
+}
+
 var annotationPattern = regexp.MustCompile(`[（(【\[][^）)】\]]{0,24}[）)】\]]`)
 var ellipsisPattern = regexp.MustCompile(`\.{3,}|…+|⋯+`)
 
@@ -392,10 +411,14 @@ func matchSegments(segments [][]rune, text []rune, offset int, buffers *matchBuf
 	hits := []segmentHit{}
 	exact, close := true, true
 	total, errors := 0, 0
+	ordered := true
 	for _, segment := range segments {
 		distance, from, to := bestMatch(segment, text, buffers)
 		if to < 0 {
 			return nil, false, false
+		}
+		if len(hits) > 0 && from+offset < hits[len(hits)-1].to {
+			ordered = false
 		}
 		hits = append(hits, segmentHit{distance, from + offset, to + offset})
 		total += len(segment)
@@ -403,8 +426,11 @@ func matchSegments(segments [][]rune, text []rune, offset int, buffers *matchBuf
 		if distance > 0 {
 			exact = false
 		}
+		if len(segment) == 0 || float64(distance)/float64(len(segment)) > 0.2 {
+			close = false
+		}
 	}
-	if total == 0 || float64(errors)/float64(total) > 0.2 {
+	if !ordered || total == 0 || float64(errors)/float64(total) > 0.2 {
 		close = false
 	}
 	return hits, exact, close
@@ -578,8 +604,6 @@ func timeNear(runes []rune, from, to int) int {
 func CheckQuotes(note string, sources []TaskSource) []QuoteCheck {
 	refs := findCitations(note)
 	runes := []rune(note)
-	offsets := runeOffsets(note)
-	byteToRune := func(offset int) int { return offsets[offset] }
 	buffers := &matchBuffers{}
 	indexes := map[string]cueIndex{}
 	for _, source := range sources {
@@ -588,15 +612,15 @@ func CheckQuotes(note string, sources []TaskSource) []QuoteCheck {
 		}
 	}
 	checks := []QuoteCheck{}
-	for _, match := range quotePattern.FindAllStringSubmatchIndex(note, -1) {
+	for _, match := range findQuotes(note) {
 		if len(checks) >= maxQuoteChecks {
 			break
 		}
-		quote := note[match[2]:match[3]]
+		quote := match.Text
 		if len(normalizeQuote(quote)) < 6 {
 			continue
 		}
-		start, end := byteToRune(match[0]), byteToRune(match[1])
+		start, end := match.Start, match.End
 		ref := nearestCitation(refs, start, end)
 		if ref == nil || len(ref.IDs) == 0 {
 			continue
@@ -634,7 +658,7 @@ func CheckQuotes(note string, sources []TaskSource) []QuoteCheck {
 }
 
 // maxQuoteChecks 限制单个回答逐句核对的引文数，超长回答不至于拖慢保存。
-const maxQuoteChecks = 150
+const maxQuoteChecks = 200
 
 var quoteRank = map[string]int{"exact": 0, "edited": 1, "moved": 2, "unverified": 3}
 
@@ -652,8 +676,15 @@ func quoteMarkdown(checks []QuoteCheck) string {
 		if check.At != "" {
 			line += " 字幕 " + check.At
 		}
+		if check.Status == "moved" && check.CitedAt != "" {
+			line += "（回答标注 " + check.CitedAt + "）"
+		}
 		if check.Original != "" {
-			line += "；原始字幕：" + check.Original
+			label := "原文"
+			if check.At != "" {
+				label = "原始字幕"
+			}
+			line += "；" + label + "：" + check.Original
 		} else {
 			line += "；所读原文中找不到这句话"
 		}
@@ -668,7 +699,7 @@ func quoteSummary(checks []QuoteCheck) (string, int) {
 		counts[check.Status]++
 	}
 	if len(checks) == 0 {
-		return "回答中没有带来源编号的引号原话，未做逐句核对", 0
+		return "回答中没有可核对的带来源编号引号原话（无编号或过长的引号不在此列）", 0
 	}
 	return fmt.Sprintf("原话逐句核对：%d 条逐字一致，%d 条有删改，%d 条时间不符，%d 条待核对",
 		counts["exact"], counts["edited"], counts["moved"], counts["unverified"]), counts["unverified"]

@@ -304,6 +304,7 @@ func (inv *Invoker) handleToolsRequest(storeState contract.StateStore, state *co
 		}
 		switch input.Action {
 		case "agent-create":
+			// Create 登记后立即返回不含来源原文的精简任务（研究在后台运行），不会超过 IPC 行上限。
 			return engine.Create(context.Background(), input.Args)
 		case "agent-read":
 			id := textValue(input.Args["id"])

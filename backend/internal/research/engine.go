@@ -184,7 +184,7 @@ func taskListRow(row map[string]any) map[string]any {
 
 // listNoteLimit 是列表里每条回答最多带的字数；更长的标记 note_truncated，界面按需读全文。
 // 列表每 2 秒轮询一次，回答最长可达二十万字，全带上会让回包超过主进程的单行上限。
-const listNoteLimit = 4000
+const listNoteLimit = 20000
 
 // taskRow 返回不含来源原文的任务；noteLimit > 0 时截短回答。研究详情、会话和创建结果都用它，
 // 原文只留在库里供核验与导出。
@@ -216,6 +216,10 @@ func taskRow(row map[string]any, noteLimit int) map[string]any {
 		default:
 			slim[key] = value
 		}
+	}
+	if quotes, ok := slim["quotes"].([]any); ok && noteLimit > 0 && len(quotes) > 50 {
+		slim["quotes"] = quotes[:50]
+		slim["quotes_truncated"] = true
 	}
 	return slim
 }
@@ -713,7 +717,7 @@ func (engine *Engine) completeResearch(ctx context.Context, run *runState, task 
 	if err != nil {
 		return engine.failResearch(task, err)
 	}
-	if !validResearchCitations(note, task.Sources) || strings.TrimSpace(note) == "" || len([]rune(note)) > 200000 {
+	if strings.TrimSpace(note) == "" || len([]rune(note)) > 200000 || !validResearchCitations(note, task.Sources) {
 		// 保留被拒原文（截断）便于说明原因；它不会作为研究成果发布或导出。
 		task.Rejected = trimText(note, 4000)
 		return engine.failResearchMessage(task, "模型回答缺少有效来源编号，未发布为核验成果")

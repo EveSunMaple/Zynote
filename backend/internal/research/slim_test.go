@@ -14,7 +14,7 @@ func TestResponsesStaySmallWithHugeMaterials(t *testing.T) {
 		texts = append(texts, strings.Repeat("泰勒公式余项的长篇讲义正文。", 20000))
 	}
 	engine, bindings := citationEngine(t, texts)
-	longNote := "依据讲义“泰勒公式余项的长篇讲义正文”[S1]。" + strings.Repeat("展开说明。", 3000)
+	longNote := "依据讲义“泰勒公式余项的长篇讲义正文”[S1]。" + strings.Repeat("展开说明。", 5000)
 	engine.Model = func(context.Context, string, string) (string, error) { return longNote, nil }
 	created, err := engine.Create(context.Background(), map[string]any{
 		"op": strings.Repeat("e", 32), "question": "余项", "channels": []any{"library"}, "materials": bindings,

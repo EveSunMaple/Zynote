@@ -10,12 +10,13 @@ import (
 )
 
 type WorkflowStep struct {
-	Name         string  `json:"name"`
-	Status       string  `json:"status"`
-	Answer       string  `json:"answer"`
-	AnswerSHA256 *string `json:"answer_sha256"`
-	TaskID       *string `json:"task_id"`
-	CreateOp     string  `json:"create_op"`
+	Name         string       `json:"name"`
+	Status       string       `json:"status"`
+	Answer       string       `json:"answer"`
+	AnswerSHA256 *string      `json:"answer_sha256"`
+	TaskID       *string      `json:"task_id"`
+	CreateOp     string       `json:"create_op"`
+	Quotes       []QuoteCheck `json:"quotes,omitempty"`
 }
 
 type Workflow struct {
@@ -81,18 +82,34 @@ func (engine *Engine) ListWorkflows() []any {
 				row["progress"] = progress
 			}
 		}
-		// 列表里每步回答只带前一段，全文在“保存工作流成果”或研究详情里看。
-		if steps, ok := row["steps"].([]any); ok {
-			for _, item := range steps {
-				if step, ok := item.(map[string]any); ok && len([]rune(text(step["answer"]))) > listNoteLimit {
-					step["answer"] = trimText(text(step["answer"]), listNoteLimit)
-					step["answer_truncated"] = true
-				}
-			}
-		}
-		result = append(result, row)
+		result = append(result, workflowListRow(row))
 	}
 	return result
+}
+
+func workflowListRow(row map[string]any) map[string]any {
+	slim := map[string]any{}
+	for key, value := range row {
+		if key != "steps" {
+			slim[key] = value
+			continue
+		}
+		items, _ := value.([]any)
+		steps := make([]any, 0, len(items))
+		for _, item := range items {
+			step, _ := item.(map[string]any)
+			answer, _ := step["answer"].(string)
+			trimmed := trimText(answer, 2000)
+			entry := map[string]any{"name": step["name"], "status": step["status"], "quotes": step["quotes"], "task_id": step["task_id"]}
+			entry["answer"] = trimmed
+			if len([]rune(trimmed)) < len([]rune(answer)) {
+				entry["answer_truncated"] = true
+			}
+			steps = append(steps, entry)
+		}
+		slim[key] = steps
+	}
+	return slim
 }
 
 func (engine *Engine) CreateWorkflow(ctx context.Context, input map[string]any) (any, error) {
@@ -268,6 +285,7 @@ func (engine *Engine) runWorkflow(ctx context.Context, run *runState, flow *Work
 		taskID := task.TaskID
 		step.Status = "completed"
 		step.Answer = task.Note
+		step.Quotes = task.Quotes
 		step.AnswerSHA256 = &hash
 		step.TaskID = &taskID
 		if err := engine.putWorkflow(flow); err != nil {
@@ -315,7 +333,7 @@ func (engine *Engine) ExportWorkflow(id string) (any, error) {
 	}
 	text := "# " + flow.Question + "\n\n"
 	for _, step := range flow.Steps {
-		text += "## " + step.Name + "\n\n" + step.Answer + "\n\n"
+		text += "## " + step.Name + "\n\n" + step.Answer + "\n\n" + quoteMarkdown(step.Quotes)
 	}
 	encoded, _ := marshalJSON(flow.Bindings)
 	text += "## 来源版本\n\n```json\n" + string(encoded) + "\n```\n"

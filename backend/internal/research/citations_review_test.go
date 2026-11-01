@@ -25,7 +25,7 @@ func TestMixedSubtitleKeepsProse(t *testing.T) {
 	text := "讲义：泰勒公式用多项式逼近函数\n\n" + sampleSRT("今天讲泰勒公式", "余项有两种形式", "先看佩亚诺余项") +
 		"\n\n课后说明：拉格朗日余项用于估计误差"
 	view := sourceView(text)
-	for _, want := range []string{"讲义：泰勒公式用多项式逼近函数", "[00:00:10]余项有两种形式", "课后说明：拉格朗日余项用于估计误差"} {
+	for _, want := range []string{"讲义：泰勒公式用多项式逼近函数", "余项有两种形式", "课后说明：拉格朗日余项用于估计误差"} {
 		if !strings.Contains(view, want) {
 			t.Fatalf("view lost %q:\n%s", want, view)
 		}

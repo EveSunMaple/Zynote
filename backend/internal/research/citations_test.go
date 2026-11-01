@@ -79,7 +79,7 @@ func TestAllocateBudgetSharesFairly(t *testing.T) {
 
 func TestValidCitationsAcceptTimedForms(t *testing.T) {
 	sources := []TaskSource{{SourceID: "S1", Read: true}, {SourceID: "S2", Read: true}}
-	for _, note := range []string{"结论 [S1]", "“原话”[S1@00:14:06]", "原话 [S1, 14:06-14:22]", "对比 [S1, S2]", "原话【S2】"} {
+	for _, note := range []string{"结论 [S1]", "“原话”[S1@00:14:06]", "原话 [S1, 14:06-14:22]", "对比 [S1, S2]", "原话【S2】", "结论［S1］", "原话[S1@00：14：06]"} {
 		if !validResearchCitations(note, sources) {
 			t.Fatalf("should accept %q", note)
 		}
@@ -115,6 +115,67 @@ func TestCheckQuotesClassifiesEachQuote(t *testing.T) {
 	}
 	if checks[3].At != "00:00:50" || checks[0].Original != "它是一个高阶无穷小啊" {
 		t.Fatalf("location mismatch: %+v", checks)
+	}
+}
+
+func TestSourceViewPreservesMixedNotes(t *testing.T) {
+	raw := "课堂笔记\n\n" + sampleSRT("第一句", "第二句", "第三句") + "\n\n结尾总结"
+	if got := sourceView(raw); got != raw {
+		t.Fatalf("mixed note must not drop prose:\n%s", got)
+	}
+}
+
+func TestCheckQuotesLongQuoteKeepsExactStatus(t *testing.T) {
+	lines := []string{}
+	for index := 0; index < 20; index++ {
+		lines = append(lines, fmt.Sprintf("第%d句课堂原文", index+1))
+	}
+	text := sampleSRT(lines...)
+	sources := []TaskSource{{SourceID: "S1", Read: true, Text: sourceView(text)}}
+	quote := "“" + strings.Join(lines, "") + "”[S1@00:00:00]"
+	checks := CheckQuotes(quote, sources)
+	if len(checks) != 1 || checks[0].Status != "exact" {
+		t.Fatalf("long exact quote should stay exact: %+v", checks)
+	}
+}
+
+func TestCheckQuotesPrefersFullExactOverWindowClose(t *testing.T) {
+	lines := make([]string, 31)
+	for index := range lines {
+		lines[index] = "这里是无关内容"
+	}
+	lines[0] = "余项有两种形式"
+	lines[30] = "余项有两种形态"
+	sources := []TaskSource{{SourceID: "S1", Read: true, Text: sourceView(sampleSRT(lines...))}}
+	checks := CheckQuotes("“余项有两种形式”[S1@00:05:00]", sources)
+	if len(checks) != 1 || checks[0].Status != "moved" || checks[0].At != "00:00:00" {
+		t.Fatalf("full exact match should win over window close: %+v", checks)
+	}
+}
+
+func TestCheckQuotesMultiSourcePrefersExact(t *testing.T) {
+	first := make([]string, 31)
+	second := make([]string, 31)
+	for index := range first {
+		first[index], second[index] = "无关", "无关"
+	}
+	first[0] = "余项有两种形式"
+	second[30] = "余项有两种形式"
+	sources := []TaskSource{
+		{SourceID: "S1", Read: true, Text: sourceView(sampleSRT(first...))},
+		{SourceID: "S2", Read: true, Text: sourceView(sampleSRT(second...))},
+	}
+	checks := CheckQuotes("“余项有两种形式”[S1, S2@00:05:00]", sources)
+	if len(checks) != 1 || checks[0].SourceID != "S2" || checks[0].Status != "exact" {
+		t.Fatalf("multi-source should prefer exact S2: %+v", checks)
+	}
+}
+
+func TestCheckQuotesAcceptsAsciiQuotes(t *testing.T) {
+	sources := []TaskSource{{SourceID: "S1", Read: true, Text: sourceView(sampleSRT("余项有两种形式", "第二句", "第三句"))}}
+	checks := CheckQuotes(`"余项有两种形式"[S1]`, sources)
+	if len(checks) != 1 || checks[0].Status != "exact" {
+		t.Fatalf("ascii quote should be checked: %+v", checks)
 	}
 }
 

@@ -2,6 +2,7 @@ import {app} from 'electron'
 import {spawn, type ChildProcess} from 'node:child_process'
 import {existsSync} from 'node:fs'
 import {join} from 'node:path'
+import {StringDecoder} from 'node:string_decoder'
 import {z} from 'zod'
 import type {EventPayload} from '@shared/types'
 import type {ShellService} from '@main/backend/shell-service'
@@ -55,11 +56,22 @@ const LONG_RUNNING_ACTIONS = new Set([
  'ppt-extract:analyze',
  'ppt-extract:export'
 ])
-// 研究动作（tools:request）在后台运行、创建后立即返回，只需普通的慢请求超时。
-const SLOW_ACTIONS = new Set(['zhiyun:search', 'zhiyun:lessons', 'settings:models', 'tools:request'])
+const SLOW_ACTIONS = new Set(['zhiyun:search', 'zhiyun:lessons', 'settings:models'])
 // 单行回包上限：超出时丢弃这一行，并让对应请求明确报错，而不是一直等到超时。
 const MAX_LINE_CHARS = 16_000_000
-function callTimeout(action: string) {
+// 研究模型请求要等整节课字幕，单次常需 60–90 秒，两步工作流更久；其他 tools:request 动作保持 90 秒。
+const LONG_TOOL_ACTIONS = new Set(['agent-create', 'workflow-action'])
+function timeoutError(message: string) {
+ const error = new Error(message) as Error & {code?: string}
+ error.code = 'TIMEOUT'
+ return error
+}
+
+function callTimeout(action: string, params?: Record<string, unknown>) {
+ if (action === 'tools:request') {
+  const inner = typeof params?.action === 'string' ? params.action : ''
+  return LONG_TOOL_ACTIONS.has(inner) ? LONG_CALL_TIMEOUT_MS : SLOW_CALL_TIMEOUT_MS
+ }
  if (LONG_RUNNING_ACTIONS.has(action)) return LONG_CALL_TIMEOUT_MS
  if (SLOW_ACTIONS.has(action)) return SLOW_CALL_TIMEOUT_MS
  return CALL_TIMEOUT_MS
@@ -112,6 +124,8 @@ export class GoCore {
  private disposed = false
  private buffer = ''
  private dropping = false
+ private readonly stdoutDecoder = new StringDecoder('utf8')
+ private readonly stderrDecoder = new StringDecoder('utf8')
  private readonly options: GoCoreOptions
  private helloTimer: NodeJS.Timeout | undefined
 
@@ -134,11 +148,9 @@ export class GoCore {
   })
   this.buffer = ''
   this.dropping = false
-  // 按流解码：逐块 String(chunk) 会把跨块的多字节汉字解成乱码，长回包里很常见。
-  this.child.stdout!.setEncoding('utf8')
-  this.child.stdout!.on('data', chunk => this.consume(String(chunk)))
+  this.child.stdout!.on('data', chunk => this.consume(this.stdoutDecoder.write(chunk)))
   this.child.stderr!.on('data', chunk => {
-   this.stderrTail = (this.stderrTail + String(chunk)).slice(-STDERR_TAIL_LIMIT)
+   this.stderrTail = (this.stderrTail + this.stderrDecoder.write(chunk)).slice(-STDERR_TAIL_LIMIT)
   })
   this.child.on('exit', (code, signal) => this.handleExit(code, signal))
   this.child.on('error', error => this.handleExit(undefined, undefined, String(error)))
@@ -172,10 +184,13 @@ export class GoCore {
   if (this.status !== 'ready' || !this.child) throw new Error('Go 后端不可用')
   const id = 'c-' + ++this.nextID
   return await new Promise<unknown>((resolve, reject) => {
-   const timer = setTimeout(() => {
-    this.pending.delete(id)
-    reject(new Error('Go 后端请求超时'))
-   }, callTimeout(action))
+   const timer = setTimeout(
+    () => {
+     this.pending.delete(id)
+     reject(timeoutError('Go 后端请求超时'))
+    },
+    callTimeout(action, params)
+   )
    this.pending.set(id, {resolve, reject, timer})
    this.send({jsonrpc: '2.0', id, method: action, params})
   })
