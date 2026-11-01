@@ -85,9 +85,37 @@ function callTimeout(action: string) {
 export type GoCoreStatus = 'starting' | 'ready' | 'restarting' | 'failed' | 'disposed'
 
 type Pending = {
+ tracked: boolean
  resolve: (value: unknown) => void
  reject: (error: Error) => void
  timer: NodeJS.Timeout
+}
+
+export type TrackedGoCall = {requestID: string; result: Promise<unknown>; physicalSettled: Promise<void>}
+
+function isTerminalFrame(value: unknown): value is Record<string, unknown> & {id: string} {
+ if (!value || typeof value !== 'object' || Array.isArray(value)) return false
+ const frame = value as Record<string, unknown>
+ if (
+  frame.jsonrpc !== '2.0' ||
+  Object.hasOwn(frame, 'method') ||
+  typeof frame.id !== 'string' ||
+  Object.hasOwn(frame, 'result') === Object.hasOwn(frame, 'error')
+ )
+  return false
+ if (Object.hasOwn(frame, 'error')) {
+  const error = frame.error as Record<string, unknown>
+  if (
+   !error ||
+   typeof error !== 'object' ||
+   Array.isArray(error) ||
+   typeof error.code !== 'string' ||
+   error.code.length === 0 ||
+   typeof error.message !== 'string'
+  )
+   return false
+ }
+ return true
 }
 
 export type GoCoreOptions = {
@@ -125,6 +153,8 @@ export class GoCore {
  private stderrTail = ''
  private status: GoCoreStatus = 'starting'
  private readonly pending = new Map<string, Pending>()
+ private readonly physical = new Map<ChildProcess, Map<string, () => void>>()
+ private readonly physicalBuffers = new Map<ChildProcess, string>()
  private nextID = 0
  private restarts = 0
  private disposed = false
@@ -144,18 +174,35 @@ export class GoCore {
   const binary = coreBinaryPath()
   if (!existsSync(binary)) throw new Error('Go 后端二进制缺失，请先运行 pnpm backend:build')
   this.status = 'starting'
-  this.child = spawn(binary, [], {
+  const child = spawn(binary, [], {
    stdio: ['pipe', 'pipe', 'pipe'],
    windowsHide: true,
    detached: process.platform !== 'win32'
   })
+  this.child = child
   this.buffer = ''
-  this.child.stdout!.on('data', chunk => this.consume(String(chunk)))
+  let spawned = false
+  child.once('spawn', () => {
+   spawned = true
+  })
+  child.stdout!.on('data', chunk => {
+   this.observePhysical(child, String(chunk))
+   if (this.child === child) this.consume(String(chunk))
+  })
   this.child.stderr!.on('data', chunk => {
    this.stderrTail = (this.stderrTail + String(chunk)).slice(-STDERR_TAIL_LIMIT)
   })
-  this.child.on('exit', (code, signal) => this.handleExit(code, signal))
-  this.child.on('error', error => this.handleExit(undefined, undefined, String(error)))
+  child.on('exit', (code, signal) => {
+   this.settlePhysicalChild(child)
+   if (this.child === child) this.handleExit(code, signal)
+  })
+  child.once('close', () => this.settlePhysicalChild(child))
+  child.on('error', error => {
+   // Failed spawn with no PID cannot have executed a request. Errors on a
+   // spawned child, logical dispose and handshake timeout are not termination.
+   if (!spawned && child.pid === undefined) this.settlePhysicalChild(child)
+   if (this.child === child) this.handleExit(undefined, undefined, String(error))
+  })
   this.send({
    jsonrpc: '2.0',
    id: 'c-hello',
@@ -183,16 +230,63 @@ export class GoCore {
  }
 
  async call(action: string, params: Record<string, unknown>): Promise<unknown> {
+  return await this.beginCall(action, params, false).result
+ }
+
+ callTracked(action: string, params: Record<string, unknown>): TrackedGoCall {
+  return this.beginCall(action, params, true)
+ }
+
+ private beginCall(action: string, params: Record<string, unknown>, tracked: boolean): TrackedGoCall {
   if (this.status !== 'ready' || !this.child) throw new Error('Go 后端不可用')
+  const child = this.child
   const id = 'c-' + ++this.nextID
-  return await new Promise<unknown>((resolve, reject) => {
+  const physicalSettled = tracked
+   ? new Promise<void>(resolve => {
+      let requests = this.physical.get(child)
+      if (!requests) {
+       requests = new Map()
+       this.physical.set(child, requests)
+      }
+      requests.set(id, resolve)
+     })
+   : Promise.resolve()
+  const result = new Promise<unknown>((resolve, reject) => {
    const timer = setTimeout(() => {
     this.pending.delete(id)
     reject(new Error('Go 后端请求超时'))
    }, callTimeout(action))
-   this.pending.set(id, {resolve, reject, timer})
+   this.pending.set(id, {resolve, reject, timer, tracked})
    this.send({jsonrpc: '2.0', id, method: action, params})
   })
+  return {requestID: id, result, physicalSettled}
+ }
+
+ private settlePhysicalChild(child: ChildProcess) {
+  for (const settle of this.physical.get(child)?.values() || []) settle()
+  this.physical.delete(child)
+  this.physicalBuffers.delete(child)
+ }
+
+ private observePhysical(child: ChildProcess, chunk: string) {
+  if (!this.physical.has(child)) return
+  let buffer = (this.physicalBuffers.get(child) || '') + chunk
+  for (let index = buffer.indexOf('\n'); index >= 0; index = buffer.indexOf('\n')) {
+   const line = buffer.slice(0, index)
+   buffer = buffer.slice(index + 1)
+   try {
+    const frame: unknown = JSON.parse(line)
+    if (!isTerminalFrame(frame)) continue
+    const requests = this.physical.get(child)
+    requests?.get(frame.id)?.()
+    requests?.delete(frame.id)
+    if (requests?.size === 0) this.physical.delete(child)
+   } catch {}
+  }
+  // Malformed/oversized transport data cannot confirm termination; keep its
+  // request fenced until an actual child exit/close if no terminal is parsed.
+  if (this.physical.has(child)) this.physicalBuffers.set(child, buffer.length > 1_000_000 ? '' : buffer)
+  else this.physicalBuffers.delete(child)
  }
 
  dispose() {
@@ -245,8 +339,10 @@ export class GoCore {
   } catch {
    return
   }
+  if (!frame || typeof frame !== 'object' || Array.isArray(frame)) return
   const id = typeof frame.id === 'string' ? frame.id : undefined
   const method = typeof frame.method === 'string' ? frame.method : undefined
+  if (id !== undefined && this.pending.get(id)?.tracked && !isTerminalFrame(frame)) return
   if (method && id !== undefined) {
    void this.handleReverse(id, method, frame.params).catch(() => {})
    return

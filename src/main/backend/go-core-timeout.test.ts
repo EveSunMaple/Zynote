@@ -27,6 +27,9 @@ readline.createInterface({input: process.stdin}).on('line', line => {
  if (frame.method === 'core.hello') send({id: frame.id, result: {}});
  else if (frame.method === 'fixture.release') {
   for (const request of pending.splice(0)) send({id: request.id, result: {action: request.method}});
+ } else if (frame.method === 'fixture.frames') {
+  for (const output of frame.params.frames) process.stdout.write(JSON.stringify(output) + '\\n');
+  send({method: 'event', params: {name: 'received', action: frame.method}});
  } else {
   pending.push(frame);
   send({method: 'event', params: {name: 'received', action: frame.method}});
@@ -154,5 +157,99 @@ describe('GoCore request timeouts', () => {
   await vi.advanceTimersByTimeAsync(1)
   expect(longError).toEqual(new Error('Go 后端请求超时'))
   await Promise.all([bound, ordinary, slow, long])
+
+  const malformed = (id: string) => [
+   null,
+   [],
+   {jsonrpc: '2.0', id: id, method: '', result: {}},
+   {jsonrpc: '2.0', id: id, method: null, result: {}},
+   {jsonrpc: '2.0', id: id, method: 0, result: {}},
+   {jsonrpc: '2.0', id: id, result: {}, error: {code: 'CONFLICT', message: 'bad'}},
+   {jsonrpc: '2.0', id: id, error: null},
+   {jsonrpc: '2.0', id: id, error: 'bad'},
+   {jsonrpc: '2.0', id: id, error: {code: 1, message: 'bad'}},
+   {jsonrpc: '2.0', id: id, error: {code: 'CONFLICT', message: 1}}
+  ]
+  const validation = core.callTracked('video-ppt:bound-playback-source', {})
+  let validationResult = false,
+   validationPhysical = false
+  void validation.result.then(() => {
+   validationResult = true
+  })
+  void validation.physicalSettled.then(() => {
+   validationPhysical = true
+  })
+  let checkpoint = received.length
+  await until(() => received.length === checkpoint + 1)
+  checkpoint = received.length
+  fixture.child!.stdin!.write(
+   JSON.stringify({method: 'fixture.frames', params: {frames: malformed(validation.requestID)}}) + '\n'
+  )
+  await until(() => received.length === checkpoint + 1)
+  expect(validationResult).toBe(false)
+  expect(validationPhysical).toBe(false)
+  fixture.child!.stdin!.write(JSON.stringify({method: 'fixture.release'}) + '\n')
+  await Promise.all([validation.result, validation.physicalSettled])
+  expect(validationResult).toBe(true)
+  expect(validationPhysical).toBe(true)
+
+  const tracked = core.callTracked('video-ppt:bound-playback-source', {})
+  let logicalError: unknown,
+   physical = false
+  const logical = tracked.result.catch(error => {
+   logicalError = error
+  })
+  void tracked.physicalSettled.then(() => {
+   physical = true
+  })
+  checkpoint = received.length
+  await until(() => received.length === checkpoint + 1)
+  await vi.advanceTimersByTimeAsync(6000)
+  await logical
+  expect(logicalError).toEqual(new Error('Go 后端请求超时'))
+  expect(physical).toBe(false)
+  const originalChild = fixture.child!
+
+  checkpoint = received.length
+  originalChild.stdin!.write(
+   JSON.stringify({method: 'fixture.frames', params: {frames: malformed(tracked.requestID)}}) + '\n'
+  )
+  await until(() => received.length === checkpoint + 1)
+  expect(physical).toBe(false)
+  // A new actual child generation cannot terminate the old child's same ID.
+  core.start()
+  await until(() => core?.currentStatus === 'ready')
+  checkpoint = received.length
+  fixture.child!.stdin!.write(
+   JSON.stringify({method: 'fixture.frames', params: {frames: [{jsonrpc: '2.0', id: tracked.requestID, result: {}}]}}) +
+    '\n'
+  )
+  await until(() => received.length === checkpoint + 1)
+  expect(physical).toBe(false)
+  originalChild.stdin!.write(JSON.stringify({method: 'fixture.release'}) + '\n')
+  await tracked.physicalSettled
+  expect(physical).toBe(true)
+  const originalExited = new Promise<void>(resolve => originalChild.once('exit', () => resolve()))
+  originalChild.kill()
+  await originalExited
+
+  const exiting = core.callTracked('video-ppt:bound-playback-source', {})
+  void exiting.result.catch(() => {})
+  let exitedPhysically = false
+  void exiting.physicalSettled.then(() => {
+   exitedPhysically = true
+  })
+  checkpoint = received.length
+  await until(() => received.length === checkpoint + 1)
+  const child = fixture.child!
+  child.emit('error', new Error('controlled nonterminal child error'))
+  await Promise.resolve()
+  expect(exitedPhysically).toBe(false)
+  core.dispose()
+  await Promise.resolve()
+  expect(exitedPhysically).toBe(false)
+  child.kill()
+  await exiting.physicalSettled
+  expect(exitedPhysically).toBe(true)
  }, 15000)
 })
