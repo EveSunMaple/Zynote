@@ -2,6 +2,7 @@ package research
 
 import (
 	"context"
+	"fmt"
 	"io"
 	"net/http"
 	"os"
@@ -107,26 +108,39 @@ func TestWorkflowCreateResumeExport(t *testing.T) {
 		t.Fatalf("catalog mismatch: %+v", catalog)
 	}
 	bindingValue := items[0].(map[string]any)["binding"]
+	// 第一次模型调用失败，工作流停在失败状态；继续后两步完成，且第二步拿到第一步的完整草稿。
+	longDraft := "依据原文，特征工程很重要 [S1]" + strings.Repeat("整理", 1200)
+	calls, lastPrompt := 0, ""
 	engine := &Engine{
 		Store: store, Sources: sources, Connection: "conn",
-		Model: func(context.Context, string, string) (string, error) {
-			return "依据原文，特征工程很重要 [S1]", nil
+		Model: func(_ context.Context, _ string, user string) (string, error) {
+			calls++
+			lastPrompt = user
+			if calls == 1 {
+				return "", fmt.Errorf("模拟断连")
+			}
+			return longDraft, nil
 		},
 	}
-	created, err := engine.CreateWorkflow(context.Background(), map[string]any{
+	if _, err := engine.CreateWorkflow(context.Background(), map[string]any{
 		"op": "cccccccccccccccccccccccccccccccc", "question": "特征工程",
 		"materials": []any{bindingValue},
+	}); err == nil {
+		t.Fatal("first model failure should fail the workflow")
+	}
+	flow := engine.ListWorkflows()[0].(map[string]any)
+	if flow["status"] != "failed" {
+		t.Fatalf("workflow should have started on create and failed: %v", flow["status"])
+	}
+	resumed, err := engine.ActionWorkflow(context.Background(), map[string]any{
+		"id": flow["workflow_id"], "op": "dddddddddddddddddddddddddddddddd",
+		"revision": flow["revision"], "fence": flow["fence"], "kind": "resume", "retry_unknown": false,
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	flow := created.(Workflow)
-	resumed, err := engine.ActionWorkflow(context.Background(), map[string]any{
-		"id": flow.WorkflowID, "op": "dddddddddddddddddddddddddddddddd",
-		"revision": flow.Revision, "fence": flow.Fence, "kind": "resume", "retry_unknown": false,
-	})
-	if err != nil {
-		t.Fatal(err)
+	if !strings.Contains(lastPrompt, longDraft) {
+		t.Fatal("second step must receive the whole first-step draft")
 	}
 	completed := resumed.(Workflow)
 	if completed.Status != "completed" || len(completed.Steps) != 2 ||

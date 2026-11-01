@@ -227,7 +227,7 @@ func (store *Store) ExportNote(id string) (any, error) {
 	if err != nil {
 		return nil, err
 	}
-	directory := filepath.Join(store.root, "笔记导出")
+	directory := filepath.Join(store.root, noteExportDirectory)
 	if err := os.MkdirAll(directory, 0o755); err != nil {
 		return nil, fmt.Errorf("笔记导出目录无效")
 	}

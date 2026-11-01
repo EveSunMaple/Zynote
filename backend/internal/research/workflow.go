@@ -30,6 +30,8 @@ type Workflow struct {
 	ErrorCode      string         `json:"error_code"`
 	CreatedAt      string         `json:"created_at"`
 	UpdatedAt      string         `json:"updated_at"`
+	// Progress 只在读取时由内存中的运行状态填入，不写入数据库。
+	Progress *TaskProgress `json:"progress,omitempty"`
 }
 
 func (engine *Engine) readWorkflow(id string) (Workflow, error) {
@@ -45,10 +47,18 @@ func (engine *Engine) readWorkflow(id string) (Workflow, error) {
 	if unmarshalJSON(encoded, &flow) != nil || flow.WorkflowID != id {
 		return Workflow{}, fmt.Errorf("工作流数据无效")
 	}
+	if flow.Status == "running" {
+		flow.Progress = activeRun(id).progress()
+	}
 	return flow, nil
 }
 
 func (engine *Engine) putWorkflow(flow *Workflow) error {
+	return activeRun(flow.WorkflowID).guard(flow.Status == "stopped", func() error { return engine.writeWorkflow(flow) })
+}
+
+func (engine *Engine) writeWorkflow(flow *Workflow) error {
+	flow.Progress = nil
 	flow.Revision++
 	flow.UpdatedAt = time.Now().UTC().Format(time.RFC3339Nano)
 	encoded, _ := marshalJSON(flow)
@@ -66,6 +76,11 @@ func (engine *Engine) ListWorkflows() []any {
 	}
 	result := []any{}
 	for _, row := range rows {
+		if text(row["status"]) == "running" {
+			if progress := activeRun(text(row["workflow_id"])).progress(); progress != nil {
+				row["progress"] = progress
+			}
+		}
 		result = append(result, row)
 	}
 	return result
@@ -109,7 +124,12 @@ func (engine *Engine) CreateWorkflow(ctx context.Context, input map[string]any) 
 	if err != nil {
 		return nil, err
 	}
-	return engine.readWorkflow(text(result.(map[string]any)["id"]))
+	// 创建后立即开始运行，不必再点一次“继续”。
+	flow, err := engine.readWorkflow(text(result.(map[string]any)["id"]))
+	if err != nil || flow.Status != "paused" || flow.Revision != 1 {
+		return flow, err
+	}
+	return engine.startWorkflow(ctx, &flow)
 }
 
 func (engine *Engine) stopWorkflow(input map[string]any, id, op string) (any, error) {
@@ -124,6 +144,7 @@ func (engine *Engine) stopWorkflow(input map[string]any, id, op string) (any, er
 		if flow.Status != "running" {
 			return nil, fmt.Errorf("工作流未运行")
 		}
+		activeRun(id).stop()
 		flow.Status = "stopped"
 		flow.Fence++
 		flow.ErrorCode = "用户停止工作流"
@@ -157,21 +178,41 @@ func (engine *Engine) resumeWorkflow(ctx context.Context, input map[string]any, 
 			return nil, err
 		}
 	}
+	return engine.startWorkflow(ctx, &flow)
+}
+
+// startWorkflow 把工作流标为运行中并在后台逐步执行；没有后台执行器时就地同步运行。
+func (engine *Engine) startWorkflow(ctx context.Context, flow *Workflow) (any, error) {
 	flow.Status = "running"
 	flow.Fence++
 	flow.OutcomeUnknown = false
 	flow.ErrorCode = ""
-	if err := engine.runWorkflow(ctx, &flow); err != nil {
-		flow.Status = "failed"
-		flow.ErrorCode = err.Error()
-		_ = engine.putWorkflow(&flow)
+	// 未完成的步骤换新的操作编号：沿用旧编号会直接取回上次失败或中断的研究任务。
+	for index := range flow.Steps {
+		if flow.Steps[index].Status != "completed" {
+			flow.Steps[index].CreateOp = randomID()
+		}
+	}
+	if err := engine.putWorkflow(flow); err != nil {
 		return nil, err
 	}
-	flow.Status = "completed"
-	if err := engine.putWorkflow(&flow); err != nil {
+	id := flow.WorkflowID
+	run := beginRun(id, nil, "")
+	err := engine.launch(ctx, id, run, true, func(runContext context.Context, worker *Engine) error {
+		current := *flow
+		if err := worker.runWorkflow(runContext, run, &current); err != nil {
+			current.Status = "failed"
+			current.ErrorCode = err.Error()
+			_ = worker.putWorkflow(&current)
+			return err
+		}
+		current.Status = "completed"
+		return worker.putWorkflow(&current)
+	})
+	if err != nil {
 		return nil, err
 	}
-	return engine.readWorkflow(flow.WorkflowID)
+	return engine.readWorkflow(id)
 }
 
 func (engine *Engine) ActionWorkflow(ctx context.Context, input map[string]any) (any, error) {
@@ -187,21 +228,26 @@ func (engine *Engine) ActionWorkflow(ctx context.Context, input map[string]any) 
 	return engine.resumeWorkflow(ctx, input, id)
 }
 
-func (engine *Engine) runWorkflow(ctx context.Context, flow *Workflow) error {
+func (engine *Engine) runWorkflow(ctx context.Context, run *runState, flow *Workflow) error {
 	for index := range flow.Steps {
 		step := &flow.Steps[index]
 		if step.Status == "completed" {
 			continue
 		}
-		question := ""
-		if index == 0 {
-			question = trimText("请为以下问题整理原文证据，区分资料中的共识和缺失："+flow.Question, 1500)
-		} else {
-			question = trimText("请依据所选原文回答："+flow.Question+"\n前一步草稿仅为整理线索，不是额外来源，不得替代原文核对：\n"+trimText(flow.Steps[0].Answer, 10000), 1500)
+		if err := ctx.Err(); err != nil {
+			return errResearchStopped
 		}
-		created, err := engine.Create(ctx, map[string]any{
-			"op": step.CreateOp, "question": question, "channels": []any{"library"}, "materials": bindingValues(flow.Bindings),
-		})
+		input := map[string]any{
+			"op": step.CreateOp, "channels": []any{"library"}, "materials": bindingValues(flow.Bindings),
+			"question": "请为以下问题整理原文证据，区分资料中的共识和缺失：" + flow.Question,
+		}
+		if index > 0 {
+			// 前一步草稿完整交给第二步（不再截成 1500 字），但只作整理线索，不当来源。
+			input["question"] = "请依据所选原文回答：" + flow.Question
+			input["workflow_draft"] = flow.Steps[index-1].Answer
+		}
+		prefix := fmt.Sprintf("第 %d/%d 步 %s：", index+1, len(flow.Steps), step.Name)
+		created, err := engine.create(ctx, input, false, run, prefix)
 		if err != nil {
 			return err
 		}
@@ -264,7 +310,7 @@ func (engine *Engine) ExportWorkflow(id string) (any, error) {
 	}
 	encoded, _ := marshalJSON(flow.Bindings)
 	text += "## 来源版本\n\n```json\n" + string(encoded) + "\n```\n"
-	directory := filepath.Join(engine.Store.root, "研究成果")
+	directory := filepath.Join(engine.Store.root, exportDirectory)
 	if err := os.MkdirAll(directory, 0o755); err != nil {
 		return nil, fmt.Errorf("研究导出目录无效")
 	}
