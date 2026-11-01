@@ -4,17 +4,20 @@ import react from '@vitejs/plugin-react'
 import tailwindcss from '@tailwindcss/vite'
 import type {Plugin} from 'vite'
 const sharedAlias = {'@shared': resolve('src/shared')}
-// Vite injects <style> tags and talks to its HMR server; production keeps the strict CSP from index.html.
+// The development server resolves PDF assets and the HMR address at startup.
 const devCsp: Plugin = {
  name: 'zynote-dev-csp',
+ config(_, {command}) {
+  if (command !== 'serve') return
+  // Use the workspace path even when pnpm resolves the package through a junction on a different drive.
+  const assets = resolve('node_modules/pdfjs-dist').replaceAll('\\', '/')
+  return {define: {'import.meta.env.VITE_TEXTBOOK_PDF_ASSETS': JSON.stringify(`/@fs/${assets}/`)}}
+ },
  transformIndexHtml(html, context) {
   if (!context.server) return html
-  const content =
-   "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; media-src 'self' lecture-media:; connect-src 'self' ws://localhost:* http://localhost:* http://127.0.0.1:*"
-  return html.replace(
-   /(<meta http-equiv="Content-Security-Policy" content=")[^"]*(")/,
-   (_, open: string, close: string) => open + content + close
-  )
+  // Only add the listening Vite server's WebSocket origins for hot reload.
+  const sockets = context.server.resolvedUrls?.local.map(url => new URL(url.replace(/^http/, 'ws')).origin) ?? []
+  return html.replace("connect-src 'self'", ["connect-src 'self'", ...sockets].join(' '))
  }
 }
 const mainAlias = {...sharedAlias, '@main': resolve('src/main')}

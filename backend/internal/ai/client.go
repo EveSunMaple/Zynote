@@ -114,11 +114,36 @@ func New(profile Profile) *Client {
 	return &Client{HTTP: &http.Client{}, Profile: profile}
 }
 
-func errorHint(status int, detail string) string {
+func errorHint(response *http.Response) string {
+	status := response.StatusCode
+	var payload struct {
+		Code  string `json:"code"`
+		Error struct {
+			Code    string `json:"code"`
+			Param   string `json:"param"`
+			Message string `json:"message"`
+		} `json:"error"`
+	}
+	if status == http.StatusBadRequest || status == http.StatusForbidden {
+		_ = json.NewDecoder(io.LimitReader(response.Body, 64*1024)).Decode(&payload)
+	}
+	switch status {
+	case http.StatusUnauthorized:
+		return "密钥验证失败，请确认 API Key 与 API 地址属于同一地域和计费方案"
+	case http.StatusForbidden:
+		// Providers can echo request data in the error details. Only expose known codes.
+		if payload.Error.Code == "AccessDenied.Unpurchased" || payload.Code == "AccessDenied.Unpurchased" {
+			return "请先核对 API 地址是否为百炼控制台显示的业务空间专属地址，并确认该空间已开通模型服务（AccessDenied.Unpurchased）"
+		}
+		return "服务端拒绝访问，请检查该业务空间和 API Key 的模型调用权限"
+	case http.StatusTooManyRequests:
+		return "请求受限，请稍后重试或检查模型配额"
+	}
 	if status == 404 {
 		return "服务端未找到当前模型或接口，请在设置中重新选择文本/视觉模型，并确认 API 地址"
 	}
 	if status == 400 {
+		detail := payload.Error.Code + " " + payload.Error.Param + " " + payload.Error.Message
 		switch {
 		case regexp.MustCompile(`reasoning(?:_effort|\.effort)?|推理强度`).MatchString(detail):
 			return "服务端拒绝了推理强度参数，请在模型参数中选择提供方默认"
@@ -132,30 +157,20 @@ func errorHint(status int, detail string) string {
 			return "服务端拒绝了当前模型，请核对模型名与接口是否匹配"
 		}
 	}
+	if status >= http.StatusInternalServerError {
+		return "模型服务暂时不可用，请稍后重试"
+	}
 	return "请检查地址、接口格式、模型、密钥或配额"
 }
 
 func requestError(response *http.Response, nativeFile, hasFile bool) error {
-	hint := ""
-	if response.StatusCode == 404 || response.StatusCode == 400 {
-		body, _ := io.ReadAll(io.LimitReader(response.Body, 64*1024))
-		var payload struct {
-			Error struct {
-				Code    string `json:"code"`
-				Param   string `json:"param"`
-				Message string `json:"message"`
-			} `json:"error"`
-		}
-		_ = json.Unmarshal(body, &payload)
-		hint = errorHint(response.StatusCode, payload.Error.Code+" "+payload.Error.Param+" "+payload.Error.Message)
-	}
 	extra := ""
 	if nativeFile {
 		extra = "；PPT 原文件上传需要服务商支持 Responses 文件输入"
 	} else if hasFile {
 		extra = "；此任务需要服务商与模型支持 PDF 文件输入"
 	}
-	message := fmt.Sprintf("API 请求失败（HTTP %d），%s%s", response.StatusCode, hint, extra)
+	message := fmt.Sprintf("API 请求失败（HTTP %d），%s%s", response.StatusCode, errorHint(response), extra)
 	if response.StatusCode == http.StatusTooManyRequests || response.StatusCode >= 500 {
 		return &RetryableError{Message: message, RetryAfter: parseRetryAfter(response.Header.Get("Retry-After"))}
 	}
@@ -353,6 +368,10 @@ func decodeChatResponse(response *http.Response, responses bool) (string, error)
 }
 
 func (client *Client) Chat(ctx context.Context, messages []Message, onText func(string)) (string, error) {
+	return client.chat(ctx, messages, onText, JSONOptions{})
+}
+
+func (client *Client) chat(ctx context.Context, messages []Message, onText func(string), options JSONOptions) (string, error) {
 	profile := client.Profile
 	nativeFile, hasFile, hasImages := chatContentFlags(messages)
 	model, err := chatModel(profile, hasImages)
@@ -368,6 +387,12 @@ func (client *Client) Chat(ctx context.Context, messages []Message, onText func(
 		input = map[string]any{"messages": messages}
 	}
 	body := chatBody(profile, model, input, responses, onText != nil)
+	if options.DisableThinking && !responses {
+		body["enable_thinking"] = false
+	}
+	if options.HighResolutionImages && !responses {
+		body["vl_high_resolution_images"] = true
+	}
 	encoded, err := marshalNoEscape(body)
 	if err != nil {
 		return "", err
@@ -452,7 +477,11 @@ func (client *Client) Models(ctx context.Context) ([]string, error) {
 	}
 	defer response.Body.Close()
 	if response.StatusCode < 200 || response.StatusCode >= 300 {
-		return nil, fmt.Errorf("读取模型失败（HTTP %d），请检查地址与密钥；也可手动填写完整模型名", response.StatusCode)
+		hint := errorHint(response)
+		if response.StatusCode == http.StatusNotFound {
+			hint = "请确认 API 地址；若服务不提供模型列表，可手动填写完整模型名"
+		}
+		return nil, fmt.Errorf("读取模型失败（HTTP %d），%s", response.StatusCode, hint)
 	}
 	var payload struct {
 		Data []struct {
@@ -759,8 +788,10 @@ func repairJSONEscapes(data []byte) []byte {
 }
 
 type JSONOptions struct {
-	Images  []Image
-	OnRetry func()
+	Images               []Image
+	OnRetry              func()
+	DisableThinking      bool
+	HighResolutionImages bool
 }
 
 func (client *Client) JSON(ctx context.Context, prompt string, input any, validate func([]byte) error) ([]byte, error) {
@@ -798,10 +829,10 @@ func (client *Client) JSONWithOptions(
 		if _, observer := contract.GenerationObservationFrom(attemptContext); observer != nil {
 			attemptContext = context.WithValue(attemptContext, generationRequestFactsKey{}, &contract.GenerationAttemptEvidence{})
 		}
-		reply, err := client.Chat(attemptContext, []Message{
+		reply, err := client.chat(attemptContext, []Message{
 			{Role: "system", Content: prompt},
 			{Role: "user", Content: content},
-		}, nil)
+		}, nil, options)
 		if err != nil {
 			return nil, err
 		}

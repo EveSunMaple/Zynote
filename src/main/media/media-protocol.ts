@@ -49,7 +49,8 @@ export function installMediaProtocol(
  session: Session,
  owner: BrowserWindow,
  manager: ManagedPlayback,
- rendererOrigin: string | undefined
+ rendererOrigin: string | undefined,
+ otherOwnerOnlyUrls: string[] = []
 ) {
  let disposed = false
  const contents = owner.webContents
@@ -64,7 +65,8 @@ export function installMediaProtocol(
   }
   callback({cancel: details.webContentsId !== contents.id || details.frame !== contents.mainFrame})
  }
- session.webRequest.onBeforeRequest({urls: ['lecture-media://*/*']}, beforeRequest)
+ // Electron accepts a single listener per webRequest event, so all owner-only schemes share this gate.
+ session.webRequest.onBeforeRequest({urls: ['lecture-media://*/*', ...otherOwnerOnlyUrls]}, beforeRequest)
  session.protocol.handle('lecture-media', async request => {
   if (disposed || owner.isDestroyed() || contents.isDestroyed()) return new Response(null, {status: 404})
   const origin = request.headers.get('origin')
