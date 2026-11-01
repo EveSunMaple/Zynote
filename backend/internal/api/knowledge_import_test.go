@@ -49,6 +49,17 @@ func TestReadKnowledgeFileParsesDocxAndLegacyEncoding(t *testing.T) {
 	}
 }
 
+func TestReadKnowledgeFileRejectsOversizedText(t *testing.T) {
+	directory := t.TempDir()
+	path := filepath.Join(directory, "large.txt")
+	if err := os.WriteFile(path, make([]byte, knowledgeTextMaxBytes+1), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := readKnowledgeFile(nil, path); !errors.Is(err, errKnowledgeTextTooLarge) {
+		t.Fatalf("oversized text should be rejected: %v", err)
+	}
+}
+
 func TestReadKnowledgeFileRejectsUnsupportedInputs(t *testing.T) {
 	directory := t.TempDir()
 	if _, err := readKnowledgeFile(nil, directory); !errors.Is(err, errKnowledgeFileUnreadable) {

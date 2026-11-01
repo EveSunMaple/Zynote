@@ -74,6 +74,8 @@ export function KnowledgeBase({visible, close}: Readonly<{visible: boolean; clos
    await fn()
   } catch (reason) {
    notify.error(reason)
+   // 导入等批量操作可能已提交部分结果；失败/取消后也刷新一次，避免界面看起来什么都没发生。
+   void refresh().catch(() => {})
   } finally {
    working.current = false
    setBusy(false)
@@ -188,11 +190,7 @@ export function KnowledgeBase({visible, close}: Readonly<{visible: boolean; clos
          const results = await invoke<{name: string; ok: boolean; error?: string; result?: {unchanged: boolean}}[]>(
           'knowledge:import',
           {category: importCategory.trim()}
-         ).catch(async reason => {
-          // 中途取消时已导入的文件已经入库，先刷新列表，避免看起来什么都没导入。
-          await refresh().catch(() => undefined)
-          throw reason
-         })
+         )
          if (results.length) {
           await refresh()
           setSearch(null)

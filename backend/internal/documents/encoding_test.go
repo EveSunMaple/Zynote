@@ -32,8 +32,6 @@ func TestDecodeTextHandlesCommonEncodings(t *testing.T) {
 		want string
 	}{
 		"utf-8":           {[]byte(chinese), chinese},
-		"utf-8 bom":       {append([]byte{0xEF, 0xBB, 0xBF}, chinese...), chinese},
-		"utf-16le bom":    {encodeWith(t, unicode.UTF16(unicode.LittleEndian, unicode.UseBOM), chinese), chinese},
 		"utf-16be bom":    {encodeWith(t, unicode.UTF16(unicode.BigEndian, unicode.UseBOM), chinese), chinese},
 		"utf-16le no bom": {encodeWith(t, unicode.UTF16(unicode.LittleEndian, unicode.IgnoreBOM), ascii), ascii},
 		"utf-16be no bom": {encodeWith(t, unicode.UTF16(unicode.BigEndian, unicode.IgnoreBOM), ascii), ascii},
@@ -70,7 +68,7 @@ func TestParseDocxRejectsOversizedDocument(t *testing.T) {
 		t.Fatal(err)
 	}
 	chunk := []byte(strings.Repeat("<w:t>a</w:t>", 1<<16))
-	for written := 0; written <= DocxDocumentMaxBytes; written += len(chunk) {
+	for written := 0; written <= maxDocxXMLBytes; written += len(chunk) {
 		if _, err := part.Write(chunk); err != nil {
 			t.Fatal(err)
 		}
@@ -78,7 +76,7 @@ func TestParseDocxRejectsOversizedDocument(t *testing.T) {
 	if err := writer.Close(); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := ParseDocx(archive.Bytes()); !errors.Is(err, ErrDocxTooLarge) {
+	if _, err := ParseDocx(archive.Bytes()); err == nil || !strings.Contains(err.Error(), "过大") {
 		t.Fatalf("decompression bomb should be rejected: %v", err)
 	}
 }

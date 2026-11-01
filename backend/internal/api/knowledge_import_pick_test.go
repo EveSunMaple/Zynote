@@ -13,7 +13,6 @@ import (
 	"time"
 
 	"github.com/EveSunMaple/Zynote/backend/internal/contract"
-	"github.com/EveSunMaple/Zynote/backend/internal/knowledge"
 )
 
 // pickerStub 记录 shell.pickFiles 的参数；release 为空时立即应答，否则阻塞到通道关闭。
@@ -88,7 +87,7 @@ func TestPickKnowledgeFilesReportsPickerFailures(t *testing.T) {
 	}{
 		"reverse error": {&pickerStub{err: errors.New("shell service shell.pickFiles timeout")}, "timeout"},
 		"invalid reply": {&pickerStub{reply: json.RawMessage(`"oops"`)}, "文件选择器响应无效"},
-		"too many":      {&pickerStub{reply: pickedPaths(many...)}, "一次最多导入 200 份资料（本次选择了 201 份）"},
+		"too many":      {&pickerStub{reply: pickedPaths(many...)}, "一次最多导入 200 份资料"},
 	}
 	for name, item := range cases {
 		paths, err := pickKnowledgeFiles(context.Background(), item.stub, "")
@@ -122,7 +121,7 @@ func TestKnowledgeImportPickerRunsInsideCancellableJob(t *testing.T) {
 	}
 
 	second := &pickerStub{reply: pickedPaths()}
-	if _, err := invoker.handleKnowledgeImport(pickerStore{second}, state, params); err == nil || second.callCount() != 0 {
+	if _, err := invoker.handleKnowledgeImport(pickerStore{second}, state, params); !strings.Contains(fmt.Sprint(err), "当前已有任务运行") || second.callCount() != 0 {
 		t.Fatalf("a running job must reject before opening another picker: %v calls=%d", err, second.callCount())
 	}
 
@@ -146,7 +145,6 @@ func TestReadKnowledgeFileSizeAndLengthLimits(t *testing.T) {
 		size int64
 		want error
 	}{
-		"大.txt":  {knowledgeTextMaxBytes + 1, errKnowledgeTextTooLarge},
 		"大.docx": {knowledgeImportMaxBytes + 1, errKnowledgeFileTooLarge},
 		"大.pdf":  {knowledgeImportMaxBytes + 1, errKnowledgeFileTooLarge},
 	}
@@ -163,10 +161,10 @@ func TestReadKnowledgeFileSizeAndLengthLimits(t *testing.T) {
 		}
 	}
 	long := filepath.Join(directory, "长.txt")
-	if err := os.WriteFile(long, []byte(strings.Repeat("a", knowledge.MaxTextRunes+1)), 0o644); err != nil {
+	if err := os.WriteFile(long, []byte(strings.Repeat("a", knowledgeTextMaxRunes+1)), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := readKnowledgeFile(nil, long); !errors.Is(err, errKnowledgeTextTooLarge) {
+	if _, err := readKnowledgeFile(nil, long); !errors.Is(err, errKnowledgeTextTooLong) {
 		t.Fatalf("text over the rune limit should get a clear error: %v", err)
 	}
 }

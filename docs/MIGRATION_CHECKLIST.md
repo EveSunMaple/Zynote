@@ -122,8 +122,8 @@ Go core（业务后端）
 
 以下能力建议通过反向请求暴露给 Go，而不是让 Go 直接操作桌面：
 
-- [x] `shell.pickFiles`（多选，`knowledge:import` 使用）/ `shell.pickDirectory`
-- [ ] `shell.saveFile`
+- [x] `shell.pickFiles`（知识库导入多选）
+- [ ] `shell.pickDirectory` / `shell.saveFile`
 - [ ] `shell.openPath` / `shell.showItemInFolder`
 - [ ] `shell.messageBox`（仅需要系统确认时）
 - [ ] `shell.getCookies`（智云、B 站等 Electron session）
@@ -1162,8 +1162,8 @@ Zynote/
 ### 1.86 知识库“导入资料”按钮（2026-11-01）
 
 - [x] `knowledge:import` 双模式：带 `title`/`text` 时直接写入；只带 `category` 时经反向 RPC `shell.pickFiles` 多选（契约见 `contract/schema/knowledge-import-*.schema.json`、`shell-pick-files-*.schema.json`）。
-- [x] 选择框在任务内弹出：已有任务时直接提示、不弹框；等待选择期间 `job:current` 可见、任务中心可取消；交互式选择不设短超时。
-- [x] 单次最多 200 份；文本按字节预检（字数上限 200 万 × 4 字节），PDF/Word 上限 100 MB，`word/document.xml` 解压后上限 64 MB。
-- [x] 文本编码：UTF-8（含 BOM）、UTF-16LE/BE（带 BOM；无 BOM 时识别以 ASCII 为主的文本）、GB18030、Big5；其余编码逐文件明确拒绝；`chardet` 只采样前 64 KB。
+- [x] 已有任务时返回 `BUSY`、不弹框；选择框在任务内弹出，等待选择期间 `job:current` 可见、任务中心可取消；交互式选择不设短超时。
+- [x] 单次最多 200 份；资料上限 100 MB，文本上限 6 MB、文字上限 2,000,000 字，`word/document.xml` 解压后上限 64 MB。
+- [x] 文本编码：UTF-8（含 BOM）、UTF-16LE/BE（带 BOM；无 BOM 时识别以 ASCII 为主的文本）、GB18030、Big5、Windows-1252；其余编码逐文件明确拒绝；`chardet` 只采样前 64 KB。
 - [x] 符号链接跟随到目标后校验是普通文件；与 0.1.85 口径一致：标题为文件名、locator 为绝对路径、sourceHash 为原文件字节 SHA-256。
-- [x] 中途取消后渲染层刷新知识库列表（已逐个提交的资料保留）。
+- [x] 失败或中途取消后渲染层刷新知识库列表（已逐个提交的资料保留）。

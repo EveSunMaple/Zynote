@@ -20,18 +20,20 @@ import (
 
 const (
 	knowledgeImportMaxBytes = 100_000_000
-	// knowledgeTextMaxBytes：UTF-8/UTF-16/GB18030 每字最多 4 字节，超过它的文本必然超过字数上限，不必读入再拒绝。
-	knowledgeTextMaxBytes   = knowledge.MaxTextRunes * 4
+	knowledgeTextMaxBytes   = 6_000_000
+	knowledgeTextMaxRunes   = 2_000_000
 	knowledgeImportMaxFiles = 200
-	// knowledgePickerWaitMS：选择框是交互式的，不设短超时；用户可以在任务中心取消等待。
-	knowledgePickerWaitMS = 24 * 60 * 60 * 1000
+	// knowledgePickerTimeout：选择框是交互式的，不设短超时；等待期间可在任务中心取消。
+	knowledgePickerTimeout = 24 * 60 * 60 * 1000
 )
 
 var knowledgeImportExtensions = []string{"pdf", "docx", "txt", "md", "srt"}
 
 var (
 	errKnowledgeFileTooLarge   = errors.New("资料超过 100 MB，请按章节导入")
-	errKnowledgeTextTooLarge   = fmt.Errorf("资料文字超过 %d 万字，请拆分后导入", knowledge.MaxTextRunes/10_000)
+	errKnowledgeTextTooLarge   = errors.New("文本资料超过 6 MB，请拆分后导入")
+	errKnowledgeTextTooLong    = errors.New("资料文字超过 2,000,000 字，请拆分后导入")
+	errKnowledgeTooManyFiles   = errors.New("一次最多导入 200 份资料")
 	errKnowledgeFileType       = errors.New("资料只支持 PDF、Word（DOCX）、TXT、Markdown 和 SRT")
 	errKnowledgeNeedsOcr       = errors.New("这份 PDF 主要是图片，请先识别文字后再导入知识库")
 	errKnowledgeFileChanged    = errors.New("导入期间资料已改变，请重新选择")
@@ -73,6 +75,9 @@ func (inv *Invoker) handleKnowledgeImport(store contract.StateStore, state *cont
 	if len([]rune(category)) > 100 {
 		return nil, contract.InputInvalid("资料分类无效")
 	}
+	if inv.jobs.Current() != nil {
+		return nil, contract.NewError(contract.CodeBusy, "当前已有任务运行，请等待完成或取消")
+	}
 	reverse := store.Reverse()
 	if reverse == nil {
 		return nil, contract.Unavailable("文件选择器不可用")
@@ -85,7 +90,7 @@ func (inv *Invoker) handleKnowledgeImport(store contract.StateStore, state *cont
 	if inv.native != nil {
 		caller = inv.native
 	}
-	// 选择框也放在任务里：已有任务时直接提示而不弹框；等待选择期间任务中心可见、可取消。
+	// 选择框放在任务里：等待选择期间任务中心可见、可取消；上面的忙碌检查之后若有任务抢先启动，runJob 同样会拒绝且不弹框。
 	return inv.runJob("知识库导入", func(ctx context.Context) (any, error) {
 		inv.emit(map[string]any{"kind": "progress", "data": map[string]any{"stage": "正在等待选择资料", "message": "请在文件选择框中选择要导入的资料"}})
 		paths, err := pickKnowledgeFiles(ctx, reverse, state.LibraryRoot)
@@ -136,7 +141,7 @@ func pickKnowledgeFiles(ctx context.Context, reverse contract.ReverseCaller, lib
 	}
 	replies := make(chan pickReply, 1)
 	go func() {
-		raw, err := reverse.Call("shell.pickFiles", params, knowledgePickerWaitMS)
+		raw, err := reverse.Call("shell.pickFiles", params, knowledgePickerTimeout)
 		replies <- pickReply{raw, err}
 	}()
 	var answer pickReply
@@ -161,7 +166,7 @@ func pickKnowledgeFiles(ctx context.Context, reverse contract.ReverseCaller, lib
 		}
 	}
 	if len(paths) > knowledgeImportMaxFiles {
-		return nil, contract.InputInvalid(fmt.Sprintf("一次最多导入 %d 份资料（本次选择了 %d 份），请分批选择", knowledgeImportMaxFiles, len(paths)))
+		return nil, contract.InputInvalid(errKnowledgeTooManyFiles.Error())
 	}
 	return paths, nil
 }
@@ -203,8 +208,8 @@ func readKnowledgeFile(caller documents.NativeCaller, path string) (knowledge.Im
 	if err != nil {
 		return knowledge.ImportInput{}, err
 	}
-	if utf8.RuneCountInString(text) > knowledge.MaxTextRunes {
-		return knowledge.ImportInput{}, errKnowledgeTextTooLarge
+	if utf8.RuneCountInString(text) > knowledgeTextMaxRunes {
+		return knowledge.ImportInput{}, errKnowledgeTextTooLong
 	}
 	latest, err := hashKnowledgeFile(locator)
 	if err != nil {
@@ -219,21 +224,29 @@ func readKnowledgeFile(caller documents.NativeCaller, path string) (knowledge.Im
 	}, nil
 }
 
-// checkKnowledgeFileSize 在读取前按类型拒绝：未支持的扩展名、超过 100 MB 的 PDF/Word、必然超过字数上限的文本。
+// checkKnowledgeFileSize 在读取前按类型拒绝：未支持的扩展名、超过 100 MB 的资料、超过 6 MB 的文本。
 func checkKnowledgeFileSize(path string, size int64) error {
-	switch strings.ToLower(filepath.Ext(path)) {
-	case ".txt", ".md", ".srt":
-		if size > knowledgeTextMaxBytes {
-			return errKnowledgeTextTooLarge
-		}
-	case ".docx", ".pdf":
-		if size > knowledgeImportMaxBytes {
-			return errKnowledgeFileTooLarge
-		}
-	default:
+	extension := strings.ToLower(filepath.Ext(path))
+	if !knowledgeExtensionAllowed(extension) {
 		return errKnowledgeFileType
 	}
+	if size > knowledgeImportMaxBytes {
+		return errKnowledgeFileTooLarge
+	}
+	textLike := extension == ".txt" || extension == ".md" || extension == ".srt"
+	if textLike && size > knowledgeTextMaxBytes {
+		return errKnowledgeTextTooLarge
+	}
 	return nil
+}
+
+func knowledgeExtensionAllowed(extension string) bool {
+	for _, allowed := range knowledgeImportExtensions {
+		if extension == "."+allowed {
+			return true
+		}
+	}
+	return false
 }
 
 func hashKnowledgeFile(path string) ([sha256.Size]byte, error) {
@@ -244,7 +257,7 @@ func hashKnowledgeFile(path string) ([sha256.Size]byte, error) {
 	}
 	defer file.Close()
 	hash := sha256.New()
-	if _, err := io.Copy(hash, file); err != nil {
+	if _, err := io.Copy(hash, io.LimitReader(file, knowledgeImportMaxBytes+1)); err != nil {
 		return sum, fmt.Errorf("%w: %w", errKnowledgeFileUnreadable, err)
 	}
 	copy(sum[:], hash.Sum(nil))
