@@ -27,41 +27,27 @@ export function usePdfPage(book: Book | null, pageNumber: number, frameWidth: nu
   if (!book) {
    return
   }
-  let active = true,
-   loading: ReturnType<typeof openStudyPdf> | null = null
-  const task = (async () => {
-   const url = await invoke<string>('textbook:bytes', {id: book.id})
-   return openStudyPdf({
-    url,
-    disableAutoFetch: true,
-    disableStream: true,
-    rangeChunkSize: 1048576,
-    canvasMaxAreaInBytes: 32000000
-   })
-  })()
-  void task
+  const controller = new AbortController()
+  const fail = (reason: unknown) => {
+   if (controller.signal.aborted) return
+   // PDF.js range requests can also fail after the document has opened.
+   controller.abort()
+   setOpened(null)
+   setOpening(false)
+   setRendering(false)
+   setError(reason instanceof Error ? reason.message : String(reason))
+  }
+  void invoke<string>('textbook:bytes', {id: book.id})
+   .then(url => openStudyPdf(url, controller.signal, fail))
    .then(value => {
-    loading = value
-    return value.promise
-   })
-   .then(value => {
-    if (active) {
+    if (!controller.signal.aborted) {
      setOpening(false)
      setOpened({document: value, id: book.id, version})
      setError('')
     }
    })
-   .catch(reason => {
-    if (active) {
-     setOpening(false)
-     setError(reason instanceof Error ? reason.message : String(reason))
-    }
-   })
-  return () => {
-   active = false
-   if (loading) void loading.destroy()
-   else void task.then(value => value.destroy()).catch(() => undefined)
-  }
+   .catch(fail)
+  return () => controller.abort()
  }, [book?.id, version])
 
  useEffect(() => {

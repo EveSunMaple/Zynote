@@ -1,5 +1,6 @@
 import {BiliBrowser} from '@main/media/bilibili/browser'
 import {GoCore, nativeBinaryPath} from '@main/backend/go-core'
+import {TextbookPreview} from '@main/backend/textbook-protocol'
 import {createAssistantInvoke} from '@main/backend/assistant-ipc'
 import {resolveDataPaths} from '@main/backend/portable-data'
 import {createShellServices} from '@main/backend/shell-services'
@@ -33,6 +34,10 @@ function showMainWindow() {
 protocol.registerSchemesAsPrivileged([
  {
   scheme: 'lecture-media',
+  privileges: {standard: true, secure: true, supportFetchAPI: true, corsEnabled: true, stream: true}
+ },
+ {
+  scheme: 'textbook-pdf',
   privileges: {standard: true, secure: true, supportFetchAPI: true, corsEnabled: true, stream: true}
  }
 ])
@@ -215,6 +220,10 @@ async function startApplication() {
   return true
  }
  shellServices['tools.configure'] = () => true
+ const rendererOrigin = process.env.ELECTRON_RENDERER_URL
+  ? new URL(process.env.ELECTRON_RENDERER_URL).origin
+  : undefined
+ const textbooks = new TextbookPreview(rendererOrigin)
  let playback: ManagedPlayback | undefined
  const goCore = new GoCore({
   appVersion: app.getVersion(),
@@ -231,7 +240,10 @@ async function startApplication() {
   onEvent: e => {
    if (!window.isDestroyed()) window.webContents.send('assistant:event', e)
   },
-  onUnavailable: () => playback?.closeAll(),
+  onUnavailable: () => {
+   textbooks.clear()
+   playback?.closeAll()
+  },
   onFailed: reason => {
    diagnostic(root, 'go-core', 'backend-failed', {code: 'START_FAILED'})
    console.error('[go-core]', reason)
@@ -247,12 +259,9 @@ async function startApplication() {
   (action, input) => goCore.callTracked(action, input)
  )
  const media = playback
- const removeMedia = installMediaProtocol(
-  window.webContents.session,
-  window,
-  media,
-  process.env.ELECTRON_RENDERER_URL ? new URL(process.env.ELECTRON_RENDERER_URL).origin : undefined
- )
+ const rendererSession = window.webContents.session
+ const removeMedia = installMediaProtocol(rendererSession, window, media, rendererOrigin, ['textbook-pdf://preview/*'])
+ rendererSession.protocol.handle('textbook-pdf', request => textbooks.serve(request))
  ipcMain.handle(
   'assistant:invoke',
   createAssistantInvoke(
@@ -261,7 +270,8 @@ async function startApplication() {
     const shellResult = await invokeShellAction(window, paths.libraryRoot, updater, media, action, object)
     if (shellResult !== unhandled) return shellResult
     await waitForCore(goCore)
-    return await goCore.call(action, object)
+    const result = await goCore.call(action, object)
+    return action === 'textbook:bytes' ? textbooks.publish(result) : result
    },
    (action, failure) => {
     diagnostic(root, 'ipc', 'request-failed', {action, code: failure.code, message: failure.message})
@@ -274,6 +284,8 @@ async function startApplication() {
  shutdownBackends = async () => {
   // 先终止 Go 子进程，让被卡住的物理 RPC 立即结算；否则 removeMedia 可能一直等下去。
   goCore.dispose()
+  textbooks.clear()
+  rendererSession.protocol.unhandle('textbook-pdf')
   updater.dispose()
   zhiyunBrowser.dispose()
   biliBrowser.dispose()

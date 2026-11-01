@@ -1,5 +1,7 @@
-import {_electron, type ElectronApplication} from 'playwright'
-import {mkdtempSync, rmSync, statSync} from 'node:fs'
+import {_electron, type ElectronApplication, type Page} from 'playwright'
+import {copyFileSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync} from 'node:fs'
+import {createServer} from 'node:http'
+import {once} from 'node:events'
 import {tmpdir} from 'node:os'
 import {join, resolve} from 'node:path'
 
@@ -14,6 +16,60 @@ let application: ElectronApplication | undefined
 function check(value: unknown, message: string): asserts value {
  if (!value) throw new Error(message)
 }
+
+async function checkTextbookCsp(page: Page) {
+ let hits = 0
+ const server = createServer((_request, response) => {
+  hits++
+  response.end('unrelated service')
+ })
+ try {
+  server.listen(0, '127.0.0.1')
+  await once(server, 'listening')
+  const address = server.address()
+  check(address && typeof address === 'object', 'missing probe port')
+  const blocked = await page.evaluate(async url => {
+   const timeout = AbortSignal.timeout(5000)
+   const reported = new Promise<boolean>(resolve => {
+    timeout.addEventListener('abort', () => resolve(false), {once: true})
+    document.addEventListener(
+     'securitypolicyviolation',
+     event => {
+      if (
+       event.effectiveDirective === 'connect-src' &&
+       event.disposition === 'enforce' &&
+       new URL(event.blockedURI, document.baseURI).origin === new URL(url).origin
+      )
+       resolve(true)
+     },
+     {signal: timeout}
+    )
+   })
+   const reached = await fetch(url, {mode: 'no-cors', signal: timeout}).then(
+    () => true,
+    () => false
+   )
+   return !reached && (await reported)
+  }, `http://127.0.0.1:${address.port}/textbooks/probe`)
+  check(blocked && hits === 0, 'connect-src must block unrelated loopback textbook endpoints')
+ } finally {
+  server.close()
+ }
+}
+
+function enlargePdfFixture(path: string) {
+ const pdf = readFileSync(path)
+ // Keep all object offsets valid and move only the xref table to a later chunk.
+ const xref = pdf.indexOf('\nxref\n') + 1
+ check(xref > 0, 'missing fixture xref table')
+ const padding = Buffer.alloc(3 * 1024 * 1024, 32)
+ const tail = pdf
+  .subarray(xref)
+  .toString('ascii')
+  .replace('startxref\n' + xref, 'startxref\n' + (xref + padding.length))
+ writeFileSync(path, Buffer.concat([pdf.subarray(0, xref), padding, Buffer.from(tail)]))
+}
+
 try {
  application = await _electron.launch({
   executablePath,
@@ -22,6 +78,7 @@ try {
  })
  const page = await application.firstWindow({timeout: 45000})
  await page.waitForLoadState('domcontentloaded')
+ await checkTextbookCsp(page)
  const invoke = <T,>(action: string, args?: unknown) =>
   page.evaluate(({action, args}) => (window as AssistantWindow).assistant.invoke(action, args), {
    action,
@@ -143,9 +200,16 @@ try {
   process.platform === 'win32' ? 'pdfium.dll' : process.platform === 'darwin' ? 'libpdfium.dylib' : 'libpdfium.so'
  if (statSync(join(target.resources, 'pdfium', pdfiumFile), {throwIfNoEntry: false})?.isFile()) {
   // Page one is a red JPEG 2000 scan. Page two uses a predefined Chinese CMap to draw blue text.
+  const fixture = join(dataRoot, 'preview.pdf')
+  copyFileSync(resolve('scripts/fixtures/textbook-preview.pdf'), fixture)
   await application.evaluate(({dialog}, file) => {
    dialog.showOpenDialog = async () => ({canceled: false, filePaths: [file]})
-  }, resolve('scripts/fixtures/textbook-preview.pdf'))
+  }, fixture)
+  const previewPrefix = 'textbook-pdf://preview/textbooks/'
+  const textbookRequests: string[] = []
+  page.on('request', request => {
+   if (new URL(request.url()).pathname.startsWith('/textbooks/')) textbookRequests.push(request.url())
+  })
   await page.getByRole('tab', {name: '教材划线', exact: true}).click()
   check((await guide.innerText()).includes('打开教材 PDF'), 'empty textbook guide must name the PDF action')
   await page.getByRole('button', {name: '打开教材 PDF', exact: true}).click()
@@ -163,13 +227,23 @@ try {
   await waitForPageColor(0)
   await page.getByRole('button', {name: '下一页', exact: true}).click()
   await waitForPageColor(2)
-  // The registry keeps the same ID for a path. A re-open must still fetch the PDF bytes again.
+  // Reopen the same path after changing the PDF; the last chunk now holds its xref table.
+  enlargePdfFixture(fixture)
   await openMore()
   await Promise.all([
-   page.waitForRequest(request => new URL(request.url()).pathname.startsWith('/textbooks/')),
+   page.waitForResponse(
+    response =>
+     response.url().startsWith(previewPrefix) &&
+     response.status() === 206 &&
+     /^bytes [1-9]\d*-\d+\/\d+$/.test(response.headers()['content-range'] ?? '')
+   ),
    page.getByRole('button', {name: '更换教材 PDF', exact: true}).click()
   ])
   await waitForPageColor(0)
+  check(
+   textbookRequests.length > 0 && textbookRequests.every(url => url.startsWith(previewPrefix)),
+   'unexpected textbook origin'
+  )
  }
  // The native file chooser can stay open longer than the standard 10s IPC deadline.
  await application.evaluate(({dialog}) => {
