@@ -15,12 +15,24 @@ import (
 	"sync"
 	"sync/atomic"
 	"testing"
-	"time"
 
 	"github.com/EveSunMaple/Zynote/backend/internal/ai"
 	"github.com/EveSunMaple/Zynote/backend/internal/contract"
 	"github.com/EveSunMaple/Zynote/backend/internal/subtitlederived"
 )
+
+// observerFailureContext injects a deadline failure only after the real HTTP
+// handler has consumed the request. Unlike a short wall-clock deadline, local
+// observer fsync/scheduler latency cannot turn this into a pre-dispatch test.
+// This is a controlled deadline-error test, not a deadline-duration benchmark.
+type observerFailureContext struct{ context.Context }
+
+func (ctx observerFailureContext) Err() error {
+	if err := context.Cause(ctx.Context); err != nil {
+		return err
+	}
+	return nil
+}
 
 func TestSummaryObserverActualChunksRepairAndFailureStops(t *testing.T) {
 	for _, failure := range []string{"", "dispatch-intent", "http-response-received", "response-decoded", "format-result"} {
@@ -221,11 +233,15 @@ func TestSummaryObserverTransportAndCancellationRemainUnknown(t *testing.T) {
 			}
 			var calls atomic.Int32
 			cancelChannel := make(chan context.CancelFunc, 1)
+			timeoutChannel := make(chan context.CancelCauseFunc, 1)
 			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				calls.Add(1)
 				_, _ = io.Copy(io.Discard, r.Body)
 				if kind == "cancel" {
 					(<-cancelChannel)()
+				}
+				if kind == "timeout" {
+					(<-timeoutChannel)(context.DeadlineExceeded)
 				}
 				if kind == "timeout" || kind == "cancel" {
 					<-r.Context().Done()
@@ -245,9 +261,10 @@ func TestSummaryObserverTransportAndCancellationRemainUnknown(t *testing.T) {
 					client.Profile.Model = "changed-after-binding"
 				}
 				if kind == "timeout" {
-					var cancel context.CancelFunc
-					ctx, cancel = context.WithTimeout(ctx, 100*time.Millisecond)
-					defer cancel()
+					controlled, cancel := context.WithCancelCause(ctx)
+					ctx = observerFailureContext{controlled}
+					defer cancel(nil)
+					timeoutChannel <- cancel
 				}
 				if kind == "cancel" {
 					var cancel context.CancelFunc
@@ -256,6 +273,9 @@ func TestSummaryObserverTransportAndCancellationRemainUnknown(t *testing.T) {
 					cancelChannel <- cancel
 				}
 				result, err := summarizeVideoText(ctx, client, srt, mode, nil)
+				if kind == "timeout" && ctx.Err() != context.DeadlineExceeded {
+					t.Errorf("controlled deadline cause lost: %v", ctx.Err())
+				}
 				return result.Markdown, nil, err
 			}}
 			result, err := service.Run(context.Background(), task.ID, deps)
