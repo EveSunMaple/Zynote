@@ -2174,6 +2174,74 @@ a {
  width: 100%;
  height: auto;
 }
+.research-quotes {
+ display: grid;
+ gap: 12px;
+ margin: 0 0 16px;
+}
+.research-quotes h4 {
+ margin: 0;
+ font-size: 14px;
+}
+.research-quote {
+ display: grid;
+ gap: 6px;
+ padding: 12px 14px;
+ border: 1px solid var(--line);
+ border-radius: 12px;
+ background: var(--surface-raised);
+}
+.research-quote-head {
+ display: flex;
+ flex-wrap: wrap;
+ align-items: center;
+ gap: 8px;
+}
+.research-quote blockquote {
+ margin: 0;
+ padding-left: 10px;
+ border-left: var(--divider-thickness) solid var(--line-strong);
+ line-height: 1.8;
+ overflow-wrap: anywhere;
+}
+.research-quote-original {
+ margin: 0;
+ padding: 8px 10px;
+ border-radius: 8px;
+ background: var(--surface-subtle);
+ color: var(--muted);
+ font-size: 13px;
+ line-height: 1.8;
+ overflow-wrap: anywhere;
+}
+.research-progress {
+ display: grid;
+ gap: 8px;
+ margin: 0 0 12px;
+ padding: 10px 14px;
+ border: 1px solid var(--line);
+ border-radius: 12px;
+ background: var(--surface-subtle);
+}
+.research-progress-head {
+ display: flex;
+ flex-wrap: wrap;
+ align-items: center;
+ gap: 8px;
+ font-size: 14px;
+}
+.research-progress-head span {
+ color: var(--muted);
+ font-size: 13px;
+}
+.research-progress-preview {
+ margin: 0;
+ color: var(--muted);
+ font-size: 13px;
+ line-height: 1.8;
+ white-space: pre-wrap;
+ overflow-wrap: anywhere;
+}
 .video-mindmap-root {
  display: table;
  margin: 0 auto 28px;

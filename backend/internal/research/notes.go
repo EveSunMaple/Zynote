@@ -130,7 +130,7 @@ func (store *Store) ReviseNote(input map[string]any) (any, error) {
 		markdown == "" || len([]rune(markdown)) > 40000 {
 		return nil, fmt.Errorf("笔记修订参数无效")
 	}
-	return store.Operation(op, input, func() (any, error) {
+	result, err := store.Operation(op, input, func() (any, error) {
 		prior, err := store.readNote(parentID)
 		if err != nil {
 			return nil, err
@@ -153,6 +153,11 @@ func (store *Store) ReviseNote(input map[string]any) (any, error) {
 		}
 		return map[string]any{"id": nextID}, nil
 	})
+	if err != nil {
+		return nil, err
+	}
+	// 界面保存修订后直接用返回的笔记切换到新版本，因此返回完整笔记而不只是编号。
+	return store.NoteRead(text(result.(map[string]any)["id"]))
 }
 
 func (store *Store) putNote(value note) error {
@@ -222,7 +227,7 @@ func (store *Store) ExportNote(id string) (any, error) {
 	if err != nil {
 		return nil, err
 	}
-	directory := filepath.Join(store.root, "笔记导出")
+	directory := filepath.Join(store.root, noteExportDirectory)
 	if err := os.MkdirAll(directory, 0o755); err != nil {
 		return nil, fmt.Errorf("笔记导出目录无效")
 	}

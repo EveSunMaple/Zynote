@@ -2,6 +2,7 @@ import {app} from 'electron'
 import {spawn, type ChildProcess} from 'node:child_process'
 import {existsSync} from 'node:fs'
 import {join} from 'node:path'
+import {StringDecoder} from 'node:string_decoder'
 import {z} from 'zod'
 import type {EventPayload} from '@shared/types'
 import type {ShellService} from '@main/backend/shell-service'
@@ -57,8 +58,22 @@ const LONG_RUNNING_ACTIONS = new Set([
  'ppt-extract:analyze',
  'ppt-extract:export'
 ])
-const SLOW_ACTIONS = new Set(['zhiyun:search', 'zhiyun:lessons', 'settings:models', 'tools:request'])
-function callTimeout(action: string) {
+const SLOW_ACTIONS = new Set(['zhiyun:search', 'zhiyun:lessons', 'settings:models'])
+// 单行回包上限：超出时丢弃这一行，并让对应请求明确报错，而不是一直等到超时。
+const MAX_LINE_CHARS = 16_000_000
+// 研究模型请求要等整节课字幕，单次常需 60–90 秒，两步工作流更久；其他 tools:request 动作保持 90 秒。
+const LONG_TOOL_ACTIONS = new Set(['agent-create', 'workflow-action'])
+function timeoutError(message: string) {
+ const error = new Error(message) as Error & {code?: string}
+ error.code = 'TIMEOUT'
+ return error
+}
+
+function callTimeout(action: string, params?: Record<string, unknown>) {
+ if (action === 'tools:request') {
+  const inner = typeof params?.action === 'string' ? params.action : ''
+  return LONG_TOOL_ACTIONS.has(inner) ? LONG_CALL_TIMEOUT_MS : SLOW_CALL_TIMEOUT_MS
+ }
  if (LONG_RUNNING_ACTIONS.has(action)) return LONG_CALL_TIMEOUT_MS
  if (SLOW_ACTIONS.has(action)) return SLOW_CALL_TIMEOUT_MS
  return CALL_TIMEOUT_MS
@@ -110,6 +125,9 @@ export class GoCore {
  private restarts = 0
  private disposed = false
  private buffer = ''
+ private dropping = false
+ private readonly stdoutDecoder = new StringDecoder('utf8')
+ private readonly stderrDecoder = new StringDecoder('utf8')
  private readonly options: GoCoreOptions
  private helloTimer: NodeJS.Timeout | undefined
 
@@ -131,9 +149,10 @@ export class GoCore {
    detached: process.platform !== 'win32'
   })
   this.buffer = ''
-  this.child.stdout!.on('data', chunk => this.consume(String(chunk)))
+  this.dropping = false
+  this.child.stdout!.on('data', chunk => this.consume(this.stdoutDecoder.write(chunk)))
   this.child.stderr!.on('data', chunk => {
-   this.stderrTail = (this.stderrTail + String(chunk)).slice(-STDERR_TAIL_LIMIT)
+   this.stderrTail = (this.stderrTail + this.stderrDecoder.write(chunk)).slice(-STDERR_TAIL_LIMIT)
   })
   this.child.on('exit', (code, signal) => this.handleExit(code, signal))
   this.child.on('error', error => this.handleExit(undefined, undefined, String(error)))
@@ -167,10 +186,13 @@ export class GoCore {
   if (this.status !== 'ready' || !this.child) throw new Error('Go 后端不可用')
   const id = 'c-' + ++this.nextID
   return await new Promise<unknown>((resolve, reject) => {
-   const timer = setTimeout(() => {
-    this.pending.delete(id)
-    reject(new Error('Go 后端请求超时'))
-   }, callTimeout(action))
+   const timer = setTimeout(
+    () => {
+     this.pending.delete(id)
+     reject(timeoutError('Go 后端请求超时'))
+    },
+    callTimeout(action, params)
+   )
    this.pending.set(id, {resolve, reject, timer})
    this.send({jsonrpc: '2.0', id, method: action, params})
   })
@@ -210,9 +232,22 @@ export class GoCore {
   for (let index = this.buffer.indexOf('\n'); index >= 0; index = this.buffer.indexOf('\n')) {
    const line = this.buffer.slice(0, index)
    this.buffer = this.buffer.slice(index + 1)
-   if (line.trim()) this.handleLine(line)
+   if (this.dropping) this.dropping = false
+   else if (line.trim()) this.handleLine(line)
   }
-  if (this.buffer.length > 1_000_000) this.buffer = ''
+  if (this.buffer.length > MAX_LINE_CHARS) this.dropOversizedLine()
+ }
+
+ // 回包以 {"jsonrpc":"2.0","id":"c-N" 开头，超长时取出 id 让该请求立即失败，余下部分丢到下一个换行为止。
+ private dropOversizedLine() {
+  const id = /^\{"jsonrpc":"2\.0","id":"(c-\d+)"/.exec(this.buffer)?.[1]
+  this.buffer = ''
+  this.dropping = true
+  const item = id ? this.pending.get(id) : undefined
+  if (!id || !item) return
+  this.pending.delete(id)
+  clearTimeout(item.timer)
+  item.reject(new Error('Go 后端响应过大，已丢弃；请缩小本次请求的范围'))
  }
 
  // biome-ignore format: NOSONAR must stay on the function line

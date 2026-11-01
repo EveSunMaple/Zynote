@@ -61,7 +61,9 @@ func Open(root string) (*Store, error) {
 		canonical = resolvedKnowledge
 	}
 	rootID := "kbr_" + strings.ToLower(digestValue([]any{"kbr", strings.ToLower(canonical)}))[:32]
-	db, err := sql.Open("sqlite", "file:"+filepath.ToSlash(databasePath)+"?_txlock=immediate")
+	// busy_timeout 放在连接串里，打开时的 journal_mode/建表语句也会等锁：后台研究正在写库时，
+	// 新请求打开同一个库不至于立刻报“不可用”。
+	db, err := sql.Open("sqlite", "file:"+filepath.ToSlash(databasePath)+"?_txlock=immediate&_pragma=busy_timeout(5000)")
 	if err != nil {
 		return nil, fmt.Errorf("研究资料数据库不可用")
 	}
@@ -128,6 +130,11 @@ func (store *Store) Put(kind, id string, revision int, value any) error {
 		"INSERT INTO research_records VALUES(?,?,?,?) ON CONFLICT(kind,id) DO UPDATE SET revision=excluded.revision,json=excluded.json",
 		kind, id, revision, string(encoded),
 	)
+	return err
+}
+
+func (store *Store) Delete(kind, id string) error {
+	_, err := store.db.Exec("DELETE FROM research_records WHERE kind=? AND id=?", kind, id)
 	return err
 }
 
@@ -402,7 +409,12 @@ func (store *Store) conversationResearchTasks(id string) []any {
 				conversationID = text(conversation["conversation_id"])
 			}
 			if conversationID == id {
-				tasks = append(tasks, task)
+				if text(task["status"]) == "running" {
+					if progress := activeRun(text(task["task_id"])).progress(); progress != nil {
+						task["progress"] = progress
+					}
+				}
+				tasks = append(tasks, taskRow(task, 0))
 			}
 		}
 	}
