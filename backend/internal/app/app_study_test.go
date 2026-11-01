@@ -9,7 +9,56 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/EveSunMaple/Zynote/backend/internal/storage"
 )
+
+func TestStudyRegisteredTextbook(t *testing.T) {
+	dataRoot := t.TempDir()
+	f := startCore(t, dataRoot, t.TempDir())
+	if _, failure := f.call("core.hello", map[string]any{
+		"protocol": 1, "appVersion": "0.0.1", "electronVersion": "42.11.10", "platform": testPlatform(),
+		"dataRoot": dataRoot, "libraryRoot": t.TempDir(), "resourcesRoot": t.TempDir(), "promptsRoot": t.TempDir(),
+	}); failure != nil {
+		t.Fatal(failure)
+	}
+	if _, failure := f.call("db:bootstrap", nil); failure != nil {
+		t.Fatal(failure)
+	}
+	write, err := storage.OpenWrite(filepath.Join(dataRoot, "assistant.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer write.Close()
+	path := filepath.Join(t.TempDir(), "已移动教材.pdf")
+	bookID, err := write.RegisterTextbook(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if again, err := write.RegisterTextbook(path); err != nil || again != bookID {
+		t.Fatalf("reselect: %s %v", again, err)
+	}
+	entry := map[string]any{"id": "11111111-1111-4111-8111-111111111111", "weekly": true,
+		"title": "高等数学", "courseId": "", "chapter": "", "endsAt": "", "textbookId": bookID}
+	if _, failure := f.call("study:save", map[string]any{"entries": []any{entry}}); failure != nil {
+		t.Fatal(failure)
+	}
+	for _, invalid := range []any{"33333333-3333-4333-8333-333333333333", path, 1} {
+		entry["textbookId"] = invalid
+		if _, failure := f.call("study:save", map[string]any{"entries": []any{entry}}); failure == nil {
+			t.Fatal("accepted a forged textbook link")
+		}
+		if _, failure := f.call("textbook:resolve", map[string]any{"id": invalid, "path": path}); failure == nil {
+			t.Fatal("accepted an unregistered textbook reference")
+		}
+	}
+	if rows, failure := f.call("study:get", nil); failure != nil || !strings.Contains(string(rows), bookID) {
+		t.Fatalf("invalid update lost the saved textbook: %s %+v", rows, failure)
+	}
+	if _, failure := f.call("textbook:resolve", map[string]any{"id": bookID}); failure == nil || !strings.Contains(failure.Message, "重新选择") {
+		t.Fatalf("moved PDF: %+v", failure)
+	}
+}
 
 func TestStudyGetAndSave(t *testing.T) { // NOSONAR: end-to-end test intentionally exercises one workflow; extracting helpers would obscure the scenario.
 	dataRoot := t.TempDir()
@@ -109,15 +158,12 @@ func containsAll(value string, parts ...string) bool {
 	return true
 }
 
-func TestStudyParse(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
-		fmt.Fprint(writer, `{"choices":[{"finish_reason":"stop","message":{"content":"[{\"id\":\"33333333-3333-4333-8333-333333333333\",\"courseId\":\"44444444-4444-4444-8444-444444444444\",\"title\":\" 第一讲 \",\"chapter\":\" 第一章 \",\"endsAt\":\"2026-10-23T10:00:00+08:00\"}]"}}]}`)
-	}))
-	defer server.Close()
+func startStudyParseFixture(t *testing.T, serverURL string) *fixture {
+	t.Helper()
 	dataRoot := t.TempDir()
 	libraryRoot := t.TempDir()
 	resourcesRoot := t.TempDir()
-	writeFixtureFile(t, dataRoot, "settings.json", `{"profiles":[],"activeProfile":"","theme":"light","prompts":{},"qwenProfile":{"id":"qwen-default","name":"通义千问","provider":"qwen","baseUrl":"`+server.URL+`/v1","model":"test","visionModel":"","apiFormat":"chat_completions","encryptedKey":"encrypted"}}`)
+	writeFixtureFile(t, dataRoot, "settings.json", `{"profiles":[],"activeProfile":"","theme":"light","prompts":{},"qwenProfile":{"id":"qwen-default","name":"通义千问","provider":"qwen","baseUrl":"`+serverURL+`/v1","model":"test","visionModel":"vision-test","apiFormat":"chat_completions","encryptedKey":"encrypted"}}`)
 	f := startCore(t, dataRoot, resourcesRoot)
 	if _, errReply := f.call("core.hello", map[string]any{
 		"protocol": 1, "appVersion": "0.0.1", "electronVersion": "42.11.10",
@@ -129,6 +175,15 @@ func TestStudyParse(t *testing.T) {
 	if _, errReply := f.call("db:bootstrap", nil); errReply != nil {
 		t.Fatalf("bootstrap failed: %+v", errReply)
 	}
+	return f
+}
+
+func TestStudyParse(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		fmt.Fprint(writer, `{"choices":[{"finish_reason":"stop","message":{"content":"[{\"id\":\"33333333-3333-4333-8333-333333333333\",\"courseId\":\"44444444-4444-4444-8444-444444444444\",\"title\":\" 第一讲 \",\"chapter\":\" 第一章 \",\"endsAt\":\"2026-10-23T10:00:00+08:00\"}]"}}]}`)
+	}))
+	defer server.Close()
+	f := startStudyParseFixture(t, server.URL)
 	if _, errReply := f.call("course:create", map[string]any{"name": "解析课"}); errReply != nil {
 		t.Fatalf("course:create failed: %+v", errReply)
 	}

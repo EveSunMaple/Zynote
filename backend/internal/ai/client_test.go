@@ -8,6 +8,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestChatStream(t *testing.T) {
@@ -29,6 +30,35 @@ func TestChatStream(t *testing.T) {
 	})
 	if err != nil || reply != "你好" || strings.Join(chunks, "") != "你好" {
 		t.Fatalf("stream mismatch: %q %q %v", reply, chunks, err)
+	}
+}
+
+func TestVisionJSONOptionsAreRequestScoped(t *testing.T) {
+	bodies := make(chan map[string]any, 2)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var body map[string]any
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			t.Error(err)
+		}
+		bodies <- body
+		fmt.Fprint(w, `{"choices":[{"finish_reason":"stop","message":{"content":"[]"}}]}`)
+	}))
+	defer server.Close()
+	client := New(Profile{BaseURL: server.URL, Model: "text", VisionModel: "qwen3.8-flash"})
+	options := JSONOptions{
+		Images: []Image{{URL: "data:image/png;base64,AA=="}}, DisableThinking: true, HighResolutionImages: true,
+	}
+	if _, err := client.JSONWithOptions(context.Background(), "schedule", "", func([]byte) error { return nil }, options); err != nil {
+		t.Fatal(err)
+	}
+	if body := <-bodies; body["enable_thinking"] != false || body["vl_high_resolution_images"] != true {
+		t.Fatal("vision request did not carry selected image options")
+	}
+	if _, err := client.Chat(context.Background(), []Message{{Role: "user", Content: "hi"}}, nil); err != nil {
+		t.Fatal(err)
+	}
+	if body := <-bodies; body["enable_thinking"] != nil || body["vl_high_resolution_images"] != nil {
+		t.Fatal("vision options leaked into a subsequent ordinary request")
 	}
 }
 
@@ -96,5 +126,43 @@ func TestRepairJSONEscapes(t *testing.T) {
 		parsed[0].Theta != `$\theta$` ||
 		parsed[0].Unicode != "中" {
 		t.Fatalf("unexpected repair: %+v", parsed)
+	}
+}
+
+func TestChatAndModelListErrors(t *testing.T) {
+	const privateDetail = "private-test-value"
+	for _, test := range []struct {
+		name       string
+		status     int
+		body       string
+		hint       string
+		retryAfter time.Duration
+	}{
+		{"activation", 403, `{"error":{"code":"AccessDenied.Unpurchased","message":"private-test-value"}}`, "业务空间专属地址", 0},
+		{"activation top level", 403, `{"code":"AccessDenied.Unpurchased","message":"private-test-value"}`, "业务空间专属地址", 0},
+		{"key", 401, `{"error":{"message":"private-test-value"}}`, "密钥验证失败", 0},
+		{"permissions", 403, `{"error":{"code":"private-test-value","message":"AccessDenied.Unpurchased"}}`, "模型调用权限", 0},
+		{"rate limit", 429, privateDetail, "请求受限", 2 * time.Second},
+		{"temporary failure", 503, privateDetail, "暂时不可用", 2 * time.Second},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) {
+				writer.Header().Set("Retry-After", "2")
+				writer.WriteHeader(test.status)
+				fmt.Fprint(writer, test.body)
+			}))
+			defer server.Close()
+			client := New(Profile{BaseURL: server.URL, Model: "test", Key: privateDetail})
+			_, chatErr := client.Chat(context.Background(), []Message{{Role: "user", Content: privateDetail}}, nil)
+			_, modelsErr := client.Models(context.Background())
+			for _, err := range []error{chatErr, modelsErr} {
+				if err == nil || !strings.Contains(err.Error(), test.hint) || strings.Contains(err.Error(), privateDetail) {
+					t.Fatalf("unexpected error: %v", err)
+				}
+			}
+			if IsRetryable(chatErr) != (test.retryAfter > 0) || RetryAfter(chatErr) != test.retryAfter {
+				t.Fatalf("unexpected retry policy: %v", chatErr)
+			}
+		})
 	}
 }

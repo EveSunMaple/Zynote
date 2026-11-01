@@ -107,7 +107,8 @@ describe('GoCore request timeouts', () => {
    'textbook:clear',
    'textbook:apply',
    'textbook:analyze',
-   'textbook:pick',
+   'textbook:ocr-page',
+   'zhiyun:match-course',
    'video-ppt:prepare-playback-release',
    'video-ppt:finalize-playback-release',
    'video-ppt:summary-from-retained'

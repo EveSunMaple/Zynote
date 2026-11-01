@@ -182,7 +182,7 @@ async function startApplication() {
    data: {stage: '智云登录', message, error: true}
   })
  )
- const shellServices = createShellServices(window, paths.libraryRoot)
+ const shellServices = createShellServices(window, paths.libraryRoot, () => zhiyunBrowser.currentReplay())
  const biliBrowser = new BiliBrowser(window, event => {
   if (!window.isDestroyed()) window.webContents.send('assistant:event', event)
  })

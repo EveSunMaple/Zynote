@@ -20,6 +20,7 @@ import (
 	"github.com/EveSunMaple/Zynote/backend/internal/media/download"
 	"github.com/EveSunMaple/Zynote/backend/internal/storage"
 	"github.com/EveSunMaple/Zynote/backend/internal/textbook"
+	"github.com/EveSunMaple/Zynote/backend/internal/zhiyun"
 )
 
 const msgHandshakePending = "后台尚未完成握手"
@@ -57,6 +58,7 @@ type Invoker struct {
 	zhiyunTaskMu         sync.Mutex
 	zhiyunTasks          *zhiyunTaskStore
 	zhiyunTaskDir        string
+	zhiyunCalendar       zhiyun.CalendarCache
 	publicationAuditOnce sync.Once
 	publicationAuditGate chan struct{}
 }
@@ -296,14 +298,20 @@ func registerActions(inv *Invoker) map[string]actionFunc {
 		"media:open":                          actionWithState(inv.handleMediaOpen),
 		"library:delete":                      actionWithState(inv.handleLibraryDelete),
 		"zhiyun:search":                       actionWithState(inv.handleZhiyunSearch),
+		"zhiyun:match-course":                 actionWithState(inv.handleZhiyunMatchCourse),
 		"zhiyun:lessons":                      actionWithState(inv.handleZhiyunLessons),
+		"textbook:annotations":                actionWithState(actionStateParams(inv.handleTextbookAnnotations)),
+		"textbook:comment":                    actionWithState(actionParamsOnly(inv.handleTextbookComment)),
+		"textbook:chapter-summary":            actionWithState(inv.handleTextbookChapterSummary),
 		"textbook:pick":                       actionWithState(actionStoreState(inv.handleTextbookPick)),
+		"textbook:resolve":                    actionWithState(inv.handleTextbookResolve),
 		"textbook:bytes":                      actionWithState(actionParamsOnly(inv.handleTextbookBytes)),
 		"textbook:open":                       actionWithState(actionStoreParams(inv.handleTextbookOpen)),
 		"textbook:manual":                     actionWithState(inv.handleTextbookManual),
 		"textbook:clear":                      actionWithState(actionStateParams(inv.handleTextbookClear)),
 		"textbook:apply":                      actionWithState(actionStateParams(inv.handleTextbookApply)),
 		"textbook:analyze":                    actionWithState(inv.handleTextbookAnalyze),
+		"textbook:ocr-page":                   actionWithState(inv.handleTextbookOCRPage),
 		"textbook:analyze-images":             actionWithState(inv.handleTextbookAnalyzeImages),
 		"textbook:ppt-source":                 actionWithState(actionStateParams(inv.handleTextbookPptSource)),
 		"textbook:ppt-ocr":                    actionWithState(inv.handleTextbookPptOcr),

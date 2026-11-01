@@ -199,6 +199,10 @@ func zhiyunLectureMeta(state *contract.State, courseID string, input zhiyunExpor
 func formatTranscriptText(segments []zhiyun.TranscriptSegment) string {
 	var builder strings.Builder
 	for _, segment := range segments {
+		if segment.StartUnknown {
+			fmt.Fprintln(&builder, segment.Text)
+			continue
+		}
 		hours := segment.Start / 3600
 		minutes := (segment.Start / 60) % 60
 		seconds := segment.Start % 60
