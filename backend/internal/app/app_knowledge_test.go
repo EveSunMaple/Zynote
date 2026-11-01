@@ -10,18 +10,23 @@ import (
 	"testing"
 )
 
-func TestKnowledgeActions(t *testing.T) { // NOSONAR: end-to-end test intentionally exercises one workflow; extracting helpers would obscure the scenario.
-	dataRoot := t.TempDir()
-	libraryRoot := t.TempDir()
-	resourcesRoot := t.TempDir()
+// startHelloCore 启动后端并完成握手，供知识库测试共用。
+func startHelloCore(t *testing.T) *fixture {
+	t.Helper()
+	dataRoot, libraryRoot, resourcesRoot := t.TempDir(), t.TempDir(), t.TempDir()
 	f := startCore(t, dataRoot, resourcesRoot)
-	if _, errReply := f.call("core.hello", map[string]any{
-		"protocol": 1, "appVersion": "0.0.1", "electronVersion": "42.11.10",
-		"platform": testPlatform(), "dataRoot": dataRoot, "libraryRoot": libraryRoot,
-		"resourcesRoot": resourcesRoot, "promptsRoot": resourcesRoot, "portable": false, "packaged": false,
-	}); errReply != nil {
+	hello := map[string]any{"protocol": 1, "platform": testPlatform(), "portable": false, "packaged": false}
+	hello["appVersion"], hello["electronVersion"] = "0.0.1", "42.11.10"
+	hello["dataRoot"], hello["libraryRoot"] = dataRoot, libraryRoot
+	hello["resourcesRoot"], hello["promptsRoot"] = resourcesRoot, resourcesRoot
+	if _, errReply := f.call("core.hello", hello); errReply != nil {
 		t.Fatalf("hello failed: %+v", errReply)
 	}
+	return f
+}
+
+func TestKnowledgeActions(t *testing.T) { // NOSONAR: end-to-end test intentionally exercises one workflow; extracting helpers would obscure the scenario.
+	f := startHelloCore(t)
 	text := "课堂笔记：机器学习的第一课，重点是特征工程。"
 	raw, errReply := f.call("knowledge:import", map[string]any{
 		"title": "机器学习", "text": text, "locator": "https://example.com/knowledge",
@@ -119,17 +124,7 @@ func importPicked(f *fixture, t *testing.T) []pickedImportItem {
 }
 
 func TestKnowledgeImportPickedFiles(t *testing.T) {
-	dataRoot := t.TempDir()
-	libraryRoot := t.TempDir()
-	resourcesRoot := t.TempDir()
-	f := startCore(t, dataRoot, resourcesRoot)
-	if _, errReply := f.call("core.hello", map[string]any{
-		"protocol": 1, "appVersion": "0.0.1", "electronVersion": "42.11.10",
-		"platform": testPlatform(), "dataRoot": dataRoot, "libraryRoot": libraryRoot,
-		"resourcesRoot": resourcesRoot, "promptsRoot": resourcesRoot, "portable": false, "packaged": false,
-	}); errReply != nil {
-		t.Fatalf("hello failed: %+v", errReply)
-	}
+	f := startHelloCore(t)
 	sources := t.TempDir()
 	names := []string{"讲义.txt", "笔记.md", "课堂.srt", "空白.txt", "表格.csv"}
 	bodies := []string{

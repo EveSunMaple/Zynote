@@ -14,6 +14,23 @@ function domainOf(value: unknown) {
  return value === 'im' ? 'im' : 'media'
 }
 
+// 单选与多选文件共用的选择框：校验标题、扩展名和默认目录，取消时返回空数组。
+async function pickPaths(window: BrowserWindow, params: Record<string, unknown>, multiple: boolean) {
+ const title = z.string().min(1).max(200).parse(params.title)
+ const extensions = z
+  .array(z.string().min(1).max(20))
+  .max(20)
+  .parse(params.extensions || [])
+ const defaultPath = typeof params.defaultPath === 'string' ? z.string().max(4096).parse(params.defaultPath) : ''
+ const picked = await dialog.showOpenDialog(window, {
+  title,
+  ...(defaultPath ? {defaultPath} : {}),
+  properties: multiple ? ['openFile', 'multiSelections'] : ['openFile'],
+  ...(extensions.length ? {filters: [{name: '文件', extensions}]} : {})
+ })
+ return picked.canceled ? [] : picked.filePaths
+}
+
 export function createShellServices(window: BrowserWindow, libraryRoot: string): Record<string, ShellService> {
  return {
   'crypto.unprotect': params => {
@@ -120,34 +137,9 @@ export function createShellServices(window: BrowserWindow, libraryRoot: string):
    return {path: picked.canceled ? '' : picked.filePaths[0] || ''}
   },
   'shell.pickFile': async params => {
-   const title = z.string().min(1).max(200).parse(params.title)
-   const extensions = z
-    .array(z.string().min(1).max(20))
-    .max(20)
-    .parse(params.extensions || [])
-   const defaultPath = typeof params.defaultPath === 'string' ? z.string().max(4096).parse(params.defaultPath) : ''
-   const picked = await dialog.showOpenDialog(window, {
-    title,
-    ...(defaultPath ? {defaultPath} : {}),
-    properties: ['openFile'],
-    ...(extensions.length ? {filters: [{name: '文件', extensions}]} : {})
-   })
-   return {path: picked.canceled ? null : (picked.filePaths[0] ?? null)}
+   const paths = await pickPaths(window, params, false)
+   return {path: paths[0] ?? null}
   },
-  'shell.pickFiles': async params => {
-   const title = z.string().min(1).max(200).parse(params.title)
-   const extensions = z
-    .array(z.string().min(1).max(20))
-    .max(20)
-    .parse(params.extensions || [])
-   const defaultPath = typeof params.defaultPath === 'string' ? z.string().max(4096).parse(params.defaultPath) : ''
-   const picked = await dialog.showOpenDialog(window, {
-    title,
-    ...(defaultPath ? {defaultPath} : {}),
-    properties: ['openFile', 'multiSelections'],
-    ...(extensions.length ? {filters: [{name: '文件', extensions}]} : {})
-   })
-   return {paths: picked.canceled ? [] : picked.filePaths}
-  }
+  'shell.pickFiles': async params => ({paths: await pickPaths(window, params, true)})
  }
 }
