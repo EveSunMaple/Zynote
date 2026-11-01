@@ -7,6 +7,7 @@ import {SavedLearningNotes} from '@renderer/features/tools/SavedLearningNotes'
 import {RunProgress, type RunProgressValue} from '@renderer/features/tools/RunProgress'
 import {DeleteRecord} from '@renderer/features/tools/DeleteRecord'
 import {QuickModeToggle} from '@renderer/features/tools/QuickModeToggle'
+import {OrganizeApply} from '@renderer/features/tools/OrganizeApply'
 import {notify} from '@renderer/ui/ToastHost'
 import {SettingsLink} from '@renderer/app/settings-navigation'
 import type {Settings} from '@shared/types'
@@ -81,6 +82,8 @@ type Agent = {
  note_truncated?: boolean
  rejected_answer?: string
  progress?: RunProgressValue
+ channels?: string[]
+ material_ids?: string[]
 }
 type Quote = {source_id: string; quote: string; cited_at?: string; status: string; at?: string; original?: string}
 const quoteLabels: Record<string, {label: string; color: 'success' | 'warning' | 'danger'}> = {
@@ -648,6 +651,9 @@ export function ToolsWorkbench({visible, close}: Readonly<{visible: boolean; clo
         )}
         {task.note && <LongResult text={task.note} truncated={task.note_truncated} taskId={task.task_id} />}
         <QuoteChecks quotes={task.quotes} sources={task.sources} />
+        {task.status === 'completed' && task.channels?.includes('organize') && (
+         <OrganizeApply ids={task.material_ids ?? []} />
+        )}
         {task.quotes_truncated && <p className="hint">引文较多，仅显示前 50 条核对结果。</p>}
         {task.limitations && <p className="hint">{task.limitations}</p>}
         <details>

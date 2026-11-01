@@ -24,7 +24,7 @@ const (
 )
 
 // roundSearchChannels 是可以在多轮中再次检索的外部渠道（须在本次研究里已勾选）。
-var roundSearchChannels = []string{"crossref", "semantic", "arxiv", "web"}
+var roundSearchChannels = []string{"crossref", "semantic", "arxiv", "openalex", "web", "wikipedia"}
 
 type roundAction struct {
 	Action    string         `json:"action"`

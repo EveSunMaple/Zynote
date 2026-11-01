@@ -61,3 +61,21 @@ func TestRecoveryRetriesAfterFailure(t *testing.T) {
 		t.Fatalf("recovery must be retried after a failure: %v %v", task.Status, err)
 	}
 }
+
+// 列表回包带渠道和资料编号（供“分类建议”入口），但仍不含原文。
+func TestTaskRowCarriesChannelsAndMaterialIDs(t *testing.T) {
+	row := map[string]any{
+		"materials": []any{map[string]any{"text": "原文很长", "binding": map[string]any{"bvid": "LVabc"}}},
+		"context":   map[string]any{"channels": []any{"library", "organize"}, "rows": []any{"x"}},
+	}
+	slim := taskRow(row, 0)
+	if _, has := slim["materials"]; has {
+		t.Fatal("materials text must not be returned")
+	}
+	if ids, _ := slim["material_ids"].([]string); len(ids) != 1 || ids[0] != "LVabc" {
+		t.Fatalf("material ids missing: %+v", slim)
+	}
+	if channels, _ := slim["channels"].([]any); len(channels) != 2 {
+		t.Fatalf("channels missing: %+v", slim)
+	}
+}

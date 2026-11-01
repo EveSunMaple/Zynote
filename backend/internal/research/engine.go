@@ -195,7 +195,16 @@ func taskRow(row map[string]any, noteLimit int) map[string]any {
 	slim := map[string]any{}
 	for key, value := range row {
 		switch key {
-		case "materials", "context", "external", "tool_results", "mcp", "extensions", "webSearch":
+		case "materials":
+			// 只回资料编号（不含原文），供界面对这些资料应用知识库分类。
+			slim["material_ids"] = materialIDs(value)
+			continue
+		case "context":
+			// 只回本次勾选的渠道，供界面判断是否显示“分类建议”等入口。
+			context, _ := value.(map[string]any)
+			slim["channels"] = context["channels"]
+			continue
+		case "external", "tool_results", "mcp", "extensions", "webSearch":
 			continue
 		case "sources":
 			items, _ := value.([]any)
@@ -228,6 +237,19 @@ func taskRow(row map[string]any, noteLimit int) map[string]any {
 }
 
 // slimTask 把任务转成不含来源原文的行（回答完整）。
+func materialIDs(value any) []string {
+	items, _ := value.([]any)
+	ids := []string{}
+	for _, item := range items {
+		source, _ := item.(map[string]any)
+		binding, _ := source["binding"].(map[string]any)
+		if id := text(binding["bvid"]); id != "" {
+			ids = append(ids, id)
+		}
+	}
+	return ids
+}
+
 func slimTask(task Task) map[string]any {
 	encoded, _ := json.Marshal(task)
 	var row map[string]any
