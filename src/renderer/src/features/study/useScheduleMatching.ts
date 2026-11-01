@@ -77,8 +77,8 @@ export function matchesWeeklySlot(slot: StudyEntry, lesson: ZhiyunLesson) {
  const title = lesson.title.normalize('NFKC'),
   date = replayDate(title)
  if (!date || (date.getUTCDay() || 7) !== slot.weekday) return false
- const normalizedTitle = title.replace(/节\s*([-~～–—至到])/g, '$1')
- const ranges = [...normalizedTitle.matchAll(/第\s*(\d{1,2})\s*[-~～–—至到]\s*第?\s*(\d{1,2})\s*节/g)]
+ const normalizedTitle = title.replace(/节\s*([-~～–—至到])/g, '$1').replace(/([-~～–—至到])\s*第\s*/g, '$1')
+ const ranges = [...normalizedTitle.matchAll(/第\s*(\d{1,2})\s*[-~～–—至到]\s*(\d{1,2})\s*节/g)]
  const periods = ranges.length
   ? ranges
   : [...normalizedTitle.matchAll(/第\s*(\d{1,2})\s*节/g)].map(match => [match[0], match[1], undefined])
@@ -229,6 +229,33 @@ export function useScheduleMatching(
   const queue = groupCourses(includeSkipped ? rows : rows.filter(row => !row.skipZhiyunMatch), courses)
   setSearches(state => ({...state, ...Object.fromEntries(queue.map(group => [group.key, {state: 'queued' as const}]))}))
   let loginError = ''
+  async function processGroup(group: CourseGroup, requestEpoch: number) {
+   const result = await search(group)
+   if (requestEpoch !== epoch.current) return
+   if (!result) return
+   const matched =
+    result.status === 'matched' ? result.courses.find(course => course.id === result.matchedId) : undefined
+   const ids = new Set(group.slots.map(row => row.id))
+   if (matched)
+    setEntries(state =>
+     state.map(row =>
+      requestEpoch === epoch.current && autoLinkable(row, ids, manual.current, result.source, group.key, courses)
+       ? {...row, zhiyunCourseId: matched.id, zhiyunCourseLabel: courseLabel(matched)}
+       : row
+     )
+    )
+   const courseIds = new Set(
+    group.slots
+     .map(row => row.zhiyunCourseId || (needsTermReview(row, result.source) ? undefined : matched?.id))
+     .filter((id): id is string => !!id)
+   )
+   for (const id of courseIds) {
+    const request = catalog(id)
+    const lessons = await request
+    if (requestEpoch !== epoch.current) return
+    setEntries(state => withDatedReplays(state, id, ids, lessons, request, manual.current))
+   }
+  }
   const worker = async () => {
    while (queue.length && current === epoch.current) {
     const group = queue.shift()!
@@ -237,31 +264,7 @@ export function useScheduleMatching(
      continue
     }
     try {
-     const result = await search(group)
-     if (current !== epoch.current) return
-     if (!result) continue
-     const matched =
-      result.status === 'matched' ? result.courses.find(course => course.id === result.matchedId) : undefined
-     const ids = new Set(group.slots.map(row => row.id))
-     if (matched)
-      setEntries(state =>
-       state.map(row =>
-        current === epoch.current && autoLinkable(row, ids, manual.current, result.source, group.key, courses)
-         ? {...row, zhiyunCourseId: matched.id, zhiyunCourseLabel: courseLabel(matched)}
-         : row
-       )
-      )
-     const courseIds = new Set(
-      group.slots
-       .map(row => row.zhiyunCourseId || (needsTermReview(row, result.source) ? undefined : matched?.id))
-       .filter((id): id is string => !!id)
-     )
-     for (const id of courseIds) {
-      const request = catalog(id)
-      const lessons = await request
-      if (current !== epoch.current) return
-      setEntries(state => withDatedReplays(state, id, ids, lessons, request, manual.current))
-     }
+     await processGroup(group, current)
     } catch (error) {
      const message = errorMessage(error)
      if (loginNeeded(message)) loginError = message

@@ -67,7 +67,7 @@ export function groupFragments(fragments: Fragment[]) {
  return splitBands(sorted).flatMap(mergeBand)
 }
 export function rankLine(row: ChapterLine) {
- if (row.text.trim().length < 5 || /[.…·]{2,}\s*\d+\s*$/.test(row.text) || isChapterHeading(row.text)) return 0
+ if (row.text.trim().length < 5 || endsWithLeaderNumber(row.text) || isChapterHeading(row.text)) return 0
  if (row.marked) return 6
  if (
   /(定义|定理|性质|法则|条件|推论|例\s*[\d一二三]|解法|例题|definition|theorem|example)\b/i.test(row.text) ||

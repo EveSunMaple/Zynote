@@ -134,7 +134,7 @@ type Placement = {
 }
 
 function placementDistance(box: Placement) {
- const {x, y, tw, th, left, width, height, center, viewWidth} = box
+ const {x, y, tw, th, left, width, center, viewWidth} = box
  const lateral = x >= left + width || x + tw <= left
  const aligned = center[1] >= y - 5 && center[1] <= y + th + 5
  const gap = Math.max(0, x - left - width, left - x - tw)
