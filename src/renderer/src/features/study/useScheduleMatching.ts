@@ -251,7 +251,7 @@ export function useScheduleMatching(
    )
    for (const id of courseIds) {
     const request = catalog(id)
-    const lessons = await request
+    const lessons = await request // NOSONAR: 逐个加载回放目录以保持顺序并复用进行中的请求。
     if (requestEpoch !== epoch.current) return
     setEntries(state => withDatedReplays(state, id, ids, lessons, request, manual.current))
    }
