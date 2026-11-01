@@ -314,8 +314,9 @@ describe('managed playback global and time budgets', () => {
   const f = await fixture(),
    result = await f.open(),
    token = f.manager.get(result.tokenURL.split('/').at(-1)!)!
+  token.touched = Date.now()
   vi.useFakeTimers({toFake: ['Date']})
-  vi.setSystemTime(token.created + 5 * 60 * 1000)
+  vi.setSystemTime(token.touched + 5 * 60 * 1000)
   expect(f.manager.get(token.id)).toBeUndefined()
   vi.useRealTimers()
   const next = await f.open(request2),

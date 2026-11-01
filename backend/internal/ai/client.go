@@ -106,6 +106,8 @@ type Profile struct {
 type Client struct {
 	HTTP    *http.Client
 	Profile Profile
+	// OnReasoning 可选：流式请求时收到模型的思考过程片段（reasoning_content），只用于显示进度，不计入回答。
+	OnReasoning func(string)
 }
 
 func New(profile Profile) *Client {
@@ -370,7 +372,12 @@ func (client *Client) Chat(ctx context.Context, messages []Message, onText func(
 	if err != nil {
 		return "", err
 	}
-	requestContext, cancel := context.WithTimeout(ctx, 180*time.Second)
+	// 流式请求一直有数据回来，长资料（整节课字幕）可能写好几分钟，不能用非流式的 3 分钟上限截断。
+	limit := 180 * time.Second
+	if onText != nil {
+		limit = 15 * time.Minute
+	}
+	requestContext, cancel := context.WithTimeout(ctx, limit)
 	defer cancel()
 	request, err := http.NewRequestWithContext(requestContext, http.MethodPost, endpoint, bytes.NewReader(encoded))
 	if err != nil {
@@ -412,7 +419,7 @@ func (client *Client) Chat(ctx context.Context, messages []Message, onText func(
 		return "", requestError(response, nativeFile, hasFile)
 	}
 	if onText != nil && response.Body != nil {
-		return readSSE(response.Body, onText)
+		return readSSEWithReasoning(response.Body, onText, client.OnReasoning)
 	}
 	reply, err := decodeChatResponse(response, responses)
 	if err != nil {
@@ -478,6 +485,7 @@ type sseState struct {
 	finishReason string
 	completed    bool
 	onText       func(string)
+	onReasoning  func(string)
 }
 
 func sseBlockData(value string) string {
@@ -551,6 +559,23 @@ func sseDelta(payload map[string]any) string {
 	return value
 }
 
+// sseReasoning 取出思考过程片段：Chat Completions 兼容接口的 reasoning_content，
+// 或 Responses 接口的 reasoning 摘要增量。
+func sseReasoning(payload map[string]any) string {
+	if payload["type"] == "response.reasoning_summary_text.delta" || payload["type"] == "response.reasoning_text.delta" {
+		value, _ := payload["delta"].(string)
+		return value
+	}
+	choices, ok := payload["choices"].([]any)
+	if !ok || len(choices) == 0 {
+		return ""
+	}
+	choice, _ := choices[0].(map[string]any)
+	item, _ := choice["delta"].(map[string]any)
+	value, _ := item["reasoning_content"].(string)
+	return value
+}
+
 func (state *sseState) handle(value string) error {
 	data := sseBlockData(value)
 	if data == "" {
@@ -575,6 +600,11 @@ func (state *sseState) handle(value string) error {
 	if err := state.handleChoice(payload); err != nil {
 		return err
 	}
+	if state.onReasoning != nil {
+		if thinking := sseReasoning(payload); thinking != "" {
+			state.onReasoning(thinking)
+		}
+	}
 	if delta := sseDelta(payload); delta != "" {
 		state.all.WriteString(delta)
 		state.onText(delta)
@@ -583,9 +613,13 @@ func (state *sseState) handle(value string) error {
 }
 
 func readSSE(body io.Reader, onText func(string)) (string, error) {
+	return readSSEWithReasoning(body, onText, nil)
+}
+
+func readSSEWithReasoning(body io.Reader, onText, onReasoning func(string)) (string, error) {
 	reader := bufio.NewReaderSize(body, 64*1024)
 	buffer := ""
-	state := &sseState{onText: onText}
+	state := &sseState{onText: onText, onReasoning: onReasoning}
 	for {
 		line, err := reader.ReadString('\n')
 		buffer += strings.ReplaceAll(line, "\r", "")

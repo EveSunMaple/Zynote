@@ -76,22 +76,6 @@ func (inv *Invoker) handleKnowledgeRead(_ contract.StateStore, state *contract.S
 	return result, nil
 }
 
-func (inv *Invoker) handleKnowledgeImport(_ contract.StateStore, state *contract.State, params json.RawMessage) (any, error) {
-	var input knowledge.ImportInput
-	if err := json.Unmarshal(params, &input); err != nil {
-		return nil, contract.InputInvalid("资料导入参数无效")
-	}
-	service, err := inv.knowledgeStoreFor(state)
-	if err != nil {
-		return nil, err
-	}
-	result, err := service.Import(input)
-	if err != nil {
-		return nil, contract.InputInvalid(err.Error())
-	}
-	return result, nil
-}
-
 func (inv *Invoker) handleKnowledgeCitation(_ contract.StateStore, state *contract.State, params json.RawMessage) (any, error) {
 	var input struct {
 		EvidenceID string `json:"evidenceId"`

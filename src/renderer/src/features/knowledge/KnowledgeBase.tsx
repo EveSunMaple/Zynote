@@ -74,6 +74,8 @@ export function KnowledgeBase({visible, close}: Readonly<{visible: boolean; clos
    await fn()
   } catch (reason) {
    notify.error(reason)
+   // 导入等批量操作可能已提交部分结果；失败/取消后也刷新一次，避免界面看起来什么都没发生。
+   void refresh().catch(() => {})
   } finally {
    working.current = false
    setBusy(false)

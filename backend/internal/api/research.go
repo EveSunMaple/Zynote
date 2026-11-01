@@ -57,22 +57,42 @@ func (inv *Invoker) researchEngine(store contract.StateStore, state *contract.St
 		}
 		return strings.Join(parts, "\n"), value.NumPages, nil
 	}
+	chat := func(ctx context.Context, system, user string, onText, onThinking func(string)) (string, error) {
+		profile, err := config.ActiveProfile(state.ConfigRoot, store.Reverse())
+		if err != nil {
+			return "", err
+		}
+		client := ai.New(ai.Profile{
+			BaseURL: profile.BaseURL, Model: profile.Model, VisionModel: profile.VisionModel,
+			APIFormat: profile.APIFormat, Key: profile.Key, Parameters: profile.Parameters,
+		})
+		client.OnReasoning = onThinking
+		return client.Chat(ctx, []ai.Message{
+			{Role: "system", Content: system},
+			{Role: "user", Content: user},
+		}, onText)
+	}
 	return &research.Engine{
 		Store: data, Sources: research.NewSources(knowledgeStore, data.RootID), Connection: connection, External: external,
 		MCP: &research.Mcp{Store: data},
 		Model: func(ctx context.Context, system, user string) (string, error) {
-			profile, err := config.ActiveProfile(state.ConfigRoot, store.Reverse())
-			if err != nil {
-				return "", err
-			}
-			client := ai.New(ai.Profile{
-				BaseURL: profile.BaseURL, Model: profile.Model, VisionModel: profile.VisionModel,
-				APIFormat: profile.APIFormat, Key: profile.Key, Parameters: profile.Parameters,
-			})
-			return client.Chat(ctx, []ai.Message{
-				{Role: "system", Content: system},
-				{Role: "user", Content: user},
-			}, nil)
+			return chat(ctx, system, user, nil, nil)
+		},
+		Stream: chat,
+		// 研究在后台运行：请求处理完会关闭本次的存储连接，所以后台另开一个连接和引擎。
+		Spawn: func(run func(worker *research.Engine)) {
+			go func() {
+				worker, err := inv.researchStore(state)
+				if err != nil {
+					return
+				}
+				defer worker.Close()
+				engine, err := inv.researchEngine(store, state, worker)
+				if err != nil {
+					return
+				}
+				run(engine)
+			}()
 		},
 	}, nil
 }
@@ -277,17 +297,18 @@ func (inv *Invoker) handleToolsRequest(storeState contract.StateStore, state *co
 		}
 		return result, nil
 	case "agent-create", "agent-read", "agent-stop", "agent-export", "memory-accept", "note-preview", "note-save",
-		"workflow-create", "workflow-action", "workflow-export":
+		"workflow-create", "workflow-action", "workflow-export", "agent-delete", "workflow-delete":
 		engine, err := inv.researchEngine(storeState, state, store)
 		if err != nil {
 			return nil, err
 		}
 		switch input.Action {
 		case "agent-create":
+			// Create 登记后立即返回不含来源原文的精简任务（研究在后台运行），不会超过 IPC 行上限。
 			return engine.Create(context.Background(), input.Args)
 		case "agent-read":
 			id := textValue(input.Args["id"])
-			task, err := engine.Read(id)
+			task, err := engine.ReadSlim(id)
 			if err != nil {
 				if legacy, legacyErr := store.Read("legacy-task", id); legacyErr == nil {
 					return legacy, nil
@@ -310,6 +331,10 @@ func (inv *Invoker) handleToolsRequest(storeState contract.StateStore, state *co
 			return engine.CreateWorkflow(context.Background(), input.Args)
 		case "workflow-action":
 			return engine.ActionWorkflow(context.Background(), input.Args)
+		case "agent-delete":
+			return engine.DeleteTask(textValue(input.Args["id"]))
+		case "workflow-delete":
+			return engine.DeleteWorkflow(textValue(input.Args["id"]))
 		default:
 			return engine.ExportWorkflow(textValue(input.Args["id"]))
 		}

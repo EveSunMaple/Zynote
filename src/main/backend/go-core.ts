@@ -24,6 +24,8 @@ const LONG_RUNNING_ACTIONS = new Set([
  'settings:probe',
  'settings:test',
  'knowledge:ask',
+ // 导入时先弹出文件选择框（用户可能停留很久），再逐个解析 PDF/Word。
+ 'knowledge:import',
  'knowledge:organize',
  'knowledge:rebuild',
  'knowledge:vector-rebuild',
@@ -72,11 +74,18 @@ const SLOW_ACTIONS = new Set([
  'zhiyun:search',
  'zhiyun:lessons',
  'settings:models',
- 'tools:request',
  'subtitle-derived:audit-publication',
  'video-ppt:playback-source'
 ])
-function callTimeout(action: string) {
+// 单行回包上限：超出时丢弃这一行，并让对应请求明确报错，而不是一直等到超时。
+const MAX_LINE_CHARS = 16_000_000
+// 研究模型请求要等整节课字幕，单次常需 60–90 秒，两步工作流更久；其他 tools:request 动作保持 90 秒。
+const LONG_TOOL_ACTIONS = new Set(['agent-create', 'workflow-action'])
+function callTimeout(action: string, params?: Record<string, unknown>) {
+ if (action === 'tools:request') {
+  const inner = typeof params?.action === 'string' ? params.action : ''
+  return LONG_TOOL_ACTIONS.has(inner) ? LONG_CALL_TIMEOUT_MS : SLOW_CALL_TIMEOUT_MS
+ }
  if (action === 'video-ppt:bound-playback-source' || action === 'video-ppt:bound-playback-check') return 6000
  if (LONG_RUNNING_ACTIONS.has(action)) return LONG_CALL_TIMEOUT_MS
  if (SLOW_ACTIONS.has(action)) return SLOW_CALL_TIMEOUT_MS
@@ -160,6 +169,7 @@ export class GoCore {
  private restarts = 0
  private disposed = false
  private buffer = ''
+ private dropping = false
  private readonly stdoutDecoder = new StringDecoder('utf8')
  private readonly stderrDecoder = new StringDecoder('utf8')
  private readonly options: GoCoreOptions
@@ -184,6 +194,7 @@ export class GoCore {
   })
   this.child = child
   this.buffer = ''
+  this.dropping = false
   let spawned = false
   child.once('spawn', () => {
    spawned = true
@@ -256,10 +267,13 @@ export class GoCore {
      })
    : Promise.resolve()
   const result = new Promise<unknown>((resolve, reject) => {
-   const timer = setTimeout(() => {
-    this.pending.delete(id)
-    reject(backendFailure({code: 'TIMEOUT', message: 'Go 后端请求超时'}))
-   }, callTimeout(action))
+   const timer = setTimeout(
+    () => {
+     this.pending.delete(id)
+     reject(backendFailure({code: 'TIMEOUT', message: 'Go 后端请求超时'}))
+    },
+    callTimeout(action, params)
+   )
    this.pending.set(id, {resolve, reject, timer, tracked})
    this.send({jsonrpc: '2.0', id, method: action, params})
   })
@@ -327,9 +341,22 @@ export class GoCore {
   for (let index = this.buffer.indexOf('\n'); index >= 0; index = this.buffer.indexOf('\n')) {
    const line = this.buffer.slice(0, index)
    this.buffer = this.buffer.slice(index + 1)
-   if (line.trim()) this.handleLine(line)
+   if (this.dropping) this.dropping = false
+   else if (line.trim()) this.handleLine(line)
   }
-  if (this.buffer.length > 1_000_000) this.buffer = ''
+  if (this.buffer.length > MAX_LINE_CHARS) this.dropOversizedLine()
+ }
+
+ // 回包以 {"jsonrpc":"2.0","id":"c-N" 开头，超长时取出 id 让该请求立即失败，余下部分丢到下一个换行为止。
+ private dropOversizedLine() {
+  const id = /^\{"jsonrpc":"2\.0","id":"(c-\d+)"/.exec(this.buffer)?.[1]
+  this.buffer = ''
+  this.dropping = true
+  const item = id ? this.pending.get(id) : undefined
+  if (!id || !item) return
+  this.pending.delete(id)
+  clearTimeout(item.timer)
+  item.reject(new Error('Go 后端响应过大，已丢弃；请缩小本次请求的范围'))
  }
 
  // biome-ignore format: NOSONAR must stay on the function line

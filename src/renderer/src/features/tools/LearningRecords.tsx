@@ -4,6 +4,7 @@ import ReactMarkdown from 'react-markdown'
 import {notify} from '@renderer/ui/ToastHost'
 import {MemorySuggestions} from '@renderer/features/tools/MemorySuggestions'
 import {SelectField} from '@renderer/ui/SelectField'
+import {RunProgress, type RunProgressValue} from '@renderer/features/tools/RunProgress'
 const request = <T,>(action: string, args: unknown = {}) => window.assistant.invoke<T>('tools:request', {action, args})
 const op = () => crypto.randomUUID().replaceAll('-', '')
 type Session = {conversation_id: string; title: string; revision: number; pinned: boolean}
@@ -13,7 +14,8 @@ type Task = {
  status: string
  note: string
  error_code?: string
- sources: {source_id: string; title: string; text: string; read: boolean}[]
+ sources: {source_id: string; title: string; read: boolean; coverage?: string}[]
+ progress?: RunProgressValue
 }
 type Detail = Session & {research_tasks?: Task[]}
 type Memory = {
@@ -230,6 +232,7 @@ export function LearningRecords() {
           return '未完成'
          })()} {task.error_code || ''}
         </p>
+        {task.status === 'running' && <RunProgress progress={task.progress} />}
         {task.status === 'running' && (
          <Button
           variant="tertiary"
@@ -253,9 +256,7 @@ export function LearningRecords() {
          <summary>本次来源</summary>
          {task.sources.map(source => (
           <p key={source.source_id}>
-           {source.source_id} · {source.title} · {source.read ? '已读' : '未读'}
-           <br />
-           {source.text}
+           {source.source_id} · {source.title} · {source.read ? source.coverage || '已读' : '未读'}
           </p>
          ))}
         </details>

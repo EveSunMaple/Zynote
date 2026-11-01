@@ -1,0 +1,32 @@
+{
+ "$schema": "https://json-schema.org/draft/2020-12/schema",
+ "title": "knowledge:import result",
+ "description": "直接写入模式返回单个导入结果；选择文件模式返回逐文件结果（取消选择时为空数组），失败的文件带 error，不影响其余文件。",
+ "$defs": {
+  "importResult": {
+   "type": "object",
+   "required": ["entry", "unchanged"],
+   "properties": {
+    "entry": { "type": "object" },
+    "unchanged": { "type": "boolean" }
+   }
+  }
+ },
+ "oneOf": [
+  { "$ref": "#/$defs/importResult" },
+  {
+   "type": "array",
+   "maxItems": 200,
+   "items": {
+    "type": "object",
+    "required": ["name", "ok"],
+    "properties": {
+     "name": { "type": "string", "minLength": 1 },
+     "ok": { "type": "boolean" },
+     "error": { "type": "string" },
+     "result": { "$ref": "#/$defs/importResult" }
+    }
+   }
+  }
+ ]
+}

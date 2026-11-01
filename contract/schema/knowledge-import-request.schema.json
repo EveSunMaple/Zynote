@@ -1,0 +1,28 @@
+{
+ "$schema": "https://json-schema.org/draft/2020-12/schema",
+ "title": "knowledge:import request",
+ "description": "双模式：带 title/text 时直接写入一份资料；否则只带可选 category，由 Go 经反向 RPC shell.pickFiles 弹出多选框（最多 200 份）并逐个解析导入。",
+ "oneOf": [
+  {
+   "type": "object",
+   "required": ["title", "text", "locator", "sourceHash"],
+   "properties": {
+    "title": { "type": "string", "minLength": 1, "maxLength": 300 },
+    "text": { "type": "string", "minLength": 1 },
+    "locator": { "type": "string", "minLength": 1, "maxLength": 2000 },
+    "sourceHash": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+    "category": { "type": "string", "maxLength": 100 },
+    "sourceMethod": { "type": ["string", "null"] },
+    "origin": { "enum": ["local", "bilibili-subtitle", "bilibili-discussion"] },
+    "expectedGeneration": {}
+   }
+  },
+  {
+   "type": "object",
+   "not": { "anyOf": [{ "required": ["title"] }, { "required": ["text"] }] },
+   "properties": {
+    "category": { "type": "string", "maxLength": 100 }
+   }
+  }
+ ]
+}
