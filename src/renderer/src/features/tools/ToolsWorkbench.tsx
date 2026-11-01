@@ -4,6 +4,7 @@ import {WindowMenuButton, WindowPanel} from '@renderer/ui/WindowPanel'
 import ReactMarkdown from 'react-markdown'
 import {LearningRecords} from '@renderer/features/tools/LearningRecords'
 import {SavedLearningNotes} from '@renderer/features/tools/SavedLearningNotes'
+import {RunProgress, type RunProgressValue} from '@renderer/features/tools/RunProgress'
 import {notify} from '@renderer/ui/ToastHost'
 import {SettingsLink} from '@renderer/app/settings-navigation'
 import remarkGfm from 'remark-gfm'
@@ -52,6 +53,7 @@ type Agent = {
  sources: {source_id: string; title: string; read: boolean; url: string; coverage?: string}[]
  quotes?: Quote[]
  rejected_answer?: string
+ progress?: RunProgressValue
 }
 type Quote = {source_id: string; quote: string; cited_at?: string; status: string; at?: string; original?: string}
 const quoteLabels: Record<string, {label: string; color: 'success' | 'warning' | 'danger'}> = {
@@ -108,6 +110,7 @@ type Flow = {
  outcome_unknown: boolean
  notice?: string
  steps: {name: string; status: string; answer: string}[]
+ progress?: RunProgressValue
 }
 type Overview = {
  root: string
@@ -455,6 +458,7 @@ export function ToolsWorkbench({visible, close}: Readonly<{visible: boolean; clo
       <Card className="knowledge-card" key={task.workflow_id}>
        <h3>{task.question}</h3>
        <StatusChip status={task.status} />
+       {task.status === 'running' && <RunProgress progress={task.progress} />}
        {task.steps.map(step => (
         <details key={step.name} open={!!step.answer}>
          <summary>
@@ -544,9 +548,12 @@ export function ToolsWorkbench({visible, close}: Readonly<{visible: boolean; clo
         </span>
        </header>
        {task.status === 'running' && (
-        <Button variant="tertiary" size="sm" onClick={() => void run(() => request('agent-stop', {id: task.task_id}))}>
-         停止研究
-        </Button>
+        <>
+         <RunProgress progress={task.progress} />
+         <Button variant="tertiary" size="sm" onClick={() => void run(() => request('agent-stop', {id: task.task_id}))}>
+          停止研究
+         </Button>
+        </>
        )}
        {task.error_code && (
         <p className="hint" role="alert">

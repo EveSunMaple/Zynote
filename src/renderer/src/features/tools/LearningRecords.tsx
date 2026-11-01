@@ -4,6 +4,7 @@ import ReactMarkdown from 'react-markdown'
 import {notify} from '@renderer/ui/ToastHost'
 import {MemorySuggestions} from '@renderer/features/tools/MemorySuggestions'
 import {SelectField} from '@renderer/ui/SelectField'
+import {RunProgress, type RunProgressValue} from '@renderer/features/tools/RunProgress'
 const request = <T,>(action: string, args: unknown = {}) => window.assistant.invoke<T>('tools:request', {action, args})
 const op = () => crypto.randomUUID().replaceAll('-', '')
 type Session = {conversation_id: string; title: string; revision: number; pinned: boolean}
@@ -14,6 +15,7 @@ type Task = {
  note: string
  error_code?: string
  sources: {source_id: string; title: string; text: string; read: boolean}[]
+ progress?: RunProgressValue
 }
 type Detail = Session & {research_tasks?: Task[]}
 type Memory = {
@@ -230,6 +232,7 @@ export function LearningRecords() {
           return '未完成'
          })()} {task.error_code || ''}
         </p>
+        {task.status === 'running' && <RunProgress progress={task.progress} />}
         {task.status === 'running' && (
          <Button
           variant="tertiary"

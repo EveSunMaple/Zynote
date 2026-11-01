@@ -68,25 +68,38 @@ func (run *runState) setStage(stage, label string) {
 	run.parent.setStage(stage, run.prefix+label)
 }
 
-// write 记录模型流式返回的文字：累计字数，保留末尾一段供界面预览。
+// write 记录模型流式返回的回答文字：累计字数，保留末尾一段供界面预览。
 func (run *runState) write(chunk string) {
 	if run == nil || chunk == "" {
 		return
 	}
-	run.record("模型正在写回答", chunk)
+	run.record("writing", "模型正在写回答", chunk, true)
 }
 
-func (run *runState) record(label, chunk string) {
+// think 记录模型的思考过程：只计字数显示进度，不展示内容。
+func (run *runState) think(chunk string) {
+	if run == nil || chunk == "" {
+		return
+	}
+	run.record("thinking", "模型正在阅读资料、思考", chunk, false)
+}
+
+func (run *runState) record(stage, label, chunk string, keep bool) {
 	run.mu.Lock()
-	run.stage, run.label = "writing", label
-	run.written = append(run.written, []rune(chunk)...)
+	if run.stage != stage {
+		run.chars, run.written = 0, nil
+	}
+	run.stage, run.label = stage, label
 	run.chars += len([]rune(chunk))
-	if len(run.written) > previewRunes {
-		run.written = append([]rune(nil), run.written[len(run.written)-previewRunes:]...)
+	if keep {
+		run.written = append(run.written, []rune(chunk)...)
+		if len(run.written) > previewRunes {
+			run.written = append([]rune(nil), run.written[len(run.written)-previewRunes:]...)
+		}
 	}
 	run.mu.Unlock()
 	if run.parent != nil {
-		run.parent.record(run.prefix+label, chunk)
+		run.parent.record(stage, run.prefix+label, chunk, keep)
 	}
 }
 

@@ -12,7 +12,8 @@ func backgroundEngine(t *testing.T, first string, release chan struct{}) (*Engin
 	t.Helper()
 	engine, bindings := citationEngine(t, []string{sampleSRT("今天讲泰勒公式", "余项有两种形式", "先看佩亚诺余项")})
 	engine.Spawn = func(run func(*Engine)) { go run(engine) }
-	engine.Stream = func(ctx context.Context, _, _ string, onText func(string)) (string, error) {
+	engine.Stream = func(ctx context.Context, _, _ string, onText, onThinking func(string)) (string, error) {
+		onThinking("先读资料")
 		onText(first)
 		select {
 		case <-release:

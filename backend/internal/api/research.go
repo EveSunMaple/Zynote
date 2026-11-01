@@ -57,22 +57,42 @@ func (inv *Invoker) researchEngine(store contract.StateStore, state *contract.St
 		}
 		return strings.Join(parts, "\n"), value.NumPages, nil
 	}
+	chat := func(ctx context.Context, system, user string, onText, onThinking func(string)) (string, error) {
+		profile, err := config.ActiveProfile(state.ConfigRoot, store.Reverse())
+		if err != nil {
+			return "", err
+		}
+		client := ai.New(ai.Profile{
+			BaseURL: profile.BaseURL, Model: profile.Model, VisionModel: profile.VisionModel,
+			APIFormat: profile.APIFormat, Key: profile.Key, Parameters: profile.Parameters,
+		})
+		client.OnReasoning = onThinking
+		return client.Chat(ctx, []ai.Message{
+			{Role: "system", Content: system},
+			{Role: "user", Content: user},
+		}, onText)
+	}
 	return &research.Engine{
 		Store: data, Sources: research.NewSources(knowledgeStore, data.RootID), Connection: connection, External: external,
 		MCP: &research.Mcp{Store: data},
 		Model: func(ctx context.Context, system, user string) (string, error) {
-			profile, err := config.ActiveProfile(state.ConfigRoot, store.Reverse())
-			if err != nil {
-				return "", err
-			}
-			client := ai.New(ai.Profile{
-				BaseURL: profile.BaseURL, Model: profile.Model, VisionModel: profile.VisionModel,
-				APIFormat: profile.APIFormat, Key: profile.Key, Parameters: profile.Parameters,
-			})
-			return client.Chat(ctx, []ai.Message{
-				{Role: "system", Content: system},
-				{Role: "user", Content: user},
-			}, nil)
+			return chat(ctx, system, user, nil, nil)
+		},
+		Stream: chat,
+		// 研究在后台运行：请求处理完会关闭本次的存储连接，所以后台另开一个连接和引擎。
+		Spawn: func(run func(worker *research.Engine)) {
+			go func() {
+				worker, err := inv.researchStore(state)
+				if err != nil {
+					return
+				}
+				defer worker.Close()
+				engine, err := inv.researchEngine(store, state, worker)
+				if err != nil {
+					return
+				}
+				run(engine)
+			}()
 		},
 	}, nil
 }

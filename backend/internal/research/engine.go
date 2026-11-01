@@ -59,8 +59,8 @@ type Engine struct {
 	Store   *Store
 	Sources *Sources
 	Model   func(ctx context.Context, system, user string) (string, error)
-	// Stream 以流式方式请求模型，onText 收到逐段文字；为空时退回 Model。
-	Stream func(ctx context.Context, system, user string, onText func(string)) (string, error)
+	// Stream 以流式方式请求模型，onText 收到逐段回答，onThinking 收到思考过程；为空时退回 Model。
+	Stream func(ctx context.Context, system, user string, onText, onThinking func(string)) (string, error)
 	// Spawn 在后台用独立的存储连接运行 run；为空时研究就地同步运行（测试）。
 	Spawn      func(run func(worker *Engine))
 	Connection string
@@ -613,9 +613,9 @@ func researchPrompt(task *Task, contextSnapshot Context, snapshot ExtensionSnaps
 }
 
 func (engine *Engine) ask(ctx context.Context, run *runState, system, user string) (string, error) {
-	run.setStage("model", "等待模型开始回答")
+	run.setStage("model", "资料已交给模型，等待回应")
 	if engine.Stream != nil {
-		return engine.Stream(ctx, system, user, run.write)
+		return engine.Stream(ctx, system, user, run.write, run.think)
 	}
 	return engine.Model(ctx, system, user)
 }
@@ -672,7 +672,9 @@ func (engine *Engine) runResearch(ctx context.Context, run *runState, input map[
 		return err
 	}
 	if parsed.mcp != nil {
-		run.setStage("tools", "调用所选 MCP 工具")
+		if len(parsed.mcp.Tools) > 0 {
+			run.setStage("tools", "调用所选 MCP 工具")
+		}
 		if err := engine.runMcpTools(ctx, task, parsed.question, parsed.mcp); err != nil {
 			return err
 		}
