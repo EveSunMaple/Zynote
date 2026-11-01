@@ -6943,6 +6943,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 官方来源：https://pdfium.googlesource.com/pdfium/ ，许可：https://pdfium.googlesource.com/pdfium/+/HEAD/LICENSE 。
 
+发布构建由 `scripts/fetch-pdfium.mts` 获取预编译动态库：https://github.com/bblanchon/pdfium-binaries 的 chromium/7543 版（该仓库 MIT 许可，构建产物中的 PDFium 本体仍为上述 BSD 3-Clause），下载后按脚本内固定的 SHA256 校验。
+
 ## rustypipe 0.11.4
 
 License: "GPL-3.0"

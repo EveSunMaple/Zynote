@@ -140,7 +140,17 @@ func (n *Native) readLoop(stdout io.Reader, child *exec.Cmd) {
 		}
 	}
 	_ = child.Wait()
-	n.failAll("原生助手已退出")
+	// 进程退出后清掉记录，下次调用由 ensure 重新拉起；否则一次崩溃会让该模式一直不可用，直到应用重启。
+	n.mu.Lock()
+	if n.child == child {
+		n.child = nil
+		n.stdin = nil
+	}
+	replaced := n.child != nil
+	n.mu.Unlock()
+	if !replaced {
+		n.failAll("原生助手已退出")
+	}
 }
 
 func (n *Native) failAll(message string) {
@@ -212,5 +222,6 @@ func (n *Native) Dispose() {
 		_ = n.child.Process.Kill()
 	}
 	n.child = nil
+	n.stdin = nil
 	slog.Info("native helper disposed", "mode", n.mode)
 }

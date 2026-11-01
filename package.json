@@ -23,6 +23,7 @@
   "smoke:go-core": "node scripts/go-core-smoke.mts",
   "acquire:asr": "node scripts/acquire-asr-model.mts",
   "acquire:embedding": "node scripts/acquire-embedding-model.mts",
+  "pdfium:fetch": "node scripts/fetch-pdfium.mts",
   "pack": "pnpm build && pnpm release full",
   "release": "node scripts/release.mts",
   "release:source": "node scripts/source-package.mts",
