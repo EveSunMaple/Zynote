@@ -868,6 +868,7 @@
   },
   {
    "action": "video-ppt:batch-subtitles",
+   "requestSchema": "schema/asr-subtitle-request.schema.json#/$defs/batch",
    "source": "courseware.ts",
    "phase": 4,
    "backend": "go"
@@ -880,12 +881,14 @@
   },
   {
    "action": "video-ppt:subtitle-transcribe",
+   "requestSchema": "schema/asr-subtitle-request.schema.json#/$defs/remote",
    "source": "courseware.ts",
    "phase": 4,
    "backend": "go"
   },
   {
    "action": "video-ppt:subtitle-transcribe-local",
+   "requestSchema": "schema/asr-subtitle-request.schema.json#/$defs/local",
    "source": "courseware.ts",
    "phase": 4,
    "backend": "go"

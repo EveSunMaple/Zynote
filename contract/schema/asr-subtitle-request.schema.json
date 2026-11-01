@@ -1,0 +1,48 @@
+{
+ "$schema": "https://json-schema.org/draft/2020-12/schema",
+ "$id": "asr-subtitle-request.schema.json",
+ "$defs": {
+  "language": {
+   "type": ["string", "null"],
+   "enum": ["", "zh", "en", "auto", null],
+   "description": "Omitted/null preserves a bound resume language, or defaults to zh for new tasks. Empty string is the legacy zh alias. Values are case-sensitive and whitespace is rejected."
+  },
+  "local": {
+   "type": "object",
+   "properties": {
+    "asrLanguage": { "$ref": "#/$defs/language" },
+    "courseId": { "type": "string" },
+    "operationId": { "type": "string" },
+    "retainPlayback": { "type": "boolean" }
+   },
+   "additionalProperties": true
+  },
+  "remote": {
+   "type": "object",
+   "properties": {
+    "asrLanguage": { "$ref": "#/$defs/language" },
+    "url": { "type": "string" },
+    "courseId": { "type": "string" },
+    "operationId": { "type": "string" }
+   },
+   "additionalProperties": true
+  },
+  "batch": {
+   "type": "object",
+   "properties": {
+    "asrLanguage": { "$ref": "#/$defs/language" },
+    "url": { "type": "string" },
+    "pages": {
+     "type": "array",
+     "items": { "type": "integer", "minimum": 1, "maximum": 99999 },
+     "maxItems": 1000,
+     "uniqueItems": true
+    },
+    "courseId": { "type": "string" },
+    "operationId": { "type": "string" },
+    "prompt": { "type": "string" }
+   },
+   "additionalProperties": true
+  }
+ }
+}

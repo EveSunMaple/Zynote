@@ -86,18 +86,24 @@ func (inv *Invoker) transcribeVideoTask(
 
 func (inv *Invoker) handleVideoSubtitleTranscribeLocal(store contract.StateStore, state *contract.State, params json.RawMessage) (any, error) {
 	var input struct {
-		RetainPlayback bool   `json:"retainPlayback"`
-		CourseID       string `json:"courseId"`
-		OperationID    string `json:"operationId"`
+		RetainPlayback bool    `json:"retainPlayback"`
+		ASRLanguage    *string `json:"asrLanguage"`
+		CourseID       string  `json:"courseId"`
+		OperationID    string  `json:"operationId"`
 	}
 	if err := json.Unmarshal(params, &input); err != nil {
 		return nil, contract.InputInvalid("字幕参数无效")
+	}
+	if input.ASRLanguage != nil {
+		if _, err := contract.NormalizeASRLanguage(*input.ASRLanguage); err != nil {
+			return nil, err
+		}
 	}
 	courseName, err := inv.subtitleCourseName(state, input.CourseID)
 	if err != nil {
 		return nil, err
 	}
-	if task, exists, err := inv.existingLocalSubtitle(state, input.OperationID, courseName, input.RetainPlayback); exists {
+	if task, exists, err := inv.existingLocalSubtitle(state, input.OperationID, courseName, input.RetainPlayback, input.ASRLanguage); exists {
 		return inv.runBoundSubtitle(store, state, task, err)
 	}
 
@@ -121,7 +127,7 @@ func (inv *Invoker) handleVideoSubtitleTranscribeLocal(store contract.StateStore
 	if picked.Path == nil || *picked.Path == "" {
 		return nil, nil
 	}
-	task, _, err := inv.createQueuedVideoTaskRetained(state, *picked.Path, "", "subtitle", "", courseName, input.RetainPlayback, input.OperationID)
+	task, _, err := inv.createQueuedVideoTaskLanguage(state, *picked.Path, "", "subtitle", "", courseName, input.RetainPlayback, input.ASRLanguage, input.OperationID)
 	return inv.runBoundSubtitle(store, state, task, err)
 }
 
@@ -189,8 +195,14 @@ func (inv *Invoker) handleVideoResumeSubtitleContext(ctx context.Context, store 
 			if preparedErr != nil {
 				return nil, videoPptError(preparedErr)
 			}
+			if effectiveASRLanguage(meta.ASRLanguage) != "zh" && (!found || prepared.Version != 2) {
+				station, stationFound, stationErr := service.LoadStationSubtitle(videoppt.CreatedTask{ID: meta.ID, Dir: directory})
+				if found || stationErr != nil || !stationFound || station.State != "prepared" || station.SRT != string(body) {
+					return nil, contract.InputInvalid("已保存字幕缺少匹配的来源或语言凭据，请保留任务")
+				}
+			}
 			if found && prepared.Version == 2 {
-				if prepared.Provenance.RequestedLanguage != "zh" || prepared.SRT != string(body) {
+				if prepared.Provenance.RequestedLanguage != effectiveASRLanguage(meta.ASRLanguage) || prepared.SRT != string(body) {
 					return nil, contract.InputInvalid("已保存字幕与转写凭据不一致，请保留任务")
 				}
 				output["provenance"], output["sourceSHA256"], output["srtSHA256"] = prepared.Provenance, prepared.VideoSHA256, prepared.SRTSHA256
@@ -229,9 +241,10 @@ func (inv *Invoker) handleVideoResumeSubtitleContext(ctx context.Context, store 
 
 func (inv *Invoker) handleVideoSubtitleTranscribe(store contract.StateStore, state *contract.State, params json.RawMessage) (any, error) {
 	var input struct {
-		URL         string `json:"url"`
-		CourseID    string `json:"courseId"`
-		OperationID string `json:"operationId"`
+		URL         string  `json:"url"`
+		ASRLanguage *string `json:"asrLanguage"`
+		CourseID    string  `json:"courseId"`
+		OperationID string  `json:"operationId"`
 	}
 	if err := json.Unmarshal(params, &input); err != nil || (input.URL == "" && input.OperationID == "") {
 		return nil, contract.InputInvalid("视频网址无效")
@@ -240,7 +253,7 @@ func (inv *Invoker) handleVideoSubtitleTranscribe(store contract.StateStore, sta
 	if err != nil {
 		return nil, err
 	}
-	task, _, err := inv.createQueuedVideoTask(state, "", input.URL, "subtitle", "", courseName, input.OperationID)
+	task, _, err := inv.createQueuedVideoTaskLanguage(state, "", input.URL, "subtitle", "", courseName, false, input.ASRLanguage, input.OperationID)
 	return inv.runBoundSubtitle(store, state, task, err)
 }
 

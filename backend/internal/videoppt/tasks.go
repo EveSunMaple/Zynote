@@ -10,6 +10,7 @@ import (
 	"regexp"
 	"strings"
 
+	"github.com/EveSunMaple/Zynote/backend/internal/contract"
 	"github.com/EveSunMaple/Zynote/backend/internal/ids"
 )
 
@@ -22,14 +23,15 @@ const (
 var subtitleFilePattern = regexp.MustCompile(`(?i)\.srt$`)
 
 type SubtitleTask struct {
-	ID         string `json:"id"`
-	Name       string `json:"name"`
-	Kind       string `json:"kind"`
-	OutputName string `json:"outputName"`
-	CourseName string `json:"courseName,omitempty"`
-	URL        string `json:"url,omitempty"`
-	Page       int    `json:"page"`
-	Saved      *struct {
+	ASRLanguage string `json:"asrLanguage,omitempty"`
+	ID          string `json:"id"`
+	Name        string `json:"name"`
+	Kind        string `json:"kind"`
+	OutputName  string `json:"outputName"`
+	CourseName  string `json:"courseName,omitempty"`
+	URL         string `json:"url,omitempty"`
+	Page        int    `json:"page"`
+	Saved       *struct {
 		Path   string `json:"path"`
 		SHA256 string `json:"sha256"`
 	} `json:"saved,omitempty"`
@@ -86,14 +88,15 @@ func (service *Service) SubtitleTask(id string) (SubtitleTask, string, error) {
 		return SubtitleTask{}, "", err
 	}
 	var meta struct {
-		ID         string `json:"id"`
-		Name       string `json:"name"`
-		Kind       string `json:"kind"`
-		OutputName string `json:"outputName"`
-		CourseName string `json:"courseName"`
-		URL        string `json:"url"`
-		Page       int    `json:"page"`
-		Saved      *struct {
+		ASRLanguage string `json:"asrLanguage"`
+		ID          string `json:"id"`
+		Name        string `json:"name"`
+		Kind        string `json:"kind"`
+		OutputName  string `json:"outputName"`
+		CourseName  string `json:"courseName"`
+		URL         string `json:"url"`
+		Page        int    `json:"page"`
+		Saved       *struct {
 			Path   string `json:"path"`
 			SHA256 string `json:"sha256"`
 		} `json:"saved"`
@@ -107,7 +110,19 @@ func (service *Service) SubtitleTask(id string) (SubtitleTask, string, error) {
 	}
 	task := SubtitleTask{
 		ID: meta.ID, Name: meta.Name, Kind: meta.Kind, OutputName: meta.OutputName,
-		CourseName: meta.CourseName, URL: meta.URL, Page: meta.Page, Saved: meta.Saved,
+		CourseName: meta.CourseName, URL: meta.URL, Page: meta.Page, Saved: meta.Saved, ASRLanguage: meta.ASRLanguage,
+	}
+	language, err := contract.NormalizeASRLanguage(meta.ASRLanguage)
+	if err != nil {
+		return SubtitleTask{}, "", err
+	}
+	if operation, err := service.Operation(id); err == nil {
+		boundLanguage, languageErr := contract.NormalizeASRLanguage(operation.ASRLanguage)
+		if languageErr != nil || boundLanguage != language {
+			return SubtitleTask{}, "", requestError("任务转写语言与来源绑定不一致")
+		}
+	} else if !os.IsNotExist(err) {
+		return SubtitleTask{}, "", err
 	}
 	return task, directory, nil
 }

@@ -38,19 +38,31 @@ func (inv *Invoker) cancelVideoBatches() {
 
 func (inv *Invoker) bindVideoBatch(store contract.StateStore, state *contract.State, params json.RawMessage, kind string) (videoppt.BatchOperation, error) {
 	var input struct {
-		OperationID string `json:"operationId"`
-		URL         string `json:"url"`
-		Pages       []int  `json:"pages"`
-		CourseID    string `json:"courseId"`
-		Prompt      string `json:"prompt"`
+		OperationID string  `json:"operationId"`
+		ASRLanguage *string `json:"asrLanguage"`
+		URL         string  `json:"url"`
+		Pages       []int   `json:"pages"`
+		CourseID    string  `json:"courseId"`
+		Prompt      string  `json:"prompt"`
 	}
 	if json.Unmarshal(params, &input) != nil {
 		return videoppt.BatchOperation{}, contract.InputInvalid(msgInvalidEpisode)
 	}
+	language := ""
+	if input.ASRLanguage != nil {
+		var err error
+		language, err = contract.NormalizeASRLanguage(*input.ASRLanguage)
+		if err != nil {
+			return videoppt.BatchOperation{}, err
+		}
+		if kind != "subtitle" {
+			return videoppt.BatchOperation{}, contract.InputInvalid("仅字幕批次支持转写语言")
+		}
+	}
 	service := videoPptService(state)
 	if input.URL == "" && input.OperationID != "" {
 		batch, err := service.Batch(input.OperationID)
-		if err == nil && batch.Input.Kind != kind {
+		if err == nil && (batch.Input.Kind != kind || (input.ASRLanguage != nil && effectiveASRLanguage(batch.Input.ASRLanguage) != language)) {
 			return batch, contract.InputInvalid("批次类型与已绑定任务不一致")
 		}
 		return batch, err
@@ -79,7 +91,7 @@ func (inv *Invoker) bindVideoBatch(store contract.StateStore, state *contract.St
 	if input.Prompt == "" {
 		input.Prompt = defaultVideoPrompt
 	}
-	return service.BindBatch(input.OperationID, videoppt.BatchInput{Kind: kind, URL: normalized, Pages: input.Pages, Prompt: input.Prompt, CourseName: course})
+	return service.BindBatch(input.OperationID, videoppt.BatchInput{Kind: kind, URL: normalized, Pages: input.Pages, Prompt: input.Prompt, CourseName: course, ASRLanguage: language})
 }
 
 func (inv *Invoker) prepareVideoBatch(ctx context.Context, store contract.StateStore, state *contract.State, batch videoppt.BatchOperation) (videoppt.BatchOperation, error) {
@@ -120,7 +132,7 @@ func (inv *Invoker) runVideoBatchEpisode(ctx context.Context, store contract.Sta
 	}
 	id := batch.ChildID(episode.Page)
 	if batch.Input.Kind == "subtitle" {
-		task, _, err := inv.createQueuedVideoTask(state, "", episode.URL, "subtitle-station", "", batch.Input.CourseName, id)
+		task, _, err := inv.createQueuedVideoTaskLanguage(state, "", episode.URL, "subtitle-station", "", batch.Input.CourseName, false, &batch.Input.ASRLanguage, id)
 		return inv.runBoundSubtitleContext(ctx, store, state, task, err)
 	}
 	// Bind the exact parent course snapshot before operation-only continuation.

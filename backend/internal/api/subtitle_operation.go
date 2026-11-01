@@ -35,8 +35,12 @@ func (inv *Invoker) runBoundSubtitleContext(ctx context.Context, store contract.
 	return inv.handleVideoResumeSubtitleContext(ctx, store, state, params)
 }
 
-func (inv *Invoker) existingLocalSubtitle(state *contract.State, id, courseName string, retain bool) (videoppt.CreatedTask, bool, error) {
+func (inv *Invoker) existingLocalSubtitle(state *contract.State, id, courseName string, retain bool, languages ...*string) (videoppt.CreatedTask, bool, error) {
 	var task videoppt.CreatedTask
+	var language *string
+	if len(languages) > 0 {
+		language = languages[0]
+	}
 	if id == "" {
 		return task, false, nil
 	}
@@ -51,20 +55,28 @@ func (inv *Invoker) existingLocalSubtitle(state *contract.State, id, courseName 
 		}
 		return task, true, videoPptError(err)
 	}
-	if operation.Stage != "subtitle" || operation.Path == "" || operation.URL != "" || operation.CourseName != courseName || operation.RetainPlayback != retain {
+	if operation.Stage != "subtitle" || operation.Path == "" || operation.URL != "" || operation.CourseName != courseName || operation.RetainPlayback != retain || (language != nil && effectiveASRLanguage(operation.ASRLanguage) != effectiveASRLanguage(*language)) {
 		return task, true, contract.InputInvalid("任务编号已绑定其他来源或课程")
 	}
-	task, _, err = inv.createQueuedVideoTask(state, "", "", "subtitle", "", courseName, id)
+	task, _, err = inv.createQueuedVideoTaskLanguage(state, "", "", "subtitle", "", courseName, retain, language, id)
 	return task, true, err
 }
 
 func (inv *Invoker) preparedVideoSubtitle(ctx context.Context, state *contract.State, task videoppt.CreatedTask) (asr.Result, bool, error) {
+	meta, _, err := videoPptService(state).SubtitleTask(task.ID)
+	if err != nil {
+		return asr.Result{}, false, videoPptError(err)
+	}
+	language := effectiveASRLanguage(meta.ASRLanguage)
 	prepared, found, err := videoppt.LoadPreparedSubtitle(task)
 	if err != nil {
 		return asr.Result{}, false, videoPptError(err)
 	}
 	if found {
-		if prepared.Version == 2 && prepared.Provenance.RequestedLanguage != "zh" {
+		if prepared.Version != 2 && language != "zh" {
+			return asr.Result{}, true, contract.InputInvalid("旧转写检查点缺少语言凭据，请保留任务")
+		}
+		if prepared.Version == 2 && prepared.Provenance.RequestedLanguage != language {
 			return asr.Result{}, true, contract.InputInvalid("已保存转写语言与当前任务不一致，请保留任务")
 		}
 		segments, err := documents.ParseSrt(prepared.SRT)
@@ -87,7 +99,7 @@ func (inv *Invoker) preparedVideoSubtitle(ctx context.Context, state *contract.S
 			return inv.asr.CallContext(ctx, method, params, timeoutMS)
 		},
 		Progress: inv.videoProgress,
-	}.Transcribe(ctx, task.Path, "zh")
+	}.Transcribe(ctx, task.Path, language)
 	if err != nil {
 		return asr.Result{}, false, videoPptError(err)
 	}

@@ -6,7 +6,7 @@ const root = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 const contract = JSON.parse(await readFile(join(root, 'contract/actions.json'), 'utf8')) as {
  schema: number
  total: number
- actions: {action: string; source: string; phase: number; backend: string}[]
+ actions: {action: string; source: string; phase: number; backend: string; requestSchema?: string}[]
 }
 if (contract.schema !== 1 || !Array.isArray(contract.actions) || contract.total !== contract.actions.length)
  throw new Error('契约结构或总数不一致')
@@ -16,6 +16,19 @@ for (const row of contract.actions) {
  if (names.has(row.action)) throw new Error('契约 action 重复：' + row.action)
  if (!['go', 'shell'].includes(row.backend)) throw new Error('契约 backend 无效：' + row.action)
  if (!Number.isInteger(row.phase) || row.phase < 0 || row.phase > 6) throw new Error('契约 phase 无效：' + row.action)
+ if (row.requestSchema) {
+  const [file, pointer] = row.requestSchema.split('#')
+  if (!/^schema\/[a-z0-9-]+\.schema\.json$/.test(file) || !pointer?.startsWith('/$defs/'))
+   throw new Error('契约 requestSchema 引用无效：' + row.action)
+  const schema = JSON.parse(await readFile(join(root, 'contract', file), 'utf8')) as Record<string, unknown>
+  let definition: unknown = schema
+  for (const key of pointer.slice(1).split('/')) {
+   if (!definition || typeof definition !== 'object') throw new Error('契约 requestSchema 定义缺失：' + row.action)
+   definition = (definition as Record<string, unknown>)[key]
+  }
+  if (!definition || typeof definition !== 'object' || (definition as Record<string, unknown>).type !== 'object')
+   throw new Error('契约 requestSchema 请求定义无效：' + row.action)
+ }
  names.add(row.action)
 }
 

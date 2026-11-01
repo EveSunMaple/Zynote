@@ -22,10 +22,12 @@ import {
  retainVideoOperation,
  settleLocalSubtitleOperation,
  type VideoOperationDraft,
+ type ASRLanguage,
  type VideoStartInput
 } from '@shared/video-ppt-operation'
 import type {SubtitleSyncTask} from '@shared/subtitle-sync'
 type BiliSubtitle = {
+ provenance?: {requestedLanguage: string}
  title: string
  page: number
  source: string
@@ -70,6 +72,7 @@ export function VideoPpt({
    cleaned: boolean
    cleanupWarning: string
   } | null>(null)
+ const [asrLanguage, setASRLanguage] = useState<ASRLanguage>('zh')
  const working = useRef(false)
  const pptOperation = useRef<VideoOperationDraft | null>(null)
  const batchOperation = useRef<VideoOperationDraft | null>(null)
@@ -95,6 +98,7 @@ export function VideoPpt({
  const localSubtitleOperation = useRef<VideoOperationDraft | null>(null)
  const [localSubtitleRetry, setLocalSubtitleRetry] = useState(false)
  async function startRemoteSubtitle(input: VideoStartInput): Promise<BiliSubtitle> {
+  input = {...input, asrLanguage}
   const draft = retainVideoOperation(remoteSubtitleOperation.current, 'video-ppt:subtitle-transcribe', input, () =>
    crypto.randomUUID()
   )
@@ -106,7 +110,7 @@ export function VideoPpt({
   const draft = retainVideoOperation(
    newSelection ? null : localSubtitleOperation.current,
    'video-ppt:subtitle-transcribe-local',
-   {courseId},
+   {courseId, asrLanguage},
    () => crypto.randomUUID()
   )
   localSubtitleOperation.current = draft
@@ -114,6 +118,7 @@ export function VideoPpt({
   try {
    const result = await invoke<BiliSubtitle | null>('video-ppt:subtitle-transcribe-local', {
     courseId: courseId || undefined,
+    asrLanguage,
     operationId: draft.id
    })
    localSubtitleOperation.current = settleLocalSubtitleOperation(draft, result ? 'completed' : 'cancelled')
@@ -128,7 +133,7 @@ export function VideoPpt({
  useEffect(() => {
   localSubtitleOperation.current = null
   setLocalSubtitleRetry(false)
- }, [courseId])
+ }, [courseId, asrLanguage])
 
  useEffect(
   () =>
@@ -175,7 +180,7 @@ export function VideoPpt({
      }
     })
    }),
-  [courseId, select]
+  [courseId, select, asrLanguage]
  )
 
  const [series, setSeries] = useState<VideoSeries | null>(null),
@@ -568,6 +573,23 @@ export function VideoPpt({
        >
         载入已保存的 SRT
        </Button>
+       <label>
+        离线转写语言
+        <SelectField
+         label="离线转写语言"
+         value={asrLanguage}
+         isDisabled={busy}
+         onChange={next => {
+          if (next === 'zh' || next === 'en' || next === 'auto') setASRLanguage(next)
+         }}
+         options={[
+          {value: 'zh', label: '中文（默认）'},
+          {value: 'en', label: '英语'},
+          {value: 'auto', label: '自动检测'}
+         ]}
+        />
+       </label>
+       <p className="hint">仅影响新建离线转写；恢复任务沿用原设置。自动检测不保证混讲更准确，已有站内字幕不会重转。</p>
        {series && (
         <label>
          选择分集
@@ -657,6 +679,8 @@ export function VideoPpt({
        <>
         <p>
          {subtitle.title} · {subtitle.source} · {subtitle.count} 条
+         {subtitle.provenance &&
+          ` · 转写语言：${subtitle.provenance.requestedLanguage === 'en' ? '英语' : subtitle.provenance.requestedLanguage === 'auto' ? '自动检测' : '中文'}`}
         </p>
         {subtitle.warning && (
          <p className="hint" role="alert">
@@ -740,7 +764,7 @@ export function VideoPpt({
         onClick={() =>
          void run(async () => {
           setSubtitleBatch([])
-          const input = {url, pages: selected, courseId: courseId || undefined}
+          const input = {url, pages: selected, courseId: courseId || undefined, asrLanguage}
           const draft = retainVideoOperation(subtitleBatchOperation.current, 'video-ppt:batch-subtitles', input, () =>
            crypto.randomUUID()
           )

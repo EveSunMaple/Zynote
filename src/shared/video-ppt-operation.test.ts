@@ -2,6 +2,23 @@ import {describe, expect, it} from 'vitest'
 import {retainVideoOperation, settleLocalSubtitleOperation} from './video-ppt-operation'
 
 describe('PPT submission identity', () => {
+ it('binds ASR language retries across local, remote and batch while retaining the legacy zh default', () => {
+  let ids = 0
+  const createId = () => `language-${++ids}`
+  for (const action of [
+   'video-ppt:subtitle-transcribe-local',
+   'video-ppt:subtitle-transcribe',
+   'video-ppt:batch-subtitles'
+  ] as const) {
+   const input = {courseId: 'course'}
+   const original = retainVideoOperation(null, action, input, createId)
+   expect(retainVideoOperation(original, action, {...input, asrLanguage: 'zh'}, createId)).toBe(original)
+   const english = retainVideoOperation(original, action, {...input, asrLanguage: 'en'}, createId)
+   expect(english.id).not.toBe(original.id)
+   expect(retainVideoOperation(english, action, {...input, asrLanguage: 'en'}, createId)).toBe(english)
+   expect(retainVideoOperation(english, action, {...input, asrLanguage: 'auto'}, createId).id).not.toBe(english.id)
+  }
+ })
  it('binds summary retries to exact subtitle, title, mode and course', () => {
   let ids = 0
   const createId = () => `summary-${++ids}`

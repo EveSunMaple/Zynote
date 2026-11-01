@@ -13,11 +13,12 @@ import (
 )
 
 type BatchInput struct {
-	Kind       string `json:"kind,omitempty"`
-	URL        string `json:"url"`
-	Pages      []int  `json:"pages"`
-	Prompt     string `json:"prompt"`
-	CourseName string `json:"courseName"`
+	ASRLanguage string `json:"asrLanguage,omitempty"`
+	Kind        string `json:"kind,omitempty"`
+	URL         string `json:"url"`
+	Pages       []int  `json:"pages"`
+	Prompt      string `json:"prompt"`
+	CourseName  string `json:"courseName"`
 }
 
 type BatchEpisode struct {
@@ -61,6 +62,12 @@ func (service *Service) Batch(id string) (BatchOperation, error) {
 }
 
 func validateBatch(batch BatchOperation) error {
+	if _, err := canonicalASRLanguage(batch.Input.ASRLanguage); err != nil {
+		return err
+	}
+	if batch.Input.Kind != "subtitle" && batch.Input.ASRLanguage != "" {
+		return requestError("非字幕批次不能设置转写语言")
+	}
 	parent, err := operationSource(VideoOperation{URL: batch.Input.URL})
 	if (batch.Input.Kind != "" && batch.Input.Kind != "subtitle") || err != nil || batch.Input.Prompt == "" || len(batch.Input.Pages) < 1 || len(batch.Input.Pages) > 1000 {
 		return requestError("批次来源记录无效")
@@ -93,6 +100,11 @@ func validateBatch(batch BatchOperation) error {
 // BindBatch reserves immutable inputs before any catalog/network work. Atomic
 // no-overwrite publication prevents concurrent requests replacing the binding.
 func (service *Service) BindBatch(id string, input BatchInput) (BatchOperation, error) {
+	language, err := canonicalASRLanguage(input.ASRLanguage)
+	if err != nil {
+		return BatchOperation{}, err
+	}
+	input.ASRLanguage = language
 	if id == "" {
 		id = ids.New()
 	}

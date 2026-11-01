@@ -11,12 +11,14 @@ import (
 	"path/filepath"
 	"regexp"
 
+	"github.com/EveSunMaple/Zynote/backend/internal/contract"
 	"github.com/EveSunMaple/Zynote/backend/internal/ids"
 )
 
 var operationIDPattern = regexp.MustCompile(`^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$`)
 
 type VideoOperation struct {
+	ASRLanguage    string `json:"asrLanguage,omitempty"`
 	RetainPlayback bool   `json:"retainPlayback,omitempty"`
 	Version        int    `json:"version"`
 	Stage          string `json:"stage"`
@@ -82,6 +84,14 @@ func VideoDigest(path string) (string, error) {
 }
 
 func (service *Service) CreateOperationTask(id, name string, operation VideoOperation) (CreatedTask, error) {
+	language, err := canonicalASRLanguage(operation.ASRLanguage)
+	if err != nil {
+		return CreatedTask{}, err
+	}
+	operation.ASRLanguage = language
+	if err := validateOperationLanguage(operation); err != nil {
+		return CreatedTask{}, err
+	}
 	if id == "" {
 		id = ids.New()
 	}
@@ -170,6 +180,9 @@ func (service *Service) CreateOperationTask(id, name string, operation VideoOper
 		meta["outputName"] = operation.OutputName
 		meta["courseName"] = operation.CourseName
 		meta["page"] = operation.Page
+		if operation.ASRLanguage != "" {
+			meta["asrLanguage"] = operation.ASRLanguage
+		}
 	}
 	if err := saveTaskJSON(filepath.Join(directory, taskFileName), meta); err != nil {
 		return CreatedTask{}, err
@@ -186,6 +199,9 @@ func (service *Service) Operation(id string) (VideoOperation, error) {
 		body, readErr := os.ReadFile(filepath.Join(service.Root, ".completed", id+".json"))
 		var completed operationCompletion
 		if readErr == nil && json.Unmarshal(body, &completed) == nil && completed.Operation.Version == 1 {
+			if err := validateOperationLanguage(completed.Operation); err != nil {
+				return VideoOperation{}, err
+			}
 			return completed.Operation, nil
 		}
 		return VideoOperation{}, err
@@ -200,6 +216,9 @@ func (service *Service) Operation(id string) (VideoOperation, error) {
 	}
 	if operation.RetainPlayback && (operation.Stage != "subtitle" || operation.Path == "" || operation.URL != "") {
 		return VideoOperation{}, requestError("视频留存来源无效")
+	}
+	if err := validateOperationLanguage(operation); err != nil {
+		return VideoOperation{}, err
 	}
 	return operation, nil
 }
@@ -256,4 +275,26 @@ func verifiedVideoDigest(task CreatedTask) (string, error) {
 		return "", requestError("视频副本已经改变，请保留任务并核对来源")
 	}
 	return hash, nil
+}
+
+// Default zh is omitted so legacy immutable operation bytes remain compatible.
+func canonicalASRLanguage(value string) (string, error) {
+	language, err := contract.NormalizeASRLanguage(value)
+	if err != nil {
+		return "", err
+	}
+	if language == "zh" {
+		return "", nil
+	}
+	return language, nil
+}
+
+func validateOperationLanguage(operation VideoOperation) error {
+	if _, err := contract.NormalizeASRLanguage(operation.ASRLanguage); err != nil {
+		return err
+	}
+	if operation.ASRLanguage != "" && operation.Stage != "subtitle" && operation.Stage != "subtitle-station" {
+		return requestError("非转写任务不能设置转写语言")
+	}
+	return nil
 }

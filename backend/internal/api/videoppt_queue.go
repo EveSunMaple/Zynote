@@ -16,7 +16,19 @@ func (inv *Invoker) createQueuedVideoTask(state *contract.State, path, videoURL,
 }
 
 func (inv *Invoker) createQueuedVideoTaskRetained(state *contract.State, path, videoURL, stage, prompt, courseName string, retain bool, operationIDs ...string) (videoppt.CreatedTask, string, error) {
+	return inv.createQueuedVideoTaskLanguage(state, path, videoURL, stage, prompt, courseName, retain, nil, operationIDs...)
+}
+
+func (inv *Invoker) createQueuedVideoTaskLanguage(state *contract.State, path, videoURL, stage, prompt, courseName string, retain bool, requestedLanguage *string, operationIDs ...string) (videoppt.CreatedTask, string, error) {
 	var task videoppt.CreatedTask
+	language := "zh"
+	if requestedLanguage != nil {
+		var err error
+		language, err = contract.NormalizeASRLanguage(*requestedLanguage)
+		if err != nil {
+			return task, "", err
+		}
+	}
 	id := ""
 	if len(operationIDs) > 0 {
 		id = operationIDs[0]
@@ -26,13 +38,16 @@ func (inv *Invoker) createQueuedVideoTaskRetained(state *contract.State, path, v
 		if err != nil {
 			return task, "", videoPptError(err)
 		}
-		if operation.Stage != stage {
+		if operation.Stage != stage || (requestedLanguage != nil && effectiveASRLanguage(operation.ASRLanguage) != language) {
 			return task, "", contract.InputInvalid("任务阶段不一致")
 		}
 		task, err = videoPptService(state).CreateOperationTask(id, "", operation)
 		return task, operation.URL, err
 	}
 	operation := videoppt.VideoOperation{RetainPlayback: retain, Version: 1, Stage: stage, Prompt: prompt, CourseName: courseName}
+	if language != "zh" {
+		operation.ASRLanguage = language
+	}
 	name := ""
 	var sourceSize int64
 	if stage == "subtitle" || stage == "subtitle-station" {
@@ -235,4 +250,11 @@ func finishManagedVideoTask(state *contract.State, task videoppt.CreatedTask, ou
 		}
 	}
 	return output, nil
+}
+
+func effectiveASRLanguage(value string) string {
+	if value == "" {
+		return "zh"
+	}
+	return value
 }

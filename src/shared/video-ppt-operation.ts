@@ -1,5 +1,7 @@
+export type ASRLanguage = 'zh' | 'en' | 'auto'
 export type VideoOperationDraft = {key: string; id: string}
 export type VideoStartInput = {
+ asrLanguage?: ASRLanguage
  path?: string
  url?: string
  prompt?: string
@@ -32,7 +34,8 @@ export function retainVideoOperation(
   input.pages || [],
   input.srt || '',
   input.title || '',
-  input.mode || ''
+  input.mode || '',
+  input.asrLanguage || 'zh'
  ])
  return previous?.key === key ? previous : {key, id: createId()}
 }
