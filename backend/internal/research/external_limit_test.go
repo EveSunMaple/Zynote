@@ -82,3 +82,19 @@ func TestArxivPDFUsesLongerTimeout(t *testing.T) {
 		t.Fatalf("shared client timeout must stay unchanged, got %v", shared.Timeout)
 	}
 }
+
+// 长论文（超过 64 页）的后部页码不能被悄悄丢掉，也不能因整篇页数多而被拒。
+func TestLongPaperPagesAccepted(t *testing.T) {
+	choices := parseFulltextChoices([]any{map[string]any{"url": "https://arxiv.org/abs/2112.10752v2", "pages": []any{float64(1), float64(120)}}})
+	if len(choices) != 1 || len(choices[0].Pages) != 2 || choices[0].Pages[1] != 120 {
+		t.Fatalf("page 120 must be kept: %+v", choices)
+	}
+	external := &External{PDFPage: func(string, int) (string, int, error) { return "正文", 150, nil }}
+	rows, err := arxivEvidenceRows(external, "x.pdf", "https://arxiv.org/pdf/2112.10752v2", "论文", []int{120}, "sha")
+	if err != nil || len(rows) != 1 || rows[0].TotalPages != 150 {
+		t.Fatalf("150-page paper must be readable: %v %+v", err, rows)
+	}
+	if _, err := arxivEvidenceRows(external, "x.pdf", "https://arxiv.org/pdf/2112.10752v2", "论文", []int{151}, "sha"); err == nil || !strings.Contains(err.Error(), "共 150 页") {
+		t.Fatalf("missing page must say total pages, got %v", err)
+	}
+}

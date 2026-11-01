@@ -390,6 +390,7 @@ func (client *Client) chat(ctx context.Context, messages []Message, onText func(
 	if options.DisableThinking && !responses {
 		body["enable_thinking"] = false
 	}
+	applyThinking(ctx, profile, body, responses)
 	if options.HighResolutionImages && !responses {
 		body["vl_high_resolution_images"] = true
 	}

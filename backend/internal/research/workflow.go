@@ -32,6 +32,8 @@ type Workflow struct {
 	ErrorCode      string         `json:"error_code"`
 	CreatedAt      string         `json:"created_at"`
 	UpdatedAt      string         `json:"updated_at"`
+	// Quick 为真时每一步都关闭模型深度思考（快速模式）。
+	Quick bool `json:"quick,omitempty"`
 	// Progress 只在读取时由内存中的运行状态填入，不写入数据库。
 	Progress *TaskProgress `json:"progress,omitempty"`
 }
@@ -141,7 +143,7 @@ func (engine *Engine) CreateWorkflow(ctx context.Context, input map[string]any) 
 		now := time.Now().UTC().Format(time.RFC3339Nano)
 		flow := Workflow{
 			WorkflowID: randomID(), Question: question, Status: "paused", OutcomeUnknown: false,
-			Bindings: bindings, ErrorCode: "", CreatedAt: now, UpdatedAt: now,
+			Bindings: bindings, ErrorCode: "", CreatedAt: now, UpdatedAt: now, Quick: input["quick"] == true,
 		}
 		for _, name := range []string{"材料整理", "综合回答"} {
 			flow.Steps = append(flow.Steps, WorkflowStep{Name: name, Status: "pending", CreateOp: randomID()})
@@ -270,6 +272,7 @@ func (engine *Engine) runWorkflow(ctx context.Context, run *runState, flow *Work
 		input := map[string]any{
 			"op": step.CreateOp, "channels": []any{"library"}, "materials": bindingValues(flow.Bindings),
 			"question": "请为以下问题整理原文证据，区分资料中的共识和缺失：" + flow.Question,
+			"quick":    flow.Quick,
 		}
 		if index > 0 {
 			// 前一步草稿完整交给第二步（不再截成 1500 字），但只作整理线索，不当来源。
