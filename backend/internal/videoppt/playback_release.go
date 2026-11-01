@@ -53,6 +53,32 @@ func releaseFileMaximum(name string) int64 {
 	}
 	return 65536
 }
+func releaseEntryMatches(entry RetentionEntry, kind, ref string) bool {
+	if entry.ReceiptSHA256 != "" {
+		return kind == "receipt" && ref == entry.ReceiptSHA256
+	}
+	return kind == "intent" && ref == entry.IntentSHA256
+}
+func releaseMediaIdentityAllowed(file playbackReleaseFile, entry RetentionEntry) bool {
+	if file.Name != videoFileName {
+		return true
+	}
+	if file.Size > entry.Size {
+		return false
+	}
+	if file.Size == entry.Size {
+		return file.SHA256 == entry.SourceSHA256
+	}
+	return entry.ReceiptSHA256 == "" // Only an uncommitted failed partial copy.
+}
+func releasePlanMediaAllowed(plan PlaybackReleasePlan, entry RetentionEntry) bool {
+	for _, file := range plan.Files {
+		if !releaseMediaIdentityAllowed(file, entry) {
+			return false
+		}
+	}
+	return true
+}
 func releaseFileAllowed(name string) bool { return retentionKeep(name) || retentionTemporary(name) }
 func releaseDigest(ctx context.Context, path string, maximum int64) (playbackReleaseFile, error) {
 	before, err := playbackPath(path, false)
@@ -149,7 +175,7 @@ func (service *Service) PreparePlaybackRelease(ctx context.Context, input Playba
 			return nil, err
 		}
 		if ref != "" {
-			if !releasePlanValid(plan, input) {
+			if !releasePlanValid(plan, input) || (exists && (!releaseEntryMatches(entry, plan.RefKind, plan.RefSHA256) || !releasePlanMediaAllowed(plan, entry))) || (!exists && plan.State != "released") {
 				return nil, retentionConflict()
 			}
 			// A restarted caller supplies a fresh candidate UUID; the durable plan owns
@@ -158,13 +184,10 @@ func (service *Service) PreparePlaybackRelease(ctx context.Context, input Playba
 		}
 		_, stagingErr := os.Lstat(filepath.Join(directory, ".playback-release-preparing.json"))
 		safeNoMutation = os.IsNotExist(stagingErr) // Staging itself is a durable dispatch fence, including partial writes.
-		expected := entry.IntentSHA256
-		if input.ExpectedRefKind == "receipt" {
-			expected = entry.ReceiptSHA256
-		}
-		if !exists || expected == "" || expected != input.ExpectedRefSHA256 {
+		if !exists || !releaseEntryMatches(entry, input.ExpectedRefKind, input.ExpectedRefSHA256) {
 			return nil, retentionConflict()
 		}
+
 		files, err := os.ReadDir(directory)
 		if err != nil {
 			return nil, err
@@ -188,7 +211,7 @@ func (service *Service) PreparePlaybackRelease(ctx context.Context, input Playba
 			if err != nil {
 				return nil, err
 			}
-			if file.Name() == videoFileName && (identity.Size > entry.Size || (input.ExpectedRefKind == "receipt" && (identity.SHA256 != entry.SourceSHA256 || identity.Size != entry.Size))) {
+			if !releaseMediaIdentityAllowed(identity, entry) {
 				return nil, retentionConflict()
 			}
 			plan.Files = append(plan.Files, identity)
@@ -247,16 +270,13 @@ func (service *Service) FinalizePlaybackRelease(ctx context.Context, input Playb
 		}
 		entry, exists := index.Entries[input.ID]
 		if exists {
-			expected := entry.IntentSHA256
-			if plan.RefKind == "receipt" {
-				expected = entry.ReceiptSHA256
-			}
-			if expected != plan.RefSHA256 {
+			if !releaseEntryMatches(entry, plan.RefKind, plan.RefSHA256) || !releasePlanMediaAllowed(plan, entry) {
 				return nil, retentionConflict()
 			}
 		} else if plan.State != "released" {
 			return nil, retentionConflict()
 		}
+
 		expected := map[string]playbackReleaseFile{}
 		for _, file := range plan.Files {
 			expected[file.Name] = file

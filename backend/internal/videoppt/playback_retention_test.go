@@ -396,7 +396,16 @@ func TestRetentionCrashWorker(t *testing.T) {
 	saved, _ := retentionPublish(t, service, task)
 	if strings.HasPrefix(boundary, "release-") {
 		_ = saved
-		finishRelease(t, service, releaseInput(entry))
+		rows, err := service.RetainedPlayback(context.Background(), 16)
+		if err != nil {
+			t.Fatal(err)
+		}
+		request := releaseInput(entry)
+		if len(rows) > 0 && rows[0].ReceiptSHA256 != "" {
+			request.ExpectedRefKind = "receipt"
+			request.ExpectedRefSHA256 = rows[0].ReceiptSHA256
+		}
+		finishRelease(t, service, request)
 	}
 	t.Fatal("boundary not reached")
 }
@@ -456,7 +465,12 @@ func TestRetentionRealProcessKillRecovery(t *testing.T) {
 				if err != nil {
 					t.Fatal(err)
 				}
-				entry = RetentionEntry{ID: plan.ID, IntentSHA256: plan.RefSHA256}
+				entry = RetentionEntry{ID: plan.ID}
+				if plan.RefKind == "receipt" {
+					entry.ReceiptSHA256 = plan.RefSHA256
+				} else {
+					entry.IntentSHA256 = plan.RefSHA256
+				}
 			}
 
 			// Reconstruct the actual durable retention transaction without an
@@ -489,7 +503,20 @@ func TestRetentionRealProcessKillRecovery(t *testing.T) {
 					t.Fatal(err)
 				}
 			}
-			finishRelease(t, service, releaseInput(entry))
+			releaseEntry := entry
+			currentRows, listErr := service.RetainedPlayback(context.Background(), 16)
+			if listErr != nil {
+				t.Fatal(listErr)
+			}
+			if len(currentRows) > 0 {
+				releaseEntry = currentRows[0]
+			}
+			releaseRequest := releaseInput(releaseEntry)
+			if releaseEntry.ReceiptSHA256 != "" {
+				releaseRequest.ExpectedRefKind = "receipt"
+				releaseRequest.ExpectedRefSHA256 = releaseEntry.ReceiptSHA256
+			}
+			finishRelease(t, service, releaseRequest)
 			original, err := os.ReadFile(filepath.Join(root, "original.mp4"))
 			if err != nil || string(original) != "managed media" {
 				t.Fatal("original affected", err)
@@ -579,5 +606,160 @@ func TestRetentionPendingProjectionDoesNotWaitForLedgerWriter(t *testing.T) {
 		}
 	case <-time.After(time.Second):
 		t.Fatal("Pending waited behind ledger hash")
+	}
+}
+
+func TestRetentionReleaseRejectsEqualLengthDriftAndReceiptDowngrade(t *testing.T) {
+	t.Run("equal-length-before-prepare", func(t *testing.T) {
+		service, task, entry, _ := retentionSetup(t, "")
+		_ = os.WriteFile(task.Path, []byte("changed media"), 0600)
+		before := retentionDirectorySnapshot(t, task.Dir)
+		if _, err := service.PreparePlaybackRelease(context.Background(), releaseInput(entry)); err == nil {
+			t.Fatal("equal-length altered video accepted")
+		}
+		if retentionDirectorySnapshot(t, task.Dir) != before {
+			t.Fatal("prepare conflict changed task bytes")
+		}
+		body, err := os.ReadFile(task.Path)
+		if err != nil || string(body) != "changed media" {
+			t.Fatal("conflict deleted bytes", err)
+		}
+	})
+	t.Run("committed-receipt", func(t *testing.T) {
+		service, task, entry, _ := retentionSetup(t, "")
+		_, binding := retentionPublish(t, service, task)
+		before := retentionDirectorySnapshot(t, task.Dir)
+		if _, err := service.PreparePlaybackRelease(context.Background(), releaseInput(entry)); err == nil {
+			t.Fatal("old intent bypassed committed receipt")
+		}
+		if _, err := os.Stat(task.Path); err != nil {
+			t.Fatal("downgrade deleted media", err)
+		}
+		if retentionDirectorySnapshot(t, task.Dir) != before {
+			t.Fatal("receipt downgrade changed task bytes")
+		}
+		request := releaseInput(entry)
+		request.ExpectedRefKind = "receipt"
+		request.ExpectedRefSHA256 = binding.RetentionReceiptSHA256
+		finishRelease(t, service, request)
+	})
+	for _, state := range []string{"prepared", "partial-deletion"} {
+		t.Run("old-plan-"+state, func(t *testing.T) {
+			service, task, entry, _ := retentionSetup(t, "")
+			input := releaseInput(entry)
+			prepared, err := service.PreparePlaybackRelease(context.Background(), input)
+			if err != nil {
+				t.Fatal(err)
+			}
+			// Emulate an older durable intent plan alongside a committed index receipt.
+			index, indexPath, err := service.retentionIndex(context.Background(), false)
+			if err != nil {
+				t.Fatal(err)
+			}
+			bound := index.Entries[task.ID]
+			bound.ReceiptSHA256 = strings.Repeat("a", 64)
+			bound.State = "releasing"
+			index.Entries[task.ID] = bound
+			if err := saveTaskJSON(indexPath, index); err != nil {
+				t.Fatal(err)
+			}
+			if state == "partial-deletion" {
+				if err := os.Remove(task.Path); err != nil {
+					t.Fatal(err)
+				}
+			}
+			before := retentionDirectorySnapshot(t, task.Dir)
+			if _, err := New(service.Root).PreparePlaybackRelease(context.Background(), input); err == nil {
+				t.Fatal("restart adopted downgraded old plan")
+			}
+			input.ExpectedTombstoneSHA256 = prepared.TombstoneSHA256
+			if _, err := service.FinalizePlaybackRelease(context.Background(), input); err == nil {
+				t.Fatal("finalize accepted downgraded old plan")
+			}
+			after := retentionDirectorySnapshot(t, task.Dir)
+			if before != after {
+				t.Fatal("downgrade deleted remaining files")
+			}
+		})
+	}
+	t.Run("old-equal-length-plan", func(t *testing.T) {
+		service, task, entry, _ := retentionSetup(t, "")
+		input := releaseInput(entry)
+		prepared, err := service.PreparePlaybackRelease(context.Background(), input)
+		if err != nil {
+			t.Fatal(err)
+		}
+		_ = os.WriteFile(task.Path, []byte("changed media"), 0600)
+		plan := prepared.Plan
+		for n := range plan.Files {
+			if plan.Files[n].Name == videoFileName {
+				plan.Files[n].SHA256 = retentionHash([]byte("changed media"))
+			}
+		}
+		if err := saveReleasePlan(filepath.Join(task.Dir, "playback-release.json"), plan); err != nil {
+			t.Fatal(err)
+		}
+		before := retentionDirectorySnapshot(t, task.Dir)
+		if _, err := service.PreparePlaybackRelease(context.Background(), input); err == nil {
+			t.Fatal("old equal-length drift plan adopted")
+		}
+		var stored PlaybackReleasePlan
+		input.ExpectedTombstoneSHA256, err = retentionRecord(context.Background(), filepath.Join(task.Dir, "playback-release.json"), false, &stored)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := service.FinalizePlaybackRelease(context.Background(), input); err == nil {
+			t.Fatal("old equal-length drift plan finalized")
+		}
+		if _, err := os.Stat(task.Path); err != nil {
+			t.Fatal("old drift plan deleted media", err)
+		}
+		if retentionDirectorySnapshot(t, task.Dir) != before {
+			t.Fatal("old drift rejection changed task bytes")
+		}
+	})
+}
+
+func retentionDirectorySnapshot(t *testing.T, directory string) string {
+	t.Helper()
+	entries, err := os.ReadDir(directory)
+	if err != nil {
+		t.Fatal(err)
+	}
+	hashes := map[string]string{}
+	for _, entry := range entries {
+		body, err := os.ReadFile(filepath.Join(directory, entry.Name()))
+		if err != nil {
+			t.Fatal(err)
+		}
+		hashes[entry.Name()] = retentionHash(body)
+	}
+	body, _ := json.Marshal(hashes)
+	return string(body)
+}
+func TestRetentionShortPartialReleaseRestartsWithSamePlan(t *testing.T) {
+	service, task, entry, source := retentionSetup(t, "")
+	if err := os.WriteFile(task.Path, []byte("partial"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	input := releaseInput(entry)
+	prepared, err := service.PreparePlaybackRelease(context.Background(), input)
+	if err != nil {
+		t.Fatal(err)
+	}
+	fresh := New(service.Root)
+	input.ReleaseID = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"
+	restored, err := fresh.PreparePlaybackRelease(context.Background(), input)
+	if err != nil || restored.Plan.ReleaseID != prepared.Plan.ReleaseID || restored.TombstoneSHA256 != prepared.TombstoneSHA256 {
+		t.Fatal("partial plan changed after restart", restored, err)
+	}
+	input.ReleaseID = restored.Plan.ReleaseID
+	input.ExpectedTombstoneSHA256 = restored.TombstoneSHA256
+	if _, err := New(service.Root).FinalizePlaybackRelease(context.Background(), input); err != nil {
+		t.Fatal(err)
+	}
+	body, err := os.ReadFile(source)
+	if err != nil || string(body) != "managed media" {
+		t.Fatal("partial release affected original", err)
 	}
 }
