@@ -143,8 +143,7 @@ func TestKnowledgeImportPickedFiles(t *testing.T) {
 		paths = append(paths, path)
 	}
 	paths = append(paths, filepath.Join(sources, "缺失.txt"))
-	testPickPaths = paths
-	defer func() { testPickPaths = nil }()
+	f.picks.set(paths)
 
 	results := importPicked(f, t)
 	if len(results) != len(paths) {
@@ -179,13 +178,13 @@ func TestKnowledgeImportPickedFiles(t *testing.T) {
 		t.Fatalf("search mismatch: %s %+v", raw, errReply)
 	}
 
-	testPickPaths = paths[:1]
+	f.picks.set(paths[:1])
 	again := importPicked(f, t)
 	if len(again) != 1 || !again[0].OK || again[0].Result == nil || !again[0].Result.Unchanged {
 		t.Fatalf("re-import should be unchanged: %+v", again)
 	}
 
-	testPickPaths = nil
+	f.picks.set(nil)
 	if cancelled := importPicked(f, t); len(cancelled) != 0 {
 		t.Fatalf("cancelled picker should import nothing: %+v", cancelled)
 	}

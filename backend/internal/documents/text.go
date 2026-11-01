@@ -4,6 +4,7 @@ import (
 	"archive/zip"
 	"bytes"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -11,10 +12,13 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
-
-	"github.com/saintfish/chardet"
-	"golang.org/x/text/encoding/simplifiedchinese"
 )
+
+// DocxDocumentMaxBytes 是 word/document.xml 解压后的上限。
+const DocxDocumentMaxBytes = 64 << 20
+
+// ErrDocxTooLarge 表示 Word 正文解压后超过上限（含伪造大小的压缩炸弹）。
+var ErrDocxTooLarge = errors.New("Word 正文解压后超过 64 MB，请拆分后导入")
 
 var wbrPattern = regexp.MustCompile(`(?i)<w:br\s*/?\s*>`)
 var wpEndPattern = regexp.MustCompile(`(?i)</w:p>`)
@@ -51,14 +55,21 @@ func ParseDocx(data []byte) (string, error) {
 	if documentFile == nil {
 		return "", fmt.Errorf("Word 原文文件损坏")
 	}
+	if documentFile.UncompressedSize64 > DocxDocumentMaxBytes {
+		return "", ErrDocxTooLarge
+	}
 	reader, err := documentFile.Open()
 	if err != nil {
 		return "", fmt.Errorf("Word 原文文件损坏")
 	}
 	defer reader.Close()
-	raw, err := io.ReadAll(reader)
+	// 压缩包头里的大小可以伪造，读取时再限一次，防止解压炸弹耗尽内存。
+	raw, err := io.ReadAll(io.LimitReader(reader, DocxDocumentMaxBytes+1))
 	if err != nil {
 		return "", fmt.Errorf("Word 原文文件损坏")
+	}
+	if len(raw) > DocxDocumentMaxBytes {
+		return "", ErrDocxTooLarge
 	}
 	xml := string(raw)
 	xml = wbrPattern.ReplaceAllString(xml, "\n")
@@ -78,31 +89,13 @@ func ParseDocx(data []byte) (string, error) {
 	return xml, nil
 }
 
+// DecodeTextFile 尽量把文本文件解码为 UTF-8；无法可靠识别编码时退回原始字节，供不需要逐文件报错的旧调用方使用。
 func DecodeTextFile(data []byte) string {
-	detector := chardet.NewTextDetector()
-	encoding := "UTF-8"
-	if result, err := detector.DetectBest(data); err == nil && result.Charset != "" {
-		encoding = strings.ToUpper(result.Charset)
-	}
-	decoded := string(data)
-	if looksBinary(decoded) && (strings.Contains(encoding, "GB") || strings.Contains(encoding, "BIG5") ||
-		strings.Contains(encoding, "WINDOWS-1252") || strings.Contains(encoding, "ISO-8859")) {
-		decoded = decodeGB(data)
-		return decoded
-	}
-	return decoded
-}
-
-func looksBinary(value string) bool {
-	return strings.ContainsRune(value, '\uFFFD')
-}
-
-func decodeGB(data []byte) string {
-	decoded, err := simplifiedchinese.GB18030.NewDecoder().Bytes(data)
+	text, err := DecodeText(data)
 	if err != nil {
 		return string(data)
 	}
-	return string(decoded)
+	return text
 }
 
 type ParseResult struct {

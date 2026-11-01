@@ -1,28 +1,37 @@
 package api
 
 import (
-	"bytes"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
+	"unicode/utf8"
 
 	"github.com/EveSunMaple/Zynote/backend/internal/contract"
 	"github.com/EveSunMaple/Zynote/backend/internal/documents"
 	"github.com/EveSunMaple/Zynote/backend/internal/knowledge"
 )
 
-const knowledgeImportMaxBytes = 100_000_000
+const (
+	knowledgeImportMaxBytes = 100_000_000
+	// knowledgeTextMaxBytes：UTF-8/UTF-16/GB18030 每字最多 4 字节，超过它的文本必然超过字数上限，不必读入再拒绝。
+	knowledgeTextMaxBytes   = knowledge.MaxTextRunes * 4
+	knowledgeImportMaxFiles = 200
+	// knowledgePickerWaitMS：选择框是交互式的，不设短超时；用户可以在任务中心取消等待。
+	knowledgePickerWaitMS = 24 * 60 * 60 * 1000
+)
 
 var knowledgeImportExtensions = []string{"pdf", "docx", "txt", "md", "srt"}
 
 var (
 	errKnowledgeFileTooLarge   = errors.New("资料超过 100 MB，请按章节导入")
+	errKnowledgeTextTooLarge   = fmt.Errorf("资料文字超过 %d 万字，请拆分后导入", knowledge.MaxTextRunes/10_000)
 	errKnowledgeFileType       = errors.New("资料只支持 PDF、Word（DOCX）、TXT、Markdown 和 SRT")
 	errKnowledgeNeedsOcr       = errors.New("这份 PDF 主要是图片，请先识别文字后再导入知识库")
 	errKnowledgeFileChanged    = errors.New("导入期间资料已改变，请重新选择")
@@ -64,12 +73,9 @@ func (inv *Invoker) handleKnowledgeImport(store contract.StateStore, state *cont
 	if len([]rune(category)) > 100 {
 		return nil, contract.InputInvalid("资料分类无效")
 	}
-	paths, err := pickKnowledgeFiles(store, state)
-	if err != nil {
-		return nil, err
-	}
-	if len(paths) == 0 {
-		return []knowledgeImportItem{}, nil
+	reverse := store.Reverse()
+	if reverse == nil {
+		return nil, contract.Unavailable("文件选择器不可用")
 	}
 	service, err := inv.knowledgeStoreFor(state)
 	if err != nil {
@@ -79,7 +85,13 @@ func (inv *Invoker) handleKnowledgeImport(store contract.StateStore, state *cont
 	if inv.native != nil {
 		caller = inv.native
 	}
+	// 选择框也放在任务里：已有任务时直接提示而不弹框；等待选择期间任务中心可见、可取消。
 	return inv.runJob("知识库导入", func(ctx context.Context) (any, error) {
+		inv.emit(map[string]any{"kind": "progress", "data": map[string]any{"stage": "正在等待选择资料", "message": "请在文件选择框中选择要导入的资料"}})
+		paths, err := pickKnowledgeFiles(ctx, reverse, state.LibraryRoot)
+		if err != nil {
+			return nil, err
+		}
 		results := make([]knowledgeImportItem, 0, len(paths))
 		for index, path := range paths {
 			if err := ctx.Err(); err != nil {
@@ -110,23 +122,36 @@ func (inv *Invoker) importKnowledgeInput(state *contract.State, params json.RawM
 	return result, nil
 }
 
-func pickKnowledgeFiles(store contract.StateStore, state *contract.State) ([]string, error) {
-	reverse := store.Reverse()
-	if reverse == nil {
-		return nil, contract.Unavailable("文件选择器不可用")
-	}
+type pickReply struct {
+	raw json.RawMessage
+	err error
+}
+
+// pickKnowledgeFiles 经壳侧多选框选择资料，取消选择返回空列表。ctx 取消时立即返回：原生对话框无法从后端关闭，
+// 用户之后的选择仍会送达这里等待中的反向请求并被丢弃，不会落到已删除的请求 id 上。
+func pickKnowledgeFiles(ctx context.Context, reverse contract.ReverseCaller, libraryRoot string) ([]string, error) {
 	params := map[string]any{"title": "导入知识库资料", "extensions": knowledgeImportExtensions}
-	if state.LibraryRoot != "" {
-		params["defaultPath"] = state.LibraryRoot
+	if libraryRoot != "" {
+		params["defaultPath"] = libraryRoot
 	}
-	raw, err := reverse.Call("shell.pickFiles", params, 600000)
-	if err != nil {
-		return nil, contract.Unavailable(err.Error())
+	replies := make(chan pickReply, 1)
+	go func() {
+		raw, err := reverse.Call("shell.pickFiles", params, knowledgePickerWaitMS)
+		replies <- pickReply{raw, err}
+	}()
+	var answer pickReply
+	select {
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	case answer = <-replies:
+	}
+	if answer.err != nil {
+		return nil, contract.Unavailable(answer.err.Error())
 	}
 	var picked struct {
 		Paths []string `json:"paths"`
 	}
-	if json.Unmarshal(raw, &picked) != nil {
+	if json.Unmarshal(answer.raw, &picked) != nil {
 		return nil, contract.Unavailable("文件选择器响应无效")
 	}
 	paths := make([]string, 0, len(picked.Paths))
@@ -134,6 +159,9 @@ func pickKnowledgeFiles(store contract.StateStore, state *contract.State) ([]str
 		if strings.TrimSpace(path) != "" {
 			paths = append(paths, path)
 		}
+	}
+	if len(paths) > knowledgeImportMaxFiles {
+		return nil, contract.InputInvalid(fmt.Sprintf("一次最多导入 %d 份资料（本次选择了 %d 份），请分批选择", knowledgeImportMaxFiles, len(paths)))
 	}
 	return paths, nil
 }
@@ -160,30 +188,29 @@ func readKnowledgeFile(caller documents.NativeCaller, path string) (knowledge.Im
 	if err != nil {
 		return knowledge.ImportInput{}, fmt.Errorf("资料路径无效: %w", err)
 	}
-	info, err := os.Lstat(locator)
+	// Stat 跟随符号链接（同步盘、外链目录常见），目标必须是普通文件；locator 仍记录用户选择的路径。
+	info, err := os.Stat(locator)
 	if err != nil {
 		return knowledge.ImportInput{}, fmt.Errorf("%w: %w", errKnowledgeFileUnreadable, err)
 	}
 	if !info.Mode().IsRegular() {
-		return knowledge.ImportInput{}, errKnowledgeFileUnreadable
+		return knowledge.ImportInput{}, fmt.Errorf("%w：只能导入普通文件，不能导入文件夹或设备", errKnowledgeFileUnreadable)
 	}
-	if info.Size() > knowledgeImportMaxBytes {
-		return knowledge.ImportInput{}, errKnowledgeFileTooLarge
+	if err := checkKnowledgeFileSize(locator, info.Size()); err != nil {
+		return knowledge.ImportInput{}, err
 	}
-	data, err := os.ReadFile(locator)
-	if err != nil {
-		return knowledge.ImportInput{}, fmt.Errorf("%w: %w", errKnowledgeFileUnreadable, err)
-	}
-	sum := sha256.Sum256(data)
-	text, err := knowledgeFileText(caller, locator, data)
+	sum, text, err := knowledgeFileText(caller, locator)
 	if err != nil {
 		return knowledge.ImportInput{}, err
 	}
-	again, err := os.ReadFile(locator)
-	if err != nil {
-		return knowledge.ImportInput{}, fmt.Errorf("%w: %w", errKnowledgeFileUnreadable, err)
+	if utf8.RuneCountInString(text) > knowledge.MaxTextRunes {
+		return knowledge.ImportInput{}, errKnowledgeTextTooLarge
 	}
-	if latest := sha256.Sum256(again); !bytes.Equal(latest[:], sum[:]) {
+	latest, err := hashKnowledgeFile(locator)
+	if err != nil {
+		return knowledge.ImportInput{}, err
+	}
+	if latest != sum {
 		return knowledge.ImportInput{}, errKnowledgeFileChanged
 	}
 	return knowledge.ImportInput{
@@ -192,25 +219,67 @@ func readKnowledgeFile(caller documents.NativeCaller, path string) (knowledge.Im
 	}, nil
 }
 
-func knowledgeFileText(caller documents.NativeCaller, path string, data []byte) (string, error) {
+// checkKnowledgeFileSize 在读取前按类型拒绝：未支持的扩展名、超过 100 MB 的 PDF/Word、必然超过字数上限的文本。
+func checkKnowledgeFileSize(path string, size int64) error {
 	switch strings.ToLower(filepath.Ext(path)) {
 	case ".txt", ".md", ".srt":
-		return documents.DecodeTextFile(data), nil
-	case ".docx":
-		text, err := documents.ParseDocx(data)
-		if err != nil {
-			return "", fmt.Errorf("Word 资料解析失败: %w", err)
+		if size > knowledgeTextMaxBytes {
+			return errKnowledgeTextTooLarge
 		}
-		return text, nil
-	case ".pdf":
+	case ".docx", ".pdf":
+		if size > knowledgeImportMaxBytes {
+			return errKnowledgeFileTooLarge
+		}
+	default:
+		return errKnowledgeFileType
+	}
+	return nil
+}
+
+func hashKnowledgeFile(path string) ([sha256.Size]byte, error) {
+	var sum [sha256.Size]byte
+	file, err := os.Open(path)
+	if err != nil {
+		return sum, fmt.Errorf("%w: %w", errKnowledgeFileUnreadable, err)
+	}
+	defer file.Close()
+	hash := sha256.New()
+	if _, err := io.Copy(hash, file); err != nil {
+		return sum, fmt.Errorf("%w: %w", errKnowledgeFileUnreadable, err)
+	}
+	copy(sum[:], hash.Sum(nil))
+	return sum, nil
+}
+
+// knowledgeFileText 返回原文件字节的 SHA-256 与抽取的文字。PDF 交给原生组件按路径解析，只流式计算哈希。
+func knowledgeFileText(caller documents.NativeCaller, path string) ([sha256.Size]byte, string, error) {
+	extension := strings.ToLower(filepath.Ext(path))
+	if extension == ".pdf" {
+		sum, err := hashKnowledgeFile(path)
+		if err != nil {
+			return sum, "", err
+		}
 		parsed, err := documents.ParseDocument(caller, path)
 		if err != nil {
-			return "", fmt.Errorf("PDF 资料解析失败: %w", err)
+			return sum, "", fmt.Errorf("PDF 资料解析失败: %w", err)
 		}
 		if parsed.NeedsOcr {
-			return "", errKnowledgeNeedsOcr
+			return sum, "", errKnowledgeNeedsOcr
 		}
-		return parsed.Text, nil
+		return sum, parsed.Text, nil
 	}
-	return "", errKnowledgeFileType
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return [sha256.Size]byte{}, "", fmt.Errorf("%w: %w", errKnowledgeFileUnreadable, err)
+	}
+	sum := sha256.Sum256(data)
+	if extension == ".docx" {
+		text, err := documents.ParseDocx(data)
+		if err != nil {
+			return sum, "", fmt.Errorf("Word 资料解析失败: %w", err)
+		}
+		return sum, text, nil
+	}
+	text, err := documents.DecodeText(data)
+	return sum, text, err
 }

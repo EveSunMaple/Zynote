@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
+	"sync"
 	"testing"
 
 	"github.com/EveSunMaple/Zynote/backend/internal/app"
@@ -25,13 +26,33 @@ type fixture struct {
 	outRead    *bufio.Reader
 	lastResult json.RawMessage
 	events     []wireEnvelope
+	picks      *pickedFiles
 }
 
-type testReverse struct{ server *transport.Server }
+// pickedFiles 是每个测试后端独立的 shell.pickFiles 应答，避免包级可变状态在测试间串扰。
+type pickedFiles struct {
+	mu    sync.Mutex
+	paths []string
+}
+
+func (picks *pickedFiles) set(paths []string) {
+	picks.mu.Lock()
+	defer picks.mu.Unlock()
+	picks.paths = paths
+}
+
+func (picks *pickedFiles) reply() (json.RawMessage, error) {
+	picks.mu.Lock()
+	defer picks.mu.Unlock()
+	return json.Marshal(map[string]any{"paths": picks.paths})
+}
+
+type testReverse struct {
+	server *transport.Server
+	picks  *pickedFiles
+}
 
 var testPickPath string
-
-var testPickPaths []string
 
 func (reverse testReverse) Call(method string, params any, timeoutMS int) (json.RawMessage, error) {
 	if method == "crypto.unprotect" {
@@ -47,7 +68,7 @@ func (reverse testReverse) Call(method string, params any, timeoutMS int) (json.
 		return json.Marshal(map[string]any{"path": testPickPath})
 	}
 	if method == "shell.pickFiles" {
-		return json.Marshal(map[string]any{"paths": testPickPaths})
+		return reverse.picks.reply()
 	}
 	if method == "shell.imageDataUrl" {
 		return json.RawMessage(`{"value":"data:image/png;base64,eHh4"}`), nil
@@ -76,7 +97,8 @@ func startCore(t *testing.T, dataRoot, resourcesRoot string) *fixture {
 	t.Helper()
 	core := app.New()
 	server := transport.NewServer(core)
-	core.Wire(testReverse{server: server})
+	picks := &pickedFiles{}
+	core.Wire(testReverse{server: server, picks: picks})
 	core.SetNotifier(server)
 	embed := helper.NewNative("embed")
 	core.SetEmbedNative(embed)
@@ -91,7 +113,7 @@ func startCore(t *testing.T, dataRoot, resourcesRoot string) *fixture {
 		core.Close()
 		embed.Dispose()
 	})
-	return &fixture{t: t, inWrite: serverInW, outRead: bufio.NewReader(serverOutR)}
+	return &fixture{t: t, inWrite: serverInW, outRead: bufio.NewReader(serverOutR), picks: picks}
 }
 
 type wireEnvelope struct {

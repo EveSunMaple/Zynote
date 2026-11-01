@@ -188,7 +188,11 @@ export function KnowledgeBase({visible, close}: Readonly<{visible: boolean; clos
          const results = await invoke<{name: string; ok: boolean; error?: string; result?: {unchanged: boolean}}[]>(
           'knowledge:import',
           {category: importCategory.trim()}
-         )
+         ).catch(async reason => {
+          // 中途取消时已导入的文件已经入库，先刷新列表，避免看起来什么都没导入。
+          await refresh().catch(() => undefined)
+          throw reason
+         })
          if (results.length) {
           await refresh()
           setSearch(null)

@@ -242,13 +242,16 @@ func (store *Store) Read(id string) (map[string]any, error) {
 	return map[string]any{"entry": view(entry), "text": entry["text"]}, nil
 }
 
+// MaxTextRunes 是单份资料文字的字数上限。
+const MaxTextRunes = 2_000_000
+
 func normalizeImportInput(input *ImportInput) error {
 	input.Title = strings.TrimSpace(input.Title)
 	input.Category = strings.TrimSpace(input.Category)
 	if len([]rune(input.Title)) < 1 || len([]rune(input.Title)) > 300 {
 		return fmt.Errorf("资料标题无效")
 	}
-	if input.Text == "" || len([]rune(input.Text)) > 2_000_000 {
+	if input.Text == "" || len([]rune(input.Text)) > MaxTextRunes {
 		return fmt.Errorf("资料文字为空或超过上限")
 	}
 	if len([]rune(input.Locator)) < 1 || len([]rune(input.Locator)) > 2000 || !hashPattern.MatchString(input.SourceHash) {

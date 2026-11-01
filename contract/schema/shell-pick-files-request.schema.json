@@ -1,0 +1,12 @@
+{
+ "$schema": "https://json-schema.org/draft/2020-12/schema",
+ "title": "shell.pickFiles reverse request (Go → Electron)",
+ "description": "交互式多选文件框；Go 端不设短超时，等待期间可经任务取消放弃等待。",
+ "type": "object",
+ "required": ["title"],
+ "properties": {
+  "title": { "type": "string", "minLength": 1, "maxLength": 200 },
+  "extensions": { "type": "array", "maxItems": 20, "items": { "type": "string", "minLength": 1, "maxLength": 20 } },
+  "defaultPath": { "type": "string", "maxLength": 4096 }
+ }
+}
