@@ -441,7 +441,7 @@ func (login *QqLogin) configureOneBot(ctx context.Context) error {
 	owned := []map[string]any{}
 	for _, item := range servers {
 		server, _ := item.(map[string]any)
-		if text(server["name"]) != "zynote-native-http" {
+		if text(server["name"]) != nativeHTTPPrefix {
 			continue
 		}
 		owned = append(owned, server)
@@ -456,13 +456,13 @@ func (login *QqLogin) configureOneBot(ctx context.Context) error {
 	kept := []any{}
 	for _, item := range servers {
 		server, _ := item.(map[string]any)
-		if text(server["name"]) != "zynote-native-http" {
+		if text(server["name"]) != nativeHTTPPrefix {
 			kept = append(kept, item)
 		}
 	}
 	port, _ := strconv.Atoi(parsed.Port())
 	kept = append(kept, map[string]any{
-		"name": "zynote-native-http", "enable": true, "host": "127.0.0.1", "port": port,
+		"name": nativeHTTPPrefix, "enable": true, "host": "127.0.0.1", "port": port,
 		"enableCors": false, "enableWebsocket": false, "messagePostFormat": "array",
 		"token": login.Onebot.Token, "debug": false,
 	})
@@ -521,3 +521,5 @@ func (login *QqLogin) Verify(ctx context.Context) (map[string]any, error) {
 		},
 	}, nil
 }
+
+const nativeHTTPPrefix = "zynote-native-http"

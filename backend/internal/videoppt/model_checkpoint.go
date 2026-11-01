@@ -62,10 +62,10 @@ func CheckpointChat(task CreatedTask, stage, identity string, chat ChatFunc) Cha
 		}
 		sum := sha256.Sum256(encoded)
 		key := hex.EncodeToString(sum[:])
-		path := filepath.Join(task.Dir, "model-"+stage+"-"+key+".json")
+		path := filepath.Join(task.Dir, modelCheckpointPrefix+stage+"-"+key+".json")
 		// A prior unknown call blocks revisions too; changing the crop, prompt or
 		// connection cannot bypass an unresolved provider outcome.
-		paths, err := filepath.Glob(filepath.Join(task.Dir, "model-"+stage+"-*.json"))
+		paths, err := filepath.Glob(filepath.Join(task.Dir, modelCheckpointPrefix+stage+"-*.json"))
 		if err != nil {
 			return "", err
 		}
@@ -76,7 +76,7 @@ func CheckpointChat(task CreatedTask, stage, identity string, chat ChatFunc) Cha
 				return "", err
 			}
 			var stored modelCheckpoint
-			if json.Unmarshal(body, &stored) != nil || stored.Version != 1 || stored.Input == "" || filepath.Base(existing) != "model-"+stage+"-"+stored.Input+".json" {
+			if json.Unmarshal(body, &stored) != nil || stored.Version != 1 || stored.Input == "" || filepath.Base(existing) != modelCheckpointPrefix+stage+"-"+stored.Input+".json" {
 				return "", requestError("模型阶段记录无效，任务已保留")
 			}
 			if stored.State == "dispatched" {
@@ -86,8 +86,8 @@ func CheckpointChat(task CreatedTask, stage, identity string, chat ChatFunc) Cha
 				return "", requestError("模型阶段状态无效")
 			}
 			if stored.Input == key {
-				copy := stored
-				cached = &copy
+				storedCopy := stored
+				cached = &storedCopy
 			}
 		}
 		if cached != nil {
@@ -118,3 +118,5 @@ func CheckpointChat(task CreatedTask, stage, identity string, chat ChatFunc) Cha
 		return response, nil
 	}
 }
+
+const modelCheckpointPrefix = "model-"

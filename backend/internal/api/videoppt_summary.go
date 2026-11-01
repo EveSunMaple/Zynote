@@ -25,7 +25,7 @@ const summaryChunkLimit = summaryinput.ChunkLimit
 
 func summaryModeRecipe(mode string) (subtitlederived.ModeRecipe, error) {
 	if !validVideoNoteMode(mode) {
-		return subtitlederived.ModeRecipe{}, contract.InputInvalid("摘要模式无效")
+		return subtitlederived.ModeRecipe{}, contract.InputInvalid(errSummaryModeInvalid)
 	}
 	prompt := summaryPrompt(mode, summaryMaxPoints(mode))
 	sum := sha256.Sum256([]byte(prompt))
@@ -156,7 +156,7 @@ func summarizeVideoText(
 ) (summaryResult, error) {
 	heading, ok := videoNoteTitles[mode]
 	if !ok {
-		return summaryResult{}, contract.InputInvalid("摘要模式无效")
+		return summaryResult{}, contract.InputInvalid(errSummaryModeInvalid)
 	}
 	segments, err := documents.ParseSrt(srt)
 	if err != nil {
@@ -248,7 +248,7 @@ func (inv *Invoker) handleVideoSummary(store contract.StateStore, state *contrac
 		return nil, contract.InputInvalid("摘要参数无效")
 	}
 	if _, ok := videoNoteTitles[input.Mode]; !ok {
-		return nil, contract.InputInvalid("摘要模式无效")
+		return nil, contract.InputInvalid(errSummaryModeInvalid)
 	}
 	courseName, err := inv.subtitleCourseName(state, input.CourseID)
 	if err != nil {
@@ -368,3 +368,5 @@ func recordValidatedSummaryPoints(ctx context.Context, points []videoNotePoint) 
 	event.ValidatedPoints = &contract.ValidatedPointEvidence{AcceptedFormatRef: receipt.Ref, PointsSHA256: digest, PointCount: len(points)}
 	return contract.ObservationFailure(observer(ctx, event))
 }
+
+const errSummaryModeInvalid = "摘要模式无效"

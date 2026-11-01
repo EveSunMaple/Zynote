@@ -65,8 +65,8 @@ func cloneZhiyunTask(task *zhiyunTask) *zhiyunTask {
 	if task == nil {
 		return nil
 	}
-	copy := *task
-	return &copy
+	taskCopy := *task
+	return &taskCopy
 }
 
 func (store *zhiyunTaskStore) loadLocked() error {

@@ -98,7 +98,8 @@ func Bootstrap(db *sql.DB) error {
 	if err := tx.Commit(); err != nil {
 		return err
 	}
-	_, err = db.Exec("PRAGMA user_version = " + strconv.Itoa(SchemaVersion))
+	// SchemaVersion is a compile-time integer constant; no user input reaches this PRAGMA.
+	_, err = db.Exec("PRAGMA user_version = " + strconv.Itoa(SchemaVersion)) // NOSONAR: constant-only SQL fragment.
 	return err
 }
 

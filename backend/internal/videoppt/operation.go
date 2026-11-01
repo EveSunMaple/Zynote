@@ -63,7 +63,7 @@ func (service *Service) CompleteOperation(task CreatedTask, result any, path str
 	if err != nil {
 		return err
 	}
-	directory := filepath.Join(service.Root, ".completed")
+	directory := filepath.Join(service.Root, completedSuffix)
 	if err := os.MkdirAll(directory, 0700); err != nil {
 		return err
 	}
@@ -106,7 +106,7 @@ func (service *Service) CreateOperationTask(id, name string, operation VideoOper
 		}
 	}
 
-	completedPath := filepath.Join(service.Root, ".completed", id+".json")
+	completedPath := filepath.Join(service.Root, completedSuffix, id+".json")
 	if body, err := os.ReadFile(completedPath); err == nil {
 		var completed operationCompletion
 		if json.Unmarshal(body, &completed) != nil || completed.SHA256 == "" {
@@ -125,16 +125,16 @@ func (service *Service) CreateOperationTask(id, name string, operation VideoOper
 	} else if !os.IsNotExist(err) {
 		return CreatedTask{}, err
 	}
-	if operation.Version != 1 || (operation.Stage != "source" && operation.Stage != "auto" && operation.Stage != "subtitle" && operation.Stage != "subtitle-station") {
+	if operation.Version != 1 || (operation.Stage != "source" && operation.Stage != "auto" && operation.Stage != "subtitle" && operation.Stage != stageSubtitleStation) {
 		return CreatedTask{}, requestError("任务来源记录无效")
 	}
 	if operation.RetainPlayback && (operation.Stage != "subtitle" || operation.Path == "" || operation.URL != "") {
 		return CreatedTask{}, requestError("视频留存仅支持本地字幕任务")
 	}
-	if operation.Stage == "subtitle-station" && (operation.URL == "" || operation.Path != "") {
+	if operation.Stage == stageSubtitleStation && (operation.URL == "" || operation.Path != "") {
 		return CreatedTask{}, requestError("站内字幕必须绑定远程来源")
 	}
-	if (operation.Stage == "subtitle" || operation.Stage == "subtitle-station") && (operation.OutputName == "" || !subtitleFilePattern.MatchString(operation.OutputName) || operation.Page < 1) {
+	if (operation.Stage == "subtitle" || operation.Stage == stageSubtitleStation) && (operation.OutputName == "" || !subtitleFilePattern.MatchString(operation.OutputName) || operation.Page < 1) {
 		return CreatedTask{}, requestError("字幕任务参数无效")
 	}
 
@@ -151,7 +151,7 @@ func (service *Service) CreateOperationTask(id, name string, operation VideoOper
 		if _, err := service.location(id); err != nil {
 			return CreatedTask{}, err
 		}
-		existing, err := os.ReadFile(filepath.Join(directory, "operation.json"))
+		existing, err := os.ReadFile(filepath.Join(directory, operationFileName))
 		if err != nil {
 			return CreatedTask{}, requestError("任务来源正在准备或记录不完整，请保留后重试")
 		}
@@ -171,11 +171,11 @@ func (service *Service) CreateOperationTask(id, name string, operation VideoOper
 	}
 	// Retain even an incomplete new directory on failure: another identical
 	// caller may already be observing it. Never remove a shared operation here.
-	if err := saveTaskJSON(filepath.Join(directory, "operation.json"), operation); err != nil {
+	if err := saveTaskJSON(filepath.Join(directory, operationFileName), operation); err != nil {
 		return CreatedTask{}, err
 	}
 	meta := map[string]any{"id": id, "name": name, "url": operation.URL}
-	if operation.Stage == "subtitle" || operation.Stage == "subtitle-station" {
+	if operation.Stage == "subtitle" || operation.Stage == stageSubtitleStation {
 		meta["kind"] = "subtitle"
 		meta["outputName"] = operation.OutputName
 		meta["courseName"] = operation.CourseName
@@ -196,7 +196,7 @@ func (service *Service) Operation(id string) (VideoOperation, error) {
 	}
 	directory, err := service.location(id)
 	if err != nil {
-		body, readErr := os.ReadFile(filepath.Join(service.Root, ".completed", id+".json"))
+		body, readErr := os.ReadFile(filepath.Join(service.Root, completedSuffix, id+".json"))
 		var completed operationCompletion
 		if readErr == nil && json.Unmarshal(body, &completed) == nil && completed.Operation.Version == 1 {
 			if err := validateOperationLanguage(completed.Operation); err != nil {
@@ -206,12 +206,12 @@ func (service *Service) Operation(id string) (VideoOperation, error) {
 		}
 		return VideoOperation{}, err
 	}
-	body, err := os.ReadFile(filepath.Join(directory, "operation.json"))
+	body, err := os.ReadFile(filepath.Join(directory, operationFileName))
 	if err != nil {
 		return VideoOperation{}, err
 	}
 	var operation VideoOperation
-	if json.Unmarshal(body, &operation) != nil || operation.Version != 1 || (operation.Stage != "source" && operation.Stage != "auto" && operation.Stage != "subtitle" && operation.Stage != "subtitle-station") {
+	if json.Unmarshal(body, &operation) != nil || operation.Version != 1 || (operation.Stage != "source" && operation.Stage != "auto" && operation.Stage != "subtitle" && operation.Stage != stageSubtitleStation) {
 		return VideoOperation{}, requestError("任务来源记录无效")
 	}
 	if operation.RetainPlayback && (operation.Stage != "subtitle" || operation.Path == "" || operation.URL != "") {
@@ -228,7 +228,7 @@ func MarkVideoReady(task CreatedTask) error {
 	if err != nil {
 		return err
 	}
-	return saveTaskJSON(filepath.Join(task.Dir, "video-ready.json"), map[string]any{"version": 1, "sha256": hash})
+	return saveTaskJSON(filepath.Join(task.Dir, videoReadyFileName), map[string]any{"version": 1, "sha256": hash})
 }
 
 // CopyVideoReady persists the verified source digest before publication. A
@@ -244,7 +244,7 @@ func CopyVideoReady(ctx context.Context, source, destination string) error {
 		return err
 	}
 	task := CreatedTask{Dir: filepath.Dir(destination), Path: destination}
-	if err := saveTaskJSON(filepath.Join(task.Dir, "video-ready.json"), map[string]any{"version": 1, "sha256": hash}); err != nil {
+	if err := saveTaskJSON(filepath.Join(task.Dir, videoReadyFileName), map[string]any{"version": 1, "sha256": hash}); err != nil {
 		return err
 	}
 	if err := CopyVideo(ctx, source, destination); err != nil {
@@ -259,7 +259,7 @@ func VerifyVideoReady(task CreatedTask) error {
 }
 
 func verifiedVideoDigest(task CreatedTask) (string, error) {
-	body, err := os.ReadFile(filepath.Join(task.Dir, "video-ready.json"))
+	body, err := os.ReadFile(filepath.Join(task.Dir, videoReadyFileName))
 	if err != nil {
 		return "", requestError("视频副本缺少完成记录，请保留任务并核对来源")
 	}
@@ -293,8 +293,16 @@ func validateOperationLanguage(operation VideoOperation) error {
 	if _, err := contract.NormalizeASRLanguage(operation.ASRLanguage); err != nil {
 		return err
 	}
-	if operation.ASRLanguage != "" && operation.Stage != "subtitle" && operation.Stage != "subtitle-station" {
+	if operation.ASRLanguage != "" && operation.Stage != "subtitle" && operation.Stage != stageSubtitleStation {
 		return requestError("非转写任务不能设置转写语言")
 	}
 	return nil
 }
+
+const completedSuffix = ".completed"
+
+const stageSubtitleStation = "subtitle-station"
+
+const operationFileName = "operation.json"
+
+const videoReadyFileName = "video-ready.json"

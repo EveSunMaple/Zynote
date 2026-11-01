@@ -94,8 +94,8 @@ func (service *Service) saveReceived(ctx context.Context, task *Task, item *Item
 	}
 	var facts *contract.SummaryEvidence
 	if result.Facts != nil {
-		copy := *result.Facts
-		facts = &copy
+		factsCopy := *result.Facts
+		facts = &factsCopy
 	}
 	received := &ReceivedSummary{Version: 1, Markdown: result.Markdown, Points: append([]Point(nil), result.Points...), Facts: facts}
 	candidate := *task

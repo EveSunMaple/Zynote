@@ -50,7 +50,7 @@ func (inv *Invoker) createQueuedVideoTaskLanguage(state *contract.State, path, v
 	}
 	name := ""
 	var sourceSize int64
-	if stage == "subtitle" || stage == "subtitle-station" {
+	if stage == "subtitle" || stage == stageSubtitleStation {
 		operation.Page = 1
 	}
 	if path != "" {
@@ -84,13 +84,13 @@ func (inv *Invoker) createQueuedVideoTaskLanguage(state *contract.State, path, v
 		}
 		operation.URL = normalized
 		name = videoID + "-P" + page
-		if stage == "subtitle" || stage == "subtitle-station" {
+		if stage == "subtitle" || stage == stageSubtitleStation {
 			operation.Page = atoiSafe(page)
 		}
 	}
-	if stage == "subtitle" || stage == "subtitle-station" {
+	if stage == "subtitle" || stage == stageSubtitleStation {
 		operation.OutputName = library.FolderName(videoppt.SubtitleTitle(name)) + "-离线转写.srt"
-		if stage == "subtitle-station" {
+		if stage == stageSubtitleStation {
 			operation.OutputName = library.FolderName(videoppt.SubtitleTitle(name)) + "-字幕.srt"
 		}
 	}
@@ -164,7 +164,7 @@ func (inv *Invoker) projectVideoSource(state *contract.State, id string) {
 		return
 	}
 	key := "video-ppt:" + id
-	if operation.Stage == "subtitle" || operation.Stage == "subtitle-station" {
+	if operation.Stage == "subtitle" || operation.Stage == stageSubtitleStation {
 		key = "subtitle-transcribe:" + id
 	}
 	inv.jobs.SetSource(key, source)
@@ -258,3 +258,5 @@ func effectiveASRLanguage(value string) string {
 	}
 	return value
 }
+
+const stageSubtitleStation = "subtitle-station"

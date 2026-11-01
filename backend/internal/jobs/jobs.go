@@ -159,7 +159,7 @@ func (registry *Registry) SetSource(key string, source contract.MediaSource) boo
 	if registry.current == nil || registry.current.Key != key {
 		return false
 	}
-	copy := source
-	registry.current.Source = &copy
+	sourceCopy := source
+	registry.current.Source = &sourceCopy
 	return true
 }

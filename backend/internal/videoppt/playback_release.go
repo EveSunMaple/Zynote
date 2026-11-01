@@ -168,7 +168,7 @@ func (service *Service) PreparePlaybackRelease(ctx context.Context, input Playba
 		if _, err := playbackPath(directory, true); err != nil {
 			return nil, err
 		}
-		path := filepath.Join(directory, "playback-release.json")
+		path := filepath.Join(directory, playbackReleaseFileName)
 		var plan PlaybackReleasePlan
 		ref, err := retentionRecord(ctx, path, true, &plan)
 		if err != nil {
@@ -182,7 +182,7 @@ func (service *Service) PreparePlaybackRelease(ctx context.Context, input Playba
 			// the original releaseID and is returned unchanged.
 			return releaseResult(ctx, path, plan)
 		}
-		_, stagingErr := os.Lstat(filepath.Join(directory, ".playback-release-preparing.json"))
+		_, stagingErr := os.Lstat(filepath.Join(directory, playbackReleasePreparingFileName))
 		safeNoMutation = os.IsNotExist(stagingErr) // Staging itself is a durable dispatch fence, including partial writes.
 		if !exists || !releaseEntryMatches(entry, input.ExpectedRefKind, input.ExpectedRefSHA256) {
 			return nil, retentionConflict()
@@ -200,7 +200,7 @@ func (service *Service) PreparePlaybackRelease(ctx context.Context, input Playba
 		}
 		plan = PlaybackReleasePlan{Version: 1, ID: input.ID, RefKind: input.ExpectedRefKind, RefSHA256: input.ExpectedRefSHA256, ReleaseID: input.ReleaseID, State: "prepared", Files: []playbackReleaseFile{}}
 		for _, file := range files {
-			if file.Name() == ".playback-release-preparing.json" {
+			if file.Name() == playbackReleasePreparingFileName {
 				if info, err := playbackPath(filepath.Join(directory, file.Name()), false); err != nil || info.Size() > 65536 {
 					return nil, retentionConflict()
 				}
@@ -255,7 +255,7 @@ func (service *Service) FinalizePlaybackRelease(ctx context.Context, input Playb
 		if _, err := playbackPath(directory, true); err != nil {
 			return nil, err
 		}
-		path := filepath.Join(directory, "playback-release.json")
+		path := filepath.Join(directory, playbackReleaseFileName)
 		var plan PlaybackReleasePlan
 		ref, err := retentionRecord(ctx, path, false, &plan)
 		if err != nil {
@@ -290,10 +290,10 @@ func (service *Service) FinalizePlaybackRelease(ctx context.Context, input Playb
 		}
 		// Preflight the complete remaining directory before deleting any file.
 		for _, file := range files {
-			if file.Name() == "playback-release.json" {
+			if file.Name() == playbackReleaseFileName {
 				continue
 			}
-			if file.Name() == ".playback-release-preparing.json" {
+			if file.Name() == playbackReleasePreparingFileName {
 				if info, err := playbackPath(filepath.Join(directory, file.Name()), false); err != nil || info.Size() > 65536 {
 					return nil, retentionConflict()
 				}
@@ -311,7 +311,7 @@ func (service *Service) FinalizePlaybackRelease(ctx context.Context, input Playb
 				return nil, retentionConflict()
 			}
 		}
-		if err := os.Remove(filepath.Join(directory, ".playback-release-preparing.json")); err != nil && !os.IsNotExist(err) {
+		if err := os.Remove(filepath.Join(directory, playbackReleasePreparingFileName)); err != nil && !os.IsNotExist(err) {
 			return nil, err
 		}
 		for _, file := range plan.Files {
@@ -361,7 +361,7 @@ func saveReleasePlan(path string, plan PlaybackReleasePlan) error {
 	if err != nil {
 		return err
 	}
-	staging := filepath.Join(filepath.Dir(path), ".playback-release-preparing.json")
+	staging := filepath.Join(filepath.Dir(path), playbackReleasePreparingFileName)
 	if _, err := os.Lstat(staging); err == nil {
 		if _, err := playbackPath(staging, false); err != nil {
 			return err
@@ -407,10 +407,14 @@ func releasePlanEqual(a, b PlaybackReleasePlan) bool {
 
 func (service *Service) releasedTaskProjection(ctx context.Context, id string) bool {
 	var plan PlaybackReleasePlan
-	ref, err := retentionRecord(ctx, filepath.Join(service.Root, id, "playback-release.json"), true, &plan)
+	ref, err := retentionRecord(ctx, filepath.Join(service.Root, id, playbackReleaseFileName), true, &plan)
 	if err != nil || ref == "" || plan.State != "released" {
 		return false
 	}
 	input := PlaybackReleaseRequest{ID: id, ReleaseID: plan.ReleaseID, ExpectedRefKind: plan.RefKind, ExpectedRefSHA256: plan.RefSHA256}
 	return releasePlanValid(plan, input)
 }
+
+const playbackReleaseFileName = "playback-release.json"
+
+const playbackReleasePreparingFileName = ".playback-release-preparing.json"

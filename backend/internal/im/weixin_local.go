@@ -119,7 +119,7 @@ func (local *WeixinLocal) Confirm(ctx context.Context, probeID, account string, 
 	}
 	if verify != nil {
 		if err := verify(session); err != nil {
-			_, _ = local.call(context.Background(), "wechat.invalidate", map[string]any{"reader_id": readerID}, 10000)
+			_, _ = local.call(context.Background(), wechatInvalidateMethod, map[string]any{"reader_id": readerID}, 10000)
 			return nil, err
 		}
 	}
@@ -151,7 +151,7 @@ func (local *WeixinLocal) InvalidateConnection(ctx context.Context, connection s
 	}
 	local.mu.Unlock()
 	if readerID != "" {
-		_, _ = local.call(ctx, "wechat.invalidate", map[string]any{"reader_id": readerID}, 10000)
+		_, _ = local.call(ctx, wechatInvalidateMethod, map[string]any{"reader_id": readerID}, 10000)
 	}
 }
 
@@ -169,7 +169,7 @@ func (local *WeixinLocal) Receive(ctx context.Context, session any, account, pee
 
 func (local *WeixinLocal) Invalidate(ctx context.Context, readerID string) {
 	if readerID != "" {
-		_, _ = local.call(ctx, "wechat.invalidate", map[string]any{"reader_id": readerID}, 10000)
+		_, _ = local.call(ctx, wechatInvalidateMethod, map[string]any{"reader_id": readerID}, 10000)
 	}
 }
 
@@ -216,3 +216,5 @@ func resultMessages(value map[string]any) ([]Message, error) {
 	}
 	return messages, nil
 }
+
+const wechatInvalidateMethod = "wechat.invalidate"

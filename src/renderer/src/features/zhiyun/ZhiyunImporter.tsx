@@ -77,7 +77,7 @@ export function ZhiyunImporter({
   () =>
    window.assistant.onEvent(e => {
     if (e.kind === 'progress' && e.data.stage === '智云课堂') setProgress(e.data.message)
-    if (e.kind === 'zhiyun-task' && taskRef.current && e.data.id === taskRef.current.id) {
+    if (e.kind === 'zhiyun-task' && taskRef.current?.id === e.data.id) {
      if (e.data.state === 'queued') notifiedTask.current = ''
      setTask(e.data)
      void handleTerminalTask(e.data)

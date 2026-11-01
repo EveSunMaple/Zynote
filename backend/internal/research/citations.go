@@ -409,7 +409,7 @@ type segmentHit struct {
 
 func matchSegments(segments [][]rune, text []rune, offset int, buffers *matchBuffers) ([]segmentHit, bool, bool) {
 	hits := []segmentHit{}
-	exact, close := true, true
+	exact, near := true, true
 	total, errors := 0, 0
 	ordered := true
 	for _, segment := range segments {
@@ -427,13 +427,13 @@ func matchSegments(segments [][]rune, text []rune, offset int, buffers *matchBuf
 			exact = false
 		}
 		if len(segment) == 0 || float64(distance)/float64(len(segment)) > 0.2 {
-			close = false
+			near = false
 		}
 	}
 	if !ordered || total == 0 || float64(errors)/float64(total) > 0.2 {
-		close = false
+		near = false
 	}
-	return hits, exact, close
+	return hits, exact, near
 }
 
 func (index cueIndex) describe(hits []segmentHit) (string, string) {
@@ -542,17 +542,17 @@ func checkQuote(quote string, cited int, index cueIndex, buffers *matchBuffers) 
 	var windowHits []segmentHit
 	if timed {
 		if from, to := index.windowRange(cited, quoteWindow); from >= 0 {
-			hits, exact, close := matchSegments(segments, index.text[from:to], from, buffers)
+			hits, exact, near := matchSegments(segments, index.text[from:to], from, buffers)
 			if exact {
 				return settle(hits, "exact")
 			}
-			if close {
+			if near {
 				windowHits = hits
 			}
 		}
 	}
-	hits, exact, close := matchSegments(segments, index.text, 0, buffers)
-	if exact || (close && windowHits == nil) {
+	hits, exact, near := matchSegments(segments, index.text, 0, buffers)
+	if exact || (near && windowHits == nil) {
 		status := map[bool]string{true: "exact", false: "edited"}[exact]
 		if timed {
 			at := index.timeAt(index.owner[hitsStart(hits)])

@@ -212,16 +212,16 @@ func (inv *Invoker) handleVideoResumeSubtitleContext(ctx context.Context, store 
 		}
 		if operation, err := service.Operation(input.ID); err == nil {
 			if operation.Stage == "subtitle-station" {
-				return inv.stationSubtitle(ctx, store, state, videoppt.CreatedTask{ID: meta.ID, Name: meta.Name, Dir: directory, Path: filepath.Join(directory, "video.mp4")})
+				return inv.stationSubtitle(ctx, store, state, videoppt.CreatedTask{ID: meta.ID, Name: meta.Name, Dir: directory, Path: filepath.Join(directory, videoFileName)})
 			}
-			if err := inv.ensureQueuedVideo(ctx, store, state, videoppt.CreatedTask{ID: meta.ID, Name: meta.Name, Dir: directory, Path: filepath.Join(directory, "video.mp4")}); err != nil {
+			if err := inv.ensureQueuedVideo(ctx, store, state, videoppt.CreatedTask{ID: meta.ID, Name: meta.Name, Dir: directory, Path: filepath.Join(directory, videoFileName)}); err != nil {
 				return nil, err
 			}
 		} else if !os.IsNotExist(err) {
 			return nil, videoPptError(err)
 		}
 
-		video := filepath.Join(directory, "video.mp4")
+		video := filepath.Join(directory, videoFileName)
 		if info, err := os.Stat(video); err != nil || !info.Mode().IsRegular() {
 			return nil, contract.InputInvalid("本地视频副本尚未准备完成，请重新选择原视频")
 		}
@@ -267,3 +267,5 @@ func atoiSafe(value string) int {
 	}
 	return number
 }
+
+const videoFileName = "video.mp4"

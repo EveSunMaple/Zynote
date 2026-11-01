@@ -55,7 +55,7 @@ func (inv *Invoker) handleKnowledgeImport(store contract.StateStore, state *cont
 	var probe map[string]json.RawMessage
 	if len(params) > 0 && string(params) != "null" {
 		if err := json.Unmarshal(params, &probe); err != nil {
-			return nil, contract.InputInvalid("资料导入参数无效")
+			return nil, contract.InputInvalid(errKnowledgeImportParams)
 		}
 	}
 	_, hasTitle := probe["title"]
@@ -68,7 +68,7 @@ func (inv *Invoker) handleKnowledgeImport(store contract.StateStore, state *cont
 	}
 	if len(probe) > 0 {
 		if err := json.Unmarshal(params, &input); err != nil {
-			return nil, contract.InputInvalid("资料导入参数无效")
+			return nil, contract.InputInvalid(errKnowledgeImportParams)
 		}
 	}
 	category := strings.TrimSpace(input.Category)
@@ -114,7 +114,7 @@ func (inv *Invoker) handleKnowledgeImport(store contract.StateStore, state *cont
 func (inv *Invoker) importKnowledgeInput(state *contract.State, params json.RawMessage) (any, error) {
 	var input knowledge.ImportInput
 	if err := json.Unmarshal(params, &input); err != nil {
-		return nil, contract.InputInvalid("资料导入参数无效")
+		return nil, contract.InputInvalid(errKnowledgeImportParams)
 	}
 	service, err := inv.knowledgeStoreFor(state)
 	if err != nil {
@@ -296,3 +296,5 @@ func knowledgeFileText(caller documents.NativeCaller, path string) ([sha256.Size
 	text, err := documents.DecodeText(data)
 	return sum, text, err
 }
+
+const errKnowledgeImportParams = "资料导入参数无效"

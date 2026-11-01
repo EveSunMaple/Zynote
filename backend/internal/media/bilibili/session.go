@@ -34,7 +34,7 @@ func (transport sessionTransport) RoundTrip(request *http.Request) (*http.Respon
 	response, err := resources.do(request)
 	if err == nil && generation != resources.SessionGeneration() {
 		response.Body.Close()
-		return nil, contract.NewError(contract.CodeAuthExpired, "B 站登录状态已改变，请重新发起请求")
+		return nil, contract.NewError(contract.CodeAuthExpired, errBilibiliSessionChanged)
 	}
 	if err == nil {
 		response.Body = &sessionResponseBody{ReadCloser: response.Body, resources: resources, generation: generation}
@@ -50,11 +50,11 @@ type sessionResponseBody struct {
 
 func (body *sessionResponseBody) Read(buffer []byte) (int, error) {
 	if body.generation != body.resources.SessionGeneration() {
-		return 0, contract.NewError(contract.CodeAuthExpired, "B 站登录状态已改变，请重新发起请求")
+		return 0, contract.NewError(contract.CodeAuthExpired, errBilibiliSessionChanged)
 	}
 	count, err := body.ReadCloser.Read(buffer)
 	if body.generation != body.resources.SessionGeneration() {
-		return 0, contract.NewError(contract.CodeAuthExpired, "B 站登录状态已改变，请重新发起请求")
+		return 0, contract.NewError(contract.CodeAuthExpired, errBilibiliSessionChanged)
 	}
 	return count, err
 }
@@ -91,3 +91,5 @@ func (resources *Resources) FetchSeries(ctx context.Context, value string) (Vide
 func (resources *Resources) FetchSubtitles(ctx context.Context, value string) (FetchedSubtitle, error) {
 	return FetchVideoSubtitles(ctx, resources.HTTPClient(), value)
 }
+
+const errBilibiliSessionChanged = "B 站登录状态已改变，请重新发起请求"

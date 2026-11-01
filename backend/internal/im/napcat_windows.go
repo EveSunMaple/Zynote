@@ -381,7 +381,7 @@ func (runtime *NapcatRuntime) prepare(ctx context.Context) (string, *NapcatSecre
 	if len(archive.File) > 20000 {
 		return "", nil, fmt.Errorf("QQ 组件文件数量无效")
 	}
-	target, err := ownedPath(root, "native-v"+napcatVersion)
+	target, err := ownedPath(root, nativeVersionPrefix+napcatVersion)
 	if err != nil {
 		return "", nil, err
 	}
@@ -443,7 +443,7 @@ func (runtime *NapcatRuntime) prepare(ctx context.Context) (string, *NapcatSecre
 		if entry == nil {
 			return "", nil, fmt.Errorf("QQ 组件缺少必要文件")
 		}
-		path, err := ownedPath(root, "native-v"+napcatVersion, filepath.FromSlash(name))
+		path, err := ownedPath(root, nativeVersionPrefix+napcatVersion, filepath.FromSlash(name))
 		if err != nil {
 			return "", nil, err
 		}
@@ -457,7 +457,7 @@ func (runtime *NapcatRuntime) prepare(ctx context.Context) (string, *NapcatSecre
 	if err != nil {
 		return "", nil, err
 	}
-	config, err := ownedPath(root, "native-v"+napcatVersion, "napcat", "config")
+	config, err := ownedPath(root, nativeVersionPrefix+napcatVersion, "napcat", "config")
 	if err != nil {
 		return "", nil, err
 	}
@@ -587,3 +587,5 @@ func (runtime *NapcatRuntime) loadOrCreateOwner(root string) (*NapcatSecrets, er
 	}
 	return value, nil
 }
+
+const nativeVersionPrefix = "native-v"

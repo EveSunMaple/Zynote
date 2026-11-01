@@ -118,7 +118,7 @@ func (service *Service) bindRecipe(ctx context.Context, task *Task, dependencies
 	candidate := *task
 	candidate.Items = append([]Item(nil), task.Items...)
 	if !firstBinding {
-		if task.EvidenceVersion != 1 || task.Recipe.Version != 1 || task.Recipe.Origin != "first-new-dispatch" || !validRequestedConfig(task.Recipe.Configuration) || task.Recipe.Hash != taskRecipeHash(task.Recipe.Configuration, task.CourseName) || task.Recipe.Hash != hash {
+		if task.EvidenceVersion != 1 || task.Recipe.Version != 1 || task.Recipe.Origin != dispatchFirstNew || !validRequestedConfig(task.Recipe.Configuration) || task.Recipe.Hash != taskRecipeHash(task.Recipe.Configuration, task.CourseName) || task.Recipe.Hash != hash {
 			return fmt.Errorf("摘要生成配置已改变，请新建任务；原成果保留")
 		}
 	} else {
@@ -126,7 +126,7 @@ func (service *Service) bindRecipe(ctx context.Context, task *Task, dependencies
 			return fmt.Errorf("摘要生成配方记录缺失，原任务保留")
 		}
 		candidate.EvidenceVersion = 1
-		candidate.Recipe = &TaskRecipe{Version: 1, Origin: "first-new-dispatch", Configuration: configuration, Hash: hash}
+		candidate.Recipe = &TaskRecipe{Version: 1, Origin: dispatchFirstNew, Configuration: configuration, Hash: hash}
 	}
 	for index := range candidate.Items {
 		item := &candidate.Items[index]
@@ -137,7 +137,7 @@ func (service *Service) bindRecipe(ctx context.Context, task *Task, dependencies
 		if !ok || !validModeRecipe(modeRecipe, item.Mode) {
 			return fmt.Errorf("摘要提示词或分块配方无效，未调用模型")
 		}
-		wanted := ItemRecipe{Version: 1, Origin: "first-new-dispatch", TaskRecipeHash: hash, SourceSHA256: item.Source.Hash, ModeRecipe: modeRecipe}
+		wanted := ItemRecipe{Version: 1, Origin: dispatchFirstNew, TaskRecipeHash: hash, SourceSHA256: item.Source.Hash, ModeRecipe: modeRecipe}
 		wanted.Hash = itemRecipeHash(wanted)
 		if item.Recipe != nil {
 			if item.Recipe.Hash != itemRecipeHash(*item.Recipe) || item.Recipe.Hash != wanted.Hash {
@@ -158,3 +158,5 @@ func (service *Service) bindRecipe(ctx context.Context, task *Task, dependencies
 	}
 	return nil
 }
+
+const dispatchFirstNew = "first-new-dispatch"

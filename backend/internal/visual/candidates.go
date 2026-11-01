@@ -7,8 +7,8 @@ import (
 	"strings"
 )
 
-func visualCandidateBinding(hash, path string, cap int, policy string, duration float64) framecandidate.Binding {
-	binding := framecandidate.Binding{SourceHash: hash, Sampler: "visual-coverage-v1", Policy: policy, Cap: cap, DurationMs: int64(math.Round(duration * 1000))}
+func visualCandidateBinding(hash, path string, limit int, policy string, duration float64) framecandidate.Binding {
+	binding := framecandidate.Binding{SourceHash: hash, Sampler: "visual-coverage-v1", Policy: policy, Cap: limit, DurationMs: int64(math.Round(duration * 1000))}
 	switch strings.ToLower(filepath.Ext(path)) {
 	case ".png", ".jpg", ".jpeg", ".webp":
 		binding.Sampler = "visual-image-v1"
