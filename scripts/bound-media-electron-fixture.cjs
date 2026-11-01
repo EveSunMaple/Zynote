@@ -346,7 +346,7 @@ app.whenReady().then(async () => {
    JSON.stringify(
     Object.fromEntries(
      Object.keys(authority)
-      .sort()
+      .sort((first, second) => first.localeCompare(second))
       .map(key => [key, authority[key]])
     )
    )
