@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -17,12 +18,21 @@ import (
 	"github.com/EveSunMaple/Zynote/backend/internal/knowledge"
 )
 
-const knowledgeImportMaxBytes = 100_000_000
+const (
+	knowledgeImportMaxBytes = 100_000_000
+	knowledgeTextMaxBytes   = 6_000_000
+	knowledgeTextMaxRunes   = 2_000_000
+	knowledgeImportMaxFiles = 200
+	knowledgePickerTimeout  = 24 * 60 * 60 * 1000
+)
 
 var knowledgeImportExtensions = []string{"pdf", "docx", "txt", "md", "srt"}
 
 var (
 	errKnowledgeFileTooLarge   = errors.New("资料超过 100 MB，请按章节导入")
+	errKnowledgeTextTooLarge   = errors.New("文本资料超过 6 MB，请拆分后导入")
+	errKnowledgeTextTooLong    = errors.New("资料文字超过 2,000,000 字，请拆分后导入")
+	errKnowledgeTooManyFiles   = errors.New("一次最多导入 200 份资料")
 	errKnowledgeFileType       = errors.New("资料只支持 PDF、Word（DOCX）、TXT、Markdown 和 SRT")
 	errKnowledgeNeedsOcr       = errors.New("这份 PDF 主要是图片，请先识别文字后再导入知识库")
 	errKnowledgeFileChanged    = errors.New("导入期间资料已改变，请重新选择")
@@ -64,12 +74,18 @@ func (inv *Invoker) handleKnowledgeImport(store contract.StateStore, state *cont
 	if len([]rune(category)) > 100 {
 		return nil, contract.InputInvalid("资料分类无效")
 	}
+	if inv.jobs.Current() != nil {
+		return nil, contract.NewError(contract.CodeBusy, "当前已有任务运行，请等待完成或取消")
+	}
 	paths, err := pickKnowledgeFiles(store, state)
 	if err != nil {
 		return nil, err
 	}
 	if len(paths) == 0 {
 		return []knowledgeImportItem{}, nil
+	}
+	if len(paths) > knowledgeImportMaxFiles {
+		return nil, contract.InputInvalid(errKnowledgeTooManyFiles.Error())
 	}
 	service, err := inv.knowledgeStoreFor(state)
 	if err != nil {
@@ -119,7 +135,7 @@ func pickKnowledgeFiles(store contract.StateStore, state *contract.State) ([]str
 	if state.LibraryRoot != "" {
 		params["defaultPath"] = state.LibraryRoot
 	}
-	raw, err := reverse.Call("shell.pickFiles", params, 600000)
+	raw, err := reverse.Call("shell.pickFiles", params, knowledgePickerTimeout)
 	if err != nil {
 		return nil, contract.Unavailable(err.Error())
 	}
@@ -160,15 +176,23 @@ func readKnowledgeFile(caller documents.NativeCaller, path string) (knowledge.Im
 	if err != nil {
 		return knowledge.ImportInput{}, fmt.Errorf("资料路径无效: %w", err)
 	}
-	info, err := os.Lstat(locator)
+	info, err := os.Stat(locator)
 	if err != nil {
 		return knowledge.ImportInput{}, fmt.Errorf("%w: %w", errKnowledgeFileUnreadable, err)
 	}
 	if !info.Mode().IsRegular() {
 		return knowledge.ImportInput{}, errKnowledgeFileUnreadable
 	}
+	extension := strings.ToLower(filepath.Ext(locator))
+	if !knowledgeExtensionAllowed(extension) {
+		return knowledge.ImportInput{}, errKnowledgeFileType
+	}
 	if info.Size() > knowledgeImportMaxBytes {
 		return knowledge.ImportInput{}, errKnowledgeFileTooLarge
+	}
+	textLike := extension == ".txt" || extension == ".md" || extension == ".srt"
+	if textLike && info.Size() > knowledgeTextMaxBytes {
+		return knowledge.ImportInput{}, errKnowledgeTextTooLarge
 	}
 	data, err := os.ReadFile(locator)
 	if err != nil {
@@ -179,17 +203,34 @@ func readKnowledgeFile(caller documents.NativeCaller, path string) (knowledge.Im
 	if err != nil {
 		return knowledge.ImportInput{}, err
 	}
-	again, err := os.ReadFile(locator)
+	if len([]rune(text)) > knowledgeTextMaxRunes {
+		return knowledge.ImportInput{}, errKnowledgeTextTooLong
+	}
+	again, err := os.Open(locator)
 	if err != nil {
 		return knowledge.ImportInput{}, fmt.Errorf("%w: %w", errKnowledgeFileUnreadable, err)
 	}
-	if latest := sha256.Sum256(again); !bytes.Equal(latest[:], sum[:]) {
+	defer again.Close()
+	hasher := sha256.New()
+	if _, err := io.Copy(hasher, io.LimitReader(again, knowledgeImportMaxBytes+1)); err != nil {
+		return knowledge.ImportInput{}, fmt.Errorf("%w: %w", errKnowledgeFileUnreadable, err)
+	}
+	if !bytes.Equal(hasher.Sum(nil), sum[:]) {
 		return knowledge.ImportInput{}, errKnowledgeFileChanged
 	}
 	return knowledge.ImportInput{
 		Title: filepath.Base(locator), Text: text, Locator: locator,
 		SourceHash: hex.EncodeToString(sum[:]), Origin: "local",
 	}, nil
+}
+
+func knowledgeExtensionAllowed(extension string) bool {
+	for _, allowed := range knowledgeImportExtensions {
+		if extension == "."+allowed {
+			return true
+		}
+	}
+	return false
 }
 
 func knowledgeFileText(caller documents.NativeCaller, path string, data []byte) (string, error) {

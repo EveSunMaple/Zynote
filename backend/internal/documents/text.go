@@ -13,10 +13,19 @@ import (
 	"strings"
 
 	"github.com/saintfish/chardet"
+	"golang.org/x/text/encoding"
+	"golang.org/x/text/encoding/charmap"
 	"golang.org/x/text/encoding/simplifiedchinese"
+	"golang.org/x/text/encoding/traditionalchinese"
+	"golang.org/x/text/encoding/unicode"
 )
 
+const maxDocxXMLBytes = 64 << 20
+
 var wbrPattern = regexp.MustCompile(`(?i)<w:br\s*/?\s*>`)
+var wtabPattern = regexp.MustCompile(`(?i)<w:tab\s*/?\s*>`)
+var wdelTextPattern = regexp.MustCompile(`(?is)<w:delText[^>]*>.*?</w:delText>`)
+var winstrTextPattern = regexp.MustCompile(`(?is)<w:instrText[^>]*>.*?</w:instrText>`)
 var wpEndPattern = regexp.MustCompile(`(?i)</w:p>`)
 var tagPattern = regexp.MustCompile(`<[^>]+>`)
 var hexEntityPattern = regexp.MustCompile(`(?i)&#x([\da-f]+);`)
@@ -51,17 +60,26 @@ func ParseDocx(data []byte) (string, error) {
 	if documentFile == nil {
 		return "", fmt.Errorf("Word 原文文件损坏")
 	}
+	if documentFile.UncompressedSize64 > maxDocxXMLBytes {
+		return "", fmt.Errorf("Word 原文文件过大")
+	}
 	reader, err := documentFile.Open()
 	if err != nil {
 		return "", fmt.Errorf("Word 原文文件损坏")
 	}
 	defer reader.Close()
-	raw, err := io.ReadAll(reader)
+	raw, err := io.ReadAll(io.LimitReader(reader, maxDocxXMLBytes+1))
 	if err != nil {
 		return "", fmt.Errorf("Word 原文文件损坏")
 	}
+	if len(raw) > maxDocxXMLBytes {
+		return "", fmt.Errorf("Word 原文文件过大")
+	}
 	xml := string(raw)
+	xml = wdelTextPattern.ReplaceAllString(xml, "")
+	xml = winstrTextPattern.ReplaceAllString(xml, "")
 	xml = wbrPattern.ReplaceAllString(xml, "\n")
+	xml = wtabPattern.ReplaceAllString(xml, " ")
 	xml = wpEndPattern.ReplaceAllString(xml, "\n\n")
 	xml = tagPattern.ReplaceAllString(xml, "")
 	xml = hexEntityPattern.ReplaceAllStringFunc(xml, func(match string) string {
@@ -79,26 +97,40 @@ func ParseDocx(data []byte) (string, error) {
 }
 
 func DecodeTextFile(data []byte) string {
+	if bytes.HasPrefix(data, []byte{0xEF, 0xBB, 0xBF}) {
+		data = data[3:]
+	}
+	if len(data) >= 2 {
+		if data[0] == 0xFF && data[1] == 0xFE {
+			return decodeTextWith(unicode.UTF16(unicode.LittleEndian, unicode.IgnoreBOM), data[2:])
+		}
+		if data[0] == 0xFE && data[1] == 0xFF {
+			return decodeTextWith(unicode.UTF16(unicode.BigEndian, unicode.IgnoreBOM), data[2:])
+		}
+	}
 	detector := chardet.NewTextDetector()
-	encoding := "UTF-8"
+	encodingName := "UTF-8"
 	if result, err := detector.DetectBest(data); err == nil && result.Charset != "" {
-		encoding = strings.ToUpper(result.Charset)
+		encodingName = strings.ToUpper(result.Charset)
 	}
-	decoded := string(data)
-	if looksBinary(decoded) && (strings.Contains(encoding, "GB") || strings.Contains(encoding, "BIG5") ||
-		strings.Contains(encoding, "WINDOWS-1252") || strings.Contains(encoding, "ISO-8859")) {
-		decoded = decodeGB(data)
-		return decoded
+	switch {
+	case strings.Contains(encodingName, "UTF-16LE"):
+		return decodeTextWith(unicode.UTF16(unicode.LittleEndian, unicode.IgnoreBOM), data)
+	case strings.Contains(encodingName, "UTF-16BE"):
+		return decodeTextWith(unicode.UTF16(unicode.BigEndian, unicode.IgnoreBOM), data)
+	case strings.Contains(encodingName, "BIG5"):
+		return decodeTextWith(traditionalchinese.Big5, data)
+	case strings.Contains(encodingName, "GB"):
+		return decodeTextWith(simplifiedchinese.GB18030, data)
+	case strings.Contains(encodingName, "WINDOWS-1252"), strings.Contains(encodingName, "ISO-8859"):
+		return decodeTextWith(charmap.Windows1252, data)
+	default:
+		return string(data)
 	}
-	return decoded
 }
 
-func looksBinary(value string) bool {
-	return strings.ContainsRune(value, '\uFFFD')
-}
-
-func decodeGB(data []byte) string {
-	decoded, err := simplifiedchinese.GB18030.NewDecoder().Bytes(data)
+func decodeTextWith(encoding encoding.Encoding, data []byte) string {
+	decoded, err := encoding.NewDecoder().Bytes(data)
 	if err != nil {
 		return string(data)
 	}

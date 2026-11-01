@@ -122,7 +122,8 @@ Go core（业务后端）
 
 以下能力建议通过反向请求暴露给 Go，而不是让 Go 直接操作桌面：
 
-- [ ] `shell.pickFiles` / `shell.pickDirectory` / `shell.saveFile`
+- [x] `shell.pickFiles`（知识库导入多选）
+- [ ] `shell.pickDirectory` / `shell.saveFile`
 - [ ] `shell.openPath` / `shell.showItemInFolder`
 - [ ] `shell.messageBox`（仅需要系统确认时）
 - [ ] `shell.getCookies`（智云、B 站等 Electron session）
