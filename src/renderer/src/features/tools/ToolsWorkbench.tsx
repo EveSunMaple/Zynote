@@ -1,14 +1,13 @@
 import {useEffect, useState, type ReactNode} from 'react'
 import {Button, Card, Checkbox, Chip, Input, TextArea} from '@heroui/react'
 import {WindowMenuButton, WindowPanel} from '@renderer/ui/WindowPanel'
-import ReactMarkdown from 'react-markdown'
+import {MathMarkdown} from '@renderer/ui/MathMarkdown'
 import {LearningRecords} from '@renderer/features/tools/LearningRecords'
 import {SavedLearningNotes} from '@renderer/features/tools/SavedLearningNotes'
 import {RunProgress, type RunProgressValue} from '@renderer/features/tools/RunProgress'
 import {DeleteRecord} from '@renderer/features/tools/DeleteRecord'
 import {notify} from '@renderer/ui/ToastHost'
 import {SettingsLink} from '@renderer/app/settings-navigation'
-import remarkGfm from 'remark-gfm'
 import type {Settings} from '@shared/types'
 
 function MarkdownLink({href, children}: Readonly<{href?: string; children?: ReactNode}>) {
@@ -27,9 +26,7 @@ function MarkdownLink({href, children}: Readonly<{href?: string; children?: Reac
 function Result({text}: Readonly<{text: string}>) {
  return (
   <div className="learning-summary">
-   <ReactMarkdown remarkPlugins={[remarkGfm]} components={{a: MarkdownLink}}>
-    {text}
-   </ReactMarkdown>
+   <MathMarkdown components={{a: MarkdownLink}}>{text}</MathMarkdown>
   </div>
  )
 }
