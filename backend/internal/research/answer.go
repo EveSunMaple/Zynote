@@ -6,6 +6,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
+
+	"github.com/EveSunMaple/Zynote/backend/internal/ai"
 )
 
 type MemoryCandidate struct {
@@ -40,6 +42,33 @@ func memoryCandidate(value struct {
 	}, nil
 }
 
+// escapeRawControls 把 JSON 字符串里未转义的换行、回车、制表符改成转义形式。
+func escapeRawControls(data []byte) []byte {
+	out := make([]byte, 0, len(data)+16)
+	inString, escaped := false, false
+	for _, char := range data {
+		switch {
+		case escaped:
+			escaped = false
+		case inString && char == '\\':
+			escaped = true
+		case char == '"':
+			inString = !inString
+		case inString && char == '\n':
+			out = append(out, '\\', 'n')
+			continue
+		case inString && char == '\r':
+			out = append(out, '\\', 'r')
+			continue
+		case inString && char == '\t':
+			out = append(out, '\\', 't')
+			continue
+		}
+		out = append(out, char)
+	}
+	return out
+}
+
 func ReadResearchAnswer(raw string, taskID, question, limitations string, allowSuggestions bool) (string, []MemoryCandidate, error) {
 	note := raw
 	candidates := []MemoryCandidate{}
@@ -62,18 +91,26 @@ func ReadResearchAnswer(raw string, taskID, question, limitations string, allowS
 				Quote string `json:"quote"`
 			} `json:"memory_candidates"`
 		}
-		if json.Unmarshal([]byte(clean), &payload) != nil || payload.Note == "" || len(payload.Note) > 200000 ||
-			len(payload.MemoryCandidates) > 3 {
+		// 模型常在 JSON 字符串里写 LaTeX（如 \xi）或直接换行，先修复再解析，避免整次回答作废。
+		if json.Unmarshal([]byte(clean), &payload) != nil {
+			repaired := escapeRawControls(ai.RepairJSONEscapes([]byte(clean)))
+			if json.Unmarshal(repaired, &payload) != nil {
+				return "", nil, fmt.Errorf("研究回答格式无效")
+			}
+		}
+		if payload.Note == "" || len(payload.Note) > 200000 {
 			return "", nil, fmt.Errorf("研究回答格式无效")
 		}
 		note = payload.Note
 		basis := map[string]string{"question": question, "note": note, "limitations": limitations}
+		// 记忆建议只是附带的可选项：不合格的直接丢弃，不连累回答本身；最多留 3 条。
 		for index, value := range payload.MemoryCandidates {
-			candidate, err := memoryCandidate(value, basis, taskID, index)
-			if err != nil {
-				return "", nil, err
+			if len(candidates) >= 3 {
+				break
 			}
-			candidates = append(candidates, candidate)
+			if candidate, err := memoryCandidate(value, basis, taskID, index); err == nil {
+				candidates = append(candidates, candidate)
+			}
 		}
 	}
 	return note, candidates, nil

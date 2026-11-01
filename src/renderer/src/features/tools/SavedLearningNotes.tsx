@@ -143,7 +143,7 @@ export function SavedLearningNotes() {
        aria-label={`打开笔记 ${item.title}`}
        onClick={() => void run(() => read(item.note_id))}
       >
-       {item.title} · {item.created_at}
+       {item.title} · {new Date(item.created_at).toLocaleString('zh-CN', {dateStyle: 'short', timeStyle: 'short'})}
       </Button>
      ))}
     </div>

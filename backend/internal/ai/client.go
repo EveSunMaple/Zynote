@@ -838,3 +838,6 @@ func (client *Client) JSONWithOptions(
 	}
 	return nil, lastErr
 }
+
+// RepairJSONEscapes 修复模型 JSON 字符串里的非法反斜杠转义（如 LaTeX 公式 \xi、\frac），供其他模块复用。
+func RepairJSONEscapes(data []byte) []byte { return repairJSONEscapes(data) }

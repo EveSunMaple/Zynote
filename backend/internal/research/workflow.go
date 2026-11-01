@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 	"time"
 )
 
@@ -75,6 +76,9 @@ func (engine *Engine) ListWorkflows() []any {
 	if err != nil {
 		return []any{}
 	}
+	sort.SliceStable(rows, func(left, right int) bool {
+		return text(rows[left]["created_at"]) > text(rows[right]["created_at"])
+	})
 	result := []any{}
 	for _, row := range rows {
 		if text(row["status"]) == "running" {

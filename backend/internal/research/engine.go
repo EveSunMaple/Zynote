@@ -160,8 +160,9 @@ func (engine *Engine) List() []any {
 	if err != nil {
 		return []any{}
 	}
+	// 按创建时间从新到旧：运行中的任务会不断更新 updated_at，按它排序会让卡片跳来跳去。
 	sort.SliceStable(rows, func(left, right int) bool {
-		return text(rows[left]["updated_at"]) > text(rows[right]["updated_at"])
+		return text(rows[left]["created_at"]) > text(rows[right]["created_at"])
 	})
 	result := make([]any, 0, len(rows))
 	for _, row := range rows {
@@ -715,6 +716,7 @@ func (engine *Engine) completeResearch(ctx context.Context, run *runState, task 
 	run.setStage("checking", "逐句回原文核对引文")
 	note, candidates, err := ReadResearchAnswer(answer, task.TaskID, task.Question, task.Limitations, allowMemory)
 	if err != nil {
+		task.Rejected = trimText(answer, 4000)
 		return engine.failResearch(task, err)
 	}
 	if strings.TrimSpace(note) == "" || len([]rune(note)) > 200000 || !validResearchCitations(note, task.Sources) {
