@@ -3,8 +3,10 @@ package research
 import (
 	"context"
 	"crypto/sha256"
+	"crypto/tls"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net"
@@ -13,10 +15,13 @@ import (
 	"os"
 	"regexp"
 	"strings"
+	"sync"
 	"time"
 )
 
 const hostArxiv = "arxiv.org"
+
+var errExternalRateLimited = errors.New("检索服务限流，请稍后手动重试")
 
 type ExternalEvidence struct {
 	Provider       string `json:"provider"`
@@ -37,29 +42,46 @@ type External struct {
 	PDFPage func(path string, page int) (string, int, error)
 }
 
+// NewExternal 返回带防 SSRF 约束的外部检索客户端。
+// 直连时在拨号前解析并校验目标地址；经环境变量配置的代理时，
+// 只放行该代理地址本身，目标主机在发请求前单独解析校验。
 func NewExternal() *External {
+	return newExternal(http.ProxyFromEnvironment, net.DefaultResolver.LookupIPAddr, nil)
+}
+
+type lookupIPFunc func(ctx context.Context, host string) ([]net.IPAddr, error)
+
+type proxyFunc func(*http.Request) (*url.URL, error)
+
+func newExternal(proxy proxyFunc, lookup lookupIPFunc, tlsConfig *tls.Config) *External {
+	guard := &guardedTransport{proxy: proxy, lookup: lookup, proxies: map[string]bool{}}
 	dialer := &net.Dialer{Timeout: 15 * time.Second}
-	transport := &http.Transport{
-		Proxy: http.ProxyFromEnvironment,
+	guard.direct = &http.Transport{
+		TLSClientConfig: tlsConfig,
 		DialContext: func(ctx context.Context, network, address string) (net.Conn, error) {
 			host, port, err := net.SplitHostPort(address)
 			if err != nil {
-				return nil, fmt.Errorf("外部地址无效")
+				return nil, fmt.Errorf("外部地址无效：%w", err)
 			}
-			ips, err := net.DefaultResolver.LookupIPAddr(ctx, host)
-			if err != nil || len(ips) == 0 {
-				return nil, fmt.Errorf("外部地址无法解析")
-			}
-			for _, item := range ips {
-				if !publicIP(item.IP) {
-					return nil, fmt.Errorf("外部地址不受信任")
-				}
+			ips, err := guard.resolvePublic(ctx, host)
+			if err != nil {
+				return nil, err
 			}
 			return dialer.DialContext(ctx, network, net.JoinHostPort(ips[0].IP.String(), port))
 		},
 	}
+	guard.proxied = &http.Transport{
+		TLSClientConfig: tlsConfig,
+		Proxy:           proxy,
+		DialContext: func(ctx context.Context, network, address string) (net.Conn, error) {
+			if !guard.proxyAllowed(address) {
+				return nil, fmt.Errorf("代理地址不在允许范围")
+			}
+			return dialer.DialContext(ctx, network, address)
+		},
+	}
 	return &External{Client: &http.Client{
-		Timeout: 30 * time.Second, Transport: transport,
+		Timeout: 30 * time.Second, Transport: guard,
 		CheckRedirect: func(request *http.Request, via []*http.Request) error {
 			if len(via) >= 5 {
 				return fmt.Errorf("外部跳转次数过多")
@@ -70,6 +92,71 @@ func NewExternal() *External {
 			return nil
 		},
 	}}
+}
+
+// guardedTransport 按环境代理配置把请求分给直连或代理两个 Transport。
+// 代理 Transport 只能拨号到已登记的代理地址，直连 Transport 只能拨号到公网地址。
+type guardedTransport struct {
+	proxy   proxyFunc
+	lookup  lookupIPFunc
+	direct  *http.Transport
+	proxied *http.Transport
+	mu      sync.Mutex
+	proxies map[string]bool
+}
+
+func (guard *guardedTransport) RoundTrip(request *http.Request) (*http.Response, error) {
+	proxyURL, err := guard.proxy(request)
+	if err != nil {
+		return nil, fmt.Errorf("代理配置无效：%w", err)
+	}
+	if proxyURL == nil {
+		return guard.direct.RoundTrip(request)
+	}
+	if _, err := publicHTTPS(request.URL.String()); err != nil {
+		return nil, err
+	}
+	if _, err := guard.resolvePublic(request.Context(), request.URL.Hostname()); err != nil {
+		return nil, err
+	}
+	guard.mu.Lock()
+	guard.proxies[proxyAddress(proxyURL)] = true
+	guard.mu.Unlock()
+	return guard.proxied.RoundTrip(request)
+}
+
+func (guard *guardedTransport) proxyAllowed(address string) bool {
+	guard.mu.Lock()
+	defer guard.mu.Unlock()
+	return guard.proxies[address]
+}
+
+func (guard *guardedTransport) resolvePublic(ctx context.Context, host string) ([]net.IPAddr, error) {
+	ips, err := guard.lookup(ctx, host)
+	if err != nil {
+		return nil, fmt.Errorf("外部地址无法解析：%w", err)
+	}
+	if len(ips) == 0 {
+		return nil, fmt.Errorf("外部地址无法解析")
+	}
+	for _, item := range ips {
+		if !publicIP(item.IP) {
+			return nil, fmt.Errorf("外部地址不受信任")
+		}
+	}
+	return ips, nil
+}
+
+// proxyAddress 与 net/http 拨号代理时使用的 host:port 保持一致。
+func proxyAddress(proxyURL *url.URL) string {
+	port := proxyURL.Port()
+	if port == "" {
+		port = map[string]string{"https": "443", "socks5": "1080", "socks5h": "1080"}[proxyURL.Scheme]
+	}
+	if port == "" {
+		port = "80"
+	}
+	return net.JoinHostPort(proxyURL.Hostname(), port)
 }
 
 func publicIP(ip net.IP) bool {
@@ -147,11 +234,15 @@ func (external *External) getResponse(ctx context.Context, target string) ([]byt
 		if ctx.Err() != nil {
 			return nil, "", ctx.Err()
 		}
-		return nil, "", fmt.Errorf("外部请求失败")
+		var urlErr *url.Error
+		if errors.As(err, &urlErr) {
+			err = urlErr.Err
+		}
+		return nil, "", fmt.Errorf("外部请求失败：%w", err)
 	}
 	defer response.Body.Close()
-	if response.StatusCode == 429 {
-		return nil, "", fmt.Errorf("检索服务限流，请稍后手动重试")
+	if response.StatusCode == http.StatusTooManyRequests {
+		return nil, "", errExternalRateLimited
 	}
 	if response.StatusCode < 200 || response.StatusCode >= 300 {
 		return nil, "", fmt.Errorf("检索服务返回 %d", response.StatusCode)
@@ -675,31 +766,91 @@ func dedupeExternalEvidence(rows []ExternalEvidence) []ExternalEvidence {
 	return filtered
 }
 
-func (external *External) Search(ctx context.Context, channels []string, question string, web any) ([]ExternalEvidence, error) {
+// ExternalSkip 记录本次检索中被跳过的渠道及中文原因。
+type ExternalSkip struct {
+	Channel string `json:"channel"`
+	Message string `json:"message"`
+}
+
+var externalChannelLabels = map[string]string{
+	"crossref": "Crossref", "semantic": "Semantic Scholar", "arxiv": "arXiv", "web": "网页搜索",
+}
+
+func externalSkipFor(channel string, err error) ExternalSkip {
+	label := externalChannelLabels[channel]
+	if label == "" {
+		label = channel
+	}
+	reason := err.Error()
+	if errors.Is(err, errExternalRateLimited) {
+		reason = "限流"
+	}
+	return ExternalSkip{Channel: channel, Message: label + " " + reason + "，已跳过"}
+}
+
+// externalSkipEvents 把逐渠道失败转成任务事件。
+func externalSkipEvents(skips []ExternalSkip) []map[string]any {
+	events := []map[string]any{}
+	for _, skip := range skips {
+		events = append(events, map[string]any{"kind": "external-skip", "channel": skip.Channel, "message": skip.Message})
+	}
+	return events
+}
+
+type externalChannelErrors []error
+
+func (errs externalChannelErrors) Error() string {
+	messages := []string{}
+	for _, err := range errs {
+		messages = append(messages, err.Error())
+	}
+	return "所选外部渠道均检索失败：" + strings.Join(messages, "；")
+}
+
+func (errs externalChannelErrors) Unwrap() []error {
+	return errs
+}
+
+func (external *External) searchChannel(ctx context.Context, channel, query string, web any) ([]ExternalEvidence, error) {
+	switch channel {
+	case "crossref":
+		return external.searchCrossref(ctx, query)
+	case "semantic":
+		return external.searchSemantic(ctx, query)
+	case "arxiv":
+		return external.searchArxiv(ctx, query)
+	case "web":
+		return external.searchWeb(ctx, query, web)
+	}
+	return nil, nil
+}
+
+// Search 逐渠道独立检索：单个渠道失败记为跳过，只有所有渠道都失败时才返回错误。
+func (external *External) Search(ctx context.Context, channels []string, question string, web any) ([]ExternalEvidence, []ExternalSkip, error) {
 	query := trimText(strings.TrimSpace(question), 200)
 	rows := []ExternalEvidence{}
+	skips := []ExternalSkip{}
+	failures := externalChannelErrors{}
 	for _, channel := range channels {
 		if err := ctx.Err(); err != nil {
-			return nil, err
+			return nil, nil, err
 		}
-		var values []ExternalEvidence
-		var err error
-		switch channel {
-		case "crossref":
-			values, err = external.searchCrossref(ctx, query)
-		case "semantic":
-			values, err = external.searchSemantic(ctx, query)
-		case "arxiv":
-			values, err = external.searchArxiv(ctx, query)
-		case "web":
-			values, err = external.searchWeb(ctx, query, web)
-		}
+		values, err := external.searchChannel(ctx, channel, query, web)
 		if err != nil {
-			return nil, err
+			if ctxErr := ctx.Err(); ctxErr != nil {
+				return nil, nil, ctxErr
+			}
+			skip := externalSkipFor(channel, err)
+			skips = append(skips, skip)
+			failures = append(failures, fmt.Errorf("%s：%w", externalChannelLabels[channel], err))
+			continue
 		}
 		rows = append(rows, values...)
 	}
-	return dedupeExternalEvidence(rows), nil
+	if len(channels) > 0 && len(failures) == len(channels) {
+		return nil, skips, failures
+	}
+	return dedupeExternalEvidence(rows), skips, nil
 }
 
 func (external *External) Verify(rows []ExternalEvidence) error {

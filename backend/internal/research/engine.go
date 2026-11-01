@@ -228,6 +228,7 @@ type researchCreateInput struct {
 	mcp          *McpSnapshot
 	skills       *SkillSelection
 	conversation *ConversationRef
+	skipped      []ExternalSkip
 	// draft 是工作流前一步的完整草稿，只作整理线索放进提示词，不作来源。
 	draft string
 }
@@ -343,7 +344,8 @@ func (engine *Engine) collectResearchSources(ctx context.Context, input map[stri
 				remoteChannels = append(remoteChannels, channel)
 			}
 		}
-		values, err := external.Search(ctx, remoteChannels, parsed.question, input["web_search"])
+		values, skipped, err := external.Search(ctx, remoteChannels, parsed.question, input["web_search"])
+		parsed.skipped = skipped
 		if err != nil {
 			return nil, nil, Context{}, err
 		}
@@ -471,7 +473,7 @@ func newResearchTask(parsed *researchCreateInput, snapshot ExtensionSnapshot) *T
 	return task
 }
 
-func fillResearchSources(task *Task, selected []Source, externalRows []ExternalEvidence, contextSnapshot Context) {
+func fillResearchSources(task *Task, selected []Source, externalRows []ExternalEvidence, contextSnapshot Context, skipped []ExternalSkip) {
 	task.Materials = selected
 	task.Context = &contextSnapshot
 	task.External = externalRows
@@ -479,6 +481,7 @@ func fillResearchSources(task *Task, selected []Source, externalRows []ExternalE
 	clipped := appendLocalTaskSources(task, selected)
 	appendExternalTaskSources(task, externalRows)
 	setTaskLimitations(task, clipped, externalRows)
+	task.Events = append(task.Events, externalSkipEvents(skipped)...)
 }
 
 func (engine *Engine) failResearch(task *Task, err error) error {
@@ -664,7 +667,7 @@ func (engine *Engine) runResearch(ctx context.Context, run *runState, input map[
 	if err != nil {
 		return engine.failResearch(task, err)
 	}
-	fillResearchSources(task, selected, externalRows, contextSnapshot)
+	fillResearchSources(task, selected, externalRows, contextSnapshot, parsed.skipped)
 	if err := engine.put(task); err != nil {
 		return err
 	}
