@@ -18,7 +18,7 @@ func TestResearchNoteLifecycleFlow(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	task := created.(Task)
+	task := createdTask(t, engine, created)
 	preview, err := engine.PreviewNote(task.TaskID)
 	if err != nil {
 		t.Fatal(err)

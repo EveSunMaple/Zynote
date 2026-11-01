@@ -81,6 +81,15 @@ func (engine *Engine) ListWorkflows() []any {
 				row["progress"] = progress
 			}
 		}
+		// 列表里每步回答只带前一段，全文在“保存工作流成果”或研究详情里看。
+		if steps, ok := row["steps"].([]any); ok {
+			for _, item := range steps {
+				if step, ok := item.(map[string]any); ok && len([]rune(text(step["answer"]))) > listNoteLimit {
+					step["answer"] = trimText(text(step["answer"]), listNoteLimit)
+					step["answer_truncated"] = true
+				}
+			}
+		}
 		result = append(result, row)
 	}
 	return result

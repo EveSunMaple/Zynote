@@ -53,11 +53,12 @@ const LONG_RUNNING_ACTIONS = new Set([
  'visual:prepare',
  'visual:recognize',
  'ppt-extract:analyze',
- 'ppt-extract:export',
- // 研究请求要等模型读完整节课字幕，单次常需 60–90 秒，两步工作流更久；模型客户端自身有超时。
- 'tools:request'
+ 'ppt-extract:export'
 ])
-const SLOW_ACTIONS = new Set(['zhiyun:search', 'zhiyun:lessons', 'settings:models'])
+// 研究动作（tools:request）在后台运行、创建后立即返回，只需普通的慢请求超时。
+const SLOW_ACTIONS = new Set(['zhiyun:search', 'zhiyun:lessons', 'settings:models', 'tools:request'])
+// 单行回包上限：超出时丢弃这一行，并让对应请求明确报错，而不是一直等到超时。
+const MAX_LINE_CHARS = 16_000_000
 function callTimeout(action: string) {
  if (LONG_RUNNING_ACTIONS.has(action)) return LONG_CALL_TIMEOUT_MS
  if (SLOW_ACTIONS.has(action)) return SLOW_CALL_TIMEOUT_MS
@@ -110,6 +111,7 @@ export class GoCore {
  private restarts = 0
  private disposed = false
  private buffer = ''
+ private dropping = false
  private readonly options: GoCoreOptions
  private helloTimer: NodeJS.Timeout | undefined
 
@@ -131,6 +133,9 @@ export class GoCore {
    detached: process.platform !== 'win32'
   })
   this.buffer = ''
+  this.dropping = false
+  // 按流解码：逐块 String(chunk) 会把跨块的多字节汉字解成乱码，长回包里很常见。
+  this.child.stdout!.setEncoding('utf8')
   this.child.stdout!.on('data', chunk => this.consume(String(chunk)))
   this.child.stderr!.on('data', chunk => {
    this.stderrTail = (this.stderrTail + String(chunk)).slice(-STDERR_TAIL_LIMIT)
@@ -210,9 +215,22 @@ export class GoCore {
   for (let index = this.buffer.indexOf('\n'); index >= 0; index = this.buffer.indexOf('\n')) {
    const line = this.buffer.slice(0, index)
    this.buffer = this.buffer.slice(index + 1)
-   if (line.trim()) this.handleLine(line)
+   if (this.dropping) this.dropping = false
+   else if (line.trim()) this.handleLine(line)
   }
-  if (this.buffer.length > 1_000_000) this.buffer = ''
+  if (this.buffer.length > MAX_LINE_CHARS) this.dropOversizedLine()
+ }
+
+ // 回包以 {"jsonrpc":"2.0","id":"c-N" 开头，超长时取出 id 让该请求立即失败，余下部分丢到下一个换行为止。
+ private dropOversizedLine() {
+  const id = /^\{"jsonrpc":"2\.0","id":"(c-\d+)"/.exec(this.buffer)?.[1]
+  this.buffer = ''
+  this.dropping = true
+  const item = id ? this.pending.get(id) : undefined
+  if (!id || !item) return
+  this.pending.delete(id)
+  clearTimeout(item.timer)
+  item.reject(new Error('Go 后端响应过大，已丢弃；请缩小本次请求的范围'))
  }
 
  // biome-ignore format: NOSONAR must stay on the function line

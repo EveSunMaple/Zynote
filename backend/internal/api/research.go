@@ -307,7 +307,7 @@ func (inv *Invoker) handleToolsRequest(storeState contract.StateStore, state *co
 			return engine.Create(context.Background(), input.Args)
 		case "agent-read":
 			id := textValue(input.Args["id"])
-			task, err := engine.Read(id)
+			task, err := engine.ReadSlim(id)
 			if err != nil {
 				if legacy, legacyErr := store.Read("legacy-task", id); legacyErr == nil {
 					return legacy, nil

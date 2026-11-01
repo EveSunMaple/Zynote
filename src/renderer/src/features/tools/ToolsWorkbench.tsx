@@ -33,6 +33,32 @@ function Result({text}: Readonly<{text: string}>) {
   </div>
  )
 }
+// 列表里较长的回答只带前一段，点“展开全文”再读取这一条研究的完整回答。
+function LongResult({text, truncated, taskId}: Readonly<{text: string; truncated?: boolean; taskId?: string | null}>) {
+ const [full, setFull] = useState<string>()
+ const [loading, setLoading] = useState(false)
+ return (
+  <>
+   <Result text={full ?? text} />
+   {truncated && !full && taskId && (
+    <Button
+     variant="ghost"
+     size="sm"
+     isDisabled={loading}
+     onClick={() => {
+      setLoading(true)
+      request<{note: string}>('agent-read', {id: taskId})
+       .then(task => setFull(task.note))
+       .catch(reason => notify.error(reason))
+       .finally(() => setLoading(false))
+     }}
+    >
+     展开全文
+    </Button>
+   )}
+  </>
+ )
+}
 type Skill = {id: string; name: string; description: string; body: string; enabled: boolean}
 type Server = {
  id: string
@@ -55,6 +81,7 @@ type Agent = {
  quotes?: Quote[]
  rejected_answer?: string
  progress?: RunProgressValue
+ note_truncated?: boolean
 }
 type Quote = {source_id: string; quote: string; cited_at?: string; status: string; at?: string; original?: string}
 const quoteLabels: Record<string, {label: string; color: 'success' | 'warning' | 'danger'}> = {
@@ -110,7 +137,7 @@ type Flow = {
  fence: number
  outcome_unknown: boolean
  notice?: string
- steps: {name: string; status: string; answer: string}[]
+ steps: {name: string; status: string; answer: string; answer_truncated?: boolean; task_id?: string | null}[]
  progress?: RunProgressValue
 }
 type Overview = {
@@ -465,7 +492,7 @@ export function ToolsWorkbench({visible, close}: Readonly<{visible: boolean; clo
          <summary>
           {step.name} · {labels[step.status] || step.status}
          </summary>
-         <Result text={step.answer} />
+         <LongResult text={step.answer} truncated={step.answer_truncated} taskId={step.task_id} />
         </details>
        ))}
        {task.notice && <p className="hint">{task.notice}</p>}
@@ -568,7 +595,7 @@ export function ToolsWorkbench({visible, close}: Readonly<{visible: boolean; clo
          {task.error_code}
         </p>
        )}
-       {task.note && <Result text={task.note} />}
+       {task.note && <LongResult text={task.note} truncated={task.note_truncated} taskId={task.task_id} />}
        <QuoteChecks quotes={task.quotes} sources={task.sources} />
        {task.limitations && <p className="hint">{task.limitations}</p>}
        <details>

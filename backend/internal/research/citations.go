@@ -21,9 +21,12 @@ var srtTimePattern = regexp.MustCompile(`^(\d{1,2}):(\d{2}):(\d{2})[,.]\d{1,3}\s
 var srtBlockPattern = regexp.MustCompile(`\r?\n\s*\r?\n`)
 var compactLinePattern = regexp.MustCompile(`^\[(\d{2}):(\d{2}):(\d{2})\](.*)$`)
 
+// parseSRT 把字幕切成带时间的片段。资料里夹杂的非字幕段落（讲义正文、说明）按原位置保留为
+// 无时间片段，不会因为压缩字幕而被丢掉；少于 3 条字幕的资料不当作字幕处理。
 func parseSRT(text string) ([]cue, bool) {
 	blocks := srtBlockPattern.Split(strings.TrimPrefix(text, "\uFEFF"), -1)
 	cues := []cue{}
+	timed := 0
 	for _, block := range blocks {
 		lines := strings.Split(strings.TrimSpace(block), "\n")
 		timeLine := -1
@@ -37,6 +40,9 @@ func parseSRT(text string) ([]cue, bool) {
 			}
 		}
 		if timeLine < 0 {
+			if body := untimedBlock(lines); body != "" {
+				cues = append(cues, cue{Start: -1, Text: body})
+			}
 			continue
 		}
 		match := srtTimePattern.FindStringSubmatch(strings.TrimSpace(lines[timeLine]))
@@ -50,8 +56,24 @@ func parseSRT(text string) ([]cue, bool) {
 			continue
 		}
 		cues = append(cues, cue{Start: clockSeconds(match[1], match[2], match[3]), Text: strings.Join(body, " ")})
+		timed++
 	}
-	return cues, len(cues) >= 3
+	return cues, timed >= 3
+}
+
+// untimedBlock 把非字幕段落合成一行；单独的序号行是 SRT 残留，不算正文。
+func untimedBlock(lines []string) string {
+	body := []string{}
+	for _, line := range lines {
+		if value := strings.TrimSpace(line); value != "" {
+			body = append(body, value)
+		}
+	}
+	text := strings.Join(body, " ")
+	if strings.TrimFunc(text, unicode.IsDigit) == "" {
+		return ""
+	}
+	return text
 }
 
 func clockSeconds(hours, minutes, seconds string) int {
@@ -76,6 +98,10 @@ func sourceView(text string) string {
 	}
 	lines := make([]string, 0, len(cues))
 	for _, item := range cues {
+		if item.Start < 0 {
+			lines = append(lines, item.Text)
+			continue
+		}
 		lines = append(lines, "["+clockText(item.Start)+"]"+item.Text)
 	}
 	return strings.Join(lines, "\n")
@@ -144,7 +170,7 @@ type citationRef struct {
 
 var citationPattern = regexp.MustCompile(`[\[【]\s*(S\d+[^\[\]【】\n]{0,48})[\]】]`)
 var citationIDPattern = regexp.MustCompile(`S(\d+)`)
-var citationTimePattern = regexp.MustCompile(`(\d{1,2}):(\d{2})(?::(\d{2}))?`)
+var citationTimePattern = regexp.MustCompile(`(\d{1,2})[:：](\d{2})(?:[:：](\d{2}))?`)
 
 func parseTime(value string) int {
 	match := citationTimePattern.FindStringSubmatch(value)
@@ -157,8 +183,22 @@ func parseTime(value string) int {
 	return clockSeconds(match[1], match[2], match[3])
 }
 
+// runeOffsets 返回每个字节位置对应的 rune 下标，避免对每处引用重新转换整段前缀（O(n²)）。
+func runeOffsets(text string) []int {
+	// 只会用 rune 边界上的字节位置查询（正则匹配的起止都在边界上）。
+	offsets := make([]int, len(text)+1)
+	count := 0
+	for position := range text {
+		offsets[position] = count
+		count++
+	}
+	offsets[len(text)] = count
+	return offsets
+}
+
 func findCitations(note string) []citationRef {
-	byteToRune := func(offset int) int { return len([]rune(note[:offset])) }
+	offsets := runeOffsets(note)
+	byteToRune := func(offset int) int { return offsets[offset] }
 	refs := []citationRef{}
 	for _, match := range citationPattern.FindAllStringSubmatchIndex(note, -1) {
 		inner := note[match[2]:match[3]]
@@ -206,7 +246,7 @@ type QuoteCheck struct {
 	Original string `json:"original,omitempty"`
 }
 
-var quotePattern = regexp.MustCompile(`[“「]([^”」\n]{2,400})[”」]`)
+var quotePattern = regexp.MustCompile(`[“「『"]([^”」』"\n]{2,400})[”」』"]`)
 var annotationPattern = regexp.MustCompile(`[（(【\[][^）)】\]]{0,24}[）)】\]]`)
 var ellipsisPattern = regexp.MustCompile(`\.{3,}|…+|⋯+`)
 
@@ -252,16 +292,50 @@ func buildCueIndex(cues []cue) cueIndex {
 	return index
 }
 
-// bestMatch 用半全局编辑距离在 haystack 中找与 needle 最接近的子串，返回距离和结束位置。
-func bestMatch(needle, haystack []rune) (int, int, int) {
+// matchBuffers 在一次核对中复用编辑距离的工作区，避免每条引文分配四个与原文等长的切片。
+type matchBuffers struct{ previous, starts, current, currentStarts []int }
+
+func (buffers *matchBuffers) take(size int) ([]int, []int, []int, []int) {
+	if cap(buffers.previous) < size {
+		buffers.previous = make([]int, size)
+		buffers.starts = make([]int, size)
+		buffers.current = make([]int, size)
+		buffers.currentStarts = make([]int, size)
+	}
+	return buffers.previous[:size], buffers.starts[:size], buffers.current[:size], buffers.currentStarts[:size]
+}
+
+// indexRunes 返回 needle 在 haystack 中第一次逐字出现的位置，没有则 -1。
+func indexRunes(haystack, needle []rune) int {
+	for start := 0; start+len(needle) <= len(haystack); start++ {
+		if haystack[start] != needle[0] {
+			continue
+		}
+		matched := true
+		for offset := 1; offset < len(needle); offset++ {
+			if haystack[start+offset] != needle[offset] {
+				matched = false
+				break
+			}
+		}
+		if matched {
+			return start
+		}
+	}
+	return -1
+}
+
+// bestMatch 用半全局编辑距离在 haystack 中找与 needle 最接近的子串，返回距离、起止位置。
+func bestMatch(needle, haystack []rune, buffers *matchBuffers) (int, int, int) {
 	if len(needle) == 0 || len(haystack) == 0 {
 		return len(needle), -1, -1
 	}
-	previous := make([]int, len(haystack)+1)
-	starts := make([]int, len(haystack)+1)
-	current := make([]int, len(haystack)+1)
-	currentStarts := make([]int, len(haystack)+1)
+	if at := indexRunes(haystack, needle); at >= 0 {
+		return 0, at, at + len(needle)
+	}
+	previous, starts, current, currentStarts := buffers.take(len(haystack) + 1)
 	for column := range previous {
+		previous[column] = 0
 		starts[column] = column
 	}
 	for row := 1; row <= len(needle); row++ {
@@ -298,7 +372,7 @@ func (index cueIndex) windowRange(seconds, radius int) (int, int) {
 	start, end := -1, -1
 	for position, owner := range index.owner {
 		at := index.cues[owner].Start
-		if at >= seconds-radius && at <= seconds+radius {
+		if at >= 0 && at >= seconds-radius && at <= seconds+radius {
 			if start < 0 {
 				start = position
 			}
@@ -314,12 +388,12 @@ type segmentHit struct {
 	to       int
 }
 
-func matchSegments(segments [][]rune, text []rune, offset int) ([]segmentHit, bool, bool) {
+func matchSegments(segments [][]rune, text []rune, offset int, buffers *matchBuffers) ([]segmentHit, bool, bool) {
 	hits := []segmentHit{}
 	exact, close := true, true
 	total, errors := 0, 0
 	for _, segment := range segments {
-		distance, from, to := bestMatch(segment, text)
+		distance, from, to := bestMatch(segment, text, buffers)
 		if to < 0 {
 			return nil, false, false
 		}
@@ -341,17 +415,21 @@ func (index cueIndex) describe(hits []segmentHit) (string, string) {
 		return "", ""
 	}
 	// 每段命中各自取所在字幕；不相邻的段之间用“……”分开，便于逐段对照。
-	type span struct{ first, last int }
+	type span struct {
+		first, last int
+		cut         bool
+	}
 	spans := []span{}
 	for _, hit := range hits {
 		if hit.to <= hit.from {
 			continue
 		}
 		first, last := index.owner[hit.from], index.owner[hit.to-1]
-		if last-first > 4 {
-			last = first + 4
+		cut := false
+		if last-first > originalCueLimit-1 {
+			last, cut = first+originalCueLimit-1, true
 		}
-		spans = append(spans, span{first, last})
+		spans = append(spans, span{first, last, cut})
 	}
 	if len(spans) == 0 {
 		return "", ""
@@ -362,7 +440,7 @@ func (index cueIndex) describe(hits []segmentHit) (string, string) {
 		tail := &merged[len(merged)-1]
 		if item.first <= tail.last+1 {
 			if item.last > tail.last {
-				tail.last = item.last
+				tail.last, tail.cut = item.last, item.cut
 			}
 			continue
 		}
@@ -374,12 +452,53 @@ func (index cueIndex) describe(hits []segmentHit) (string, string) {
 		for _, cue := range index.cues[item.first : item.last+1] {
 			texts = append(texts, cue.Text)
 		}
-		parts = append(parts, strings.Join(texts, " "))
+		part := strings.Join(texts, " ")
+		if item.cut {
+			part += " ……（原文较长，此处截取前 " + strconv.Itoa(originalCueLimit) + " 条字幕）"
+		}
+		parts = append(parts, part)
 	}
-	return clockText(index.cues[merged[0].first].Start), strings.Join(parts, " …… ")
+	return clockText(index.timeAt(merged[0].first)), strings.Join(parts, " …… ")
 }
 
-func checkQuote(quote string, cited int, index cueIndex) QuoteCheck {
+// originalCueLimit 是每段命中在“原始字幕”里最多展示的字幕条数。
+const originalCueLimit = 8
+
+// timeAt 返回某片段的时间；无时间的正文片段取它之前最近一条字幕的时间。
+func (index cueIndex) timeAt(position int) int {
+	for ; position >= 0; position-- {
+		if index.cues[position].Start >= 0 {
+			return index.cues[position].Start
+		}
+	}
+	return -1
+}
+
+func (index cueIndex) hasTime() bool {
+	for _, item := range index.cues {
+		if item.Start >= 0 {
+			return true
+		}
+	}
+	return false
+}
+
+func hitsStart(hits []segmentHit) int {
+	start := -1
+	for _, hit := range hits {
+		if hit.to > hit.from && (start < 0 || hit.from < start) {
+			start = hit.from
+		}
+	}
+	return start
+}
+
+// quoteWindow 是按所注时间查找原话的范围（秒）。
+const quoteWindow = 90
+
+// checkQuote 核对一句引文：先在所注时间附近找，再在全文找。全文的逐字命中优先于窗口内的近似命中；
+// 只有命中处的实际起始时间离所注时间超过窗口，才标“时间不符”（长引文跨出窗口不算）。
+func checkQuote(quote string, cited int, index cueIndex, buffers *matchBuffers) QuoteCheck {
 	result := QuoteCheck{Quote: quote, Status: "unverified"}
 	if cited >= 0 {
 		result.CitedAt = clockText(cited)
@@ -388,25 +507,37 @@ func checkQuote(quote string, cited int, index cueIndex) QuoteCheck {
 	if len(segments) == 0 || len(index.text) == 0 {
 		return result
 	}
-	hasTime := len(index.cues) > 0 && index.cues[0].Start >= 0
-	if hasTime && cited >= 0 {
-		if from, to := index.windowRange(cited, 90); from >= 0 {
-			hits, exact, close := matchSegments(segments, index.text[from:to], from)
-			if exact || close {
-				result.At, result.Original = index.describe(hits)
-				result.Status = map[bool]string{true: "exact", false: "edited"}[exact]
-				return result
+	timed := index.hasTime() && cited >= 0
+	settle := func(hits []segmentHit, status string) QuoteCheck {
+		result.At, result.Original = index.describe(hits)
+		result.Status = status
+		return result
+	}
+	var windowHits []segmentHit
+	if timed {
+		if from, to := index.windowRange(cited, quoteWindow); from >= 0 {
+			hits, exact, close := matchSegments(segments, index.text[from:to], from, buffers)
+			if exact {
+				return settle(hits, "exact")
+			}
+			if close {
+				windowHits = hits
 			}
 		}
 	}
-	hits, exact, close := matchSegments(segments, index.text, 0)
-	if exact || close {
-		result.At, result.Original = index.describe(hits)
+	hits, exact, close := matchSegments(segments, index.text, 0, buffers)
+	if exact || (close && windowHits == nil) {
 		status := map[bool]string{true: "exact", false: "edited"}[exact]
-		if hasTime && cited >= 0 {
-			status = "moved"
+		if timed {
+			at := index.timeAt(index.owner[hitsStart(hits)])
+			if at < 0 || at < cited-quoteWindow || at > cited+quoteWindow {
+				status = "moved"
+			}
 		}
-		result.Status = status
+		return settle(hits, status)
+	}
+	if windowHits != nil {
+		return settle(windowHits, "edited")
 	}
 	return result
 }
@@ -447,7 +578,9 @@ func timeNear(runes []rune, from, to int) int {
 func CheckQuotes(note string, sources []TaskSource) []QuoteCheck {
 	refs := findCitations(note)
 	runes := []rune(note)
-	byteToRune := func(offset int) int { return len([]rune(note[:offset])) }
+	offsets := runeOffsets(note)
+	byteToRune := func(offset int) int { return offsets[offset] }
+	buffers := &matchBuffers{}
 	indexes := map[string]cueIndex{}
 	for _, source := range sources {
 		if source.Read {
@@ -456,6 +589,9 @@ func CheckQuotes(note string, sources []TaskSource) []QuoteCheck {
 	}
 	checks := []QuoteCheck{}
 	for _, match := range quotePattern.FindAllStringSubmatchIndex(note, -1) {
+		if len(checks) >= maxQuoteChecks {
+			break
+		}
 		quote := note[match[2]:match[3]]
 		if len(normalizeQuote(quote)) < 6 {
 			continue
@@ -474,18 +610,19 @@ func CheckQuotes(note string, sources []TaskSource) []QuoteCheck {
 				}
 			}
 		}
+		// 引用了多个来源时逐个核对，取最可信的结果：逐字一致 > 有删改 > 时间不符 > 待核对。
 		var chosen QuoteCheck
-		for position, id := range ref.IDs {
+		for _, id := range ref.IDs {
 			index, ok := indexes[id]
 			if !ok {
 				continue
 			}
-			check := checkQuote(quote, cited, index)
+			check := checkQuote(quote, cited, index, buffers)
 			check.SourceID = id
-			if position == 0 || chosen.Status == "unverified" {
+			if chosen.SourceID == "" || quoteRank[check.Status] < quoteRank[chosen.Status] {
 				chosen = check
 			}
-			if check.Status != "unverified" {
+			if check.Status == "exact" {
 				break
 			}
 		}
@@ -495,6 +632,11 @@ func CheckQuotes(note string, sources []TaskSource) []QuoteCheck {
 	}
 	return checks
 }
+
+// maxQuoteChecks 限制单个回答逐句核对的引文数，超长回答不至于拖慢保存。
+const maxQuoteChecks = 150
+
+var quoteRank = map[string]int{"exact": 0, "edited": 1, "moved": 2, "unverified": 3}
 
 var quoteStatusLabels = map[string]string{"exact": "原文一致", "edited": "有删改", "moved": "时间不符", "unverified": "待核对"}
 

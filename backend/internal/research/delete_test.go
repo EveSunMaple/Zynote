@@ -17,7 +17,7 @@ func TestDeleteResearchAndWorkflow(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	single := created.(Task).TaskID
+	single := createdTask(t, engine, created).TaskID
 	flowValue, err := engine.CreateWorkflow(context.Background(), map[string]any{
 		"op": strings.Repeat("2", 32), "question": "余项", "materials": bindings,
 	})

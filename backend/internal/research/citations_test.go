@@ -129,7 +129,7 @@ func TestResearchMarksFabricatedQuoteAndKeepsAnswer(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	task := created.(Task)
+	task := createdTask(t, engine, created)
 	if task.Status != "completed" || len(task.Quotes) != 2 || task.Quotes[0].Status != "exact" ||
 		task.Quotes[1].Status != "unverified" || !strings.Contains(task.Limitations, "1 条引文未能在原文中找到") {
 		t.Fatalf("quote result mismatch: %+v / %s", task.Quotes, task.Limitations)
@@ -160,7 +160,7 @@ func TestResearchReadsEveryLongMaterial(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	task := created.(Task)
+	task := createdTask(t, engine, created)
 	if len(task.Sources) != 5 || !strings.Contains(prompt, "<source id=\"S5\">") {
 		t.Fatalf("every material must be read: %d sources", len(task.Sources))
 	}
@@ -194,7 +194,7 @@ func TestSearchSendsWholeLongLecture(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	task := created.(Task)
+	task := createdTask(t, engine, created)
 	if task.Sources[0].Truncated || !strings.Contains(prompt, "拉格朗日余项的适用条件") ||
 		!strings.Contains(task.Sources[0].Coverage, "已读整节") {
 		t.Fatalf("late content must reach the model: %+v", task.Sources[0].Coverage)
@@ -276,7 +276,7 @@ func TestExportIncludesQuoteChecks(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	path, err := engine.Export(created.(Task).TaskID)
+	path, err := engine.Export(createdTask(t, engine, created).TaskID)
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -414,7 +414,7 @@ func (store *Store) conversationResearchTasks(id string) []any {
 						task["progress"] = progress
 					}
 				}
-				tasks = append(tasks, task)
+				tasks = append(tasks, taskRow(task, 0))
 			}
 		}
 	}

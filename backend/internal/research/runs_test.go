@@ -51,7 +51,7 @@ func TestResearchRunsInBackgroundWithProgress(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	task := created.(Task)
+	task := createdTask(t, engine, created)
 	if task.Status != "running" {
 		t.Fatalf("create must return at once with a running task, got %s", task.Status)
 	}
@@ -82,7 +82,7 @@ func TestStopCancelsBackgroundResearch(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	id := created.(Task).TaskID
+	id := createdTask(t, engine, created).TaskID
 	waitTask(t, engine, id, func(task Task) bool { return task.Progress != nil && task.Progress.Stage == "writing" })
 	if _, err := engine.Stop(id); err != nil {
 		t.Fatal(err)
@@ -99,4 +99,24 @@ func TestStopCancelsBackgroundResearch(t *testing.T) {
 	if task := value.(Task); task.Status != "stopped" {
 		t.Fatalf("stopped research must stay stopped, got %s (%s)", task.Status, task.ErrorCode)
 	}
+}
+
+// createdTask 读回 Create 登记的完整任务（Create 只回不含原文的精简行）。
+func createdTask(t *testing.T, engine *Engine, created any) Task {
+	t.Helper()
+	row, ok := created.(map[string]any)
+	if !ok {
+		t.Fatalf("create must return a slim row, got %T", created)
+	}
+	if _, has := row["materials"]; has {
+		t.Fatal("create must not return source text")
+	}
+	task, err := engine.readTask(text(row["task_id"]))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if active := activeRun(task.TaskID); active != nil && task.Status == "running" {
+		task.Progress = active.progress()
+	}
+	return task
 }

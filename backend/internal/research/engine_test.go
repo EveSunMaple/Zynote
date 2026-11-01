@@ -49,7 +49,7 @@ func TestEngineCreateAndNote(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	task := created.(Task)
+	task := createdTask(t, engine, created)
 	if task.Status != "completed" || task.AnswerHash == nil || len(task.Sources) != 1 {
 		t.Fatalf("task mismatch: %+v", task)
 	}
@@ -194,7 +194,7 @@ func TestExternalSearchAndVerify(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	task := created.(Task)
+	task := createdTask(t, engine, created)
 	if len(task.External) != 1 || task.External[0].Provider != "crossref" || len(task.Sources) != 1 {
 		t.Fatalf("external task mismatch: %+v", task)
 	}

@@ -14,7 +14,7 @@ type Task = {
  status: string
  note: string
  error_code?: string
- sources: {source_id: string; title: string; text: string; read: boolean}[]
+ sources: {source_id: string; title: string; read: boolean; coverage?: string}[]
  progress?: RunProgressValue
 }
 type Detail = Session & {research_tasks?: Task[]}
@@ -256,9 +256,7 @@ export function LearningRecords() {
          <summary>本次来源</summary>
          {task.sources.map(source => (
           <p key={source.source_id}>
-           {source.source_id} · {source.title} · {source.read ? '已读' : '未读'}
-           <br />
-           {source.text}
+           {source.source_id} · {source.title} · {source.read ? source.coverage || '已读' : '未读'}
           </p>
          ))}
         </details>

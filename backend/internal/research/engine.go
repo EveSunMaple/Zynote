@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -72,20 +73,31 @@ type Engine struct {
 
 // recoveredRoots 记录本后端进程内已做过中断恢复的资料库。每个请求都会新建 Engine，
 // 若每次都恢复，正在运行的研究会被另一次刷新误标为“中断”；只有进程重启后残留的
-// running 任务才确实已中断。
-var recoveredRoots sync.Map
+// running 任务才确实已中断。恢复成功后才标记，失败时下次请求重试；recoverMu 保证同一时刻只有一个
+// 请求在恢复，避免另一个请求刚登记的任务被并发的恢复误标。
+var (
+	recoveredRoots sync.Map
+	recoverMu      sync.Mutex
+)
 
 func (engine *Engine) initialize() {
 	engine.initOnce.Do(func() {
-		if _, done := recoveredRoots.LoadOrStore(engine.Store.root, true); done {
+		root := engine.Store.root
+		if _, done := recoveredRoots.Load(root); done {
+			return
+		}
+		recoverMu.Lock()
+		defer recoverMu.Unlock()
+		if _, done := recoveredRoots.Load(root); done {
 			return
 		}
 		rows, err := engine.Store.List("task")
 		if err != nil {
+			slog.Warn("研究任务中断恢复失败，下次请求重试", "error", err)
 			return
 		}
 		for _, row := range rows {
-			if text(row["status"]) != "running" {
+			if text(row["status"]) != "running" || activeRun(text(row["task_id"])) != nil {
 				continue
 			}
 			encoded, _ := json.Marshal(row)
@@ -96,8 +108,12 @@ func (engine *Engine) initialize() {
 			task.Status = "paused"
 			task.OutcomeUnknown = true
 			task.ErrorCode = "上次模型请求中断，需明确确认后重试"
-			_ = engine.put(&task)
+			if err := engine.put(&task); err != nil {
+				slog.Warn("研究任务中断恢复失败，下次请求重试", "error", err)
+				return
+			}
 		}
+		recoveredRoots.Store(root, true)
 	})
 }
 
@@ -163,6 +179,16 @@ func (engine *Engine) List() []any {
 // taskListRow 去掉列表里不需要的原文（每个任务可达二十万字），
 // 否则任务一多，回包会超过主进程单行上限而被丢弃。原文仍保存在任务记录中，供核验与导出。
 func taskListRow(row map[string]any) map[string]any {
+	return taskRow(row, listNoteLimit)
+}
+
+// listNoteLimit 是列表里每条回答最多带的字数；更长的标记 note_truncated，界面按需读全文。
+// 列表每 2 秒轮询一次，回答最长可达二十万字，全带上会让回包超过主进程的单行上限。
+const listNoteLimit = 4000
+
+// taskRow 返回不含来源原文的任务；noteLimit > 0 时截短回答。研究详情、会话和创建结果都用它，
+// 原文只留在库里供核验与导出。
+func taskRow(row map[string]any, noteLimit int) map[string]any {
 	slim := map[string]any{}
 	for key, value := range row {
 		switch key {
@@ -179,11 +205,36 @@ func taskListRow(row map[string]any) map[string]any {
 				})
 			}
 			slim[key] = sources
+		case "note":
+			note := text(value)
+			if noteLimit > 0 && len([]rune(note)) > noteLimit {
+				slim[key] = trimText(note, noteLimit)
+				slim["note_truncated"] = true
+				continue
+			}
+			slim[key] = value
 		default:
 			slim[key] = value
 		}
 	}
 	return slim
+}
+
+// slimTask 把任务转成不含来源原文的行（回答完整）。
+func slimTask(task Task) map[string]any {
+	encoded, _ := json.Marshal(task)
+	var row map[string]any
+	_ = json.Unmarshal(encoded, &row)
+	return taskRow(row, 0)
+}
+
+// ReadSlim 供界面读取单条研究：回答完整，但不带来源原文。
+func (engine *Engine) ReadSlim(id string) (any, error) {
+	value, err := engine.Read(id)
+	if err != nil {
+		return nil, err
+	}
+	return slimTask(value.(Task)), nil
 }
 
 func (engine *Engine) Read(id string) (any, error) {
@@ -723,7 +774,12 @@ func (engine *Engine) runResearch(ctx context.Context, run *runState, input map[
 // Create 登记研究任务后立即返回“进行中”的任务，后续在后台运行，界面轮询即可看到进度；
 // 没有后台执行器时就地同步运行，失败原因作为错误返回。
 func (engine *Engine) Create(ctx context.Context, input map[string]any) (any, error) {
-	return engine.create(ctx, input, true, nil, "")
+	value, err := engine.create(ctx, input, true, nil, "")
+	if err != nil {
+		return nil, err
+	}
+	// 只回不含原文的任务：选了大量资料时完整任务可达数 MB，会超过主进程单行上限。
+	return slimTask(value.(Task)), nil
 }
 
 func (engine *Engine) create(ctx context.Context, input map[string]any, async bool, parent *runState, prefix string) (any, error) {
