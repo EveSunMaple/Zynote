@@ -44,6 +44,15 @@ const normalize = (entry: StudyEntry): StudyEntry => ({
 
 const snapshotOf = (entries: StudyEntry[]) => JSON.stringify(entries.map(normalize))
 
+function analyzeNotice(source: AnalysisSource, result: Draft, rows: Highlight[], pageCount: number) {
+ if (!result.rows.length && result.skippedContentsPages?.length === pageCount)
+  return '已跳过目录。请翻到正文章节，或选择包含正文的页码再生成。'
+ if (source === 'teacher' && !rows.length) return '本次智云回放的语音转写与所选正文页没有匹配的原话。'
+ if (result.warnings?.length) return '部分候选未通过核对，已按页列出原因。你可以继续核对并保存其余建议。'
+ if (result.rows.length) return '请核对划线内容、位置与依据，再保存到原教材。'
+ return '此范围没有找到依据充分的内容，原教材未修改。'
+}
+
 // biome-ignore format: NOSONAR must stay on the function line
 function collectIssues(entries: StudyEntry[]): ScheduleIssue[] { // NOSONAR: transitional TS fallback/UI flow retained for behavior compatibility; decomposition tracked separately to avoid sequencing regressions.
  const issues: ScheduleIssue[] = []
@@ -385,17 +394,7 @@ export function Study({ // NOSONAR: transitional TS fallback/UI flow retained fo
    const rows = source === 'teacher' ? result.rows.filter(row => row.comments?.some(c => c.kind === 'teacher' && c.quote?.trim())) : result.rows
    setDraft({...result, rows, source, analyzedRange: [first, last]})
    setChosen(rows.map(row => row.id))
-   notify.info(
-    !result.rows.length && result.skippedContentsPages?.length === last-first+1
-     ? '已跳过目录。请翻到正文章节，或选择包含正文的页码再生成。'
-     : source === 'teacher' && !rows.length ? '本次智云回放的语音转写与所选正文页没有匹配的原话。'
-     : result.warnings?.length
-     ? '部分候选未通过核对，已按页列出原因。你可以继续核对并保存其余建议。'
-     : result.rows.length
-     ? '请核对划线内容、位置与依据，再保存到原教材。'
-     : '此范围没有找到依据充分的内容，原教材未修改。',
-    {timeout: 6000}
-   )
+   notify.info(analyzeNotice(source, result, rows, last - first + 1), {timeout: 6000})
   }, reason => {
    if (currentSource()) setAnalysisError(errorMessage(reason))
   })
@@ -537,6 +536,38 @@ export function Study({ // NOSONAR: transitional TS fallback/UI flow retained fo
    setTab('schedule')
   }
  }
+ function scheduleBody() {
+  if (initialSchedule === 'loading')
+   return <output className="study-menu__hint">正在读取已保存的课表…</output>
+  if (typeof initialSchedule === 'object')
+   return (
+    <div className="textbook-next">
+     <p role="alert" className="study-inline-error">
+      读取课表失败。{initialSchedule.error}
+     </p>
+     <StudyNextStep>点「重新读取课表」，载入已保存的课程。</StudyNextStep>
+     <Button variant="primary" size="sm" onPress={loadSchedule}>
+      重新读取课表
+     </Button>
+    </div>
+   )
+  return (
+   <ScheduleContent {...scheduleProps}>
+    {toolsOpen => (
+     <ScheduleMatching
+      matching={matching}
+      entries={entries}
+      selected={selected}
+      onSelect={selectEntry}
+      courses={courses}
+      busy={busy}
+      openZhiyun={openZhiyun}
+      toolsOpen={toolsOpen}
+     />
+    )}
+   </ScheduleContent>
+  )
+ }
  const welcome = !entries.length && (tab === 'schedule' || !book)
  const activeCourse = tab === 'textbook' && entry
   ? [entry.title || '未命名课次', courseName !== entry.title ? courseName : ''].filter(Boolean).join(' · ')
@@ -587,23 +618,18 @@ export function Study({ // NOSONAR: transitional TS fallback/UI flow retained fo
       id="schedule"
       shouldForceMount
      >
-      {initialSchedule === 'loading' ? <p role="status" className="study-menu__hint">正在读取已保存的课表…</p>
-       : typeof initialSchedule === 'object' ? (
-        <div className="textbook-next">
-         <p role="alert" className="study-inline-error">读取课表失败。{initialSchedule.error}</p>
-         <StudyNextStep>点「重新读取课表」，载入已保存的课程。</StudyNextStep>
-         <Button variant="primary" size="sm" onPress={loadSchedule}>重新读取课表</Button>
-        </div>
-       ) : <ScheduleContent {...scheduleProps}>
-       {toolsOpen => <ScheduleMatching matching={matching} entries={entries} selected={selected} onSelect={selectEntry} courses={courses} busy={busy} openZhiyun={openZhiyun} toolsOpen={toolsOpen} />}
-      </ScheduleContent>}
+      {scheduleBody()}
      </Tabs.Panel>
      <Tabs.Panel
       className={'study-panel' + (tab !== 'textbook' ? ' study-panel--hidden' : '')}
       id="textbook"
       shouldForceMount
      >
-      {initialSchedule === 'loading' ? <p role="status" className="study-menu__hint">正在读取教材的课程关联…</p> : <TextbookContent key={`${bookId}/${reopenVersion}`} {...textbookProps} />}
+      {initialSchedule === 'loading' ? (
+       <output className="study-menu__hint">正在读取教材的课程关联…</output>
+      ) : (
+       <TextbookContent key={`${bookId}/${reopenVersion}`} {...textbookProps} />
+      )}
      </Tabs.Panel>
     </Tabs>
    </WindowPanel>

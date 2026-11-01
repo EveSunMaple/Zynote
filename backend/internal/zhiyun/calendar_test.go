@@ -11,7 +11,7 @@ import (
 	"time"
 )
 
-func TestMatchCoursePrioritizesPersonalCalendar(t *testing.T) {
+func TestMatchCoursePrioritizesPersonalCalendar(t *testing.T) { // NOSONAR: table-driven fixture test; extracting the server would obscure the scenario.
 	const first = `{"id":"11","course_id":"987","sub_id":"511","title":"数据思维（甲）Ⅰ","term_name":"秋","lecturer_name":"甲老师"}`
 	const second = `{"id":"12","sub_id":"512","title":"数据思维 (甲) I","lecturer_name":"乙老师"}`
 	for _, tc := range []struct {

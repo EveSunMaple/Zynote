@@ -4,6 +4,12 @@ import type {Book} from '@renderer/features/study/types'
 
 type ZoomAnchor = {x: number; y: number; fractionX: number; fractionY: number; zoom: number}
 
+function wheelUnit(deltaMode: number, pageHeight: number) {
+ if (deltaMode === 1) return 16
+ if (deltaMode === 2) return pageHeight
+ return 1
+}
+
 export function usePdfNavigation(book: Book | null, pageNumber: number, reading: boolean, version: number) {
  const frame = useRef<HTMLDivElement>(null)
  const paper = useRef<HTMLDivElement>(null)
@@ -77,7 +83,7 @@ export function usePdfNavigation(book: Book | null, pageNumber: number, reading:
   const wheel = (event: WheelEvent) => {
    if (!event.ctrlKey && !event.metaKey) return
    event.preventDefault()
-   const unit = event.deltaMode === 1 ? 16 : event.deltaMode === 2 ? element.clientHeight : 1
+   const unit = wheelUnit(event.deltaMode, element.clientHeight)
    const distance = Math.max(-120, Math.min(120, event.deltaY * unit))
    zoomTo(requested.current * 1.1 ** (-distance / 100), event.clientX, event.clientY)
   }
@@ -101,7 +107,7 @@ export function usePdfNavigation(book: Book | null, pageNumber: number, reading:
    drag = {pointer: event.pointerId, x: event.clientX, y: event.clientY, left: scroll.scrollLeft, top: scroll.scrollTop}
   }
   const move = (event: PointerEvent) => {
-   if (!drag || drag.pointer !== event.pointerId) return
+   if (drag?.pointer !== event.pointerId) return
    scroll.scrollLeft = drag.left + drag.x - event.clientX
    scroll.scrollTop = drag.top + drag.y - event.clientY
   }

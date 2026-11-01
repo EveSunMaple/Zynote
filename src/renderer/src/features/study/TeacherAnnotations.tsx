@@ -48,6 +48,28 @@ function SavedTeacherList({bookId, lectureId, onLocate, actions}: Readonly<ListP
    active = false
   }
  }, [bookId, lectureId, request])
+ function renderState(): ReactNode {
+  if (pending) return <output className="study-menu__hint">正在读取老师批注…</output>
+  if (error)
+   return (
+    <div className="textbook-next">
+     <p className="study-inline-error" role="alert">
+      读取老师批注失败。{error}
+     </p>
+     <Button variant="ghost" size="sm" onPress={() => setRequest({...request})}>
+      重新读取批注
+     </Button>
+    </div>
+   )
+  if (!data) return null
+  if (data.total === 0) return <p className="study-menu__hint">这本教材还没有已保存的老师批注。</p>
+  if (data.items.length >= data.total) return null
+  return (
+   <Button variant="ghost" size="sm" onPress={() => setRequest({offset: data.items.length})}>
+    查看更多老师批注
+   </Button>
+  )
+ }
  return (
   <section className="teacher-annotations" aria-label="全书已保存的老师批注" aria-busy={pending}>
    {data && data.items.length > 0 && (
@@ -75,29 +97,7 @@ function SavedTeacherList({bookId, lectureId, onLocate, actions}: Readonly<ListP
      </ul>
     </>
    )}
-   {pending ? (
-    <p className="study-menu__hint" role="status">
-     正在读取老师批注…
-    </p>
-   ) : error ? (
-    <div className="textbook-next">
-     <p className="study-inline-error" role="alert">
-      读取老师批注失败。{error}
-     </p>
-     <Button variant="ghost" size="sm" onPress={() => setRequest({...request})}>
-      重新读取批注
-     </Button>
-    </div>
-   ) : data?.total === 0 ? (
-    <p className="study-menu__hint">这本教材还没有已保存的老师批注。</p>
-   ) : (
-    data &&
-    data.items.length < data.total && (
-     <Button variant="ghost" size="sm" onPress={() => setRequest({offset: data.items.length})}>
-      查看更多老师批注
-     </Button>
-    )
-   )}
+   {renderState()}
    {data && actions(data.replaySubId)}
   </section>
  )

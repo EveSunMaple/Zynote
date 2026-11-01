@@ -12,6 +12,8 @@ import (
 // 在知识库或已勾选的外部渠道再检索、调用已选 MCP 工具）；系统执行后带着新资料再问一轮，最多 maxResearchRounds 轮。
 // 资料足够时第一轮就直接作答，和单轮研究一样快。最终回答照常逐句回原文核对。
 
+const librarySearchLabel = "知识库检索“"
+
 const (
 	maxResearchRounds = 8
 	// localReadLimit 是多轮累计读取本地资料的总字数上限（首轮预算 localSourceBudget 之外按需加读）。
@@ -318,7 +320,7 @@ func (engine *Engine) roundSearchLibrary(plan *readingPlan, parsed *researchCrea
 	}
 	found, err := engine.Sources.Search(query, nil)
 	if err != nil {
-		return "知识库检索“" + trimText(query, 40) + "”失败：" + err.Error(), false
+		return librarySearchLabel + trimText(query, 40) + "”失败：" + err.Error(), false
 	}
 	added := []string{}
 	for _, source := range found {
@@ -335,9 +337,9 @@ func (engine *Engine) roundSearchLibrary(plan *readingPlan, parsed *researchCrea
 		added = append(added, "《"+source.Title+"》")
 	}
 	if len(added) == 0 {
-		return "知识库检索“" + trimText(query, 40) + "”没有新资料", false
+		return librarySearchLabel + trimText(query, 40) + "”没有新资料", false
 	}
-	return "知识库检索“" + trimText(query, 40) + "”，新增 " + strings.Join(added, "、"), true
+	return librarySearchLabel + trimText(query, 40) + "”，新增 " + strings.Join(added, "、"), true
 }
 
 func (engine *Engine) roundSearchExternal(ctx context.Context, task *Task, plan *readingPlan, parsed *researchCreateInput, input map[string]any, action roundAction) (string, bool) {

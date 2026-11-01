@@ -21,6 +21,7 @@ import (
 
 const (
 	msgReselectTextbook = "请重新选择教材"
+	msgHighlightInvalid = "划线数据无效"
 	msgInvalidHighlight = "请选择有效的划线"
 )
 
@@ -179,16 +180,16 @@ func (service *Service) OpenPath(id string) (string, error) {
 	return item.path, nil
 }
 
-func (service *Service) Manual(caller Caller, id string, raw json.RawMessage) (any, error) {
+func parseManualHighlights(raw json.RawMessage) ([]Highlight, error) {
 	var rows []Highlight
 	if len(raw) > 0 && raw[0] == '{' {
 		var single Highlight
 		if err := json.Unmarshal(raw, &single); err != nil {
-			return nil, contract.InputInvalid("划线数据无效")
+			return nil, contract.InputInvalid(msgHighlightInvalid)
 		}
 		rows = []Highlight{single}
 	} else if json.Unmarshal(raw, &rows) != nil {
-		return nil, contract.InputInvalid("划线数据无效")
+		return nil, contract.InputInvalid(msgHighlightInvalid)
 	}
 	if len(rows) == 0 || len(rows) > 512 {
 		return nil, contract.InputInvalid("一次请选择当前页的 1 到 512 段文字或笔迹")
@@ -196,9 +197,31 @@ func (service *Service) Manual(caller Caller, id string, raw json.RawMessage) (a
 	seen := make(map[string]bool, len(rows))
 	for _, row := range rows {
 		if !validHighlight(row) || seen[row.ID] || row.Page != rows[0].Page {
-			return nil, contract.InputInvalid("划线数据无效")
+			return nil, contract.InputInvalid(msgHighlightInvalid)
 		}
 		seen[row.ID] = true
+	}
+	return rows, nil
+}
+
+func validateManualRows(rows []Highlight, pages int) error {
+	for _, row := range rows {
+		if row.Chapter != nil && row.Chapter.LastPage > pages {
+			return contract.InputInvalid("章节范围超出教材页数")
+		}
+		for _, comment := range row.Comments {
+			if comment.Kind != "personal" {
+				return contract.InputInvalid("手动批注只能标记为我的笔记")
+			}
+		}
+	}
+	return nil
+}
+
+func (service *Service) Manual(caller Caller, id string, raw json.RawMessage) (any, error) {
+	rows, err := parseManualHighlights(raw)
+	if err != nil {
+		return nil, err
 	}
 	service.mu.Lock()
 	defer service.mu.Unlock()
@@ -206,15 +229,8 @@ func (service *Service) Manual(caller Caller, id string, raw json.RawMessage) (a
 	if !ok {
 		return nil, contract.InputInvalid(msgReselectTextbook)
 	}
-	for _, row := range rows {
-		if row.Chapter != nil && row.Chapter.LastPage > item.pages {
-			return nil, contract.InputInvalid("章节范围超出教材页数")
-		}
-		for _, comment := range row.Comments {
-			if comment.Kind != "personal" {
-				return nil, contract.InputInvalid("手动批注只能标记为我的笔记")
-			}
-		}
+	if err := validateManualRows(rows, item.pages); err != nil {
+		return nil, err
 	}
 	if _, err := service.commitLocked(caller, id, item, item.hash, addAnnotations(rows)); err != nil {
 		return nil, err
@@ -281,6 +297,67 @@ type writeResult struct {
 	Count int `json:"count"`
 }
 
+func uniqueHighlightIDs(rows []Highlight) error {
+	seen := make(map[string]bool, len(rows))
+	for _, row := range rows {
+		if seen[row.ID] {
+			return contract.InputInvalid("批注标识重复，请重新选择划线")
+		}
+		seen[row.ID] = true
+	}
+	return nil
+}
+
+func annotationDescription(row Highlight) string {
+	description := highlightLabels[row.Source]
+	if row.Extension {
+		description += " · 适当延伸"
+	}
+	description += "\n" + row.Quote + "\n依据：" + row.Evidence
+	if row.Chapter != nil {
+		description = row.Chapter.Text
+		for _, ref := range row.Chapter.Refs {
+			description += fmt.Sprintf("\n第%d页 第%d行", ref.Page, ref.Line)
+		}
+		return description
+	}
+	if len(row.Comments) == 0 {
+		return description
+	}
+	var lines []string
+	for _, comment := range row.Comments {
+		label := map[string]string{"teacher": "老师讲解", "ai": highlightLabels["ai"], "personal": "我的笔记"}[comment.Kind]
+		lines = append(lines, label+" · "+comment.Text)
+		if comment.Quote != "" {
+			lines = append(lines, strings.TrimSpace(comment.Timestamp+" "+comment.Quote))
+		}
+	}
+	return strings.Join(lines, "\n")
+}
+
+func annotationPayload(rows []Highlight) []map[string]any {
+	payload := make([]map[string]any, 0, len(rows))
+	for _, row := range rows {
+		color := highlightColors[row.Source]
+		annotation := map[string]any{
+			"id": row.ID, "page": row.Page, "rect": row.Rect, "source": row.Source,
+			"quote": row.Quote, "evidence": row.Evidence, "extension": row.Extension,
+			"color": []float64{color[0], color[1], color[2]}, "description": annotationDescription(row),
+		}
+		if len(row.Comments) > 0 {
+			annotation["comments"] = row.Comments
+		}
+		if row.Chapter != nil {
+			annotation["chapter"] = row.Chapter
+		}
+		if len(row.Ink) > 0 {
+			annotation["ink"] = row.Ink
+		}
+		payload = append(payload, annotation)
+	}
+	return payload
+}
+
 func (service *Service) commitLocked(
 	caller Caller,
 	bookID string,
@@ -309,53 +386,10 @@ func (service *Service) commitLocked(
 		service.books[bookID] = item
 		return writeResult{Pages: info.Pages, Count: len(resolved)}, nil
 	}
-	seen := make(map[string]bool, len(resolved))
-	for _, h := range resolved {
-		if seen[h.ID] {
-			return writeResult{}, contract.InputInvalid("批注标识重复，请重新选择划线")
-		}
-		seen[h.ID] = true
+	if err := uniqueHighlightIDs(resolved); err != nil {
+		return writeResult{}, err
 	}
-	payload := make([]map[string]any, 0, len(resolved))
-	for _, row := range resolved {
-		color := highlightColors[row.Source]
-		description := highlightLabels[row.Source]
-		if row.Extension {
-			description += " · 适当延伸"
-		}
-		description += "\n" + row.Quote + "\n依据：" + row.Evidence
-		if row.Chapter != nil {
-			description = row.Chapter.Text
-			for _, r := range row.Chapter.Refs {
-				description += fmt.Sprintf("\n第%d页 第%d行", r.Page, r.Line)
-			}
-		} else if len(row.Comments) > 0 {
-			var lines []string
-			for _, c := range row.Comments {
-				label := map[string]string{"teacher": "老师讲解", "ai": highlightLabels["ai"], "personal": "我的笔记"}[c.Kind]
-				lines = append(lines, label+" · "+c.Text)
-				if c.Quote != "" {
-					lines = append(lines, strings.TrimSpace(c.Timestamp+" "+c.Quote))
-				}
-			}
-			description = strings.Join(lines, "\n")
-		}
-		annotation := map[string]any{
-			"id": row.ID, "page": row.Page, "rect": row.Rect, "source": row.Source,
-			"quote": row.Quote, "evidence": row.Evidence, "extension": row.Extension,
-			"color": []float64{color[0], color[1], color[2]}, "description": description,
-		}
-		if len(row.Comments) > 0 {
-			annotation["comments"] = row.Comments
-		}
-		if row.Chapter != nil {
-			annotation["chapter"] = row.Chapter
-		}
-		if len(row.Ink) > 0 {
-			annotation["ink"] = row.Ink
-		}
-		payload = append(payload, annotation)
-	}
+	payload := annotationPayload(resolved)
 	temp := item.path + ".zynote-" + ids.New() + ".tmp"
 	defer os.Remove(temp)
 	raw, err := caller.Call("pdf.write", map[string]any{
@@ -421,6 +455,32 @@ func (service *Service) Annotations(id string, page int) ([]Highlight, error) {
 	return rows, nil
 }
 
+func addPersonalComment(rows []Highlight, markID, text string, previous *string) ([]Highlight, error) {
+	for i, row := range rows {
+		if row.ID != markID || row.Chapter != nil {
+			continue
+		}
+		comments := slices.Clone(row.Comments)
+		next := Comment{Kind: "personal", Text: text}
+		if previous != nil {
+			old := slices.Index(comments, Comment{Kind: "personal", Text: *previous})
+			if old < 0 {
+				return nil, contract.InputInvalid("原批注已更改，请重新打开后再编辑")
+			}
+			comments = slices.Delete(comments, old, old+1)
+		}
+		if !slices.Contains(comments, next) {
+			comments = append(comments, next)
+		}
+		if len(comments) > 100 {
+			return nil, contract.InputInvalid("单条划线最多保留 100 条批注")
+		}
+		rows[i].Comments = comments
+		return rows, nil
+	}
+	return nil, contract.InputInvalid("这条划线已不存在，请重新选择")
+}
+
 func (service *Service) Comment(caller Caller, id, markID, text string, previous *string) (any, error) {
 	text = strings.TrimSpace(text)
 	if !boundedText(text, 5000) || (previous != nil && !boundedText(*previous, 5000)) {
@@ -433,29 +493,7 @@ func (service *Service) Comment(caller Caller, id, markID, text string, previous
 		return nil, contract.InputInvalid(msgReselectTextbook)
 	}
 	return service.commitLocked(caller, id, item, item.hash, func(rows []Highlight) ([]Highlight, error) {
-		for i, h := range rows {
-			if h.ID != markID || h.Chapter != nil {
-				continue
-			}
-			comments := slices.Clone(h.Comments)
-			next := Comment{Kind: "personal", Text: text}
-			if previous != nil {
-				old := slices.Index(comments, Comment{Kind: "personal", Text: *previous})
-				if old < 0 {
-					return nil, contract.InputInvalid("原批注已更改，请重新打开后再编辑")
-				}
-				comments = slices.Delete(comments, old, old+1)
-			}
-			if !slices.Contains(comments, next) {
-				comments = append(comments, next)
-			}
-			if len(comments) > 100 {
-				return nil, contract.InputInvalid("单条划线最多保留 100 条批注")
-			}
-			rows[i].Comments = comments
-			return rows, nil
-		}
-		return nil, contract.InputInvalid("这条划线已不存在，请重新选择")
+		return addPersonalComment(rows, markID, text, previous)
 	})
 }
 

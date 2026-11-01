@@ -9,8 +9,7 @@ export class TextbookPreview {
  publish(endpoint: unknown) {
   const url = typeof endpoint === 'string' ? URL.parse(endpoint) : null
   if (
-   !url ||
-   url.protocol !== 'http:' ||
+   url?.protocol !== 'http:' ||
    url.hostname !== '127.0.0.1' ||
    !Number(url.port) ||
    url.origin + url.pathname !== endpoint ||

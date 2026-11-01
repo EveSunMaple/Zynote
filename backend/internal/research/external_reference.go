@@ -43,23 +43,31 @@ func (external *External) getJSON(ctx context.Context, target string, payload an
 	return json.Unmarshal(body, payload) == nil, nil
 }
 
+type openAlexAuthor struct {
+	DisplayName string `json:"display_name"`
+}
+
+type openAlexAuthorship struct {
+	Author openAlexAuthor `json:"author"`
+}
+
+type openAlexSource struct {
+	DisplayName string `json:"display_name"`
+}
+
+type openAlexLocation struct {
+	LandingPageURL string          `json:"landing_page_url"`
+	Source         *openAlexSource `json:"source"`
+}
+
 type openAlexWork struct {
-	ID              string `json:"id"`
-	DOI             string `json:"doi"`
-	DisplayName     string `json:"display_name"`
-	PublicationYear int    `json:"publication_year"`
-	Authorships     []struct {
-		Author struct {
-			DisplayName string `json:"display_name"`
-		} `json:"author"`
-	} `json:"authorships"`
-	PrimaryLocation *struct {
-		LandingPageURL string `json:"landing_page_url"`
-		Source         *struct {
-			DisplayName string `json:"display_name"`
-		} `json:"source"`
-	} `json:"primary_location"`
-	AbstractInvertedIndex map[string][]int `json:"abstract_inverted_index"`
+	ID                    string               `json:"id"`
+	DOI                   string               `json:"doi"`
+	DisplayName           string               `json:"display_name"`
+	PublicationYear       int                  `json:"publication_year"`
+	Authorships           []openAlexAuthorship `json:"authorships"`
+	PrimaryLocation       *openAlexLocation    `json:"primary_location"`
+	AbstractInvertedIndex map[string][]int     `json:"abstract_inverted_index"`
 }
 
 // openAlexAbstract 把 OpenAlex 的摘要倒排索引（词 → 词位列表）还原成正文。

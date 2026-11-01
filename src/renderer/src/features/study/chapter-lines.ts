@@ -15,7 +15,7 @@ export function isChapterHeading(text: string) {
 }
 export function headingLine(lines: ChapterLine[], title: string) {
  const target = normalized(title)
- const number = title.trim().match(chapterToken)?.[0]
+ const number = chapterToken.exec(title.trim())?.[0]
  return (
   lines.find(row => normalized(row.text) === target) ??
   lines.find(
@@ -27,11 +27,7 @@ export function headingLine(lines: ChapterLine[], title: string) {
  )
 }
 const ls = (row: Fragment) => row.box[1] + row.box[3] / 2
-export function groupFragments(fragments: Fragment[]) {
- // Visual rows are numbered top to bottom and then left to right. Wide gutters split two columns.
- const sorted = fragments
-  .filter(f => f.text.trim() && f.box[2] > 0 && f.box[3] > 0)
-  .sort((a, b) => ls(a) - ls(b) || a.box[0] - b.box[0])
+function splitBands(sorted: Fragment[]) {
  const bands: Fragment[][] = []
  for (const part of sorted) {
   const group = bands.at(-1)
@@ -39,32 +35,39 @@ export function groupFragments(fragments: Fragment[]) {
    group.push(part)
   else bands.push([part])
  }
+ return bands
+}
+function mergeBand(band: Fragment[]) {
  const rows: Fragment[] = []
- for (const band of bands) {
-  let line: Fragment | undefined
-  for (const part of band.sort((a, b) => a.box[0] - b.box[0])) {
-   const [x, y, w, h] = part.box
-   const gap = line ? x - line.box[0] - line.box[2] : Infinity
-   if (!line || gap > Math.max(9, h * 1.5)) {
-    line = {text: part.text, box: [...part.box]}
-    rows.push(line)
-    continue
-   }
-   const [a, b, c, d] = line.box
-   line.text += (gap > h * 0.2 && /[a-z0-9]$/i.test(line.text) && /^[a-z0-9]/i.test(part.text) ? ' ' : '') + part.text
-   line.box = [
-    Math.min(a, x),
-    Math.min(b, y),
-    Math.max(a + c, x + w) - Math.min(a, x),
-    Math.max(b + d, y + h) - Math.min(b, y)
-   ]
+ let line: Fragment | undefined
+ for (const part of band.toSorted((a, b) => a.box[0] - b.box[0])) {
+  const [x, y, w, h] = part.box
+  const gap = line ? x - line.box[0] - line.box[2] : Infinity
+  if (!line || gap > Math.max(9, h * 1.5)) {
+   line = {text: part.text, box: [...part.box]}
+   rows.push(line)
+   continue
   }
+  const [a, b, c, d] = line.box
+  line.text += (gap > h * 0.2 && /[a-z0-9]$/i.test(line.text) && /^[a-z0-9]/i.test(part.text) ? ' ' : '') + part.text
+  line.box = [
+   Math.min(a, x),
+   Math.min(b, y),
+   Math.max(a + c, x + w) - Math.min(a, x),
+   Math.max(b + d, y + h) - Math.min(b, y)
+  ]
  }
  return rows
 }
+export function groupFragments(fragments: Fragment[]) {
+ // Visual rows are numbered top to bottom and then left to right. Wide gutters split two columns.
+ const sorted = fragments
+  .filter(f => f.text.trim() && f.box[2] > 0 && f.box[3] > 0)
+  .sort((a, b) => ls(a) - ls(b) || a.box[0] - b.box[0])
+ return splitBands(sorted).flatMap(mergeBand)
+}
 export function rankLine(row: ChapterLine) {
- if (row.text.trim().length < 5 || /(?:…{2,}|\.{3,}|·{3,})\s*\d+\s*$/.test(row.text) || isChapterHeading(row.text))
-  return 0
+ if (row.text.trim().length < 5 || /[.…·]{2,}\s*\d+\s*$/.test(row.text) || isChapterHeading(row.text)) return 0
  if (row.marked) return 6
  if (
   /(定义|定理|性质|法则|条件|推论|例\s*[\d一二三]|解法|例题|definition|theorem|example)\b/i.test(row.text) ||
@@ -94,7 +97,7 @@ export function candidatesForChapter(pages: ChapterLine[][]): ChapterLine[] {
 }
 export function isContentsPage(rows: ChapterLine[]) {
  const visible = rows.filter(row => !/^[\d\s–-]+$/.test(row.text))
- const dotEntries = visible.filter(row => /(?:…+|\.{2,}|·{2,}).*\d+\s*$/.test(row.text)).length
+ const dotEntries = visible.filter(row => /[.…·]{2,}/.test(row.text) && /\d\s*$/.test(row.text)).length
  const titled = visible.some(row => /^(目录|目次|contents|tableofcontents)$/i.test(normalized(row.text)))
  const chapters = visible.filter(row => isChapterHeading(row.text)).length
  const separateNumbers = rows.length - visible.length

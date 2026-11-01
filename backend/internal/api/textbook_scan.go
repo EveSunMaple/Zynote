@@ -39,24 +39,28 @@ func (w textbookScanWarning) describe() string {
 }
 
 // Current vision models use a 0–1000 integer grid. Older responses can use 0–1 ratios.
-func normalizedTextbookRect(raw json.RawMessage) ([4]float64, bool) {
+func parseTextbookRect(raw json.RawMessage) ([4]float64, bool, bool) {
 	var rect [4]float64
 	var coords []*float64
 	if json.Unmarshal(raw, &coords) != nil || len(coords) != len(rect) {
-		return rect, false
+		return rect, false, false
 	}
 	grid := false
 	for i, value := range coords {
 		if value == nil {
-			return rect, false
+			return rect, false, false
 		}
 		n := *value
 		if math.IsNaN(n) || math.IsInf(n, 0) || n < 0 || n > 1000 {
-			return rect, false
+			return rect, false, false
 		}
 		grid = grid || n > 1
 		rect[i] = n
 	}
+	return rect, grid, true
+}
+
+func scaleTextbookRect(rect [4]float64, grid bool) ([4]float64, bool) {
 	for i, n := range rect {
 		if grid {
 			if n != math.Trunc(n) {
@@ -69,9 +73,62 @@ func normalizedTextbookRect(raw json.RawMessage) ([4]float64, bool) {
 	return rect, rect[2] > rect[0] && rect[3] > rect[1]
 }
 
+func normalizedTextbookRect(raw json.RawMessage) ([4]float64, bool) {
+	rect, grid, ok := parseTextbookRect(raw)
+	if !ok {
+		return rect, false
+	}
+	return scaleTextbookRect(rect, grid)
+}
+
 type scanDecision struct {
 	Rect json.RawMessage `json:"rect"`
 	textbookSuggestion
+}
+
+func reviewScannedProposal(
+	proposal json.RawMessage,
+	page int,
+	placement scanPlacement,
+	sources textbookSources,
+	catalog []textbookEvidence,
+	warning *textbookScanWarning,
+) (textbook.Highlight, bool) {
+	var decision scanDecision
+	if err := json.Unmarshal(proposal, &decision); err != nil {
+		var typeErr *json.UnmarshalTypeError
+		if errors.As(err, &typeErr) && (typeErr.Field == "evidenceId" || typeErr.Field == "source" || typeErr.Field == "evidence") {
+			warning.Evidence++
+		} else {
+			warning.Invalid++
+		}
+		return textbook.Highlight{}, false
+	}
+	quote := strings.TrimSpace(decision.Quote)
+	if quote == "" || len([]rune(quote)) > 3000 {
+		warning.Invalid++
+		return textbook.Highlight{}, false
+	}
+	if textbookContentsHeading(quote) || textbookContentsEntry(quote) || textbookBareTitle(quote) {
+		return textbook.Highlight{}, false
+	}
+	rect, ok := normalizedTextbookRect(decision.Rect)
+	if !ok {
+		warning.Coordinates++
+		return textbook.Highlight{}, false
+	}
+	row, ok := decision.annotation(sources, catalog)
+	if !ok {
+		warning.Evidence++
+		return textbook.Highlight{}, false
+	}
+	position, aligned := placement.locate(rect)
+	if !aligned {
+		warning.Coordinates++
+		return textbook.Highlight{}, false
+	}
+	row.ID, row.Page, row.Rect = ids.New(), page, position
+	return row, true
 }
 
 func reviewScannedSuggestions(raw []byte, page int, placement scanPlacement, sources textbookSources, catalog []textbookEvidence) ([]textbook.Highlight, textbookScanWarning, error) {
@@ -86,63 +143,41 @@ func reviewScannedSuggestions(raw []byte, page int, placement scanPlacement, sou
 	}
 	var rows []textbook.Highlight
 	for _, proposal := range proposals {
-		var decision scanDecision
-		if err := json.Unmarshal(proposal, &decision); err != nil {
-			var typeErr *json.UnmarshalTypeError
-			if errors.As(err, &typeErr) && (typeErr.Field == "evidenceId" || typeErr.Field == "source" || typeErr.Field == "evidence") {
-				warning.Evidence++
-			} else {
-				warning.Invalid++
-			}
-			continue
+		if row, ok := reviewScannedProposal(proposal, page, placement, sources, catalog, &warning); ok {
+			rows = append(rows, row)
 		}
-		quote := strings.TrimSpace(decision.Quote)
-		if quote == "" || len([]rune(quote)) > 3000 {
-			warning.Invalid++
-			continue
-		}
-		if textbookContentsHeading(quote) || textbookContentsEntry(quote) || textbookBareTitle(quote) {
-			continue
-		}
-		rect, ok := normalizedTextbookRect(decision.Rect)
-		if !ok {
-			warning.Coordinates++
-			continue
-		}
-		row, ok := decision.annotation(sources, catalog)
-		if !ok {
-			warning.Evidence++
-			continue
-		}
-		position, aligned := placement.locate(rect)
-		if !aligned {
-			warning.Coordinates++
-			continue
-		}
-		row.ID, row.Page, row.Rect = ids.New(), page, position
-		rows = append(rows, row)
 	}
 	return rows, warning, nil
 }
 
-func analyzeScannedTextbookPage(ctx context.Context, client *ai.Client, chapter string, sources textbookSources, catalog []textbookEvidence, image string, page int, affine [6]float64) ([]textbook.Highlight, textbookScanWarning, error) {
+type scannedTextbookPage struct {
+	client  *ai.Client
+	chapter string
+	sources textbookSources
+	catalog []textbookEvidence
+	image   string
+	page    int
+	affine  [6]float64
+}
+
+func analyzeScannedTextbookPage(ctx context.Context, input scannedTextbookPage) ([]textbook.Highlight, textbookScanWarning, error) {
 	var warning textbookScanWarning
-	placement, ok := newScanPlacement(image, affine)
+	placement, ok := newScanPlacement(input.image, input.affine)
 	if !ok {
-		return nil, warning, contract.InputInvalid(fmt.Sprintf("第 %d 页的图像或页面坐标无法读取", page))
+		return nil, warning, contract.InputInvalid(fmt.Sprintf("第 %d 页的图像或页面坐标无法读取", input.page))
 	}
-	options := textbookModelOptions(client, client.Profile.VisionModel)
-	options.Images = []ai.Image{{Label: "教材原页", URL: image}}
+	options := textbookModelOptions(input.client, input.client.Profile.VisionModel)
+	options.Images = []ai.Image{{Label: "教材原页", URL: input.image}}
 	var rows []textbook.Highlight
 	rejected := errors.New("本页建议未通过核验")
-	_, err := client.JSONWithOptions(ctx,
+	_, err := input.client.JSONWithOptions(ctx,
 		textbookBodyPrompt+textbookNotePrompt+"正文只输出 JSON 数组，每条含 rect、quote、explanation、extension，以及 evidenceId 或 source=ai。quote 必须逐字摘自框内的一行教材。rect 为图片左上原点的四个 0–1000 整数，依次为左、上、右、下，紧贴这一行。每页最多 15 条。",
 		struct {
 			Chapter  string             `json:"chapter"`
 			Evidence []textbookEvidence `json:"evidence"`
-		}{chapter, catalog},
+		}{input.chapter, input.catalog},
 		func(raw []byte) error {
-			current, issues, parseErr := reviewScannedSuggestions(raw, page, placement, sources, catalog)
+			current, issues, parseErr := reviewScannedSuggestions(raw, input.page, placement, input.sources, input.catalog)
 			if parseErr != nil {
 				return parseErr
 			}

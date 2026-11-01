@@ -96,6 +96,51 @@ export async function pageLines(page: PDFPageProxy, bookId: string, onOcr: () =>
   return {page: page.pageNumber, line: i + 1, text: row.text.trim(), rect, marked}
  })
 }
+function inkIntegral(pix: Uint8ClampedArray, width: number, height: number) {
+ const stride = width + 1
+ const ink = new Uint32Array(stride * (height + 1))
+ for (let y = 0; y < height; y++) {
+  let sum = 0
+  for (let x = 0; x < width; x++) {
+   const i = (y * width + x) * 4
+   if (Math.min(pix[i], pix[i + 1], pix[i + 2]) < 200) sum++
+   ink[(y + 1) * stride + x + 1] = ink[y * stride + x + 1] + sum
+  }
+ }
+ return {ink, stride}
+}
+
+function hasInk(ink: Uint32Array, stride: number, left: number, top: number, right: number, bottom: number) {
+ return (
+  ink[bottom * stride + right] - ink[top * stride + right] - ink[bottom * stride + left] + ink[top * stride + left] > 2
+ )
+}
+
+function overlappingMark(occupied: Rect[], left: number, top: number, right: number, bottom: number) {
+ return occupied.some(([x, y, w, h]) => x < right && x + w > left && y < bottom && y + h > top)
+}
+
+function placementDistance(
+ x: number,
+ y: number,
+ tw: number,
+ th: number,
+ left: number,
+ top: number,
+ width: number,
+ height: number,
+ center: number[],
+ viewWidth: number
+) {
+ const lateral = x >= left + width || x + tw <= left
+ const aligned = center[1] >= y - 5 && center[1] <= y + th + 5
+ const gap = Math.max(0, x - left - width, left - x - tw)
+ return (
+  Math.hypot(x + tw / 2 - center[0], (y + th / 2 - center[1]) * 1.8) +
+  (lateral && aligned && gap < viewWidth * 0.2 ? 0 : viewWidth)
+ )
+}
+
 export async function summarySpace(page: PDFPageProxy, lines: ChapterLine[], title: string) {
  const heading = headingLine(lines, title)
  if (!heading) throw new Error('没有在章首页找到这个章号或标题，请核对正文首页和章名。')
@@ -116,19 +161,10 @@ export async function summarySpace(page: PDFPageProxy, lines: ChapterLine[], tit
   th = Math.max(1, Math.ceil(65 * scale)),
   margin = 5
  // Check all pixels in a candidate. This also protects diagrams and scan ink not in the text layer.
- const stride = canvas.width + 1
- const ink = new Uint32Array(stride * (canvas.height + 1))
- for (let y = 0; y < canvas.height; y++) {
-  let sum = 0
-  for (let x = 0; x < canvas.width; x++) {
-   const i = (y * canvas.width + x) * 4
-   if (Math.min(pix[i], pix[i + 1], pix[i + 2]) < 200) sum++
-   ink[(y + 1) * stride + x + 1] = ink[y * stride + x + 1] + sum
-  }
- }
+ const {ink, stride} = inkIntegral(pix, canvas.width, canvas.height)
  let best: Rect | undefined,
   distance = Infinity
- const occupied = (await page.getAnnotations({intent: 'display'}))
+ const occupied: Rect[] = (await page.getAnnotations({intent: 'display'}))
   .filter(
    ann =>
     ann.rect &&
@@ -146,14 +182,9 @@ export async function summarySpace(page: PDFPageProxy, lines: ChapterLine[], tit
     t = y - extra,
     r = x + tw + extra,
     b = y + th + extra
-   if (ink[b * stride + r] - ink[t * stride + r] - ink[b * stride + l] + ink[t * stride + l] > 2) continue
-   if (occupied.some(([ox, oy, ow, oh]) => ox < r && ox + ow > l && oy < b && oy + oh > t)) continue
-   const lateral = x >= left + width || x + tw <= left
-   const aligned = center[1] >= y - 5 && center[1] <= y + th + 5
-   const gap = Math.max(0, x - left - width, left - x - tw)
-   const d =
-    Math.hypot(x + tw / 2 - center[0], (y + th / 2 - center[1]) * 1.8) +
-    (lateral && aligned && gap < view.width * 0.2 ? 0 : view.width)
+   if (hasInk(ink, stride, l, t, r, b)) continue
+   if (overlappingMark(occupied, l, t, r, b)) continue
+   const d = placementDistance(x, y, tw, th, left, top, width, height, center, view.width)
    if (d < distance) {
     best = [x, y, tw, th]
     distance = d

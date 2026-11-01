@@ -12,7 +12,7 @@ import (
 	"testing"
 )
 
-func TestMatchCourse(t *testing.T) {
+func TestMatchCourse(t *testing.T) { // NOSONAR: table-driven fixture test; extracting the server would obscure the scenario.
 	const first = `{"course_id":1,"title":"数据思维（甲）Ⅰ","lecturer_name":"甲老师","term_name":"秋"}`
 	const similar = `{"course_id":2,"title":"数据思维（甲）II"}`
 	const sameName = `{"course_id":3,"title":"数据思维 (甲) I","lecturer_name":"乙老师","term_name":"春"}`

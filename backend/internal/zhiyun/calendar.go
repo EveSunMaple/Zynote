@@ -68,6 +68,41 @@ func (cache *CalendarCache) courses(ctx context.Context, client *Client, account
 	return courses, err
 }
 
+func monthCourse(item any) (Course, error) {
+	row, _ := item.(map[string]any)
+	// The monthly view opens a replay with course_id=row.id and sub_id=row.sub_id.
+	id, title := stringValue(row["id"]), strings.TrimSpace(stringValue(row["title"]))
+	if !digitsPattern.MatchString(id) || title == "" {
+		return Course{}, fmt.Errorf("智云个人月历课程信息不完整")
+	}
+	return Course{
+		ID: id, Title: title, Teacher: stringValue(row["lecturer_name"]), Term: stringValue(row["term_name"]),
+	}, nil
+}
+
+func monthDayCourses(day any) ([]Course, error) {
+	bucket, ok := day.(map[string]any)
+	if !ok {
+		return nil, fmt.Errorf("智云个人月历日期格式异常")
+	}
+	if bucket["course"] == nil {
+		return nil, nil
+	}
+	rows, ok := bucket["course"].([]any)
+	if !ok {
+		return nil, fmt.Errorf("智云个人月历课程列表格式异常")
+	}
+	courses := make([]Course, 0, len(rows))
+	for _, item := range rows {
+		course, err := monthCourse(item)
+		if err != nil {
+			return nil, err
+		}
+		courses = append(courses, course)
+	}
+	return courses, nil
+}
+
 func (client *Client) personalMonth(ctx context.Context, month string) ([]Course, error) {
 	data, err := client.request(ctx, personalMonthEndpoint, map[string]string{"month": month})
 	if err != nil {
@@ -80,31 +115,17 @@ func (client *Client) personalMonth(ctx context.Context, month string) ([]Course
 	courses := []Course{}
 	seen := map[[2]string]bool{}
 	for _, day := range days {
-		bucket, ok := day.(map[string]any)
-		if !ok {
-			return nil, fmt.Errorf("智云个人月历日期格式异常")
+		dayCourses, err := monthDayCourses(day)
+		if err != nil {
+			return nil, err
 		}
-		if bucket["course"] == nil {
-			continue
-		}
-		rows, ok := bucket["course"].([]any)
-		if !ok {
-			return nil, fmt.Errorf("智云个人月历课程列表格式异常")
-		}
-		for _, item := range rows {
-			row, _ := item.(map[string]any)
-			// The monthly view opens a replay with course_id=row.id and sub_id=row.sub_id.
-			id, title := stringValue(row["id"]), strings.TrimSpace(stringValue(row["title"]))
-			if !digitsPattern.MatchString(id) || title == "" {
-				return nil, fmt.Errorf("智云个人月历课程信息不完整")
+		for _, course := range dayCourses {
+			key := [2]string{course.ID, NormalizeCourseTitle(course.Title)}
+			if seen[key] {
+				continue
 			}
-			key := [2]string{id, NormalizeCourseTitle(title)}
-			if !seen[key] {
-				courses = append(courses, Course{
-					ID: id, Title: title, Teacher: stringValue(row["lecturer_name"]), Term: stringValue(row["term_name"]),
-				})
-				seen[key] = true
-			}
+			courses = append(courses, course)
+			seen[key] = true
 		}
 	}
 	return courses, nil

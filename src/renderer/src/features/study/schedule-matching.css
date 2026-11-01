@@ -13,6 +13,10 @@
  align-items: center;
  flex-wrap: wrap;
  gap: 8px;
+ border: 0;
+ margin: 0;
+ padding: 0;
+ min-width: 0;
 }
 .study-match__header {
  justify-content: space-between;

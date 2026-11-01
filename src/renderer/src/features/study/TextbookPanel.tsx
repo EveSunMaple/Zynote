@@ -366,75 +366,155 @@ function replayDescription(entry: StudyEntry | undefined, cachedReplay?: string,
  return [entry.title, label || `回放 ${replay}`].filter(Boolean).join(' · ')
 }
 
+function readingHint(
+ entry: StudyEntry | undefined,
+ savedAssociation: boolean | undefined,
+ dirty: boolean,
+ issues: number,
+ rows: readonly Highlight[]
+) {
+ if (entry?.textbookId && !savedAssociation && dirty)
+  return issues
+   ? '点「返回课表补全必填项」，补齐后就能保存教材关联。'
+   : '点「保存课表与教材关联」，下次打开这门课就能找到这本书。'
+ return rows.some(row => !row.chapter) ? '将鼠标放到正文划线上即可查看批注。' : '在教材顶部选择一种批注方式即可开始。'
+}
+
 function AnalysisAction(props: TextbookProps & {teacher: boolean; replaySubId?: string; editRange: () => void}) {
  if (props.busy) return null
  const teacher = props.teacher
  const source = teacher ? 'teacher' : 'ai'
  const action = teacher ? '用智云课堂转写生成批注' : '根据教材生成批注'
  if (teacher && !props.replaySubId && !props.entry?.subId)
-  return (
-   <div className="textbook-next">
-    <p className="study-menu__hint">
-     {props.entry
-      ? '选择这节课的智云回放，千问就能根据老师讲话的语音转写标注教材。'
-      : '先关联一节课的智云回放，千问会用老师讲话的语音转写标注教材。'}
-    </p>
-    <Button size="sm" variant="primary" onPress={props.onGoSchedule}>
-     关联智云回放
-    </Button>
-   </div>
-  )
+  return <ReplayPrompt entry={props.entry} onGoSchedule={props.onGoSchedule} />
  const problem = props.book && rangeProblem(props.first, props.last, props.book.pages)
  const emptyResult = props.draft?.rows.length === 0
  if (problem || emptyResult)
   return (
-   <div className="textbook-next">
-    {problem && <p className="study-inline-error">{problem}</p>}
-    <StudyNextStep>点「修改分析页码」，选择要分析的正文页。</StudyNextStep>
-    <Button size="sm" variant="primary" onPress={props.editRange}>
-     修改分析页码
-    </Button>
-    {emptyResult && !problem && (
-     <Button size="sm" variant="ghost" onPress={() => props.onAnalyze(source)}>
-      {action}
-     </Button>
-    )}
-   </div>
+   <AnalysisProblem
+    problem={problem}
+    emptyResult={emptyResult}
+    action={action}
+    source={source}
+    onEditRange={props.editRange}
+    onAnalyze={props.onAnalyze}
+   />
   )
  if (teacher && !props.lectureSaved)
   return (
-   <div className="textbook-next">
-    <StudyNextStep>
-     {props.issues ? '点「去补全课表」，填写缺少的信息。' : '点「保存课堂资料关联」，让千问读取本次课的资料。'}
-    </StudyNextStep>
-    <Button size="sm" variant="primary" onPress={props.issues ? props.onReviewIssues : props.onSaveSchedule}>
-     {props.issues ? `去补全课表（${props.issues} 项）` : '保存课堂资料关联'}
-    </Button>
-   </div>
+   <LectureAssociation
+    issues={props.issues}
+    onReviewIssues={props.onReviewIssues}
+    onSaveSchedule={props.onSaveSchedule}
+   />
   )
+ return <AnalysisRun {...props} teacher={teacher} source={source} action={action} />
+}
+
+function ReplayPrompt({entry, onGoSchedule}: Readonly<{entry: StudyEntry | undefined; onGoSchedule: () => void}>) {
  return (
   <div className="textbook-next">
-   {!props.draft && (
+   <p className="study-menu__hint">
+    {entry
+     ? '选择这节课的智云回放，千问就能根据老师讲话的语音转写标注教材。'
+     : '先关联一节课的智云回放，千问会用老师讲话的语音转写标注教材。'}
+   </p>
+   <Button size="sm" variant="primary" onPress={onGoSchedule}>
+    关联智云回放
+   </Button>
+  </div>
+ )
+}
+
+function AnalysisProblem({
+ problem,
+ emptyResult,
+ action,
+ source,
+ onEditRange,
+ onAnalyze
+}: Readonly<{
+ problem: string | null | false
+ emptyResult: boolean | undefined
+ action: string
+ source: 'teacher' | 'ai'
+ onEditRange: () => void
+ onAnalyze: (source: 'teacher' | 'ai' | 'materials') => void
+}>) {
+ return (
+  <div className="textbook-next">
+   {problem && <p className="study-inline-error">{problem}</p>}
+   <StudyNextStep>点「修改分析页码」，选择要分析的正文页。</StudyNextStep>
+   <Button size="sm" variant="primary" onPress={onEditRange}>
+    修改分析页码
+   </Button>
+   {emptyResult && !problem && (
+    <Button size="sm" variant="ghost" onPress={() => onAnalyze(source)}>
+     {action}
+    </Button>
+   )}
+  </div>
+ )
+}
+
+function LectureAssociation({
+ issues,
+ onReviewIssues,
+ onSaveSchedule
+}: Readonly<{issues: number; onReviewIssues: () => void; onSaveSchedule: () => void}>) {
+ return (
+  <div className="textbook-next">
+   <StudyNextStep>
+    {issues ? '点「去补全课表」，填写缺少的信息。' : '点「保存课堂资料关联」，让千问读取本次课的资料。'}
+   </StudyNextStep>
+   <Button size="sm" variant="primary" onPress={issues ? onReviewIssues : onSaveSchedule}>
+    {issues ? `去补全课表（${issues} 项）` : '保存课堂资料关联'}
+   </Button>
+  </div>
+ )
+}
+
+function AnalysisRun({
+ draft,
+ teacher,
+ first,
+ last,
+ action,
+ source,
+ busy,
+ entry,
+ lectureSaved,
+ analysisError,
+ onAnalyze,
+ onGoSchedule
+}: Readonly<
+ Pick<
+  TextbookProps,
+  'draft' | 'first' | 'last' | 'busy' | 'entry' | 'lectureSaved' | 'analysisError' | 'onAnalyze' | 'onGoSchedule'
+ > & {
+  teacher: boolean
+  source: 'teacher' | 'ai'
+  action: string
+ }
+>) {
+ return (
+  <div className="textbook-next">
+   {!draft && (
     <StudyNextStep>
-     {teacher ? '千问根据这节课里老师讲话的语音转写，匹配教材' : '仅用教材正文整理'}第 {props.first}–{props.last}{' '}
-     页，点「{action}」。
+     {teacher ? '千问根据这节课里老师讲话的语音转写，匹配教材' : '仅用教材正文整理'}第 {first}–{last} 页，点「{action}
+     」。
     </StudyNextStep>
    )}
-   <Button
-    size="sm"
-    variant={props.draft ? 'tertiary' : 'primary'}
-    isDisabled={props.busy}
-    onPress={() => props.onAnalyze(source)}
-   >
+   <Button size="sm" variant={draft ? 'tertiary' : 'primary'} isDisabled={busy} onPress={() => onAnalyze(source)}>
     {action}
    </Button>
-   {!teacher && props.entry?.lectureId && props.lectureSaved && (
-    <Button size="sm" variant="ghost" onPress={() => props.onAnalyze('materials')}>
+   {!teacher && entry?.lectureId && lectureSaved && (
+    <Button size="sm" variant="ghost" onPress={() => onAnalyze('materials')}>
      结合已关联的课次资料
     </Button>
    )}
-   {props.analysisError && teacher && (
-    <Button size="sm" variant="ghost" onPress={props.onGoSchedule}>
+   {analysisError && teacher && (
+    <Button size="sm" variant="ghost" onPress={onGoSchedule}>
      检查课堂资料
     </Button>
    )}
@@ -456,7 +536,16 @@ export function TextbookContent(props: TextbookProps) { // NOSONAR: cohesive flo
   [extension, setExtension] = useState(false),
   [confirmApply, setConfirmApply] = useState(false)
  const {frame, paper, zoom, zoomBy, zoomTo, canvas, document, viewport, renderedPage, size, rendering, error} = usePdfNavigation(book, pageNumber, mode === 'read', pdfVersion)
- const selection = useTextbookSelection(book?.id, pageNumber, entry?.id, renderedPage, viewport, mode === 'manual', busy, source)
+ const selection = useTextbookSelection({
+  bookId: book?.id,
+  pageNumber,
+  entryId: entry?.id,
+  page: renderedPage,
+  view: viewport,
+  enabled: mode === 'manual',
+  busy,
+  source
+ })
  const [commentVersion, setCommentVersion] = useState(0)
  const annotations = usePageAnnotations(book?.id, pageNumber, pdfVersion + commentVersion)
  const reviewing = mode === 'teacher' || mode === 'ai'
@@ -528,7 +617,7 @@ export function TextbookContent(props: TextbookProps) { // NOSONAR: cohesive flo
    <h3>打开一本教材</h3>
    {props.bookFailure && <p role="alert" className="study-inline-error">{props.bookFailure}</p>}
    {!busy && !props.resolvingBook && <StudyNextStep>{props.bookFailure ? '点「打开教材 PDF」，重新选择一份可读的文件。' : '点「打开教材 PDF」，选择要读的本地教材。'}</StudyNextStep>}
-   {props.resolvingBook && <p role="status">正在打开已关联的教材…</p>}
+   {props.resolvingBook && <output>正在打开已关联的教材…</output>}
    {!busy && !props.resolvingBook && <Button className="study-file-start__button" variant="primary" onPress={props.onPickBook}>打开教材 PDF</Button>}
    <TextbookProgress {...props} />
   </div>
@@ -536,7 +625,7 @@ export function TextbookContent(props: TextbookProps) { // NOSONAR: cohesive flo
  return (
   <div className="textbook-workspace">
    <div className="textbook-tools">
-    <div className="study-segmented textbook-modes" role="group" aria-label="阅读与批注">
+    <fieldset className="study-segmented textbook-modes" aria-label="阅读与批注">
      {([
       {value:'read',label:'阅读',icon:BookOpen},
       {value:'teacher',label:'老师批注',icon:MessagesSquare},
@@ -548,16 +637,16 @@ export function TextbookContent(props: TextbookProps) { // NOSONAR: cohesive flo
        <Icon size={15} aria-hidden="true" />{label}
       </Button>
      ))}
-    </div>
+    </fieldset>
     <Button variant="ghost" size="sm" aria-expanded={more} aria-controls="textbook-more" onPress={() => setMore(!more)}>
      <Ellipsis size={16} aria-hidden="true" />更多操作
     </Button>
    </div>
    {more && <TextbookMore {...props} rangeInput={rangeInput} />}
    {mode === 'read' && !busy && !more && !error && !props.bookFailure && (
-    <StudyNextStep>{entry?.textbookId && !props.savedAssociation && props.dirty
-     ? props.issues ? '点「返回课表补全必填项」，补齐后就能保存教材关联。' : '点「保存课表与教材关联」，下次打开这门课就能找到这本书。'
-     : annotations.rows.some(row => !row.chapter) ? '将鼠标放到正文划线上即可查看批注。' : '在教材顶部选择一种批注方式即可开始。'}</StudyNextStep>
+    <StudyNextStep>
+     {readingHint(entry, props.savedAssociation, props.dirty, props.issues, annotations.rows)}
+    </StudyNextStep>
    )}
    {props.bookFailure && <div role="alert" className="study-inline-error">
     {props.bookFailure}
@@ -710,7 +799,7 @@ export function TextbookContent(props: TextbookProps) { // NOSONAR: cohesive flo
          </div>
         )}
         {!!draft.skippedContentsPages?.length && (
-         <p className="study-menu__hint" role="status">已跳过目录页（PDF 第 {draft.skippedContentsPages.join('、')} 页）。</p>
+         <output className="study-menu__hint">已跳过目录页（PDF 第 {draft.skippedContentsPages.join('、')} 页）。</output>
         )}
         {!!draft.warnings?.length && (
          <Disclosure key={draft.id} className="study-fold" defaultExpanded={draft.warnings.length <= 3}>
@@ -757,7 +846,11 @@ export function TextbookContent(props: TextbookProps) { // NOSONAR: cohesive flo
                 {group.extension ? <span>适当延伸</span> : null}
                </span>
                <strong>{group.quote}</strong>
-               {group.comments?.length ? group.comments.map((c, i) => <CommentText key={i} comment={c} />) : <small>依据：{group.evidence}</small>}
+               {group.comments?.length ? (
+                group.comments.map(c => <CommentText key={[c.kind, c.timestamp, c.quote, c.text].join('|')} comment={c} />)
+               ) : (
+                <small>依据：{group.evidence}</small>
+               )}
               </span>
              </Checkbox.Content>
             </Checkbox>
@@ -781,7 +874,7 @@ export function TextbookContent(props: TextbookProps) { // NOSONAR: cohesive flo
        <div className="study-inspector-body">
         {analysisError && <div role="alert" className="study-inline-error">{analysisError}</div>}
         <TeacherAnnotations bookId={book.id} lectureId={entry?.lectureId} version={pdfVersion + commentVersion} onLocate={locateTeacher}
-         actions={replaySubId => {
+         actions={replaySubId => { // NOSONAR: render prop needs the resolved replay id; hoisting it would thread state through props.
           const replay = replayDescription(entry, replaySubId, props.lectureTitle)
           return <>
            {replay && <p className="study-menu__hint">本次智云回放 · {replay}</p>}

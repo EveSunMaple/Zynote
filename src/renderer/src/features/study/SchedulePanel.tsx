@@ -1,4 +1,4 @@
-import {type ReactNode, useEffect, useRef, useState} from 'react'
+import {type ReactNode, type RefObject, useEffect, useRef, useState} from 'react'
 import {Button, Checkbox, DateField, Disclosure, Input, SearchField, TextArea} from '@heroui/react'
 import type {CalendarDateTime} from '@internationalized/date'
 import {CalendarDays, Upload} from 'lucide-react'
@@ -131,7 +131,7 @@ export function ScheduleMenu(props: ScheduleProps) {
 export function ScheduleContent(props: ScheduleProps & {children: (toolsOpen: boolean) => ReactNode}) {
  const {entries, selected, busy, dirty, issues, importStatus, onSave, linkTarget, onLinkShown} = props
  const [toolsOpen, setToolsOpen] = useState(false)
- const editor = useRef<HTMLDivElement>(null)
+ const editor = useRef<HTMLElement>(null)
  const tools = useRef<HTMLElement>(null)
  const entry = entries.find(item => item.id === selected)
  const empty = !entries.length
@@ -141,19 +141,7 @@ export function ScheduleContent(props: ScheduleProps & {children: (toolsOpen: bo
  const reviewId = issues[0]?.id ?? needsReview[0]?.id
  const uploading = !!importStatus && importStatus.finishedAt === undefined
  const upload = () => void props.onParse(null, props.timezone)
- useEffect(() => {
-  if (!entry || linkTarget !== entry.id) return
-  if (!toolsOpen) {
-   setToolsOpen(true)
-   return
-  }
-  const target = entry.title.trim()
-   ? tools.current?.querySelector<HTMLElement>('.study-match')
-   : editor.current?.querySelector<HTMLInputElement>('[aria-label="课程名称"],[aria-label="课次名称"]')
-  target?.focus({preventScroll: true})
-  target?.scrollIntoView({block: 'center'})
-  onLinkShown()
- }, [entry?.id, linkTarget, toolsOpen, onLinkShown])
+ useRevealEntry(entry, linkTarget, toolsOpen, setToolsOpen, editor, tools, onLinkShown)
  function openEntry(id: string) {
   props.onSelect(id)
   editor.current?.focus({preventScroll: true})
@@ -163,9 +151,7 @@ export function ScheduleContent(props: ScheduleProps & {children: (toolsOpen: bo
   if (!reviewId) return
   const target = entries.find(row => row.id === reviewId)
   if (!target) return
-  const field =
-   issues[0]?.field ??
-   (!target.weekday ? '星期' : !target.startPeriod ? '开始节次' : !target.endPeriod ? '结束节次' : '教室')
+  const field = missingField(target, issues[0]?.field)
   const advanced = field === '智云' || (field === '课程' && target.weekly)
   props.onSelect(reviewId)
   if (advanced) setToolsOpen(true)
@@ -182,16 +168,7 @@ export function ScheduleContent(props: ScheduleProps & {children: (toolsOpen: bo
   })
  }
  const uploadButton = !uploading && !importStatus?.error && (
-  <Button
-   className={empty && !dirty ? 'study-file-start__button' : undefined}
-   variant={empty && !dirty ? 'primary' : 'secondary'}
-   size={empty && !dirty ? 'md' : 'sm'}
-   isDisabled={busy}
-   onPress={upload}
-  >
-   <Upload size={16} aria-hidden="true" />
-   {empty ? '上传课表图片' : '继续上传图片'}
-  </Button>
+  <UploadAction empty={empty} dirty={dirty} busy={busy} upload={upload} />
  )
  const feedback = <ScheduleImportStatus status={importStatus} onRetry={upload} busy={busy} />
  const reviewRequired = issues.length > 0
@@ -200,83 +177,41 @@ export function ScheduleContent(props: ScheduleProps & {children: (toolsOpen: bo
    {uploading && <div className="study-file-start">{feedback}</div>}
    <div hidden={uploading}>
     {empty ? (
-     <section className="study-file-start" aria-label="从图片导入课表">
-      <div className="study-file-start__icon" aria-hidden="true">
-       <CalendarDays size={26} />
-      </div>
-      <h3>{dirty ? '课表草稿已清空' : '从截图生成课表'}</h3>
-      {!busy && !importStatus?.error && (
-       <StudyNextStep>
-        {dirty ? '点「保存空课表」，确认移除已保存的时段。' : '点「上传课表图片」，选一张 PNG 或 JPG 截图。'}
-       </StudyNextStep>
-      )}
-      {dirty && (
-       <Button
-        className="study-file-start__button"
-        variant={importStatus?.error ? 'secondary' : 'primary'}
-        isDisabled={busy}
-        onPress={onSave}
-       >
-        保存空课表
-       </Button>
-      )}
-      <div className="schedule-workspace__actions">
-       {uploadButton}
-       <ScheduleExamples />
-      </div>
-      {!uploading && feedback}
-     </section>
+     <EmptySchedule
+      dirty={dirty}
+      busy={busy}
+      importError={!!importStatus?.error}
+      uploading={uploading}
+      uploadButton={uploadButton}
+      feedback={feedback}
+      onSave={onSave}
+     />
     ) : (
      <>
-      <div className="study-savebar schedule-workspace__toolbar">
-       <div>
-        <strong>
-         {dirty ? '有未保存的修改' : '课表已保存'} · {entries.length} 个时段
-        </strong>
-        {!busy && dirty && !importStatus?.error && (
-         <StudyNextStep>
-          {reviewRequired
-           ? `点「查看待补项」，补全 ${issues.length} 处必填信息。`
-           : needsReview.length
-             ? `还有 ${needsReview.length} 个时段的星期、节次或教室待核对，可先点「保存课表」。`
-             : '核对课程和时间后，点「保存课表」。'}
-         </StudyNextStep>
-        )}
-       </div>
-       <div className="schedule-workspace__actions">
-        {uploadButton}
-        <ScheduleExamples />
-        {reviewId && (
-         <Button
-          variant={reviewRequired && !importStatus?.error ? 'primary' : 'tertiary'}
-          size="sm"
-          isDisabled={busy}
-          onPress={review}
-         >
-          查看待补项
-         </Button>
-        )}
-        <Button
-         variant={dirty && !reviewRequired && !importStatus?.error ? 'primary' : 'secondary'}
-         size="sm"
-         isDisabled={busy || !dirty || reviewRequired}
-         onPress={onSave}
-        >
-         保存课表
-        </Button>
-       </div>
-      </div>
+      <ScheduleSaveBar
+       dirty={dirty}
+       busy={busy}
+       importError={!!importStatus?.error}
+       reviewRequired={reviewRequired}
+       issuesCount={issues.length}
+       entriesCount={entries.length}
+       needsReviewCount={needsReview.length}
+       reviewId={reviewId}
+       uploadButton={uploadButton}
+       onReview={review}
+       onSave={onSave}
+      />
       {!uploading && feedback}
       <WeeklySchedule entries={entries} selected={selected} onSelect={openEntry} />
       {entry ? (
-       <div ref={editor} tabIndex={-1} className="study-selected-entry" role="region" aria-label="当前课次">
+       <section ref={editor} tabIndex={-1} className="study-selected-entry" aria-label="当前课次">
         <ScheduleDetail
          key={entry.id}
          {...props}
          entry={entry}
          issues={issues.filter(issue => issue.id === entry.id)}
         />
-       </div>
+       </section>
       ) : (
        <p className="study-menu__hint">选择一个课次即可编辑。</p>
       )}
@@ -322,6 +257,173 @@ export function ScheduleContent(props: ScheduleProps & {children: (toolsOpen: bo
     </section>
    </div>
   </>
+ )
+}
+
+function missingField(target: StudyEntry, issueField: string | undefined) {
+ if (issueField) return issueField
+ if (!target.weekday) return '星期'
+ if (!target.startPeriod) return '开始节次'
+ if (!target.endPeriod) return '结束节次'
+ return '教室'
+}
+
+function useRevealEntry(
+ entry: StudyEntry | undefined,
+ linkTarget: string | undefined,
+ toolsOpen: boolean,
+ setToolsOpen: (open: boolean) => void,
+ editor: RefObject<HTMLElement | null>,
+ tools: RefObject<HTMLElement | null>,
+ onLinkShown: () => void
+) {
+ useEffect(() => {
+  if (!entry || linkTarget !== entry.id) return
+  if (!toolsOpen) {
+   setToolsOpen(true)
+   return
+  }
+  const target = entry.title.trim()
+   ? tools.current?.querySelector<HTMLElement>('.study-match')
+   : editor.current?.querySelector<HTMLInputElement>('[aria-label="课程名称"],[aria-label="课次名称"]')
+  target?.focus({preventScroll: true})
+  target?.scrollIntoView({block: 'center'})
+  onLinkShown()
+ }, [entry?.id, linkTarget, toolsOpen, onLinkShown])
+}
+
+function UploadAction({
+ empty,
+ dirty,
+ busy,
+ upload
+}: Readonly<{empty: boolean; dirty: boolean; busy: boolean; upload: () => void}>) {
+ const startStyle = empty && !dirty
+ return (
+  <Button
+   className={startStyle ? 'study-file-start__button' : undefined}
+   variant={startStyle ? 'primary' : 'secondary'}
+   size={startStyle ? 'md' : 'sm'}
+   isDisabled={busy}
+   onPress={upload}
+  >
+   <Upload size={16} aria-hidden="true" />
+   {empty ? '上传课表图片' : '继续上传图片'}
+  </Button>
+ )
+}
+
+function EmptySchedule({
+ dirty,
+ busy,
+ importError,
+ uploading,
+ uploadButton,
+ feedback,
+ onSave
+}: Readonly<{
+ dirty: boolean
+ busy: boolean
+ importError: boolean
+ uploading: boolean
+ uploadButton: ReactNode
+ feedback: ReactNode
+ onSave: () => void
+}>) {
+ return (
+  <section className="study-file-start" aria-label="从图片导入课表">
+   <div className="study-file-start__icon" aria-hidden="true">
+    <CalendarDays size={26} />
+   </div>
+   <h3>{dirty ? '课表草稿已清空' : '从截图生成课表'}</h3>
+   {!busy && !importError && (
+    <StudyNextStep>
+     {dirty ? '点「保存空课表」，确认移除已保存的时段。' : '点「上传课表图片」，选一张 PNG 或 JPG 截图。'}
+    </StudyNextStep>
+   )}
+   {dirty && (
+    <Button
+     className="study-file-start__button"
+     variant={importError ? 'secondary' : 'primary'}
+     isDisabled={busy}
+     onPress={onSave}
+    >
+     保存空课表
+    </Button>
+   )}
+   <div className="schedule-workspace__actions">
+    {uploadButton}
+    <ScheduleExamples />
+   </div>
+   {!uploading && feedback}
+  </section>
+ )
+}
+
+function saveGuidance(reviewRequired: boolean, issues: number, needsReview: number) {
+ if (reviewRequired) return `点「查看待补项」，补全 ${issues} 处必填信息。`
+ if (needsReview) return `还有 ${needsReview} 个时段的星期、节次或教室待核对，可先点「保存课表」。`
+ return '核对课程和时间后，点「保存课表」。'
+}
+
+function ScheduleSaveBar({
+ dirty,
+ busy,
+ importError,
+ reviewRequired,
+ issuesCount,
+ entriesCount,
+ needsReviewCount,
+ reviewId,
+ uploadButton,
+ onReview,
+ onSave
+}: Readonly<{
+ dirty: boolean
+ busy: boolean
+ importError: boolean
+ reviewRequired: boolean
+ issuesCount: number
+ entriesCount: number
+ needsReviewCount: number
+ reviewId: string | undefined
+ uploadButton: ReactNode
+ onReview: () => void
+ onSave: () => void
+}>) {
+ return (
+  <div className="study-savebar schedule-workspace__toolbar">
+   <div>
+    <strong>
+     {dirty ? '有未保存的修改' : '课表已保存'} · {entriesCount} 个时段
+    </strong>
+    {!busy && dirty && !importError && (
+     <StudyNextStep>{saveGuidance(reviewRequired, issuesCount, needsReviewCount)}</StudyNextStep>
+    )}
+   </div>
+   <div className="schedule-workspace__actions">
+    {uploadButton}
+    <ScheduleExamples />
+    {reviewId && (
+     <Button
+      variant={reviewRequired && !importError ? 'primary' : 'tertiary'}
+      size="sm"
+      isDisabled={busy}
+      onPress={onReview}
+     >
+      查看待补项
+     </Button>
+    )}
+    <Button
+     variant={dirty && !reviewRequired && !importError ? 'primary' : 'secondary'}
+     size="sm"
+     isDisabled={busy || !dirty || reviewRequired}
+     onPress={onSave}
+    >
+     保存课表
+    </Button>
+   </div>
+  </div>
  )
 }
 

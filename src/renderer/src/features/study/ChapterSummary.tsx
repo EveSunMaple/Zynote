@@ -32,6 +32,16 @@ function position(rect: Rect, v: PageViewport) {
  const [left, top, width, height] = visualRect(rect, v)
  return {left, top, width, height}
 }
+function validChapterRange(range: ChapterRange, pages: number) {
+ return (
+  Number.isInteger(range.first) &&
+  Number.isInteger(range.last) &&
+  range.first >= 1 &&
+  range.last >= range.first &&
+  range.last <= pages &&
+  range.title.trim().length > 0
+ )
+}
 export function ChapterSummary({
  document: doc,
  book,
@@ -96,17 +106,33 @@ export function ChapterSummary({
  const display = localDraft
   ? [...saved.filter(row => row.page !== pageNumber || row.chapter?.title !== localDraft.chapter?.title), localDraft]
   : saved
+ async function readChapter(source: PDFDocumentProxy, target: ChapterRange, token: number) {
+  const byPage: ChapterLine[][] = []
+  setStatus(`正在读取本章正文 · PDF 第 ${target.first}/${target.last} 页`)
+  const firstPage = await source.getPage(target.first)
+  const firstLines = await pageLines(firstPage, book.id, () => {
+   if (token === request.current) setStatus(`正在识别扫描页 · PDF 第 ${target.first}/${target.last} 页`)
+  })
+  if (token !== request.current) return null
+  if (isContentsPage(firstLines)) throw new Error('起始页是目录，请选择正文里出现章号的那一页。')
+  const rect = await summarySpace(firstPage, firstLines, target.title)
+  if (!isContentsPage(firstLines)) byPage.push(firstLines)
+  for (let p = target.first + 1; p <= target.last; p++) {
+   if (token !== request.current) return null
+   setStatus(`正在读取本章正文 · PDF 第 ${p}/${target.last} 页`)
+   const page = await source.getPage(p)
+   const lines = await pageLines(page, book.id, () => {
+    if (token === request.current) setStatus(`正在识别扫描页 · PDF 第 ${p}/${target.last} 页`)
+   })
+   if (token !== request.current) return null
+   if (!isContentsPage(lines)) byPage.push(lines)
+  }
+  return {byPage, rect}
+ }
  async function generate() {
   if (!doc || inFlight.current || busy) return
   const {first, last, title} = range
-  if (
-   !Number.isInteger(first) ||
-   !Number.isInteger(last) ||
-   first < 1 ||
-   last < first ||
-   last > book.pages ||
-   !title.trim()
-  ) {
+  if (!validChapterRange(range, book.pages)) {
    setError('请填写正文章名和这一章的实际起止页。')
    return
   }
@@ -115,22 +141,9 @@ export function ChapterSummary({
   setError('')
   setDraft(null)
   try {
-   const byPage: ChapterLine[][] = []
-   let rect: Rect | undefined
-   for (let p = first; p <= last; p++) {
-    if (token !== request.current) return
-    setStatus(`正在读取本章正文 · PDF 第 ${p}/${last} 页`)
-    const page = await doc.getPage(p)
-    const lines = await pageLines(page, book.id, () => {
-     if (token === request.current) setStatus(`正在识别扫描页 · PDF 第 ${p}/${last} 页`)
-    })
-    if (token !== request.current) return
-    if (p === first) {
-     if (isContentsPage(lines)) throw new Error('起始页是目录，请选择正文里出现章号的那一页。')
-     rect = await summarySpace(page, lines, title)
-    }
-    if (!isContentsPage(lines)) byPage.push(lines)
-   }
+   const chapter = await readChapter(doc, {first, last, title}, token)
+   if (!chapter) return
+   const {byPage, rect} = chapter
    const candidates = candidatesForChapter(byPage)
    if (!rect || !candidates.length) throw new Error('所选章节没有找到可核对的正文行。')
    if (token !== request.current) return
@@ -219,7 +232,7 @@ export function ChapterSummary({
      }}
     >
      <label>
-      正文章名
+      正文章名{' '}
       <input
        className="chapter-input"
        value={range.title}
@@ -230,7 +243,7 @@ export function ChapterSummary({
       />
      </label>
      <label>
-      首页
+      首页{' '}
       <input
        className="chapter-input"
        type="number"
@@ -241,7 +254,7 @@ export function ChapterSummary({
       />
      </label>
      <label>
-      末页
+      末页{' '}
       <input
        className="chapter-input"
        type="number"
@@ -259,7 +272,7 @@ export function ChapterSummary({
    )}
    {status && (
     <>
-     <span role="status">{status}</span>
+     <output>{status}</output>
      <Button variant="ghost" size="sm" onPress={cancel} isDisabled={status === '正在保存章小结…'}>
       取消整理
      </Button>
@@ -312,7 +325,7 @@ export function ChapterSummary({
          </div>
         )
       )}
-      {target && target.page === pageNumber && (
+      {target?.page === pageNumber && (
        <div
         aria-label={`PDF 第${target.page}页第${target.line}行`}
         ref={targetEl}

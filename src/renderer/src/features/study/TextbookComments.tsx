@@ -82,7 +82,7 @@ export function TextbookComments({
  onLocated: () => void
  onSaved: () => void
 }>) {
- const [selected, select] = useState<Selected | null>(null)
+ const [selected, setSelected] = useState<Selected | null>(null)
  const [note, setNote] = useState('')
  const [editing, setEditing] = useState<{id: string; previousText: string} | null>(null)
  const [pending, setPending] = useState(false)
@@ -97,11 +97,11 @@ export function TextbookComments({
   if (!anchor || !locateId) return
   anchor.scrollIntoView({block: 'center', inline: 'nearest'})
   anchor.focus({preventScroll: true})
-  select({ids: marksAt(anchor, locateId), anchor, pinned: true})
+  setSelected({ids: marksAt(anchor, locateId), anchor, pinned: true})
   onLocated()
  }, [locateId, rows, viewport, onLocated])
  function close() {
-  select(null)
+  setSelected(null)
   setEditing(null)
   setNote('')
   setError('')
@@ -112,9 +112,34 @@ export function TextbookComments({
  function leave() {
   keep()
   if (!selected?.pinned)
-   hideTimer.current = setTimeout(() => select(previous => (previous?.pinned ? previous : null)), 180)
+   hideTimer.current = setTimeout(() => setSelected(previous => (previous?.pinned ? previous : null)), 180)
  }
  useEffect(() => () => clearTimeout(hideTimer.current), [])
+ useEffect(() => {
+  const node = card.current
+  if (!node) return
+  const cancel = () => clearTimeout(hideTimer.current)
+  const dismiss = () => {
+   cancel()
+   if (!selected?.pinned)
+    hideTimer.current = setTimeout(() => setSelected(previous => (previous?.pinned ? previous : null)), 180)
+  }
+  const escape = (event: KeyboardEvent) => {
+   if (event.key !== 'Escape' || pending) return
+   setSelected(null)
+   setEditing(null)
+   setNote('')
+   setError('')
+  }
+  node.addEventListener('pointerenter', cancel)
+  node.addEventListener('pointerleave', dismiss)
+  node.addEventListener('keydown', escape)
+  return () => {
+   node.removeEventListener('pointerenter', cancel)
+   node.removeEventListener('pointerleave', dismiss)
+   node.removeEventListener('keydown', escape)
+  }
+ }, [selected, pending])
  useLayoutEffect(() => {
   const box = card.current
   if (!selected || !box) return
@@ -165,7 +190,7 @@ export function TextbookComments({
   if (selected?.pinned && (!pinned || note.trim() || pending)) return
   const ids = marksAt(anchor, row.id, x, y)
   if (selected?.anchor === anchor && selected.pinned === pinned && ids.join() === selected.ids.join()) return
-  select({ids, anchor, pinned})
+  setSelected({ids, anchor, pinned})
   setError('')
   setEditing(null)
   setNote('')
@@ -235,17 +260,7 @@ export function TextbookComments({
    {selected &&
     current &&
     createPortal(
-     <div
-      ref={card}
-      className="book-comment"
-      role="region"
-      aria-label="划线批注"
-      onPointerEnter={keep}
-      onPointerLeave={leave}
-      onKeyDown={e => {
-       if (e.key === 'Escape' && !pending) close()
-      }}
-     >
+     <section ref={card} className="book-comment" aria-label="划线批注">
       <div className="book-comment__head">
        <strong>划线批注</strong>
        {selected.pinned && (
@@ -302,7 +317,7 @@ export function TextbookComments({
       ) : (
        <small>点一下划线，可补写自己的笔记。</small>
       )}
-     </div>,
+     </section>,
      selected.anchor.closest('.study-canvas-column') || document.body
     )}
   </>

@@ -26,55 +26,75 @@ func meaningfulEvidence(text string) bool {
 	return strings.IndexFunc(text, func(r rune) bool { return unicode.IsLetter(r) || unicode.IsDigit(r) }) >= 0
 }
 
+func sentenceEnds(line string, index int, r rune) bool {
+	if strings.ContainsRune("。！？!?；;", r) {
+		return true
+	}
+	if r != '.' {
+		return false
+	}
+	next, size := utf8.DecodeRuneInString(line[index+1:])
+	return size == 0 || unicode.IsSpace(next)
+}
+
+func shouldFlushEvidence(count int, r rune, sentenceEnd bool) bool {
+	return count >= 360 || (count >= 230 && unicode.IsSpace(r)) || (count >= 24 && sentenceEnd)
+}
+
+func evidenceChunks(entries []textbookEvidence, body, kind string) []textbookEvidence {
+	start, position, count := 0, 0, 0
+	flush := func(end int) {
+		text := strings.TrimSpace(body[start:end])
+		if meaningfulEvidence(text) {
+			entries = append(entries, textbookEvidence{ID: len(entries) + 1, Source: kind, Text: text})
+		}
+		start, count = end, 0
+	}
+	for line := range strings.Lines(body) {
+		trimmed := strings.TrimSpace(line)
+		end := position + len(line)
+		if trimmed == "" || (kind == "ppt" && textbookPageMarker.FindString(trimmed) == trimmed) {
+			flush(position)
+			start, position = end, end
+			continue
+		}
+		for i, r := range line {
+			count++
+			// Keep short subtitle fragments together. Never send a whole unpunctuated chapter as one quote.
+			if shouldFlushEvidence(count, r, sentenceEnds(line, i, r)) {
+				_, width := utf8.DecodeRuneInString(line[i:])
+				flush(position + i + width)
+			}
+		}
+		if count >= 24 || kind != "teacher" {
+			flush(end)
+		}
+		position = end
+	}
+	flush(len(body))
+	return entries
+}
+
+func replayEvidence(records []textbookEvidence, offset int) []textbookEvidence {
+	var entries []textbookEvidence
+	for _, record := range records {
+		// Chunk long utterances without inventing a timestamp within the segment.
+		for _, item := range makeTextbookEvidence(textbookSources{Teacher: record.Text}) {
+			item.ID, item.Timestamp = offset+len(entries)+1, record.Timestamp
+			entries = append(entries, item)
+		}
+	}
+	return entries
+}
+
 func makeTextbookEvidence(sources textbookSources) []textbookEvidence {
 	var entries []textbookEvidence
 	for _, kind := range []string{"teacher", "focus", "ppt", "senior"} {
 		if kind == "teacher" && len(sources.Replay) != 0 {
-			for _, record := range sources.Replay {
-				// Chunk long utterances without inventing a timestamp within the segment.
-				for _, item := range makeTextbookEvidence(textbookSources{Teacher: record.Text}) {
-					item.ID, item.Timestamp = len(entries)+1, record.Timestamp
-					entries = append(entries, item)
-				}
-			}
+			entries = append(entries, replayEvidence(sources.Replay, len(entries))...)
 			continue
 		}
-		body := evidenceSource(sources, kind)
-		start, offset, count := 0, 0, 0
-		flush := func(end int) {
-			text := strings.TrimSpace(body[start:end])
-			if meaningfulEvidence(text) {
-				entries = append(entries, textbookEvidence{ID: len(entries) + 1, Source: kind, Text: text})
-			}
-			start, count = end, 0
-		}
-		for line := range strings.Lines(body) {
-			trimmed := strings.TrimSpace(line)
-			end := offset + len(line)
-			if trimmed == "" || (kind == "ppt" && textbookPageMarker.FindString(trimmed) == trimmed) {
-				flush(offset)
-				start, offset = end, end
-				continue
-			}
-			for i, r := range line {
-				count++
-				// Keep short subtitle fragments together. Never send a whole unpunctuated chapter as one quote.
-				sentenceEnd := strings.ContainsRune("。！？!?；;", r)
-				if r == '.' {
-					next, size := utf8.DecodeRuneInString(line[i+1:])
-					sentenceEnd = size == 0 || unicode.IsSpace(next)
-				}
-				if count >= 360 || (count >= 230 && unicode.IsSpace(r)) || (count >= 24 && sentenceEnd) {
-					_, width := utf8.DecodeRuneInString(line[i:])
-					flush(offset + i + width)
-				}
-			}
-			if count >= 24 || kind != "teacher" {
-				flush(end)
-			}
-			offset = end
-		}
-		flush(len(body))
+		entries = evidenceChunks(entries, evidenceSource(sources, kind), kind)
 	}
 	return entries
 }

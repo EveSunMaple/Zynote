@@ -62,11 +62,7 @@ export function TextbookBookmarks({
      if (value && rows[Number(value)]) void go(rows[Number(value)])
     }}
    />
-   {error && (
-    <span role="status" className="study-menu__hint">
-     {error}
-    </span>
-   )}
+   {error && <output className="study-menu__hint">{error}</output>}
   </div>
  )
 }

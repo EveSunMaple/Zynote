@@ -90,10 +90,9 @@ try {
  check(health.ok && health.integrity === 'ok', 'db:health mismatch')
  // Legacy clients could send a whole set of page images and break stdin before Go could reject it.
  const oversized = await page.evaluate(() =>
-  (window as AssistantWindow).assistant.invoke('textbook:analyze-images', {images: ['A'.repeat(8 * 1024 * 1024)]}).then(
-   () => '',
-   error => String(error)
-  )
+  (window as AssistantWindow).assistant
+   .invoke('textbook:analyze-images', {images: ['A'.repeat(8 * 1024 * 1024)]})
+   .then(() => '', String)
  )
  check(oversized.includes('8 MiB'), 'oversized request should be rejected by the shell')
  check((await invoke<{ok: boolean}>('db:health')).ok, 'oversized request interrupted the backend')
@@ -115,6 +114,11 @@ try {
   {action: 'im', args: {action: 'status', value: {}}}
  )
  check(im.platforms.weixin_local.available === (process.platform === 'win32'), 'weixin_local capability mismatch')
+ function pdfiumLibraryName() {
+  if (process.platform === 'win32') return 'pdfium.dll'
+  if (process.platform === 'darwin') return 'libpdfium.dylib'
+  return 'libpdfium.so'
+ }
  const target = await application.evaluate(() => ({arch: process.arch, resources: process.resourcesPath}))
  const qqArchive = statSync(join(target.resources, 'knowledge', 'vendor', 'NapCat.Shell.Windows.Node.zip'), {
   throwIfNoEntry: false
@@ -139,13 +143,16 @@ try {
  await upload.waitFor()
  await page.getByRole('button', {name: '查看示例', exact: true}).click()
  const examples = page.getByRole('dialog', {name: '课表截图示例', exact: true})
- for (const label of ['教务系统', '手机彩色', '手机单色']) {
+ const openExample = async (label: string) => {
   await examples.getByRole('tab', {name: label, exact: true}).click()
   await examples
    .getByRole('tabpanel', {name: label, exact: true})
    .locator('img')
    .evaluate((image: HTMLImageElement) => image.decode())
  }
+ await openExample('教务系统')
+ await openExample('手机彩色')
+ await openExample('手机单色')
  await page.keyboard.press('Escape')
  await examples.waitFor({state: 'hidden'})
  const guide = page.locator('.study-next-step:visible')
@@ -196,14 +203,13 @@ try {
  await openSchedule.click()
  await upload.waitFor()
  check((await invoke<unknown[]>('study:get')).length === 0, 'saved empty timetable was not retained')
- const pdfiumFile =
-  process.platform === 'win32' ? 'pdfium.dll' : process.platform === 'darwin' ? 'libpdfium.dylib' : 'libpdfium.so'
+ const pdfiumFile = pdfiumLibraryName()
  if (statSync(join(target.resources, 'pdfium', pdfiumFile), {throwIfNoEntry: false})?.isFile()) {
   // Page one is a red JPEG 2000 scan. Page two uses a predefined Chinese CMap to draw blue text.
   const fixture = join(dataRoot, 'preview.pdf')
   copyFileSync(resolve('scripts/fixtures/textbook-preview.pdf'), fixture)
   await application.evaluate(({dialog}, file) => {
-   dialog.showOpenDialog = async () => ({canceled: false, filePaths: [file]})
+   dialog.showOpenDialog = () => Promise.resolve({canceled: false, filePaths: [file]})
   }, fixture)
   const previewPrefix = 'textbook-pdf://preview/textbooks/'
   const textbookRequests: string[] = []

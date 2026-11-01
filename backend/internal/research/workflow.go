@@ -118,6 +118,33 @@ func workflowListRow(row map[string]any) map[string]any {
 	return slim
 }
 
+func (engine *Engine) readWorkflowMaterials(bindings []Binding) ([]Source, error) {
+	materials := []Source{}
+	for _, binding := range bindings {
+		source, err := engine.Sources.Read(binding)
+		if err != nil {
+			return nil, err
+		}
+		materials = append(materials, source)
+	}
+	if err := engine.Sources.Verify(materials); err != nil {
+		return nil, err
+	}
+	return materials, nil
+}
+
+func newWorkflow(question string, bindings []Binding, quick bool) Workflow {
+	now := time.Now().UTC().Format(time.RFC3339Nano)
+	flow := Workflow{
+		WorkflowID: randomID(), Question: question, Status: "paused", OutcomeUnknown: false,
+		Bindings: bindings, ErrorCode: "", CreatedAt: now, UpdatedAt: now, Quick: quick,
+	}
+	for _, name := range []string{"材料整理", "综合回答"} {
+		flow.Steps = append(flow.Steps, WorkflowStep{Name: name, Status: "pending", CreateOp: randomID()})
+	}
+	return flow
+}
+
 func (engine *Engine) CreateWorkflow(ctx context.Context, input map[string]any) (any, error) {
 	op := text(input["op"])
 	question := trimText(text(input["question"]), 800)
@@ -129,25 +156,10 @@ func (engine *Engine) CreateWorkflow(ctx context.Context, input map[string]any) 
 		return nil, fmt.Errorf("工作流参数无效")
 	}
 	result, err := engine.Store.Operation(op, input, func() (any, error) {
-		materials := []Source{}
-		for _, binding := range bindings {
-			source, err := engine.Sources.Read(binding)
-			if err != nil {
-				return nil, err
-			}
-			materials = append(materials, source)
-		}
-		if err := engine.Sources.Verify(materials); err != nil {
+		if _, err := engine.readWorkflowMaterials(bindings); err != nil {
 			return nil, err
 		}
-		now := time.Now().UTC().Format(time.RFC3339Nano)
-		flow := Workflow{
-			WorkflowID: randomID(), Question: question, Status: "paused", OutcomeUnknown: false,
-			Bindings: bindings, ErrorCode: "", CreatedAt: now, UpdatedAt: now, Quick: input["quick"] == true,
-		}
-		for _, name := range []string{"材料整理", "综合回答"} {
-			flow.Steps = append(flow.Steps, WorkflowStep{Name: name, Status: "pending", CreateOp: randomID()})
-		}
+		flow := newWorkflow(question, bindings, input["quick"] == true)
 		if err := engine.putWorkflow(&flow); err != nil {
 			return nil, err
 		}

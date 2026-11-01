@@ -49,24 +49,17 @@ func newScanPlacement(data string, affine [6]float64) (scanPlacement, bool) {
 
 // Align a proposed single line to ink on the page. A box between two plausible
 // lines is less useful than an explicit positioning warning.
-func (placement scanPlacement) inkBox(rect [4]float64) (image.Rectangle, bool) {
-	g := placement.pixels
-	if g == nil {
-		return image.Rectangle{}, false
+func inkPercentile(histogram *[256]int, target int) int {
+	for i, count := range histogram {
+		target -= count
+		if target <= 0 {
+			return i
+		}
 	}
-	w, h := g.Rect.Dx(), g.Rect.Dy()
-	x0 := max(0, int(math.Floor(rect[0]*float64(w))))
-	x1 := min(w, int(math.Ceil(rect[2]*float64(w))))
-	top := int(math.Floor(rect[1] * float64(h)))
-	bottom := int(math.Ceil(rect[3] * float64(h)))
-	height := bottom - top
-	if x1-x0 < 2 || height < 2 {
-		return image.Rectangle{}, false
-	}
-	// Small margins allow the model's box to miss an ascender or baseline without
-	// searching the rest of the column for unrelated text.
-	pad := min(max(3, height/2), max(4, h/55))
-	y0, y1 := max(0, top-pad), min(h, bottom+pad)
+	return 255
+}
+
+func inkDetector(g *image.Gray, x0, x1, y0, y1 int) (func(uint8) bool, bool) {
 	var histogram [256]int
 	n := (x1 - x0) * (y1 - y0)
 	for py := y0; py < y1; py++ {
@@ -74,29 +67,23 @@ func (placement scanPlacement) inkBox(rect [4]float64) (image.Rectangle, bool) {
 			histogram[lum]++
 		}
 	}
-	percentile := func(target int) int {
-		for i, count := range histogram {
-			target -= count
-			if target <= 0 {
-				return i
-			}
-		}
-		return 255
-	}
-	background := percentile(max(1, n/2))
-	dark, light := percentile(max(1, n/100)), percentile(max(1, n*99/100))
+	background := inkPercentile(&histogram, max(1, n/2))
+	dark, light := inkPercentile(&histogram, max(1, n/100)), inkPercentile(&histogram, max(1, n*99/100))
 	brightInk := light-background > background-dark
 	contrast := max(light-background, background-dark)
 	if contrast < 35 {
-		return image.Rectangle{}, false
+		return nil, false
 	}
 	delta := max(25, contrast/3)
-	isInk := func(v uint8) bool {
+	return func(v uint8) bool {
 		if brightInk {
 			return int(v) >= background+delta
 		}
 		return int(v) <= background-delta
-	}
+	}, true
+}
+
+func inkBands(g *image.Gray, x0, x1, y0, y1 int, isInk func(uint8) bool) []image.Rectangle {
 	bands := make([]image.Rectangle, 0, 4)
 	lastInkY := -10
 	for y := y0; y < y1; y++ {
@@ -119,18 +106,22 @@ func (placement scanPlacement) inkBox(rect [4]float64) (image.Rectangle, bool) {
 		}
 		lastInkY = y
 	}
-	// Vertical overlap relative to both boxes (IoU) favors a close-fitting
-	// single line over a horizontal rule or a neighboring line.
+	return bands
+}
+
+// Vertical overlap relative to both boxes (IoU) favors a close-fitting
+// single line over a horizontal rule or a neighboring line.
+func selectInkBand(bands []image.Rectangle, top, bottom, height, width int) (image.Rectangle, bool) {
 	best, runner := 0.0, 0.0
 	var chosen image.Rectangle
-	for _, b := range bands {
-		if b.Dy() < max(2, height/6) || b.Dx() < max(2, (x1-x0)/8) {
+	for _, band := range bands {
+		if band.Dy() < max(2, height/6) || band.Dx() < max(2, width/8) {
 			continue
 		}
-		intersection := max(0, min(bottom, b.Max.Y)-max(top, b.Min.Y))
-		score := float64(intersection) / float64(max(bottom, b.Max.Y)-min(top, b.Min.Y))
+		intersection := max(0, min(bottom, band.Max.Y)-max(top, band.Min.Y))
+		score := float64(intersection) / float64(max(bottom, band.Max.Y)-min(top, band.Min.Y))
 		if score > best {
-			runner, best, chosen = best, score, b
+			runner, best, chosen = best, score, band
 		} else {
 			runner = math.Max(runner, score)
 		}
@@ -138,7 +129,11 @@ func (placement scanPlacement) inkBox(rect [4]float64) (image.Rectangle, bool) {
 	if best < 0.25 || runner >= 0.65*best {
 		return image.Rectangle{}, false
 	}
-	// Complete partially clipped glyphs, stopping at the first blank column.
+	return chosen, true
+}
+
+// Complete partially clipped glyphs, stopping at the first blank column.
+func expandInkBand(g *image.Gray, chosen image.Rectangle, x0, x1 int, isInk func(uint8) bool) image.Rectangle {
 	hasInk := func(x int) bool {
 		for y := chosen.Min.Y; y < chosen.Max.Y; y++ {
 			if isInk(g.Pix[y*g.Stride+x]) {
@@ -154,10 +149,40 @@ func (placement scanPlacement) inkBox(rect [4]float64) (image.Rectangle, bool) {
 		}
 	}
 	if chosen.Max.X == x1 {
-		for x := x1; x < min(w, x1+maxSide) && hasInk(x); x++ {
+		for x := x1; x < min(g.Rect.Dx(), x1+maxSide) && hasInk(x); x++ {
 			chosen.Max.X = x + 1
 		}
 	}
+	return chosen
+}
+
+func (placement scanPlacement) inkBox(rect [4]float64) (image.Rectangle, bool) {
+	g := placement.pixels
+	if g == nil {
+		return image.Rectangle{}, false
+	}
+	w, h := g.Rect.Dx(), g.Rect.Dy()
+	x0 := max(0, int(math.Floor(rect[0]*float64(w))))
+	x1 := min(w, int(math.Ceil(rect[2]*float64(w))))
+	top := int(math.Floor(rect[1] * float64(h)))
+	bottom := int(math.Ceil(rect[3] * float64(h)))
+	height := bottom - top
+	if x1-x0 < 2 || height < 2 {
+		return image.Rectangle{}, false
+	}
+	// Small margins allow the model's box to miss an ascender or baseline without
+	// searching the rest of the column for unrelated text.
+	pad := min(max(3, height/2), max(4, h/55))
+	y0, y1 := max(0, top-pad), min(h, bottom+pad)
+	isInk, ok := inkDetector(g, x0, x1, y0, y1)
+	if !ok {
+		return image.Rectangle{}, false
+	}
+	chosen, ok := selectInkBand(inkBands(g, x0, x1, y0, y1, isInk), top, bottom, height, x1-x0)
+	if !ok {
+		return image.Rectangle{}, false
+	}
+	chosen = expandInkBand(g, chosen, x0, x1, isInk)
 	return chosen.Inset(-1).Intersect(g.Rect), true
 }
 

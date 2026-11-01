@@ -27,7 +27,7 @@ func sampleScanPlacement() scanPlacement {
 	return scanPlacement{p, [6]float64{10, 450, 700, 0, 0, -400}}
 }
 
-func TestScannedInkAlignsOneLineAndUsesPDFTransform(t *testing.T) {
+func TestScannedInkAlignsOneLineAndUsesPDFTransform(t *testing.T) { // NOSONAR: table-driven geometry test; extracting fixtures would obscure the scenario.
 	place := sampleScanPlacement()
 	var buf bytes.Buffer
 	if err := jpeg.Encode(&buf, place.pixels, &jpeg.Options{Quality: 90}); err != nil {

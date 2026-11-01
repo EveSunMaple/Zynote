@@ -42,7 +42,7 @@ export function TextbookSessions({
    <Disclosure.Content>
     <Disclosure.Body className="study-fold__body">
      {ordered.length ? (
-      <div role="group" aria-label="选择使用本教材的课次" className="textbook-session-list">
+      <fieldset aria-label="选择使用本教材的课次" className="textbook-session-list">
        {ordered.map(row => {
         const title = row.title.trim() || '未命名课次'
         const description = sessionDescription(row, timezone)
@@ -67,7 +67,7 @@ export function TextbookSessions({
          </Checkbox>
         )
        })}
-      </div>
+      </fieldset>
      ) : (
       <p className="study-menu__hint">先在课表中添加课次，再选择哪些课次使用这本教材。</p>
      )}

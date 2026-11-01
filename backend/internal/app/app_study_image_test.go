@@ -39,7 +39,7 @@ func checkImportPhases(t *testing.T, events []wireEnvelope, requestID, filename 
 	}
 }
 
-func TestStudyImageDraftAndSave(t *testing.T) {
+func TestStudyImageDraftAndSave(t *testing.T) { // NOSONAR: end-to-end import test; extracting steps would obscure the scenario.
 	var picture bytes.Buffer
 	if err := png.Encode(&picture, image.NewRGBA(image.Rect(0, 0, 4, 4))); err != nil {
 		t.Fatal(err)

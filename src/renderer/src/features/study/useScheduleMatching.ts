@@ -30,6 +30,11 @@ function refreshLabels(
  })
  return changed ? next : rows
 }
+function replayLabelFor(replay: ZhiyunLesson | undefined, row: StudyEntry, id: string) {
+ if (replay) return lessonLabel(replay)
+ if (row.subId === id) return row.zhiyunReplayLabel
+ return undefined
+}
 const searchTitle = (slot: StudyEntry, courses: Course[]) =>
  (slot.weekly ? slot.title : courses.find(course => course.id === slot.courseId)?.name || slot.title).trim()
 export const loginNeeded = (message: string) => /请先.*登录|返回了登录页|登录已过期|登录状态已失效/.test(message)
@@ -72,7 +77,7 @@ export function matchesWeeklySlot(slot: StudyEntry, lesson: ZhiyunLesson) {
  const title = lesson.title.normalize('NFKC'),
   date = replayDate(title)
  if (!date || (date.getUTCDay() || 7) !== slot.weekday) return false
- const periods = [...title.matchAll(/第\s*(\d{1,2})(?:\s*(?:节\s*)?[-~～–—至到]\s*(?:第\s*)?(\d{1,2}))?\s*节/g)]
+ const periods = [...title.matchAll(/第\s*(\d{1,2})(?:\s*节)?\s*(?:[-~～–—至到]\s*(?:第\s*)?(\d{1,2}))?\s*节/g)]
  if (periods.length !== 1) return false
  const [, start, end = start] = periods[0]
  return Number(start) === slot.startPeriod && Number(end) === slot.endPeriod
@@ -179,6 +184,42 @@ export function useScheduleMatching(
   }
  }
 
+ function autoLinkable(
+  row: StudyEntry,
+  ids: Set<string>,
+  manual: Set<string>,
+  source: ZhiyunCourseMatch['source'],
+  groupKey: string,
+  courses: Course[]
+ ) {
+  if (!ids.has(row.id) || manual.has(row.id) || row.skipZhiyunMatch || row.zhiyunCourseId || row.subId) return false
+  return !needsTermReview(row, source) && courseKey(searchTitle(row, courses)) === groupKey
+ }
+
+ function withDatedReplays(
+  state: StudyEntry[],
+  id: string,
+  ids: Set<string>,
+  lessons: ZhiyunLesson[],
+  request: Promise<ZhiyunLesson[]>,
+  manual: Set<string>
+ ) {
+  if (catalogCache.current.get(id) !== request) return state
+  // Only suggest a dated replay when the catalog and the timetable each have a single lesson that day.
+  const dates = new Map<string, number>()
+  for (const row of state) {
+   const date = row.zhiyunCourseId === id ? campusDate(row) : undefined
+   if (date) dates.set(date, (dates.get(date) || 0) + 1)
+  }
+  return state.map(row => {
+   if (!ids.has(row.id) || row.zhiyunCourseId !== id || row.subId || row.skipZhiyunMatch || manual.has(row.id))
+    return row
+   const date = campusDate(row)
+   const replay = date && dates.get(date) === 1 ? datedReplay(date, lessons) : undefined
+   return replay ? {...row, subId: replay.id, zhiyunReplayLabel: lessonLabel(replay)} : row
+  })
+ }
+
  async function match(rows: StudyEntry[], includeSkipped = false) {
   const current = epoch.current
   const queue = groupCourses(includeSkipped ? rows : rows.filter(row => !row.skipZhiyunMatch), courses)
@@ -200,20 +241,11 @@ export function useScheduleMatching(
      const ids = new Set(group.slots.map(row => row.id))
      if (matched)
       setEntries(state =>
-       state.map(row => {
-        if (
-         current !== epoch.current ||
-         !ids.has(row.id) ||
-         manual.current.has(row.id) ||
-         row.skipZhiyunMatch ||
-         row.zhiyunCourseId ||
-         row.subId ||
-         needsTermReview(row, result.source) ||
-         courseKey(searchTitle(row, courses)) !== group.key
-        )
-         return row
-        return {...row, zhiyunCourseId: matched.id, zhiyunCourseLabel: courseLabel(matched)}
-       })
+       state.map(row =>
+        current === epoch.current && autoLinkable(row, ids, manual.current, result.source, group.key, courses)
+         ? {...row, zhiyunCourseId: matched.id, zhiyunCourseLabel: courseLabel(matched)}
+         : row
+       )
       )
      const courseIds = new Set(
       group.slots
@@ -285,7 +317,7 @@ export function useScheduleMatching(
      ? {
         ...row,
         subId: id || undefined,
-        zhiyunReplayLabel: replay ? lessonLabel(replay) : row.subId === id ? row.zhiyunReplayLabel : undefined
+        zhiyunReplayLabel: replayLabelFor(replay, row, id)
        }
      : row
    )

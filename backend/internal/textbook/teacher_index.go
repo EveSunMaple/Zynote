@@ -21,17 +21,7 @@ type TeacherIndex struct {
 	Total int           `json:"total"`
 }
 
-func (service *Service) TeacherAnnotations(id string, offset int) (TeacherIndex, error) {
-	result := TeacherIndex{Items: []TeacherMark{}}
-	service.mu.Lock()
-	item, ok := service.books[id]
-	service.mu.Unlock()
-	if !ok {
-		return result, contract.InputInvalid(msgReselectTextbook)
-	}
-	if offset < 0 {
-		return result, contract.InputInvalid("批注起始位置无效")
-	}
+func teacherMarks(item book) []TeacherMark {
 	// A teacher-looking colour on an old or manually marked line is not transcript evidence.
 	var marks []TeacherMark
 	for _, row := range item.annotations {
@@ -48,21 +38,12 @@ func (service *Service) TeacherAnnotations(id string, offset int) (TeacherIndex,
 			marks = append(marks, mark)
 		}
 	}
-	// PDF coordinates increase upwards. List the upper line first, then read left to right.
-	sort.Slice(marks, func(i, j int) bool {
-		a, b := marks[i], marks[j]
-		if a.Page != b.Page {
-			return a.Page < b.Page
-		}
-		if at, bt := a.Rect[1]+a.Rect[3], b.Rect[1]+b.Rect[3]; at != bt {
-			return at > bt
-		}
-		if a.Rect[0] != b.Rect[0] {
-			return a.Rect[0] < b.Rect[0]
-		}
-		return a.ID < b.ID
-	})
-	// A passage can span several highlight rectangles. Keep its first anchor on each page.
+	return marks
+}
+
+// A passage can span several highlight rectangles. Keep its first anchor on each page.
+func paginateTeacherMarks(marks []TeacherMark, offset int) (TeacherIndex, error) {
+	result := TeacherIndex{Items: []TeacherMark{}}
 	type passage struct {
 		page              int
 		text, quote, time string
@@ -71,11 +52,11 @@ func (service *Service) TeacherAnnotations(id string, offset int) (TeacherIndex,
 	size := 0
 	for _, mark := range marks {
 		comments := mark.Comments[:0]
-		for _, c := range mark.Comments {
-			key := passage{mark.Page, mark.Quote, c.Quote, c.Timestamp}
+		for _, comment := range mark.Comments {
+			key := passage{mark.Page, mark.Quote, comment.Quote, comment.Timestamp}
 			if !seen[key] {
 				seen[key] = true
-				comments = append(comments, c)
+				comments = append(comments, comment)
 			}
 		}
 		if len(comments) == 0 {
@@ -95,4 +76,33 @@ func (service *Service) TeacherAnnotations(id string, offset int) (TeacherIndex,
 		result.Items = append(result.Items, mark)
 	}
 	return result, nil
+}
+
+func (service *Service) TeacherAnnotations(id string, offset int) (TeacherIndex, error) {
+	result := TeacherIndex{Items: []TeacherMark{}}
+	service.mu.Lock()
+	item, ok := service.books[id]
+	service.mu.Unlock()
+	if !ok {
+		return result, contract.InputInvalid(msgReselectTextbook)
+	}
+	if offset < 0 {
+		return result, contract.InputInvalid("批注起始位置无效")
+	}
+	marks := teacherMarks(item)
+	// PDF coordinates increase upwards. List the upper line first, then read left to right.
+	sort.Slice(marks, func(i, j int) bool {
+		a, b := marks[i], marks[j]
+		if a.Page != b.Page {
+			return a.Page < b.Page
+		}
+		if at, bt := a.Rect[1]+a.Rect[3], b.Rect[1]+b.Rect[3]; at != bt {
+			return at > bt
+		}
+		if a.Rect[0] != b.Rect[0] {
+			return a.Rect[0] < b.Rect[0]
+		}
+		return a.ID < b.ID
+	})
+	return paginateTeacherMarks(marks, offset)
 }

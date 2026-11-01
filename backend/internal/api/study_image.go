@@ -6,8 +6,8 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"image"
-	_ "image/jpeg"
-	_ "image/png"
+	_ "image/jpeg" // Register the JPEG decoder for image.DecodeConfig.
+	_ "image/png"  // Register the PNG decoder for image.DecodeConfig.
 	"io"
 	"net/http/httptrace"
 	"os"
@@ -63,12 +63,12 @@ func readStudyImage(path string) (ai.Image, bool, error) {
 	return ai.Image{Label: "周课表截图", URL: "data:image/" + format + ";base64," + base64.StdEncoding.EncodeToString(data)}, large, nil
 }
 
-func optionalSlotNumber(value any, max int) (int, bool) {
+func optionalSlotNumber(value any, limit int) (int, bool) {
 	if value == nil {
 		return 0, true
 	}
 	n, ok := value.(float64)
-	return int(n), ok && n >= 1 && n <= float64(max) && n == float64(int(n))
+	return int(n), ok && n >= 1 && n <= float64(limit) && n == float64(int(n))
 }
 
 func validateWeeklySlot(row map[string]any) error {
@@ -91,15 +91,15 @@ func validateWeeklySlot(row map[string]any) error {
 }
 
 // An uncertain field belongs in the editable draft and must not invalidate other courses.
-func imageSlotNumber(value any, max int) int {
+func imageSlotNumber(value any, limit int) int {
 	if str, ok := value.(string); ok {
 		n, err := strconv.Atoi(strings.TrimSpace(str))
-		if err == nil && n >= 1 && n <= max {
+		if err == nil && n >= 1 && n <= limit {
 			return n
 		}
 		return 0
 	}
-	n, ok := optionalSlotNumber(value, max)
+	n, ok := optionalSlotNumber(value, limit)
 	if !ok {
 		return 0
 	}
@@ -197,44 +197,54 @@ func (inv *Invoker) parseStudyImage(store contract.StateStore, state *contract.S
 	}
 	report("reading")
 	return inv.runJob("课表", func(ctx context.Context) (any, error) {
-		screenshot, large, err := readStudyImage(path)
-		if err != nil {
-			return nil, err
-		}
-		report("ready")
-		client, err := inv.textbookAIClient(state, store)
-		if err != nil {
-			return nil, err
-		}
-		names, err := studyCourseNames(state)
-		if err != nil {
-			return nil, err
-		}
-		ctx, cancel := context.WithTimeout(ctx, studyImageTimeout)
-		defer cancel()
-		ctx = httptrace.WithClientTrace(ctx, &httptrace.ClientTrace{
-			WroteRequest: func(info httptrace.WroteRequestInfo) {
-				if info.Err == nil {
-					report("sent")
-				}
-			},
-			GotFirstResponseByte: func() { report("received") },
-		})
-		report("uploading")
-		var rows []map[string]any
-		flash := client.Profile.VisionModel == "qwen3.8-flash"
-		_, err = client.JSONWithOptions(ctx, studyImagePrompt, "逐个星期提取所有教学时段，核对每一个单元格的起止节次。", func(raw []byte) error {
-			var decodeErr error
-			rows, decodeErr = decodeStudyImageRows(raw, names)
-			return decodeErr
-		}, ai.JSONOptions{
-			Images: []ai.Image{screenshot}, OnRetry: func() { report("retrying") },
-			DisableThinking:      flash && client.Profile.Parameters[client.Profile.VisionModel].ReasoningEffort == nil,
-			HighResolutionImages: flash && large,
-		})
-		if ctx.Err() == context.DeadlineExceeded {
-			return nil, contract.Unavailable("课表识别超过 120 秒，未得到完整结果。可重新上传图片，或分段截图后分别导入。")
-		}
-		return rows, err
+		return inv.runStudyImageJob(ctx, store, state, path, report)
 	})
+}
+
+func (inv *Invoker) runStudyImageJob(
+	ctx context.Context,
+	store contract.StateStore,
+	state *contract.State,
+	path string,
+	report func(string),
+) (any, error) {
+	screenshot, large, err := readStudyImage(path)
+	if err != nil {
+		return nil, err
+	}
+	report("ready")
+	client, err := inv.textbookAIClient(state, store)
+	if err != nil {
+		return nil, err
+	}
+	names, err := studyCourseNames(state)
+	if err != nil {
+		return nil, err
+	}
+	ctx, cancel := context.WithTimeout(ctx, studyImageTimeout)
+	defer cancel()
+	ctx = httptrace.WithClientTrace(ctx, &httptrace.ClientTrace{
+		WroteRequest: func(info httptrace.WroteRequestInfo) {
+			if info.Err == nil {
+				report("sent")
+			}
+		},
+		GotFirstResponseByte: func() { report("received") },
+	})
+	report("uploading")
+	var rows []map[string]any
+	flash := client.Profile.VisionModel == "qwen3.8-flash"
+	_, err = client.JSONWithOptions(ctx, studyImagePrompt, "逐个星期提取所有教学时段，核对每一个单元格的起止节次。", func(raw []byte) error {
+		var decodeErr error
+		rows, decodeErr = decodeStudyImageRows(raw, names)
+		return decodeErr
+	}, ai.JSONOptions{
+		Images: []ai.Image{screenshot}, OnRetry: func() { report("retrying") },
+		DisableThinking:      flash && client.Profile.Parameters[client.Profile.VisionModel].ReasoningEffort == nil,
+		HighResolutionImages: flash && large,
+	})
+	if ctx.Err() == context.DeadlineExceeded {
+		return nil, contract.Unavailable("课表识别超过 120 秒，未得到完整结果。可重新上传图片，或分段截图后分别导入。")
+	}
+	return rows, err
 }

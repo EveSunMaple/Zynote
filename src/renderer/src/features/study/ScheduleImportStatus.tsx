@@ -37,7 +37,7 @@ export function useScheduleImportStatus() {
     if (event.kind !== 'study-import') return
     const {requestId, phase, fileName} = event.data
     setStatus(current => {
-     if (!current || current.requestId !== requestId || current.finishedAt !== undefined) return current
+     if (current?.requestId !== requestId || current.finishedAt !== undefined) return current
      return {
       ...current,
       phase,
@@ -95,7 +95,7 @@ export function ScheduleImportStatus({
  if (status.count !== undefined)
   return (
    <section className="schedule-import-summary" aria-label="截图识别进度">
-    <span role="status">已识别 {status.count} 条课次</span>
+    <output>已识别 {status.count} 条课次</output>
     {status.fileName && (
      <span className="study-import-status__file" title={status.fileName}>
       {status.fileName}

@@ -371,15 +371,21 @@ func (client *Client) Chat(ctx context.Context, messages []Message, onText func(
 	return client.chat(ctx, messages, onText, JSONOptions{})
 }
 
-func (client *Client) chat(ctx context.Context, messages []Message, onText func(string), options JSONOptions) (string, error) {
-	profile := client.Profile
+type chatRequestParts struct {
+	endpoint            string
+	body                map[string]any
+	encoded             []byte
+	responses           bool
+	nativeFile, hasFile bool
+}
+
+func buildChatRequest(ctx context.Context, profile Profile, messages []Message, options JSONOptions, onText func(string)) (chatRequestParts, error) {
 	nativeFile, hasFile, hasImages := chatContentFlags(messages)
 	model, err := chatModel(profile, hasImages)
 	if err != nil {
-		return "", err
+		return chatRequestParts{}, err
 	}
 	responses := nativeFile || profile.APIFormat == "responses"
-	endpoint := chatEndpoint(profile, responses)
 	var input map[string]any
 	if responses {
 		input = map[string]any{"input": responsesInput(messages), "store": false}
@@ -396,34 +402,66 @@ func (client *Client) chat(ctx context.Context, messages []Message, onText func(
 	}
 	encoded, err := marshalNoEscape(body)
 	if err != nil {
-		return "", err
+		return chatRequestParts{}, err
 	}
+	return chatRequestParts{
+		endpoint: chatEndpoint(profile, responses), body: body, encoded: encoded,
+		responses: responses, nativeFile: nativeFile, hasFile: hasFile,
+	}, nil
+}
+
+func emitChatObservation(ctx context.Context, observer contract.GenerationObserver, event *contract.GenerationAttemptEvidence) error {
+	if observer == nil {
+		return nil
+	}
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	return observer(ctx, *event)
+}
+
+func newChatHTTPRequest(
+	ctx context.Context,
+	endpoint string,
+	encoded []byte,
+	profile Profile,
+	onText func(string),
+) (*http.Request, context.CancelFunc, error) {
 	// 流式请求一直有数据回来，长资料（整节课字幕）可能写好几分钟，不能用非流式的 3 分钟上限截断。
 	limit := 180 * time.Second
 	if onText != nil {
 		limit = 15 * time.Minute
 	}
 	requestContext, cancel := context.WithTimeout(ctx, limit)
-	defer cancel()
 	request, err := http.NewRequestWithContext(requestContext, http.MethodPost, endpoint, bytes.NewReader(encoded))
 	if err != nil {
-		return "", err
+		cancel()
+		return nil, nil, err
 	}
 	request.Header.Set("Content-Type", "application/json")
 	if profile.Key != "" {
 		request.Header.Set("Authorization", "Bearer "+profile.Key)
 	}
-	event, observer, err := observationForRequest(ctx, profile, endpoint, body, encoded, messages, onText)
+	return request, cancel, nil
+}
+
+func (client *Client) chat(ctx context.Context, messages []Message, onText func(string), options JSONOptions) (string, error) {
+	profile := client.Profile
+	parts, err := buildChatRequest(ctx, profile, messages, options, onText)
+	if err != nil {
+		return "", err
+	}
+	request, cancel, err := newChatHTTPRequest(ctx, parts.endpoint, parts.encoded, profile, onText)
+	if err != nil {
+		return "", err
+	}
+	defer cancel()
+	event, observer, err := observationForRequest(ctx, profile, parts.endpoint, parts.body, parts.encoded, messages, onText)
 	if err != nil {
 		return "", contract.ObservationFailure(err)
 	}
-	if observer != nil {
-		if err := ctx.Err(); err != nil {
-			return "", contract.ObservationFailure(err)
-		}
-		if err := observer(ctx, event); err != nil {
-			return "", contract.ObservationFailure(err)
-		}
+	if err := emitChatObservation(ctx, observer, &event); err != nil {
+		return "", contract.ObservationFailure(err)
 	}
 	response, err := observedHTTPClient(client.HTTP, observer).Do(request)
 	if err != nil {
@@ -433,33 +471,28 @@ func (client *Client) chat(ctx context.Context, messages []Message, onText func(
 		return "", &RetryableError{Message: "API 连接失败，请检查网络或服务地址"}
 	}
 	defer response.Body.Close()
-	if observer != nil {
-		event.State = "http-response-received"
-		event.HTTPStatus = response.StatusCode
-		if err := observer(ctx, event); err != nil {
-			return "", contract.ObservationFailure(err)
-		}
+	event.State = "http-response-received"
+	event.HTTPStatus = response.StatusCode
+	if err := emitChatObservation(ctx, observer, &event); err != nil {
+		return "", contract.ObservationFailure(err)
 	}
-
 	if response.StatusCode < 200 || response.StatusCode >= 300 {
-		return "", requestError(response, nativeFile, hasFile)
+		return "", requestError(response, parts.nativeFile, parts.hasFile)
 	}
 	if onText != nil && response.Body != nil {
 		return readSSEWithReasoning(response.Body, onText, client.OnReasoning)
 	}
-	reply, err := decodeChatResponse(response, responses)
+	reply, err := decodeChatResponse(response, parts.responses)
 	if err != nil {
 		return "", err
 	}
-	if observer != nil {
-		event.State = "response-decoded"
-		event.DecodedTextSHA256 = recipeDigest(reply)
-		if err := observer(ctx, event); err != nil {
-			return "", contract.ObservationFailure(err)
-		}
-		if facts, _ := ctx.Value(generationRequestFactsKey{}).(*contract.GenerationAttemptEvidence); facts != nil {
-			*facts = event
-		}
+	event.State = "response-decoded"
+	event.DecodedTextSHA256 = recipeDigest(reply)
+	if err := emitChatObservation(ctx, observer, &event); err != nil {
+		return "", contract.ObservationFailure(err)
+	}
+	if facts, _ := ctx.Value(generationRequestFactsKey{}).(*contract.GenerationAttemptEvidence); facts != nil {
+		*facts = event
 	}
 	return reply, nil
 }

@@ -26,12 +26,69 @@ func checkAt(endsAt string) string {
 	return parsed.Add(4 * time.Hour).UTC().Format("2006-01-02T15:04:05.000Z")
 }
 
-func validateStudyEntry(entry map[string]any) error {
-	if id := entry["textbookId"]; id != nil {
-		text, ok := id.(string)
-		if !ok || !config.IsUUID(text) {
-			return contract.InputInvalid("教材标识无效")
+func validateStudyTextbook(entry map[string]any) error {
+	id := entry["textbookId"]
+	if id == nil {
+		return nil
+	}
+	text, ok := id.(string)
+	if !ok || !config.IsUUID(text) {
+		return contract.InputInvalid("教材标识无效")
+	}
+	return nil
+}
+
+func validateStudyLecture(entry map[string]any, unlinked bool) error {
+	lectureID, ok := entry["lectureId"]
+	if !ok || lectureID == nil {
+		return nil
+	}
+	if unlinked {
+		return contract.InputInvalid("关联课次前请先选择课程")
+	}
+	if !config.IsUUID(textValue(lectureID)) {
+		return contract.InputInvalid("课次编号无效")
+	}
+	return nil
+}
+
+func validateStudyText(entry map[string]any, weekly bool) error {
+	title := strings.TrimSpace(textValue(entry["title"]))
+	chapter := strings.TrimSpace(textValue(entry["chapter"]))
+	if len([]rune(title)) < 1 || len([]rune(title)) > 200 ||
+		(!weekly && chapter == "") || len([]rune(chapter)) > 500 {
+		return contract.InputInvalid("课表字段无效")
+	}
+	endsAt := textValue(entry["endsAt"])
+	if endsAt == "" {
+		return nil
+	}
+	if _, err := time.Parse(time.RFC3339, endsAt); err != nil {
+		return contract.InputInvalid("课表结束时间无效")
+	}
+	return nil
+}
+
+func validateStudyZhiyun(entry map[string]any) error {
+	for _, key := range []string{"zhiyunCourseId", "subId"} {
+		if value, ok := entry[key]; ok && value != nil && !studyDigits.MatchString(textValue(value)) {
+			return contract.InputInvalid("课表字段无效")
 		}
+	}
+	skip, ok := entry["skipZhiyunMatch"]
+	if !ok {
+		return nil
+	}
+	skipped, valid := skip.(bool)
+	if !valid || skipped && (textValue(entry["zhiyunCourseId"]) != "" || textValue(entry["subId"]) != "") {
+		return contract.InputInvalid("跳过智云匹配的课次不能同时关联智云课程或回放")
+	}
+	return nil
+}
+
+func validateStudyEntry(entry map[string]any) error {
+	if err := validateStudyTextbook(entry); err != nil {
+		return err
 	}
 	weekly, isBool := entry["weekly"].(bool)
 	if entry["weekly"] != nil && !isBool {
@@ -47,39 +104,17 @@ func validateStudyEntry(entry map[string]any) error {
 			return err
 		}
 	}
-	if lectureID, ok := entry["lectureId"]; ok && lectureID != nil {
-		if unlinked {
-			return contract.InputInvalid("关联课次前请先选择课程")
-		}
-		if !config.IsUUID(textValue(lectureID)) {
-			return contract.InputInvalid("课次编号无效")
-		}
+	if err := validateStudyLecture(entry, unlinked); err != nil {
+		return err
 	}
-	title := strings.TrimSpace(textValue(entry["title"]))
-	chapter := strings.TrimSpace(textValue(entry["chapter"]))
-	if len([]rune(title)) < 1 || len([]rune(title)) > 200 ||
-		(!weekly && chapter == "") || len([]rune(chapter)) > 500 {
-		return contract.InputInvalid("课表字段无效")
+	if err := validateStudyText(entry, weekly); err != nil {
+		return err
 	}
-	endsAt := textValue(entry["endsAt"])
-	if endsAt != "" {
-		if _, err := time.Parse(time.RFC3339, endsAt); err != nil {
-			return contract.InputInvalid("课表结束时间无效")
-		}
+	if err := validateStudyZhiyun(entry); err != nil {
+		return err
 	}
-	for _, key := range []string{"zhiyunCourseId", "subId"} {
-		if value, ok := entry[key]; ok && value != nil && !studyDigits.MatchString(textValue(value)) {
-			return contract.InputInvalid("课表字段无效")
-		}
-	}
-	if skip, ok := entry["skipZhiyunMatch"]; ok {
-		skipped, valid := skip.(bool)
-		if !valid || skipped && (textValue(entry["zhiyunCourseId"]) != "" || textValue(entry["subId"]) != "") {
-			return contract.InputInvalid("跳过智云匹配的课次不能同时关联智云课程或回放")
-		}
-	}
-	entry["title"] = title
-	entry["chapter"] = chapter
+	entry["title"] = strings.TrimSpace(textValue(entry["title"]))
+	entry["chapter"] = strings.TrimSpace(textValue(entry["chapter"]))
 	return nil
 }
 

@@ -7,6 +7,10 @@
  gap: 8px;
  max-height: 36dvh;
  overflow: auto;
+ border: 0;
+ margin: 0;
+ padding: 0;
+ min-width: 0;
 }
 .textbook-tools {
  display: flex;
