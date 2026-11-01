@@ -622,6 +622,88 @@ export function TextbookContent(props: TextbookProps) { // NOSONAR: cohesive flo
    <TextbookProgress {...props} />
   </div>
  )
+ const currentBook = book
+ function inspectorBody() {
+  if (mode === 'teacher')
+   return (
+       <div className="study-inspector-body">
+        {analysisError && <div role="alert" className="study-inline-error">{analysisError}</div>}
+        <TeacherAnnotations bookId={currentBook.id} lectureId={entry?.lectureId} version={pdfVersion + commentVersion} onLocate={locateTeacher}
+         actions={replaySubId => { // NOSONAR: render prop needs the resolved replay id; hoisting it would thread state through props.
+          const replay = replayDescription(entry, replaySubId, props.lectureTitle)
+          return <>
+           {replay && <p className="study-menu__hint">本次智云回放 · {replay}</p>}
+           <AnalysisAction {...actionProps} teacher replaySubId={replaySubId} editRange={editRange} />
+          </>
+         }} />
+       </div>)
+  if (mode === 'ai')
+   return (
+       <div className="study-inspector-body">
+        {!draft && <h3>AI 批注</h3>}
+        {analysisError && <div role="alert" className="study-inline-error">{analysisError}</div>}
+        <AnalysisAction {...actionProps} teacher={false} editRange={editRange} />
+        {!busy && <SettingsLink section="qwen">千问模型设置</SettingsLink>}
+       </div>)
+  return (
+       <div className="study-inspector-body">
+        <div className="study-inspector-heading">
+         <div>
+          <h3>自主批注</h3>
+          {selection.marks.length > 0 && <small>第 {pageNumber} 页 · 已选择 {selection.marks.length} 处</small>}
+         </div>
+         {selection.marks.length ? (
+          <Button variant="ghost" size="sm" onClick={selection.clear}>
+           清除选择
+          </Button>
+         ) : null}
+        </div>
+        {selection.toolbar}
+        {selection.marks.length > 0 && !busy && <div className="textbook-next">
+         <Button variant="primary" size="sm" onPress={() => void saveManual()}>保存手动划线</Button>
+         <small className="study-menu__hint">写入原教材前会创建备份。</small>
+        </div>}
+        {selection.tool === 'text' && selection.marks.length > 0 &&
+         <p className="study-menu__hint">已选文字：{selection.marks.map(mark => mark.quote).join(' ')}</p>}
+        <StudyField label="我的笔记（可选）">
+         <TextArea aria-label="我的笔记" value={evidence} maxLength={3000} onChange={event => setEvidence(event.target.value)} placeholder="记下自己的理解，阅读时悬停即可查看。" />
+        </StudyField>
+        <details><summary>划线分类与延伸</summary>
+        <StudyField label="划线分类">
+         {' '}
+         {/* NOSONAR: existing element/role semantics are intentional for layout and keyboard behavior. */}
+         <div // NOSONAR: behavior-preserving rewrite tracked separately; current flow is cohesive and ordered.
+          aria-label="划线来源"
+          className="study-source-choices"
+          role="group" // NOSONAR: custom keyboard-interactive group; native fieldset would change layout and behavior.
+         >
+          {sourceKeys.map(key => (
+           <Button
+            key={key}
+            aria-pressed={source === key}
+            className={'study-source-choice' + (source === key ? ' study-source-choice--active' : '')}
+            size="sm"
+            variant="ghost"
+            fullWidth
+            onClick={() => setSource(key)}
+           >
+            <SourceLabel source={key} />
+           </Button>
+          ))}
+         </div>
+        </StudyField>
+        <Checkbox isSelected={extension} onChange={setExtension}>
+         <Checkbox.Content>
+          <Checkbox.Control>
+           <Checkbox.Indicator />
+          </Checkbox.Control>
+          这是教材对课堂内容的适当延伸
+         </Checkbox.Content>
+        </Checkbox>
+        </details>
+       </div>)
+ }
+
  return (
   <div className="textbook-workspace">
    <div className="textbook-tools">
@@ -870,83 +952,7 @@ export function TextbookContent(props: TextbookProps) { // NOSONAR: cohesive flo
         </div>
        </div>
       ) : null}
-      {mode === 'teacher' ? (
-       <div className="study-inspector-body">
-        {analysisError && <div role="alert" className="study-inline-error">{analysisError}</div>}
-        <TeacherAnnotations bookId={book.id} lectureId={entry?.lectureId} version={pdfVersion + commentVersion} onLocate={locateTeacher}
-         actions={replaySubId => { // NOSONAR: render prop needs the resolved replay id; hoisting it would thread state through props.
-          const replay = replayDescription(entry, replaySubId, props.lectureTitle)
-          return <>
-           {replay && <p className="study-menu__hint">本次智云回放 · {replay}</p>}
-           <AnalysisAction {...actionProps} teacher replaySubId={replaySubId} editRange={editRange} />
-          </>
-         }} />
-       </div>
-      ) : mode === 'ai' ? (
-       <div className="study-inspector-body">
-        {!draft && <h3>AI 批注</h3>}
-        {analysisError && <div role="alert" className="study-inline-error">{analysisError}</div>}
-        <AnalysisAction {...actionProps} teacher={false} editRange={editRange} />
-        {!busy && <SettingsLink section="qwen">千问模型设置</SettingsLink>}
-       </div>
-      ) : (
-       <div className="study-inspector-body">
-        <div className="study-inspector-heading">
-         <div>
-          <h3>自主批注</h3>
-          {selection.marks.length > 0 && <small>第 {pageNumber} 页 · 已选择 {selection.marks.length} 处</small>}
-         </div>
-         {selection.marks.length ? (
-          <Button variant="ghost" size="sm" onClick={selection.clear}>
-           清除选择
-          </Button>
-         ) : null}
-        </div>
-        {selection.toolbar}
-        {selection.marks.length > 0 && !busy && <div className="textbook-next">
-         <Button variant="primary" size="sm" onPress={() => void saveManual()}>保存手动划线</Button>
-         <small className="study-menu__hint">写入原教材前会创建备份。</small>
-        </div>}
-        {selection.tool === 'text' && selection.marks.length > 0 &&
-         <p className="study-menu__hint">已选文字：{selection.marks.map(mark => mark.quote).join(' ')}</p>}
-        <StudyField label="我的笔记（可选）">
-         <TextArea aria-label="我的笔记" value={evidence} maxLength={3000} onChange={event => setEvidence(event.target.value)} placeholder="记下自己的理解，阅读时悬停即可查看。" />
-        </StudyField>
-        <details><summary>划线分类与延伸</summary>
-        <StudyField label="划线分类">
-         {' '}
-         {/* NOSONAR: existing element/role semantics are intentional for layout and keyboard behavior. */}
-         <div // NOSONAR: behavior-preserving rewrite tracked separately; current flow is cohesive and ordered.
-          aria-label="划线来源"
-          className="study-source-choices"
-          role="group" // NOSONAR: custom keyboard-interactive group; native fieldset would change layout and behavior.
-         >
-          {sourceKeys.map(key => (
-           <Button
-            key={key}
-            aria-pressed={source === key}
-            className={'study-source-choice' + (source === key ? ' study-source-choice--active' : '')}
-            size="sm"
-            variant="ghost"
-            fullWidth
-            onClick={() => setSource(key)}
-           >
-            <SourceLabel source={key} />
-           </Button>
-          ))}
-         </div>
-        </StudyField>
-        <Checkbox isSelected={extension} onChange={setExtension}>
-         <Checkbox.Content>
-          <Checkbox.Control>
-           <Checkbox.Indicator />
-          </Checkbox.Control>
-          这是教材对课堂内容的适当延伸
-         </Checkbox.Content>
-        </Checkbox>
-        </details>
-       </div>
-      )}
+      {inspectorBody()}
     </aside>}
    </div>
    {confirmApply ? (

@@ -70,6 +70,22 @@ func (client *Client) personalCalendarCourses(ctx context.Context, account map[s
 	return matches, nil
 }
 
+func filterCatalogPage(courses []Course, seen map[string]bool, expected string, result *CourseMatch) []Course {
+	var exact []Course
+	for _, course := range courses {
+		if seen[course.ID] {
+			continue
+		}
+		seen[course.ID] = true
+		if NormalizeCourseTitle(course.Title) == expected {
+			exact = append(exact, course)
+		} else {
+			result.Courses = append(result.Courses, course)
+		}
+	}
+	return exact
+}
+
 func (client *Client) matchCatalog(
 	ctx context.Context,
 	account map[string]any,
@@ -85,17 +101,7 @@ func (client *Client) matchCatalog(
 		if err != nil {
 			return CourseMatch{}, err
 		}
-		for _, course := range courses {
-			if seen[course.ID] {
-				continue
-			}
-			seen[course.ID] = true
-			if NormalizeCourseTitle(course.Title) == expected {
-				exact = append(exact, course)
-			} else {
-				result.Courses = append(result.Courses, course)
-			}
-		}
+		exact = append(exact, filterCatalogPage(courses, seen, expected, &result)...)
 		result.Truncated = more
 		if !more {
 			break

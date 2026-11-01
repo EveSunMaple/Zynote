@@ -115,6 +115,41 @@ func imageSlotText(value any) string {
 	return text
 }
 
+func decodeStudyImageRow(item any, courseIDs map[string]string) (map[string]any, bool) {
+	block, ok := item.(map[string]any)
+	if !ok {
+		return nil, false
+	}
+	title := imageSlotText(block["title"])
+	location := imageSlotText(block["location"])
+	day := imageSlotNumber(block["weekday"], 7)
+	start := imageSlotNumber(block["startPeriod"], 30)
+	end := imageSlotNumber(block["endPeriod"], 30)
+	if start > 0 && end > 0 && start > end {
+		start, end = 0, 0
+	}
+	if title == "" && location == "" && day == 0 && start == 0 && end == 0 {
+		return nil, false
+	}
+	// IDs and links belong to the local library. Only copy fields visible in the screenshot.
+	row := map[string]any{
+		"id": ids.New(), "weekly": true, "courseId": courseIDs[zhiyun.NormalizeCourseTitle(title)], "title": title, "chapter": "", "endsAt": "",
+	}
+	if day > 0 {
+		row["weekday"] = day
+	}
+	if start > 0 {
+		row["startPeriod"] = start
+	}
+	if end > 0 {
+		row["endPeriod"] = end
+	}
+	if location != "" {
+		row["location"] = location
+	}
+	return row, true
+}
+
 func decodeStudyImageRows(raw []byte, courseIDs map[string]string) ([]map[string]any, error) {
 	var blocks []any
 	if err := json.Unmarshal(raw, &blocks); err != nil || blocks == nil || len(blocks) > 1000 {
@@ -122,45 +157,15 @@ func decodeStudyImageRows(raw []byte, courseIDs map[string]string) ([]map[string
 	}
 	rows := make([]map[string]any, 0, len(blocks))
 	for _, item := range blocks {
-		block, ok := item.(map[string]any)
-		if !ok {
-			continue
+		if row, ok := decodeStudyImageRow(item, courseIDs); ok {
+			rows = append(rows, row)
 		}
-		title := imageSlotText(block["title"])
-		location := imageSlotText(block["location"])
-		day := imageSlotNumber(block["weekday"], 7)
-		start := imageSlotNumber(block["startPeriod"], 30)
-		end := imageSlotNumber(block["endPeriod"], 30)
-		if start > 0 && end > 0 && start > end {
-			start, end = 0, 0
-		}
-		if title == "" && location == "" && day == 0 && start == 0 && end == 0 {
-			continue
-		}
-		// IDs and links belong to the local library. Only copy fields visible in the screenshot.
-		row := map[string]any{
-			"id": ids.New(), "weekly": true, "courseId": courseIDs[zhiyun.NormalizeCourseTitle(title)], "title": title, "chapter": "", "endsAt": "",
-		}
-		if day > 0 {
-			row["weekday"] = day
-		}
-		if start > 0 {
-			row["startPeriod"] = start
-		}
-		if end > 0 {
-			row["endPeriod"] = end
-		}
-		if location != "" {
-			row["location"] = location
-		}
-		rows = append(rows, row)
 	}
 	if len(blocks) > 0 && len(rows) == 0 {
 		return nil, contract.InputInvalid("视觉模型返回的内容缺少可辨认的课程信息")
 	}
 	return rows, nil
 }
-
 func studyCourseNames(state *contract.State) (map[string]string, error) {
 	db, err := openReadOnlyDB(state)
 	if err != nil {
@@ -200,7 +205,6 @@ func (inv *Invoker) parseStudyImage(store contract.StateStore, state *contract.S
 		return inv.runStudyImageJob(ctx, store, state, path, report)
 	})
 }
-
 func (inv *Invoker) runStudyImageJob(
 	ctx context.Context,
 	store contract.StateStore,

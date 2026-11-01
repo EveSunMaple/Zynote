@@ -53,18 +53,26 @@ function needsChoice(m: Matching, key: string, slot: StudyEntry) {
  )
 }
 
+function rowErrors(m: Matching, group: Matching['groups'][number], row: StudyEntry) {
+ const result = {authRequired: false, failed: false}
+ if (row.skipZhiyunMatch) return result
+ const lookups = [m.searches[group.key], ...(row.zhiyunCourseId ? [m.catalogs[row.zhiyunCourseId]] : [])]
+ for (const lookup of lookups) {
+  if (lookup.state !== 'error') continue
+  if (loginNeeded(lookup.message)) result.authRequired = true
+  else result.failed = true
+ }
+ return result
+}
+
 function scanMatchErrors(m: Matching, groups: Matching['groups']) {
  let authRequired = false
  let failed: StudyEntry | undefined
  for (const group of groups) {
   for (const row of group.slots) {
-   if (row.skipZhiyunMatch) continue
-   const lookups = [m.searches[group.key], ...(row.zhiyunCourseId ? [m.catalogs[row.zhiyunCourseId]] : [])]
-   for (const lookup of lookups) {
-    if (lookup.state !== 'error') continue
-    if (loginNeeded(lookup.message)) authRequired = true
-    else failed ??= row
-   }
+   const errors = rowErrors(m, group, row)
+   authRequired = authRequired || errors.authRequired
+   if (errors.failed && !failed) failed = row
   }
  }
  return {authRequired, failed}

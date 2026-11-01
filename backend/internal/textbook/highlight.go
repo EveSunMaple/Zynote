@@ -158,6 +158,27 @@ func chapterMatches(saved, row Highlight) bool {
 	return row.Chapter != nil && saved.Chapter != nil && row.Page == saved.Page && row.Chapter.Title == saved.Chapter.Title
 }
 
+func anchorMergeable(saved, row Highlight) bool {
+	if !sameAnchor(row, saved) {
+		return false
+	}
+	// Legacy evidence has no explicit author. Keep distinct older annotations intact.
+	if len(row.Comments) == 0 || len(saved.Comments) == 0 {
+		return row.Source == saved.Source && row.Evidence == saved.Evidence && row.Extension == saved.Extension
+	}
+	return true
+}
+
+func mergedComments(saved, row Highlight) []Comment {
+	merged := slices.Clone(saved.Comments)
+	for _, comment := range row.Comments {
+		if !slices.Contains(merged, comment) {
+			merged = append(merged, comment)
+		}
+	}
+	return merged
+}
+
 func mergeOne(result []Highlight, row Highlight) bool {
 	for i, saved := range result {
 		if row.Chapter != nil || saved.Chapter != nil {
@@ -168,20 +189,10 @@ func mergeOne(result []Highlight, row Highlight) bool {
 			result[i] = row
 			return true
 		}
-		if !sameAnchor(row, saved) {
+		if !anchorMergeable(saved, row) {
 			continue
 		}
-		// Legacy evidence has no explicit author. Keep distinct older annotations intact.
-		if (len(row.Comments) == 0 || len(saved.Comments) == 0) && (row.Source != saved.Source || row.Evidence != saved.Evidence || row.Extension != saved.Extension) {
-			continue
-		}
-		merged := slices.Clone(saved.Comments)
-		for _, comment := range row.Comments {
-			if !slices.Contains(merged, comment) {
-				merged = append(merged, comment)
-			}
-		}
-		result[i].Comments = merged
+		result[i].Comments = mergedComments(saved, row)
 		return true
 	}
 	return false

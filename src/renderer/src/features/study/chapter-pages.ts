@@ -120,18 +120,21 @@ function overlappingMark(occupied: Rect[], left: number, top: number, right: num
  return occupied.some(([x, y, w, h]) => x < right && x + w > left && y < bottom && y + h > top)
 }
 
-function placementDistance(
- x: number,
- y: number,
- tw: number,
- th: number,
- left: number,
- top: number,
- width: number,
- height: number,
- center: number[],
+type Placement = {
+ x: number
+ y: number
+ tw: number
+ th: number
+ left: number
+ top: number
+ width: number
+ height: number
+ center: number[]
  viewWidth: number
-) {
+}
+
+function placementDistance(box: Placement) {
+ const {x, y, tw, th, left, width, height, center, viewWidth} = box
  const lateral = x >= left + width || x + tw <= left
  const aligned = center[1] >= y - 5 && center[1] <= y + th + 5
  const gap = Math.max(0, x - left - width, left - x - tw)
@@ -184,7 +187,7 @@ export async function summarySpace(page: PDFPageProxy, lines: ChapterLine[], tit
     b = y + th + extra
    if (hasInk(ink, stride, l, t, r, b)) continue
    if (overlappingMark(occupied, l, t, r, b)) continue
-   const d = placementDistance(x, y, tw, th, left, top, width, height, center, view.width)
+   const d = placementDistance({x, y, tw, th, left, top, width, height, center, viewWidth: view.width})
    if (d < distance) {
     best = [x, y, tw, th]
     distance = d

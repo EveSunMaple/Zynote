@@ -323,17 +323,19 @@ func textbookDecisionRows(page int, items []textbookLine, sources textbookSource
 	return rows, warning, nil
 }
 
-func (inv *Invoker) analyzeTextbookPage(
-	ctx context.Context,
-	client *ai.Client,
-	path string,
-	chapter string,
-	sources textbookSources,
-	catalog []textbookEvidence,
-	pages int,
-	page int,
-) ([]textbook.Highlight, textbookScanWarning, error) {
-	raw, err := inv.native.Call("pdf.text", map[string]any{"path": path, "page": page, "glyphs": true}, 120000)
+type textbookPageInput struct {
+	client  *ai.Client
+	path    string
+	chapter string
+	sources textbookSources
+	catalog []textbookEvidence
+	pages   int
+	page    int
+}
+
+func (inv *Invoker) analyzeTextbookPage(ctx context.Context, input textbookPageInput) ([]textbook.Highlight, textbookScanWarning, error) {
+	page := input.page
+	raw, err := inv.native.Call("pdf.text", map[string]any{"path": input.path, "page": page, "glyphs": true}, 120000)
 	if err != nil {
 		return nil, textbookScanWarning{Page: page}, contract.Unavailable(cleanTextbookError(err))
 	}
@@ -342,14 +344,14 @@ func (inv *Invoker) analyzeTextbookPage(
 		return nil, textbookScanWarning{Page: page}, err
 	}
 	content, found := lines[page]
-	if !found || numPages != pages {
+	if !found || numPages != input.pages {
 		return nil, textbookScanWarning{Page: page}, contract.InputInvalid("教材页数已变化，请重新选择原教材 PDF")
 	}
 	if err := ctx.Err(); err != nil {
 		return nil, textbookScanWarning{Page: page}, err
 	}
 	if textbookNeedsPageImage(content) {
-		image, err := renderTextbookPageInfo(inv.native, path, page)
+		image, err := renderTextbookPageInfo(inv.native, input.path, page)
 		if err != nil {
 			return nil, textbookScanWarning{Page: page}, err
 		}
@@ -357,21 +359,22 @@ func (inv *Invoker) analyzeTextbookPage(
 			return nil, textbookScanWarning{Page: page}, err
 		}
 		return analyzeScannedTextbookPage(ctx, scannedTextbookPage{
-			client: client, chapter: chapter, sources: sources, catalog: catalog, image: image.Image, page: page, affine: image.ImageToPDF,
+			client: input.client, chapter: input.chapter, sources: input.sources, catalog: input.catalog,
+			image: image.Image, page: page, affine: image.ImageToPDF,
 		})
 	}
 	items, contentsOnly := textbookBodyLines(content.Items)
 	if contentsOnly {
 		return nil, textbookScanWarning{Page: page, SkippedContents: true}, nil
 	}
-	decisions, contentsOnly, err := textbookPageDecisions(ctx, client, chapter, catalog, page, items)
+	decisions, contentsOnly, err := textbookPageDecisions(ctx, input.client, input.chapter, input.catalog, page, items)
 	if err != nil {
 		return nil, textbookScanWarning{Page: page}, err
 	}
 	if contentsOnly {
 		return nil, textbookScanWarning{Page: page, SkippedContents: true}, nil
 	}
-	return textbookDecisionRows(page, items, sources, catalog, decisions)
+	return textbookDecisionRows(page, items, input.sources, input.catalog, decisions)
 }
 
 func (inv *Invoker) analyzeTextbook(
@@ -412,7 +415,9 @@ func (inv *Invoker) analyzeTextbook(
 	warnings := make([]textbookScanWarning, total)
 	progress(0, fmt.Sprintf("正在读取所选第 %d–%d 页并发送给千问", first, last))
 	rows, err := analyzeTextbookPages(ctx, first, last, func(ctx context.Context, page int) ([]textbook.Highlight, error) {
-		pageRows, warning, err := inv.analyzeTextbookPage(ctx, client, path, chapter, sources, catalog, pages, page)
+		pageRows, warning, err := inv.analyzeTextbookPage(ctx, textbookPageInput{
+			client: client, path: path, chapter: chapter, sources: sources, catalog: catalog, pages: pages, page: page,
+		})
 		warnings[page-first] = warning
 		return pageRows, err
 	}, func(done int) {

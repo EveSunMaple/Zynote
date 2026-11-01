@@ -95,9 +95,17 @@ export function candidatesForChapter(pages: ChapterLine[][]): ChapterLine[] {
  }
  return pool.sort((a, b) => a.page - b.page || a.line - b.line)
 }
+function endsWithLeaderNumber(text: string) {
+ const trimmed = text.trimEnd()
+ let index = trimmed.length
+ while (index > 0 && trimmed[index - 1] >= '0' && trimmed[index - 1] <= '9') index--
+ if (index === trimmed.length) return false
+ return /[.…·]{2,}/.test(trimmed.slice(0, index))
+}
+
 export function isContentsPage(rows: ChapterLine[]) {
  const visible = rows.filter(row => !/^[\d\s–-]+$/.test(row.text))
- const dotEntries = visible.filter(row => /[.…·]{2,}/.test(row.text) && /\d\s*$/.test(row.text)).length
+ const dotEntries = visible.filter(row => endsWithLeaderNumber(row.text)).length
  const titled = visible.some(row => /^(目录|目次|contents|tableofcontents)$/i.test(normalized(row.text)))
  const chapters = visible.filter(row => isChapterHeading(row.text)).length
  const separateNumbers = rows.length - visible.length

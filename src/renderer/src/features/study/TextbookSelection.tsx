@@ -209,7 +209,7 @@ export function useTextbookSelection({
  }
  function move(event: PointerEvent) {
   const active = drag.current
-  if (!active || active.pointer !== event.pointerId || !view) return
+  if (active?.pointer !== event.pointerId || !view) return
   if (active.tool === 'text') return
   const point = at(event),
    points = active.points,
@@ -232,7 +232,7 @@ export function useTextbookSelection({
  }
  function end(event: PointerEvent) {
   const active = drag.current
-  if (!active || active.pointer !== event.pointerId || !view) return
+  if (active?.pointer !== event.pointerId || !view) return
   drag.current = null
   setLive(null)
   if (active.tool === 'text') {

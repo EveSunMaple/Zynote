@@ -77,7 +77,11 @@ export function matchesWeeklySlot(slot: StudyEntry, lesson: ZhiyunLesson) {
  const title = lesson.title.normalize('NFKC'),
   date = replayDate(title)
  if (!date || (date.getUTCDay() || 7) !== slot.weekday) return false
- const periods = [...title.matchAll(/第\s*(\d{1,2})(?:\s*节)?\s*(?:[-~～–—至到]\s*(?:第\s*)?(\d{1,2}))?\s*节/g)]
+ const normalizedTitle = title.replace(/节\s*([-~～–—至到])/g, '$1')
+ const ranges = [...normalizedTitle.matchAll(/第\s*(\d{1,2})\s*[-~～–—至到]\s*第?\s*(\d{1,2})\s*节/g)]
+ const periods = ranges.length
+  ? ranges
+  : [...normalizedTitle.matchAll(/第\s*(\d{1,2})\s*节/g)].map(match => [match[0], match[1], undefined])
  if (periods.length !== 1) return false
  const [, start, end = start] = periods[0]
  return Number(start) === slot.startPeriod && Number(end) === slot.endPeriod
@@ -256,28 +260,7 @@ export function useScheduleMatching(
       const request = catalog(id)
       const lessons = await request
       if (current !== epoch.current) return
-      setEntries(state => {
-       if (catalogCache.current.get(id) !== request) return state
-       // Only suggest a dated replay when the catalog and the timetable each have a single lesson that day.
-       const dates = new Map<string, number>()
-       for (const row of state) {
-        const date = row.zhiyunCourseId === id ? campusDate(row) : undefined
-        if (date) dates.set(date, (dates.get(date) || 0) + 1)
-       }
-       return state.map(row => {
-        if (
-         !ids.has(row.id) ||
-         row.zhiyunCourseId !== id ||
-         row.subId ||
-         row.skipZhiyunMatch ||
-         manual.current.has(row.id)
-        )
-         return row
-        const date = campusDate(row)
-        const replay = date && dates.get(date) === 1 ? datedReplay(date, lessons) : undefined
-        return replay ? {...row, subId: replay.id, zhiyunReplayLabel: lessonLabel(replay)} : row
-       })
-      })
+      setEntries(state => withDatedReplays(state, id, ids, lessons, request, manual.current))
      }
     } catch (error) {
      const message = errorMessage(error)

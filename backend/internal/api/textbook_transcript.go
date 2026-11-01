@@ -127,8 +127,14 @@ func (inv *Invoker) textbookInputSources(ctx context.Context, store contract.Sta
 	if err != nil {
 		return "", sources, err
 	}
-	if err := inv.fillTextbookSources(ctx, store, state, entryID, lecture, files, subID, &sources); err != nil {
-		return "", textbookSources{}, err
+	if subID != "" {
+		if err := inv.resolveReplaySources(ctx, store, lecture, files, subID, &sources); err != nil {
+			return "", textbookSources{}, err
+		}
+	} else if lecture != nil {
+		if err := inv.fillAttachedSources(ctx, store, state, entryID, &sources); err != nil {
+			return "", textbookSources{}, err
+		}
 	}
 	if textbookSourcesLength(sources) > 250000 {
 		return "", textbookSources{}, contract.InputInvalid("来源资料过长，请先整理本节课对应内容后重试")
@@ -154,25 +160,6 @@ func (inv *Invoker) matchSavedTranscript(
 		return task.SubID, nil
 	}
 	return subID, nil
-}
-
-func (inv *Invoker) fillTextbookSources(
-	ctx context.Context,
-	store contract.StateStore,
-	state *contract.State,
-	entryID string,
-	lecture map[string]any,
-	files []map[string]any,
-	subID string,
-	sources *textbookSources,
-) error {
-	if subID != "" {
-		return inv.resolveReplaySources(ctx, store, lecture, files, subID, sources)
-	}
-	if lecture == nil {
-		return nil
-	}
-	return inv.fillAttachedSources(ctx, store, state, entryID, sources)
 }
 
 func (inv *Invoker) fillAttachedSources(
