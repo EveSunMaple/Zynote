@@ -241,7 +241,8 @@ async function startApplication() {
  playback = new ManagedPlayback(
   paths.libraryRoot,
   (id, expectedSourceSHA256) => goCore.call('video-ppt:playback-source', {id, expectedSourceSHA256}),
-  (action, input) => goCore.call(action, input)
+  (action, input) => goCore.call(action, input),
+  (action, input) => goCore.callTracked(action, input)
  )
  const media = playback
  const removeMedia = installMediaProtocol(

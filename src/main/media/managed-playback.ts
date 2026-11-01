@@ -125,6 +125,7 @@ function containerMime(block: Buffer) {
 }
 
 type ClosingHandle = Pick<PlaybackToken, 'taskID' | 'file' | 'reads'>
+export type PhysicalMediaCall = {result: Promise<unknown>; physicalSettled: Promise<void>}
 export class ManagedPlayback {
  private readonly tokens = new Map<string, PlaybackToken>()
  private readonly pending = new Map<string, AbortController>()
@@ -135,17 +136,56 @@ export class ManagedPlayback {
  private readonly requests = new Map<string, {fingerprint: string; tokenID?: string}>()
  private readonly closing = new Set<Promise<void>>()
  private readonly mints = new Set<Promise<unknown>>()
+ private readonly physicalRPCs = new Map<Promise<void>, {taskID?: string; action: string}>()
  private ownerReservations = 0
  private disposed = false
  private readonly cleanupTimer: ReturnType<typeof setInterval>
  constructor(
   private readonly libraryRoot: string,
   private readonly declaration: (taskID: string, sha: string) => Promise<unknown>,
-  private readonly releaseCall?: (action: string, input: Record<string, unknown>) => Promise<unknown>
+  private readonly releaseCall?: (action: string, input: Record<string, unknown>) => Promise<unknown>,
+  private readonly trackedCall?: (action: string, input: Record<string, unknown>) => PhysicalMediaCall
  ) {
   playbackOwners.add(this)
   this.cleanupTimer = setInterval(() => this.expire(), 15000)
   this.cleanupTimer.unref?.()
+ }
+ // Main-only observer. An unresolved initial bound declaration has no task ID,
+ // so it conservatively participates in every task's release drain.
+ async observeRPC(taskID: string | undefined, call: PhysicalMediaCall, action = 'metadata') {
+  this.physicalRPCs.set(call.physicalSettled, {taskID, action})
+  void call.physicalSettled.then(() => {
+   this.physicalRPCs.delete(call.physicalSettled)
+   this.maybeForgetOwner()
+  })
+  const result = await call.result
+  await call.physicalSettled
+  return result
+ }
+ private maybeForgetOwner() {
+  if (
+   this.disposed &&
+   this.failedCloses.size === 0 &&
+   this.physicalRPCs.size === 0 &&
+   this.mints.size === 0 &&
+   this.closing.size === 0
+  )
+   playbackOwners.delete(this)
+ }
+ private physicalForTask(taskID: string, releaseOnly = false) {
+  return [...this.physicalRPCs]
+   .filter(
+    ([, record]) =>
+     (record.taskID === undefined || record.taskID === taskID) &&
+     (!releaseOnly ||
+      record.action === 'video-ppt:prepare-playback-release' ||
+      record.action === 'video-ppt:finalize-playback-release')
+   )
+   .map(([work]) => work)
+ }
+ private async releaseRPC(action: string, input: Record<string, unknown>, taskID: string) {
+  if (this.trackedCall) return await this.observeRPC(taskID, this.trackedCall(action, input), action)
+  return await this.releaseCall!(action, input)
  }
  async open(raw: unknown) {
   const input = playbackOpenSchema.parse(raw)
@@ -173,6 +213,7 @@ export class ManagedPlayback {
    .finally(() => {
     this.mints.delete(work)
     this.mintTasks.delete(work)
+    this.maybeForgetOwner()
    })
    .catch(() => {})
   return await waitWithAbort(work, controller.signal)
@@ -188,6 +229,8 @@ export class ManagedPlayback {
   try {
    const declared = await this.readDeclaration(input.videoTaskID, input.expectedSourceSHA256)
    check(controller.signal)
+   if (releaseFences.has(taskFence(this.libraryRoot, input.videoTaskID)))
+    throw playbackFailure('BUSY', '该视频正在释放')
    const opened = await openManaged(this.libraryRoot, input.videoTaskID)
    file = opened.file
    const openedInfo = await file.stat(),
@@ -216,6 +259,8 @@ export class ManagedPlayback {
    const after = await this.readDeclaration(input.videoTaskID, input.expectedSourceSHA256)
    if (JSON.stringify(after) !== JSON.stringify(declared)) throw playbackFailure('CONFLICT', '视频来源记录已经改变')
    check(controller.signal)
+   if (releaseFences.has(taskFence(this.libraryRoot, input.videoTaskID)))
+    throw playbackFailure('BUSY', '该视频正在释放')
    const id = randomBytes(32).toString('base64url'),
     now = Date.now()
    const token: PlaybackToken = {
@@ -248,10 +293,15 @@ export class ManagedPlayback {
    }
   } catch (error) {
    const code = (error as {code?: string})?.code
-   if (code && ['UNAVAILABLE', 'CONFLICT', 'INPUT_INVALID', 'BUSY', 'CANCELLED', 'TIMEOUT'].includes(code)) throw error
-   throw unavailable()
+   const failure =
+    code && ['UNAVAILABLE', 'CONFLICT', 'INPUT_INVALID', 'BUSY', 'CANCELLED', 'TIMEOUT'].includes(code)
+     ? error
+     : unavailable()
+   if (this.physicalForTask(input.videoTaskID).length) controller.abort(failure)
+   throw failure
   } finally {
    clearTimeout(deadline)
+   await Promise.allSettled(this.physicalForTask(input.videoTaskID))
    this.pending.delete(input.requestID)
    this.pendingTasks.delete(input.requestID)
    globalHashing = false
@@ -266,7 +316,14 @@ export class ManagedPlayback {
   }
  }
  private async readDeclaration(taskID: string, sha: string): Promise<PlaybackDeclaration> {
-  const value = playbackDeclarationSchema.parse(await this.declaration(taskID, sha))
+  const raw = this.trackedCall
+   ? await this.observeRPC(
+      taskID,
+      this.trackedCall('video-ppt:playback-source', {id: taskID, expectedSourceSHA256: sha}),
+      'video-ppt:playback-source'
+     )
+   : await this.declaration(taskID, sha)
+  const value = playbackDeclarationSchema.parse(raw)
   if (value.taskID !== taskID || value.sourceSHA256 !== sha) throw playbackFailure('CONFLICT', '视频来源记录已经改变')
   return value
  }
@@ -304,6 +361,7 @@ export class ManagedPlayback {
    .finally(() => {
     this.closing.delete(closing)
     this.closingTasks.delete(closing)
+    this.maybeForgetOwner()
    })
   this.closing.add(closing)
   this.closingTasks.set(closing, held.taskID)
@@ -320,9 +378,9 @@ export class ManagedPlayback {
   clearInterval(this.cleanupTimer)
   for (const held of this.failedCloses) void this.closeHandle(held).catch(() => {})
   this.closeAll()
-  await Promise.allSettled([...this.mints, ...this.closing])
+  await Promise.allSettled([...this.mints, ...this.closing, ...this.physicalRPCs.keys()])
   await Promise.allSettled([...this.closing])
-  if (this.failedCloses.size === 0) playbackOwners.delete(this)
+  this.maybeForgetOwner()
  }
  private async quiesceTask(taskID: string) {
   for (const held of [...this.failedCloses]) if (held.taskID === taskID) void this.closeHandle(held).catch(() => {})
@@ -331,13 +389,14 @@ export class ManagedPlayback {
   for (const [id, token] of this.tokens) if (token.taskID === taskID) this.revoke(id)
   await Promise.allSettled([...this.mintTasks].filter(([, id]) => id === taskID).map(([work]) => work))
   await Promise.all([...this.closingTasks].filter(([, id]) => id === taskID).map(([work]) => work))
+  await Promise.allSettled(this.physicalForTask(taskID))
   if ([...this.failedCloses].some(held => held.taskID === taskID)) throw unavailable()
-  if (this.disposed && this.failedCloses.size === 0) playbackOwners.delete(this)
+  this.maybeForgetOwner()
  }
  async release(raw: unknown) {
   const input = playbackReleaseSchema.parse(raw)
   const fence = taskFence(this.libraryRoot, input.videoTaskID)
-  if (this.disposed || !this.releaseCall) throw unavailable()
+  if (this.disposed || (!this.releaseCall && !this.trackedCall)) throw unavailable()
   // This happens synchronously before the first await, across all owners.
   if (releasesInFlight.has(fence)) throw playbackFailure('BUSY', '该视频正在释放')
   if (!releaseFences.has(fence) && releaseFences.size >= 64) throw playbackFailure('BUSY', '待对账的视频释放请求过多')
@@ -352,7 +411,7 @@ export class ManagedPlayback {
     releaseID: randomUUID()
    }
    const prepared = playbackReleasePrepareSchema.parse(
-    await this.releaseCall('video-ppt:prepare-playback-release', candidate)
+    await this.releaseRPC('video-ppt:prepare-playback-release', candidate, input.videoTaskID)
    )
    if ('status' in prepared) {
     if (!previouslyUncertain) releaseFences.delete(fence)
@@ -368,11 +427,15 @@ export class ManagedPlayback {
    const owners = [...playbackOwners].filter(owner => taskFence(owner.libraryRoot, input.videoTaskID) === fence)
    await Promise.all(owners.map(owner => owner.quiesceTask(input.videoTaskID)))
    const finalized = playbackReleaseResultSchema.parse(
-    await this.releaseCall('video-ppt:finalize-playback-release', {
-     ...candidate,
-     releaseID: plan.releaseID,
-     expectedTombstoneSHA256: prepared.tombstoneSHA256
-    })
+    await this.releaseRPC(
+     'video-ppt:finalize-playback-release',
+     {
+      ...candidate,
+      releaseID: plan.releaseID,
+      expectedTombstoneSHA256: prepared.tombstoneSHA256
+     },
+     input.videoTaskID
+    )
    )
    const result = finalized.plan
    if (
@@ -387,7 +450,9 @@ export class ManagedPlayback {
    releaseFences.delete(fence)
    return {videoTaskID: result.id, state: result.state}
   } finally {
-   releasesInFlight.delete(fence)
+   const pendingRelease = this.physicalForTask(input.videoTaskID, true)
+   if (pendingRelease.length) void Promise.allSettled(pendingRelease).then(() => releasesInFlight.delete(fence))
+   else releasesInFlight.delete(fence)
   }
  }
  private expire() {
