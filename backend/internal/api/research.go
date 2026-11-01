@@ -284,7 +284,15 @@ func (inv *Invoker) handleToolsRequest(storeState contract.StateStore, state *co
 		}
 		switch input.Action {
 		case "agent-create":
-			return engine.Create(context.Background(), input.Args)
+			created, err := engine.Create(context.Background(), input.Args)
+			if err != nil {
+				return nil, err
+			}
+			// 列表页只需要 id/status；完整 Task 通过 agent-read 按需读取，避免大资料回包超过 IPC 行上限。
+			if task, ok := created.(research.Task); ok {
+				return map[string]any{"id": task.TaskID, "status": task.Status}, nil
+			}
+			return created, nil
 		case "agent-read":
 			id := textValue(input.Args["id"])
 			task, err := engine.Read(id)

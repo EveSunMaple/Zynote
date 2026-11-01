@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"sort"
@@ -70,13 +71,15 @@ var recoveredRoots sync.Map
 
 func (engine *Engine) initialize() {
 	engine.initOnce.Do(func() {
-		if _, done := recoveredRoots.LoadOrStore(engine.Store.root, true); done {
+		if _, done := recoveredRoots.Load(engine.Store.root); done {
 			return
 		}
 		rows, err := engine.Store.List("task")
 		if err != nil {
+			slog.Warn("research recovery skipped", "root", engine.Store.root, "error", err)
 			return
 		}
+		recoveredRoots.Store(engine.Store.root, true)
 		for _, row := range rows {
 			if text(row["status"]) != "running" {
 				continue
@@ -89,7 +92,9 @@ func (engine *Engine) initialize() {
 			task.Status = "paused"
 			task.OutcomeUnknown = true
 			task.ErrorCode = "上次模型请求中断，需明确确认后重试"
-			_ = engine.put(&task)
+			if err := engine.put(&task); err != nil {
+				slog.Warn("research recovery failed", "task", task.TaskID, "error", err)
+			}
 		}
 	})
 }
@@ -164,6 +169,17 @@ func taskListRow(row map[string]any) map[string]any {
 		default:
 			slim[key] = value
 		}
+	}
+	if note, ok := slim["note"].(string); ok {
+		trimmed := trimText(note, 20000)
+		if len([]rune(trimmed)) < len([]rune(note)) {
+			slim["note"] = trimmed
+			slim["note_truncated"] = true
+		}
+	}
+	if quotes, ok := slim["quotes"].([]any); ok && len(quotes) > 50 {
+		slim["quotes"] = quotes[:50]
+		slim["quotes_truncated"] = true
 	}
 	return slim
 }
@@ -577,7 +593,7 @@ func (engine *Engine) completeResearch(ctx context.Context, task *Task, system, 
 	if err != nil {
 		return engine.failResearch(task, err)
 	}
-	if !validResearchCitations(note, task.Sources) || strings.TrimSpace(note) == "" || len([]rune(note)) > 200000 {
+	if strings.TrimSpace(note) == "" || len([]rune(note)) > 200000 || !validResearchCitations(note, task.Sources) {
 		// 保留被拒原文（截断）便于说明原因；它不会作为研究成果发布或导出。
 		task.Rejected = trimText(note, 4000)
 		return engine.failResearchMessage(task, "模型回答缺少有效来源编号，未发布为核验成果")
