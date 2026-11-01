@@ -61,6 +61,8 @@ async function invokeShellAction(
    return playback.release(object)
   case 'managed-media:open':
    return playback.open(object)
+  case 'managed-media:open-bound':
+   return playback.openBound(object)
   case 'managed-media:close':
    playback.close(playbackCloseSchema.parse(object).requestID)
    return null

@@ -19,10 +19,17 @@ it('runs the actual shell router without app startup and leaves legacy media:ope
  }).outputText
  const unhandled = Symbol('unhandled')
  const invoke = runInNewContext(code + ';invokeShellAction', {unhandled, z, playbackCloseSchema})
- const media = {open: vi.fn(async () => ({opened: true})), close: vi.fn()}
+ const media = {
+  open: vi.fn(async () => ({opened: true})),
+  openBound: vi.fn(async () => ({bound: true})),
+  close: vi.fn()
+ }
  expect(await invoke({}, '', {}, media, 'media:open', {id: 'existing-download-job'})).toBe(unhandled)
  expect(media.open).not.toHaveBeenCalled()
  expect(await invoke({}, '', {}, media, 'managed-media:open', {videoTaskID: 'controlled'})).toEqual({opened: true})
+ expect(await invoke({}, '', {}, media, 'managed-media:open-bound', {summaryTaskID: 'controlled'})).toEqual({
+  bound: true
+ })
  const contract = JSON.parse(readFileSync(resolve(import.meta.dirname, '../../../contract/actions.json'), 'utf8'))
  const rows = contract.actions as {action: string; backend: string}[]
  expect(new Set(rows.map(row => row.action)).size).toBe(rows.length)

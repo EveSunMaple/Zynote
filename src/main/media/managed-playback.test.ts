@@ -98,12 +98,15 @@ describe('managed playback verified bytes and request ownership', () => {
    first = await f.open(),
    second = await f.open(request2)
   await expect(f.open(request3)).rejects.toMatchObject({code: 'BUSY'})
-  const response = mediaResponse(f.manager, new Request(first.tokenURL, {headers: {range: 'bytes=1048570-1048585'}}))
+  const response = await mediaResponse(
+   f.manager,
+   new Request(first.tokenURL, {headers: {range: 'bytes=1048570-1048585'}})
+  )
   expect(response.status).toBe(206)
   expect(Buffer.from(await response.arrayBuffer())).toEqual(f.bytes.subarray(1048570, 1048586))
   f.manager.close(requestID)
-  expect(mediaResponse(f.manager, new Request(first.tokenURL)).status).toBe(404)
-  expect(mediaResponse(f.manager, new Request(second.tokenURL, {method: 'HEAD'})).status).toBe(200)
+  expect((await mediaResponse(f.manager, new Request(first.tokenURL))).status).toBe(404)
+  expect((await mediaResponse(f.manager, new Request(second.tokenURL, {method: 'HEAD'}))).status).toBe(200)
   await expect(f.open(request2)).rejects.toMatchObject({code: 'BUSY'})
  })
  it('rejects changed bytes before sending any changed block and pins path replacements', async () => {
@@ -111,13 +114,13 @@ describe('managed playback verified bytes and request ownership', () => {
    result = await f.open()
   await rename(f.path, f.path + '.old')
   await writeFile(f.path, Buffer.alloc(f.bytes.length, 7))
-  const old = mediaResponse(f.manager, new Request(result.tokenURL, {headers: {range: 'bytes=1-9'}}))
+  const old = await mediaResponse(f.manager, new Request(result.tokenURL, {headers: {range: 'bytes=1-9'}}))
   expect(Buffer.from(await old.arrayBuffer())).toEqual(f.bytes.subarray(1, 10))
   await writeFile(f.path + '.old', Buffer.alloc(f.bytes.length, 8))
   await expect(
-   mediaResponse(f.manager, new Request(result.tokenURL, {headers: {range: 'bytes=1-9'}})).arrayBuffer()
+   (await mediaResponse(f.manager, new Request(result.tokenURL, {headers: {range: 'bytes=1-9'}}))).arrayBuffer()
   ).rejects.toBeDefined()
-  expect(mediaResponse(f.manager, new Request(result.tokenURL)).status).toBe(404)
+  expect((await mediaResponse(f.manager, new Request(result.tokenURL))).status).toBe(404)
  })
 })
 
@@ -136,21 +139,21 @@ describe('managed playback cancellation isolation', () => {
   await new Promise(resolve => setImmediate(resolve))
   f.declare.mockResolvedValue(f.declaration)
   const second = await f.open(request2)
-  expect(mediaResponse(f.manager, new Request(second.tokenURL, {method: 'HEAD'})).status).toBe(200)
+  expect((await mediaResponse(f.manager, new Request(second.tokenURL, {method: 'HEAD'}))).status).toBe(200)
  })
  it('propagates Request abort with no consumption, and cancels one pending range without revoking the token', async () => {
   const f = await fixture(),
    result = await f.open(),
    token = f.manager.get(result.tokenURL.split('/').at(-1)!)!
   const emptyAbort = new AbortController()
-  mediaResponse(f.manager, new Request(result.tokenURL, {signal: emptyAbort.signal}))
+  await mediaResponse(f.manager, new Request(result.tokenURL, {signal: emptyAbort.signal}))
   expect(token.streams.size).toBe(1)
   emptyAbort.abort()
   expect(token.streams.size).toBe(0)
   const gate = deferred<{bytesRead: number; buffer: Buffer}>(),
    spy = vi.spyOn(token.file, 'read').mockImplementation(() => gate.promise as never)
   const abort = new AbortController(),
-   response = mediaResponse(
+   response = await mediaResponse(
     f.manager,
     new Request(result.tokenURL, {signal: abort.signal, headers: {range: 'bytes=0-9'}})
    )
@@ -163,7 +166,7 @@ describe('managed playback cancellation isolation', () => {
   await reading
   await new Promise(resolve => setImmediate(resolve))
   spy.mockRestore()
-  const next = mediaResponse(f.manager, new Request(result.tokenURL, {headers: {range: 'bytes=8-15'}}))
+  const next = await mediaResponse(f.manager, new Request(result.tokenURL, {headers: {range: 'bytes=8-15'}}))
   expect(Buffer.from(await next.arrayBuffer())).toEqual(f.bytes.subarray(8, 16))
  })
  it('counts a revoked handle until its deferred physical close settles', async () => {
@@ -200,7 +203,7 @@ it('does not emit an in-flight block after the exact absolute token expiry', asy
   token = f.manager.get(result.tokenURL.split('/').at(-1)!)!
  const gate = deferred<{bytesRead: number; buffer: Buffer}>(),
   spy = vi.spyOn(token.file, 'read').mockImplementation(() => gate.promise as never)
- const response = mediaResponse(f.manager, new Request(result.tokenURL, {headers: {range: 'bytes=0-9'}}))
+ const response = await mediaResponse(f.manager, new Request(result.tokenURL, {headers: {range: 'bytes=0-9'}}))
  const reading = response.arrayBuffer().catch(error => error)
  await Promise.resolve()
  await Promise.resolve()
@@ -209,7 +212,7 @@ it('does not emit an in-flight block after the exact absolute token expiry', asy
  gate.resolve({bytesRead: 1024 * 1024, buffer: Buffer.alloc(0)})
  expect(await reading).toMatchObject({code: 'CANCELLED'})
  spy.mockRestore()
- expect(mediaResponse(f.manager, new Request(result.tokenURL)).status).toBe(404)
+ expect((await mediaResponse(f.manager, new Request(result.tokenURL))).status).toBe(404)
 })
 
 it('rejects metadata drift and managed directory aliases without minting a token', async () => {
@@ -273,7 +276,7 @@ it('rechecks expiry immediately before enqueue after a deferred stat crosses TTL
  const original = await token.file.stat(),
   gate = deferred<typeof original>()
  const stat = vi.spyOn(token.file, 'stat').mockImplementationOnce(() => gate.promise)
- const reading = mediaResponse(f.manager, new Request(result.tokenURL, {headers: {range: 'bytes=1-9'}}))
+ const reading = (await mediaResponse(f.manager, new Request(result.tokenURL, {headers: {range: 'bytes=1-9'}})))
   .arrayBuffer()
   .catch(error => error)
  await vi.waitFor(() => expect(stat).toHaveBeenCalled())
@@ -339,7 +342,7 @@ describe('managed playback global and time budgets', () => {
   }
   await vi.advanceTimersByTimeAsync(10)
   await expect(reader.read()).rejects.toMatchObject({code: 'TIMEOUT'})
-  const next = mediaResponse(f.manager, new Request(result.tokenURL, {headers: {range: 'bytes=2-9'}}))
+  const next = await mediaResponse(f.manager, new Request(result.tokenURL, {headers: {range: 'bytes=2-9'}}))
   expect(Buffer.from(await next.arrayBuffer()).equals(f.bytes.subarray(2, 10))).toBe(true)
  })
  it('revokes a token before crossing its cumulative32GiB read budget without reading32GiB', async () => {
@@ -364,7 +367,7 @@ it.skipIf(process.platform !== 'win32')(
   const result = await manager.open({requestID, videoTaskID: taskID, expectedSourceSHA256: f.sha})
   expect(
    Buffer.from(
-    await mediaResponse(manager, new Request(result.tokenURL, {headers: {range: 'bytes=1-9'}})).arrayBuffer()
+    await (await mediaResponse(manager, new Request(result.tokenURL, {headers: {range: 'bytes=1-9'}}))).arrayBuffer()
    ).equals(f.bytes.subarray(1, 10))
   ).toBe(true)
  }

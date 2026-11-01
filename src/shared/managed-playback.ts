@@ -5,6 +5,15 @@ export const playbackOpenSchema = z
  .object({requestID: playbackID, videoTaskID: playbackID, expectedSourceSHA256: playbackSHA})
  .strict()
 export const playbackCloseSchema = z.object({requestID: playbackID}).strict()
+export const boundPlaybackOpenSchema = z
+ .object({
+  requestID: playbackID,
+  summaryTaskID: playbackID,
+  itemIndex: z.literal(0),
+  expectedSourceBindingSHA256: playbackSHA
+ })
+ .strict()
+export type BoundPlaybackOpen = z.infer<typeof boundPlaybackOpenSchema>
 export const playbackDeclarationSchema = z
  .object({
   version: z.literal(1),

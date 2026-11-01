@@ -7,6 +7,7 @@ import {setTimeout as realDelay} from 'node:timers/promises'
 import {afterEach, expect, it, vi} from 'vitest'
 import {GoCore} from '@main/backend/go-core'
 import {ManagedPlayback} from '@main/media/managed-playback'
+import {mediaResponse} from '@main/media/media-protocol'
 
 const control = vi.hoisted(() => ({child: undefined as ChildProcess | undefined}))
 vi.mock('electron', () => ({app: {isPackaged: false, getAppPath: () => '/controlled-fixture'}}))
@@ -131,9 +132,43 @@ async function fixture() {
   events,
   sha,
   declaration,
-  reply: () => control.child!.stdin!.write(JSON.stringify({method: 'fixture.reply', params: {declaration}}) + '\n')
+  reply: (value: unknown = declaration) =>
+   control.child!.stdin!.write(JSON.stringify({method: 'fixture.reply', params: {declaration: value}}) + '\n')
  }
 }
+
+it('retains a bound HEAD slot and file through actual check RPC timeout until late wire permits release', async () => {
+ const f = await fixture()
+ const declaration = {...f.declaration, sourceBindingSHA256: 'b'.repeat(64), bindingAuthoritySHA256: 'e'.repeat(64)}
+ const opening = manager!.openBound({
+  requestID,
+  summaryTaskID: '9e326025-30b4-45d0-bd27-4a30275adcca',
+  itemIndex: 0,
+  expectedSourceBindingSHA256: 'b'.repeat(64)
+ })
+ void opening.catch(() => {})
+ await until(() => f.events.filter(action => action === 'video-ppt:bound-playback-source').length === 1)
+ f.reply(declaration)
+ await until(() => f.events.filter(action => action === 'video-ppt:bound-playback-source').length === 2)
+ f.reply(declaration)
+ const opened = await opening,
+  token = manager!.get(opened.tokenURL.split('/').at(-1)!)!
+ vi.useFakeTimers({toFake: ['setTimeout', 'clearTimeout']})
+ const head = mediaResponse(manager!, new Request(opened.tokenURL, {method: 'HEAD'}))
+ await until(() => f.events.includes('video-ppt:bound-playback-check'))
+ await vi.advanceTimersByTimeAsync(6000)
+ expect((await head).status).toBe(404)
+ expect(token.streams.size).toBe(1)
+ expect(token.reads.size).toBe(1)
+ const release = manager!.release(releaseInput)
+ await until(() => f.events.includes('video-ppt:prepare-playback-release'))
+ expect(f.events).not.toContain('video-ppt:finalize-playback-release')
+ expect(await readFile(f.path)).toEqual(f.bytes)
+ f.reply(declaration)
+ await expect(release).resolves.toMatchObject({state: 'released'})
+ expect(token.streams.size).toBe(0)
+ expect(token.reads.size).toBe(0)
+}, 15000)
 
 it('drains unknown-task real RPC after its logical6s timeout before release can finalize', async () => {
  const f = await fixture()

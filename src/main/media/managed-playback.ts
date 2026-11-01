@@ -3,11 +3,15 @@ import {open, lstat, realpath, type FileHandle} from 'node:fs/promises'
 import {join, resolve, isAbsolute} from 'node:path'
 import {
  playbackDeclarationSchema,
+ boundPlaybackDeclarationSchema,
+ boundPlaybackOpenSchema,
  playbackOpenSchema,
  playbackReleaseSchema,
  playbackReleaseResultSchema,
  playbackReleasePrepareSchema,
- type PlaybackDeclaration
+ type PlaybackDeclaration,
+ type BoundPlaybackOpen,
+ type BoundPlaybackDeclaration
 } from '@shared/managed-playback'
 
 const BLOCK = 1024 * 1024
@@ -18,6 +22,7 @@ const LIMIT = 32 * 1024 ** 3
 let globalReservations = 0
 let globalHashing = false
 let globalStreams = 0
+let releaseGeneration = 0
 const playbackOwners = new Set<ManagedPlayback>()
 const releaseFences = new Set<string>()
 const releasesInFlight = new Set<string>()
@@ -70,6 +75,7 @@ export type PlaybackToken = {
  streams: Set<AbortController>
  revoked: boolean
  mime: string
+ bound?: {input: BoundPlaybackOpen; declaration: BoundPlaybackDeclaration}
 }
 
 function sameManagedPath(first: string, second: string) {
@@ -129,8 +135,8 @@ export type PhysicalMediaCall = {result: Promise<unknown>; physicalSettled: Prom
 export class ManagedPlayback {
  private readonly tokens = new Map<string, PlaybackToken>()
  private readonly pending = new Map<string, AbortController>()
- private readonly pendingTasks = new Map<string, string>()
- private readonly mintTasks = new Map<Promise<unknown>, string>()
+ private readonly pendingTasks = new Map<string, string | undefined>()
+ private readonly mintTasks = new Map<Promise<unknown>, string | undefined>()
  private readonly failedCloses = new Set<ClosingHandle>()
  private readonly closingTasks = new Map<Promise<void>, string>()
  private readonly requests = new Map<string, {fingerprint: string; tokenID?: string}>()
@@ -172,11 +178,11 @@ export class ManagedPlayback {
   )
    playbackOwners.delete(this)
  }
- private physicalForTask(taskID: string, releaseOnly = false) {
+ private physicalForTask(taskID: string | undefined, releaseOnly = false) {
   return [...this.physicalRPCs]
    .filter(
     ([, record]) =>
-     (record.taskID === undefined || record.taskID === taskID) &&
+     (taskID === undefined || record.taskID === undefined || record.taskID === taskID) &&
      (!releaseOnly ||
       record.action === 'video-ppt:prepare-playback-release' ||
       record.action === 'video-ppt:finalize-playback-release')
@@ -188,10 +194,18 @@ export class ManagedPlayback {
   return await this.releaseCall!(action, input)
  }
  async open(raw: unknown) {
-  const input = playbackOpenSchema.parse(raw)
+  return this.beginOpen(playbackOpenSchema.parse(raw))
+ }
+ async openBound(raw: unknown) {
+  return this.beginOpen(boundPlaybackOpenSchema.parse(raw))
+ }
+ private async beginOpen(
+  input: {requestID: string; videoTaskID: string; expectedSourceSHA256: string} | BoundPlaybackOpen
+ ) {
+  const taskID = 'videoTaskID' in input ? input.videoTaskID : undefined
   managedRoot(this.libraryRoot)
   if (this.disposed) throw unavailable()
-  if (releaseFences.has(taskFence(this.libraryRoot, input.videoTaskID))) throw playbackFailure('BUSY', '该视频正在释放')
+  if (taskID && releaseFences.has(taskFence(this.libraryRoot, taskID))) throw playbackFailure('BUSY', '该视频正在释放')
   const fingerprint = JSON.stringify(input),
    existing = this.requests.get(input.requestID)
   if (existing) throw playbackFailure(existing.fingerprint === fingerprint ? 'BUSY' : 'CONFLICT', '媒体请求编号已使用')
@@ -203,12 +217,12 @@ export class ManagedPlayback {
   globalHashing = true
   const controller = new AbortController()
   this.pending.set(input.requestID, controller)
-  this.pendingTasks.set(input.requestID, input.videoTaskID)
+  this.pendingTasks.set(input.requestID, taskID)
   this.requests.set(input.requestID, {fingerprint})
   const deadline = setTimeout(() => controller.abort(playbackFailure('TIMEOUT', '媒体核验超时')), 120000)
-  const work = this.mint(input, controller, fingerprint, deadline)
+  const work = this.mint(input, controller, fingerprint, deadline, releaseGeneration)
   this.mints.add(work)
-  this.mintTasks.set(work, input.videoTaskID)
+  this.mintTasks.set(work, taskID)
   void work
    .finally(() => {
     this.mints.delete(work)
@@ -219,19 +233,36 @@ export class ManagedPlayback {
   return await waitWithAbort(work, controller.signal)
  }
  private async mint(
-  input: {requestID: string; videoTaskID: string; expectedSourceSHA256: string},
+  input: {requestID: string; videoTaskID: string; expectedSourceSHA256: string} | BoundPlaybackOpen,
   controller: AbortController,
   fingerprint: string,
-  deadline: ReturnType<typeof setTimeout>
+  deadline: ReturnType<typeof setTimeout>,
+  generation: number
  ) {
   let file: FileHandle | undefined,
-   registered = false
+   registered = false,
+   taskID = 'videoTaskID' in input ? input.videoTaskID : undefined
+  const mintPhysical = new Set<Promise<void>>()
+  const retainPhysical = (work: Promise<void>) => {
+   mintPhysical.add(work)
+   void work.then(() => mintPhysical.delete(work))
+  }
   try {
-   const declared = await this.readDeclaration(input.videoTaskID, input.expectedSourceSHA256)
+   const boundInput = 'summaryTaskID' in input ? input : undefined
+   const declared = boundInput
+    ? await this.readBoundDeclaration(boundInput, undefined, retainPhysical)
+    : await this.readDeclaration(
+       taskID!,
+       'expectedSourceSHA256' in input ? input.expectedSourceSHA256 : '',
+       retainPhysical
+      )
+   taskID = declared.taskID
+   this.pendingTasks.set(input.requestID, taskID)
+   if (boundInput && generation !== releaseGeneration)
+    throw playbackFailure('CANCELLED', '媒体核验期间发生释放，请重新打开')
    check(controller.signal)
-   if (releaseFences.has(taskFence(this.libraryRoot, input.videoTaskID)))
-    throw playbackFailure('BUSY', '该视频正在释放')
-   const opened = await openManaged(this.libraryRoot, input.videoTaskID)
+   if (releaseFences.has(taskFence(this.libraryRoot, taskID))) throw playbackFailure('BUSY', '该视频正在释放')
+   const opened = await openManaged(this.libraryRoot, taskID)
    file = opened.file
    const openedInfo = await file.stat(),
     afterOpen = await safeFile(opened.path)
@@ -256,17 +287,23 @@ export class ManagedPlayback {
    }
    if (hash.digest('hex') !== declared.sourceSHA256 || (await file.stat()).size !== declared.size)
     throw playbackFailure('CONFLICT', '媒体字节与任务绑定不一致')
-   const after = await this.readDeclaration(input.videoTaskID, input.expectedSourceSHA256)
+   const after = boundInput
+    ? await this.readBoundDeclaration(boundInput, taskID, retainPhysical)
+    : await this.readDeclaration(
+       taskID,
+       'expectedSourceSHA256' in input ? input.expectedSourceSHA256 : '',
+       retainPhysical
+      )
    if (JSON.stringify(after) !== JSON.stringify(declared)) throw playbackFailure('CONFLICT', '视频来源记录已经改变')
    check(controller.signal)
-   if (releaseFences.has(taskFence(this.libraryRoot, input.videoTaskID)))
+   if ((boundInput && generation !== releaseGeneration) || releaseFences.has(taskFence(this.libraryRoot, taskID)))
     throw playbackFailure('BUSY', '该视频正在释放')
    const id = randomBytes(32).toString('base64url'),
     now = Date.now()
    const token: PlaybackToken = {
     id,
     requestID: input.requestID,
-    taskID: input.videoTaskID,
+    taskID,
     file,
     size: declared.size,
     hashes,
@@ -278,7 +315,8 @@ export class ManagedPlayback {
     reads: new Set(),
     streams: new Set(),
     revoked: false,
-    mime
+    mime,
+    bound: boundInput ? {input: boundInput, declaration: declared as BoundPlaybackDeclaration} : undefined
    }
    this.tokens.set(id, token)
    this.requests.set(input.requestID, {fingerprint, tokenID: id})
@@ -297,17 +335,17 @@ export class ManagedPlayback {
     code && ['UNAVAILABLE', 'CONFLICT', 'INPUT_INVALID', 'BUSY', 'CANCELLED', 'TIMEOUT'].includes(code)
      ? error
      : unavailable()
-   if (this.physicalForTask(input.videoTaskID).length) controller.abort(failure)
+   if (mintPhysical.size) controller.abort(failure)
    throw failure
   } finally {
    clearTimeout(deadline)
-   await Promise.allSettled(this.physicalForTask(input.videoTaskID))
+   await Promise.allSettled([...mintPhysical])
    this.pending.delete(input.requestID)
    this.pendingTasks.delete(input.requestID)
    globalHashing = false
    if (!registered) {
     this.requests.delete(input.requestID)
-    if (file) await this.closeHandle({taskID: input.videoTaskID, file, reads: new Set()})
+    if (file) await this.closeHandle({taskID: taskID!, file, reads: new Set()})
     else {
      globalReservations--
      this.ownerReservations--
@@ -315,14 +353,33 @@ export class ManagedPlayback {
    }
   }
  }
- private async readDeclaration(taskID: string, sha: string): Promise<PlaybackDeclaration> {
-  const raw = this.trackedCall
-   ? await this.observeRPC(
-      taskID,
-      this.trackedCall('video-ppt:playback-source', {id: taskID, expectedSourceSHA256: sha}),
-      'video-ppt:playback-source'
-     )
-   : await this.declaration(taskID, sha)
+ private async readBoundDeclaration(
+  input: BoundPlaybackOpen,
+  taskID: string | undefined,
+  retainPhysical: (work: Promise<void>) => void
+ ) {
+  if (!this.trackedCall) throw unavailable()
+  const {requestID: _requestID, ...reference} = input
+  const call = this.trackedCall('video-ppt:bound-playback-source', reference)
+  retainPhysical(call.physicalSettled)
+  const value = boundPlaybackDeclarationSchema.parse(
+   await this.observeRPC(taskID, call, 'video-ppt:bound-playback-source')
+  )
+  if (value.sourceBindingSHA256 !== input.expectedSourceBindingSHA256 || (taskID && value.taskID !== taskID))
+   throw playbackFailure('CONFLICT', '摘要播放绑定已经改变')
+  return value
+ }
+ private async readDeclaration(
+  taskID: string,
+  sha: string,
+  retainPhysical: (work: Promise<void>) => void
+ ): Promise<PlaybackDeclaration> {
+  let raw: unknown
+  if (this.trackedCall) {
+   const call = this.trackedCall('video-ppt:playback-source', {id: taskID, expectedSourceSHA256: sha})
+   retainPhysical(call.physicalSettled)
+   raw = await this.observeRPC(taskID, call, 'video-ppt:playback-source')
+  } else raw = await this.declaration(taskID, sha)
   const value = playbackDeclarationSchema.parse(raw)
   if (value.taskID !== taskID || value.sourceSHA256 !== sha) throw playbackFailure('CONFLICT', '视频来源记录已经改变')
   return value
@@ -385,9 +442,12 @@ export class ManagedPlayback {
  private async quiesceTask(taskID: string) {
   for (const held of [...this.failedCloses]) if (held.taskID === taskID) void this.closeHandle(held).catch(() => {})
   for (const [requestID, id] of this.pendingTasks)
-   if (id === taskID) this.pending.get(requestID)?.abort(playbackFailure('CANCELLED', '媒体正在释放'))
+   if (id === undefined || id === taskID)
+    this.pending.get(requestID)?.abort(playbackFailure('CANCELLED', '媒体正在释放'))
   for (const [id, token] of this.tokens) if (token.taskID === taskID) this.revoke(id)
-  await Promise.allSettled([...this.mintTasks].filter(([, id]) => id === taskID).map(([work]) => work))
+  await Promise.allSettled(
+   [...this.mintTasks].filter(([, id]) => id === undefined || id === taskID).map(([work]) => work)
+  )
   await Promise.all([...this.closingTasks].filter(([, id]) => id === taskID).map(([work]) => work))
   await Promise.allSettled(this.physicalForTask(taskID))
   if ([...this.failedCloses].some(held => held.taskID === taskID)) throw unavailable()
@@ -403,6 +463,7 @@ export class ManagedPlayback {
   const previouslyUncertain = releaseFences.has(fence)
   releasesInFlight.add(fence)
   releaseFences.add(fence)
+  releaseGeneration++
   try {
    const candidate = {
     id: input.videoTaskID,
@@ -463,6 +524,74 @@ export class ManagedPlayback {
   const tokenID = this.requests.get(requestID)?.tokenID
   if (tokenID) this.revoke(tokenID)
  }
+ private liveToken(token: PlaybackToken, signal: AbortSignal) {
+  check(signal)
+  const now = Date.now()
+  if (
+   token.revoked ||
+   now - token.created >= TTL ||
+   now - token.touched >= IDLE ||
+   releaseFences.has(taskFence(this.libraryRoot, token.taskID))
+  ) {
+   this.revoke(token.id)
+   throw unavailable()
+  }
+ }
+ private async checkBound(token: PlaybackToken, signal: AbortSignal, retainPhysical: (work: Promise<void>) => void) {
+  this.liveToken(token, signal)
+  if (!token.bound) return
+  if (!this.trackedCall) throw unavailable()
+  const {input, declaration} = token.bound
+  const call = this.trackedCall('video-ppt:bound-playback-check', {
+   summaryTaskID: input.summaryTaskID,
+   itemIndex: input.itemIndex,
+   expectedSourceBindingSHA256: declaration.sourceBindingSHA256,
+   expectedBindingAuthoritySHA256: declaration.bindingAuthoritySHA256
+  })
+  retainPhysical(call.physicalSettled)
+  const checked = boundPlaybackDeclarationSchema.parse(
+   await this.observeRPC(token.taskID, call, 'video-ppt:bound-playback-check')
+  )
+  if (JSON.stringify(checked) !== JSON.stringify(declaration)) throw playbackFailure('CONFLICT', '摘要播放绑定已经改变')
+  this.liveToken(token, signal)
+ }
+ async preflight(token: PlaybackToken, signal: AbortSignal) {
+  if (!token.bound) return
+  if (token.revoked || globalStreams >= 4 || token.streams.size >= 2) throw playbackFailure('BUSY', '媒体读取繁忙')
+  const controller = new AbortController()
+  const abort = () => controller.abort(playbackFailure('CANCELLED', '媒体读取已取消'))
+  signal.addEventListener('abort', abort, {once: true})
+  if (signal.aborted) abort()
+  token.streams.add(controller)
+  globalStreams++
+  let settle!: () => void
+  const physical = new Promise<void>(resolve => {
+   settle = resolve
+  })
+  token.reads.add(physical)
+  let rpcPhysical: Promise<void> | undefined
+  const observed = this.checkBound(token, controller.signal, work => {
+   rpcPhysical = work
+  })
+  const work = observed.finally(async () => {
+   if (rpcPhysical) await Promise.allSettled([rpcPhysical])
+   signal.removeEventListener('abort', abort)
+   token.streams.delete(controller)
+   globalStreams--
+   token.reads.delete(physical)
+   settle()
+  })
+  // Caller cancellation or logical timeout can return early; the physical
+  // cleanup still owns its slot and read until the actual RPC terminal.
+  void work.catch(() => {})
+  try {
+   await waitWithAbort(observed, controller.signal)
+   await work
+  } catch (error) {
+   if (!['CANCELLED', 'TIMEOUT'].includes((error as {code?: string})?.code ?? '')) this.revoke(token.id)
+   throw error
+  }
+ }
  stream(token: PlaybackToken, start: number, end: number, signal?: AbortSignal) {
   if (Date.now() - token.created >= TTL || Date.now() - token.touched >= IDLE) this.revoke(token.id)
   if (token.revoked || globalStreams >= 4 || token.streams.size >= 2) throw playbackFailure('BUSY', '媒体读取繁忙')
@@ -519,6 +648,7 @@ export class ManagedPlayback {
       settle = resolve
      })
      token.reads.add(physical)
+     let rpcPhysical: Promise<void> | undefined
      try {
       check(controller.signal)
       if (Date.now() - token.created >= TTL) {
@@ -548,7 +678,10 @@ export class ManagedPlayback {
       token.bytes += block.length
       token.touched = now
       if (token.bytes > LIMIT) throw unavailable()
-      check(controller.signal)
+      await this.checkBound(token, controller.signal, work => {
+       rpcPhysical = work
+      })
+      this.liveToken(token, controller.signal)
       target.enqueue(block.subarray(offset, offset + length))
       position += length
       resetIdle()
@@ -556,10 +689,11 @@ export class ManagedPlayback {
       try {
        target.error(error)
       } catch {}
-      release()
+      controller.abort(error)
       const code = (error as {code?: string})?.code
       if (code !== 'CANCELLED' && code !== 'TIMEOUT') this.revoke(token.id)
      } finally {
+      if (rpcPhysical) await Promise.allSettled([rpcPhysical])
       inFlight = false
       token.reads.delete(physical)
       settle()

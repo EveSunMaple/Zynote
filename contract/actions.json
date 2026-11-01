@@ -1,6 +1,6 @@
 {
  "schema": 1,
- "total": 165,
+ "total": 166,
  "actions": [
   {
    "action": "runtime:install",
@@ -988,6 +988,12 @@
   },
   {
    "action": "managed-media:release",
+   "source": "managed-playback.ts",
+   "phase": 6,
+   "backend": "shell"
+  },
+  {
+   "action": "managed-media:open-bound",
    "source": "managed-playback.ts",
    "phase": 6,
    "backend": "shell"

@@ -18,7 +18,7 @@ export function mediaRange(
  if (first >= size || (last !== undefined && first > last)) return undefined
  return {start: first, end: last === undefined ? size - 1 : Math.min(last, size - 1), partial: true}
 }
-export function mediaResponse(manager: ManagedPlayback, request: Request): Response {
+export async function mediaResponse(manager: ManagedPlayback, request: Request): Promise<Response> {
  const match = /^lecture-media:\/\/play\/([A-Za-z0-9_-]{43})$/.exec(request.url)
  const token = match && manager.get(match[1])
  if (!token) return new Response(null, {status: 404})
@@ -35,6 +35,7 @@ export function mediaResponse(manager: ManagedPlayback, request: Request): Respo
  headers['Content-Length'] = String(range.end - range.start + 1)
  if (range.partial) headers['Content-Range'] = `bytes ${range.start}-${range.end}/${token.size}`
  try {
+  await manager.preflight(token, request.signal)
   const body = request.method === 'HEAD' ? null : manager.stream(token, range.start, range.end, request.signal)
   return new Response(body, {status: range.partial ? 206 : 200, headers})
  } catch (error) {
@@ -60,12 +61,12 @@ export function installMediaProtocol(
   callback({cancel: details.webContentsId !== contents.id || details.frame !== contents.mainFrame})
  }
  session.webRequest.onBeforeRequest({urls: ['lecture-media://*/*']}, beforeRequest)
- session.protocol.handle('lecture-media', request => {
+ session.protocol.handle('lecture-media', async request => {
   if (disposed || owner.isDestroyed() || contents.isDestroyed()) return new Response(null, {status: 404})
   const origin = request.headers.get('origin')
   if (origin && (rendererOrigin ? origin !== rendererOrigin : origin !== 'null'))
    return new Response(null, {status: 404})
-  return mediaResponse(manager, request)
+  return await mediaResponse(manager, request)
  })
  const revoke = () => manager.closeAll()
  const revokeNavigation = (_event: unknown, _url: string, _isInPlace: boolean, isMainFrame: boolean) => {
