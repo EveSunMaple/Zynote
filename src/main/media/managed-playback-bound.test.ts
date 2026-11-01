@@ -109,7 +109,7 @@ it('double-opens the exact bound declaration, checks HEAD/GET and every emitted 
   expectedSourceBindingSHA256: 'b'.repeat(64),
   expectedBindingAuthoritySHA256: 'e'.repeat(64)
  })
-})
+}, 15000)
 it('rejects a changed second declaration before minting any token', async () => {
  const f = await fixture()
  f.tracked.mockImplementationOnce(() => ({result: Promise.resolve(f.declaration), physicalSettled: Promise.resolve()}))

@@ -20,7 +20,10 @@ export function PublicationAudit({
   error?: string
  } | null>(null)
  const key = target ? publicationAuditKey(target, sourceHash) : ''
- session.current.change(key)
+ useEffect(() => {
+  session.current.change(key)
+  setView(current => (current && current.key !== key ? null : current))
+ }, [key])
  useEffect(() => () => session.current.invalidate(), [])
  const current = view?.key === key ? view : null
  async function audit() {
@@ -65,7 +68,7 @@ export function PublicationAudit({
        : '暂无可用成果凭据声明。'}
    </p>
    {target && (
-    <Button variant="tertiary" size="sm" isDisabled={!!current?.pending} onClick={() => void audit()}>
+    <Button variant="tertiary" size="sm" isDisabled={!!current?.pending || !sourceHash} onClick={() => void audit()}>
      {current?.pending ? '正在核验…' : '核验成果引用'}
     </Button>
    )}

@@ -50,13 +50,14 @@ const zhiyunStates: Record<string, string> = {
  completed: '已完成',
  failed: '失败',
  cancelled: '已取消',
- interrupted: '待继续'
+ interrupted: '待继续',
+ review: '待检查'
 }
 const statusColor = (status: string): 'default' | 'accent' | 'success' | 'warning' | 'danger' => {
  if (status === '已完成') return 'success'
  if (status === '失败') return 'danger'
  if (status === '进行中') return 'accent'
- if (status === '取消中') return 'warning'
+ if (status === '取消中' || status === '待检查') return 'warning'
  if (status === '待处理' || status === '待继续' || status === '已取消' || status === '排队中') return 'default'
  return 'default'
 }
@@ -84,7 +85,8 @@ function groupStatus(rows: Row[]) {
     row.status === '待处理' ||
     row.status === '待继续' ||
     row.status === '排队中' ||
-    row.status === '取消中'
+    row.status === '取消中' ||
+    row.status === '待检查'
   ),
   failed: rows.filter(row => row.status === '失败'),
   done: rows.filter(row => row.status === '已完成' || row.status === '已取消')

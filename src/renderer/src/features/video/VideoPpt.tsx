@@ -87,7 +87,9 @@ export function VideoPpt({
   const draft = retainVideoOperation(summaryOperation.current, 'video-ppt:summary', input, () => crypto.randomUUID())
   summaryOperation.current = draft
   activeProgressKey.current = `subtitle-derived:${draft.id}`
-  return invoke<VideoNoteResult>('video-ppt:summary', {...input, operationId: draft.id})
+  const result = await invoke<VideoNoteResult>('video-ppt:summary', {...input, operationId: draft.id})
+  summaryOperation.current = null
+  return result
  }
  const remoteSubtitleOperation = useRef<VideoOperationDraft | null>(null)
  const localSubtitleOperation = useRef<VideoOperationDraft | null>(null)

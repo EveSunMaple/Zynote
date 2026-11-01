@@ -160,7 +160,7 @@ func (inv *Invoker) handleManagedVideoBatch(store contract.StateStore, state *co
 	defer release()
 	batch, err = inv.prepareVideoBatch(ctx, store, state, batch)
 	if err != nil {
-		return nil, err
+		return nil, videoPptError(err)
 	}
 	items := make([]map[string]any, 0, len(batch.Episodes))
 	for _, episode := range batch.Episodes {

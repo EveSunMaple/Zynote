@@ -255,6 +255,9 @@ func (inv *Invoker) finishJob(key, lectureID string, result any, err error) (any
 	if errors.Is(err, jobs.ErrBusy) {
 		return nil, contract.NewError(contract.CodeBusy, err.Error())
 	}
+	if errors.Is(err, jobs.ErrCancelled) {
+		return nil, contract.NewError(contract.CodeCancelled, err.Error())
+	}
 	event := map[string]any{"key": key, "state": "finished"}
 	if lectureID != "" {
 		event["lectureId"] = lectureID

@@ -357,6 +357,23 @@ var retentionExportFile = regexp.MustCompile(`^subtitle-export-[a-f0-9]{64}\.jso
 func retentionTemporary(name string) bool {
 	return name == "subtitle-prepared.json" || retentionInputFile.MatchString(name) || retentionExportFile.MatchString(name)
 }
+
+// removeStagingFiles 清理进程被 kill 时遗留的 .video-copy-* 临时文件；这些文件不属于任务清单。
+func removeStagingFiles(directory string) error {
+	entries, err := os.ReadDir(directory)
+	if err != nil {
+		return err
+	}
+	for _, entry := range entries {
+		if entry.IsDir() || !strings.HasPrefix(entry.Name(), ".video-copy-") {
+			continue
+		}
+		if err := os.Remove(filepath.Join(directory, entry.Name())); err != nil && !os.IsNotExist(err) {
+			return err
+		}
+	}
+	return nil
+}
 func retentionKeep(name string) bool {
 	switch name {
 	case "video.mp4", "operation.json", "video-ready.json", "media-source.json", "task.json", "retention-intent.json", "retention-candidate.json", "retention-receipt.json":
@@ -412,6 +429,9 @@ func (service *Service) CompletePlaybackRetention(ctx context.Context, id, saved
 		return nil, err
 	}
 	retentionReached("receipt-written")
+	if err := removeStagingFiles(directory); err != nil {
+		return nil, err
+	}
 	entries, err := os.ReadDir(directory)
 	if err != nil {
 		return nil, err

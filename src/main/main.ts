@@ -272,11 +272,12 @@ async function startApplication() {
  else await window.loadFile(join(mainDir, '../renderer/index.html'))
  showMainWindow()
  shutdownBackends = async () => {
-  await removeMedia()
+  // 先终止 Go 子进程，让被卡住的物理 RPC 立即结算；否则 removeMedia 可能一直等下去。
+  goCore.dispose()
   updater.dispose()
   zhiyunBrowser.dispose()
   biliBrowser.dispose()
-  goCore.dispose()
+  await removeMedia()
  }
 }
 

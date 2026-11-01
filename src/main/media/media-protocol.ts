@@ -58,6 +58,10 @@ export function installMediaProtocol(
    callback({cancel: true})
    return
   }
+  if (disposed) {
+   callback({})
+   return
+  }
   callback({cancel: details.webContentsId !== contents.id || details.frame !== contents.mainFrame})
  }
  session.webRequest.onBeforeRequest({urls: ['lecture-media://*/*']}, beforeRequest)
@@ -79,9 +83,6 @@ export function installMediaProtocol(
   contents.removeListener('did-start-navigation', revokeNavigation)
   contents.removeListener('render-process-gone', revoke)
   owner.removeListener('closed', closed)
-  try {
-   session.webRequest.onBeforeRequest(null)
-  } catch {}
   try {
    session.protocol.unhandle('lecture-media')
   } catch {}

@@ -95,6 +95,9 @@ func (service *Service) balancedSelection(ctx context.Context, source string, du
 				continue
 			}
 			binIndex := int(math.Floor((time / duration) * float64(len(bins))))
+			if binIndex < 0 {
+				binIndex = 0
+			}
 			if binIndex >= len(bins) {
 				binIndex = len(bins) - 1
 			}

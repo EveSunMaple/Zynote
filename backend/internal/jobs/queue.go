@@ -40,6 +40,12 @@ func saveQueue(root string, record QueueRecord) error {
 		return err
 	}
 	name := file.Name()
+	saved := false
+	defer func() {
+		if !saved {
+			_ = os.Remove(name)
+		}
+	}()
 	if _, err := file.Write(body); err != nil {
 		_ = file.Close()
 		return err
@@ -51,7 +57,11 @@ func saveQueue(root string, record QueueRecord) error {
 	if err := file.Close(); err != nil {
 		return err
 	}
-	return os.Rename(name, filepath.Join(root, record.ID+".json"))
+	if err := os.Rename(name, filepath.Join(root, record.ID+".json")); err != nil {
+		return err
+	}
+	saved = true
+	return nil
 }
 
 // QueueRecord returns interrupted for a persisted queue entry with no owner in

@@ -63,12 +63,30 @@ func decodePlaybackInput(params json.RawMessage, target any) error {
 	}
 	return nil
 }
+func (inv *Invoker) rejectBoundSummaries(state *contract.State, videoTaskID string) error {
+	tasks, err := subtitleDerivedService(state).List()
+	if err != nil {
+		return contract.Unavailable("无法检查摘要绑定: " + err.Error())
+	}
+	for _, task := range tasks {
+		for _, item := range task.Items {
+			if item.SourceBinding != nil && item.SourceBinding.VideoTaskID == videoTaskID && item.Status != "已完成" {
+				return contract.NewError(contract.CodeConflict, "已有未完成摘要绑定该视频，请先完成或删除摘要后再释放")
+			}
+		}
+	}
+	return nil
+}
+
 func (inv *Invoker) handlePreparePlaybackRelease(_ contract.StateStore, state *contract.State, params json.RawMessage) (any, error) {
 	var input videoppt.PlaybackReleaseRequest
 	if err := decodePlaybackInput(params, &input); err != nil {
 		return nil, err
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 120*time.Second)
+	if err := inv.rejectBoundSummaries(state, input.ID); err != nil {
+		return nil, err
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Minute)
 	defer cancel()
 	result, err := videoPptService(state).PreparePlaybackRelease(ctx, input)
 	if err != nil {
@@ -87,7 +105,10 @@ func (inv *Invoker) handleFinalizePlaybackRelease(_ contract.StateStore, state *
 	if err := decodePlaybackInput(params, &input); err != nil {
 		return nil, err
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 120*time.Second)
+	if err := inv.rejectBoundSummaries(state, input.ID); err != nil {
+		return nil, err
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Minute)
 	defer cancel()
 	result, err := videoPptService(state).FinalizePlaybackRelease(ctx, input)
 	if err != nil {

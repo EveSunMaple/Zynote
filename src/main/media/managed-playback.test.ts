@@ -285,6 +285,7 @@ it('rechecks expiry immediately before enqueue after a deferred stat crosses TTL
  gate.resolve(original)
  expect(await reading).toMatchObject({code: 'CANCELLED'})
  stat.mockRestore()
+ vi.useRealTimers()
 })
 
 describe('managed playback global and time budgets', () => {
@@ -309,6 +310,7 @@ describe('managed playback global and time budgets', () => {
   await c.manager.stream(tokenC, 0, 9).cancel()
  })
  it('expires tokens at exactly idle5min or absolute30min without the periodic sweep', async () => {
+  vi.useRealTimers()
   const f = await fixture(),
    result = await f.open(),
    token = f.manager.get(result.tokenURL.split('/').at(-1)!)!
@@ -323,7 +325,7 @@ describe('managed playback global and time budgets', () => {
   vi.setSystemTime(second.created + 30 * 60 * 1000)
   expect(f.manager.get(second.id)).toBeUndefined()
  })
- it('ends an idle stream at15s and a progressing stream at120s while keeping healthy tokens seekable', async () => {
+ it('ends an idle stream after5min without aborting a progressing long stream', async () => {
   const f = await fixture(12 * 1024 * 1024),
    result = await f.open(),
    token = f.manager.get(result.tokenURL.split('/').at(-1)!)!
@@ -331,17 +333,15 @@ describe('managed playback global and time budgets', () => {
   const idle = f.manager.stream(token, 0, 9),
    idleReader = idle.getReader()
   void idleReader.closed.catch(() => {})
-  await vi.advanceTimersByTimeAsync(15000)
+  await vi.advanceTimersByTimeAsync(5 * 60 * 1000)
   await expect(idleReader.read()).rejects.toMatchObject({code: 'TIMEOUT'})
   const reader = f.manager.stream(token, 0, token.size - 1).getReader()
   void reader.closed.catch(() => {})
   await reader.read()
-  for (let index = 0; index < 10; index++) {
+  for (let index = 0; index < 20; index++) {
    await vi.advanceTimersByTimeAsync(11999)
    await reader.read()
   }
-  await vi.advanceTimersByTimeAsync(10)
-  await expect(reader.read()).rejects.toMatchObject({code: 'TIMEOUT'})
   const next = await mediaResponse(f.manager, new Request(result.tokenURL, {headers: {range: 'bytes=2-9'}}))
   expect(Buffer.from(await next.arrayBuffer()).equals(f.bytes.subarray(2, 10))).toBe(true)
  })

@@ -188,6 +188,9 @@ func (service *Service) PreparePlaybackRelease(ctx context.Context, input Playba
 			return nil, retentionConflict()
 		}
 
+		if err := removeStagingFiles(directory); err != nil {
+			return nil, err
+		}
 		files, err := os.ReadDir(directory)
 		if err != nil {
 			return nil, err

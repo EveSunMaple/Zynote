@@ -143,24 +143,24 @@ describe('GoCore request timeouts', () => {
   expect(boundError).toBeUndefined()
   expect(boundCheckError).toBeUndefined()
   await vi.advanceTimersByTimeAsync(1)
-  expect(boundError).toEqual(new Error('Go 后端请求超时'))
-  expect(boundCheckError).toEqual(new Error('Go 后端请求超时'))
+  expect(boundError).toMatchObject({code: 'TIMEOUT', message: 'Go 后端请求超时'})
+  expect(boundCheckError).toMatchObject({code: 'TIMEOUT', message: 'Go 后端请求超时'})
   expect(defaultError).toBeUndefined()
   await vi.advanceTimersByTimeAsync(3999)
   expect(defaultError).toBeUndefined()
   await vi.advanceTimersByTimeAsync(1)
-  expect(defaultError).toEqual(new Error('Go 后端请求超时'))
+  expect(defaultError).toMatchObject({code: 'TIMEOUT', message: 'Go 后端请求超时'})
   expect(slowError).toBeUndefined()
   expect(longError).toBeUndefined()
   await vi.advanceTimersByTimeAsync(79999)
   expect(slowError).toBeUndefined()
   await vi.advanceTimersByTimeAsync(1)
-  expect(slowError).toEqual(new Error('Go 后端请求超时'))
+  expect(slowError).toMatchObject({code: 'TIMEOUT', message: 'Go 后端请求超时'})
   expect(longError).toBeUndefined()
   await vi.advanceTimersByTimeAsync(1709999)
   expect(longError).toBeUndefined()
   await vi.advanceTimersByTimeAsync(1)
-  expect(longError).toEqual(new Error('Go 后端请求超时'))
+  expect(longError).toMatchObject({code: 'TIMEOUT', message: 'Go 后端请求超时'})
   await Promise.all([bound, boundCheck, ordinary, slow, long])
 
   const malformed = (id: string) => [
@@ -211,7 +211,7 @@ describe('GoCore request timeouts', () => {
   await until(() => received.length === checkpoint + 1)
   await vi.advanceTimersByTimeAsync(6000)
   await logical
-  expect(logicalError).toEqual(new Error('Go 后端请求超时'))
+  expect(logicalError).toMatchObject({code: 'TIMEOUT', message: 'Go 后端请求超时'})
   expect(physical).toBe(false)
   const originalChild = fixture.child!
 

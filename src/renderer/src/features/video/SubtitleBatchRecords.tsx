@@ -1,5 +1,5 @@
 import {Button, Card, Checkbox} from '@heroui/react'
-import {useEffect, useState} from 'react'
+import {useEffect, useRef, useState} from 'react'
 import type {SubtitleSyncTask} from '@shared/subtitle-sync'
 import type {SubtitleDerivedTask} from '@shared/subtitle-derived'
 import {noteTitles, type VideoNoteMode} from '@shared/video-notes'
@@ -23,6 +23,7 @@ export function SubtitleBatchRecords({
  courseName?: string
 }>) {
  const [derived, setDerived] = useState<SubtitleDerivedTask[]>([])
+ const generation = useRef(0)
  const [draft, setDraft] = useState<{
   task: SubtitleSyncTask
   urls: string[]
@@ -38,7 +39,9 @@ export function SubtitleBatchRecords({
   interrupted: '上次进程中断，需核对后继续'
  }
  async function load() {
-  setDerived(await invoke('subtitle-derived:list'))
+  const current = ++generation.current
+  const records = await invoke<SubtitleDerivedTask[]>('subtitle-derived:list')
+  if (current === generation.current) setDerived(records)
  }
  useEffect(() => {
   if (!visible) return
@@ -47,9 +50,10 @@ export function SubtitleBatchRecords({
   async function poll() {
    if (pending) return
    pending = true
+   const current = ++generation.current
    try {
     const records = await invoke<SubtitleDerivedTask[]>('subtitle-derived:list')
-    if (!disposed) setDerived(records)
+    if (!disposed && current === generation.current) setDerived(records)
    } catch (reason) {
     if (!disposed && !busy) notify.error(reason, {title: '读取任务失败'})
    } finally {

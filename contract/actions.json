@@ -1,6 +1,6 @@
 {
  "schema": 1,
- "total": 166,
+ "total": 171,
  "actions": [
   {
    "action": "runtime:install",
@@ -983,6 +983,36 @@
   {
    "action": "video-ppt:retained",
    "source": "managed-playback.ts",
+   "phase": 6,
+   "backend": "go"
+  },
+  {
+   "action": "video-ppt:playback-source",
+   "source": "videoppt_playback.go",
+   "phase": 6,
+   "backend": "go"
+  },
+  {
+   "action": "video-ppt:bound-playback-source",
+   "source": "videoppt_playback.go",
+   "phase": 6,
+   "backend": "go"
+  },
+  {
+   "action": "video-ppt:bound-playback-check",
+   "source": "videoppt_playback.go",
+   "phase": 6,
+   "backend": "go"
+  },
+  {
+   "action": "video-ppt:prepare-playback-release",
+   "source": "videoppt_playback.go",
+   "phase": 6,
+   "backend": "go"
+  },
+  {
+   "action": "video-ppt:finalize-playback-release",
+   "source": "videoppt_playback.go",
    "phase": 6,
    "backend": "go"
   },

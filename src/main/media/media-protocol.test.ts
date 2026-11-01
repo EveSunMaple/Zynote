@@ -71,6 +71,6 @@ describe('media owner and cleanup gates', () => {
   expect(unhandle).toHaveBeenCalledTimes(1)
   expect(manager.dispose).toHaveBeenCalledTimes(1)
   expect(contents.listenerCount('did-start-navigation')).toBe(0)
-  expect(onBeforeRequest).toHaveBeenLastCalledWith(null)
+  expect(onBeforeRequest).not.toHaveBeenCalledWith(null)
  })
 })

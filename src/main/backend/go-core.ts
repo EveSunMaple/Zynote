@@ -2,6 +2,7 @@ import {app} from 'electron'
 import {spawn, type ChildProcess} from 'node:child_process'
 import {existsSync} from 'node:fs'
 import {join} from 'node:path'
+import {StringDecoder} from 'node:string_decoder'
 import {z} from 'zod'
 import type {EventPayload} from '@shared/types'
 import type {ShellService} from '@main/backend/shell-service'
@@ -159,6 +160,8 @@ export class GoCore {
  private restarts = 0
  private disposed = false
  private buffer = ''
+ private readonly stdoutDecoder = new StringDecoder('utf8')
+ private readonly stderrDecoder = new StringDecoder('utf8')
  private readonly options: GoCoreOptions
  private helloTimer: NodeJS.Timeout | undefined
 
@@ -186,11 +189,12 @@ export class GoCore {
    spawned = true
   })
   child.stdout!.on('data', chunk => {
-   this.observePhysical(child, String(chunk))
-   if (this.child === child) this.consume(String(chunk))
+   const text = this.stdoutDecoder.write(chunk)
+   this.observePhysical(child, text)
+   if (this.child === child) this.consume(text)
   })
   this.child.stderr!.on('data', chunk => {
-   this.stderrTail = (this.stderrTail + String(chunk)).slice(-STDERR_TAIL_LIMIT)
+   this.stderrTail = (this.stderrTail + this.stderrDecoder.write(chunk)).slice(-STDERR_TAIL_LIMIT)
   })
   child.on('exit', (code, signal) => {
    this.settlePhysicalChild(child)
@@ -254,7 +258,7 @@ export class GoCore {
   const result = new Promise<unknown>((resolve, reject) => {
    const timer = setTimeout(() => {
     this.pending.delete(id)
-    reject(new Error('Go 后端请求超时'))
+    reject(backendFailure({code: 'TIMEOUT', message: 'Go 后端请求超时'}))
    }, callTimeout(action))
    this.pending.set(id, {resolve, reject, timer, tracked})
    this.send({jsonrpc: '2.0', id, method: action, params})

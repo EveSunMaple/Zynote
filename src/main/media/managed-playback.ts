@@ -18,11 +18,13 @@ const BLOCK = 1024 * 1024
 const MAX_SIZE = 8 * 1024 ** 3
 const TTL = 30 * 60 * 1000
 const IDLE = 5 * 60 * 1000
+const STREAM_IDLE_MS = 5 * 60 * 1000
 const LIMIT = 32 * 1024 ** 3
 let globalReservations = 0
 let globalHashing = false
 let globalStreams = 0
-let releaseGeneration = 0
+const releaseEpochs = new Map<string, number>()
+let releaseEpoch = 0
 const playbackOwners = new Set<ManagedPlayback>()
 const releaseFences = new Set<string>()
 const releasesInFlight = new Set<string>()
@@ -190,7 +192,15 @@ export class ManagedPlayback {
    .map(([work]) => work)
  }
  private async releaseRPC(action: string, input: Record<string, unknown>, taskID: string) {
-  if (this.trackedCall) return await this.observeRPC(taskID, this.trackedCall(action, input), action)
+  if (this.trackedCall) {
+   let call: PhysicalMediaCall
+   try {
+    call = this.trackedCall(action, input)
+   } catch (error) {
+    throw Object.assign(error instanceof Error ? error : new Error(String(error)), {notDispatched: true})
+   }
+   return await this.observeRPC(taskID, call, action)
+  }
   return await this.releaseCall!(action, input)
  }
  async open(raw: unknown) {
@@ -220,7 +230,7 @@ export class ManagedPlayback {
   this.pendingTasks.set(input.requestID, taskID)
   this.requests.set(input.requestID, {fingerprint})
   const deadline = setTimeout(() => controller.abort(playbackFailure('TIMEOUT', '媒体核验超时')), 120000)
-  const work = this.mint(input, controller, fingerprint, deadline, releaseGeneration)
+  const work = this.mint(input, controller, fingerprint, deadline, releaseEpoch)
   this.mints.add(work)
   this.mintTasks.set(work, taskID)
   void work
@@ -258,10 +268,11 @@ export class ManagedPlayback {
       )
    taskID = declared.taskID
    this.pendingTasks.set(input.requestID, taskID)
-   if (boundInput && generation !== releaseGeneration)
+   const fence = taskFence(this.libraryRoot, taskID)
+   if ((releaseEpochs.get(fence) ?? 0) > generation)
     throw playbackFailure('CANCELLED', '媒体核验期间发生释放，请重新打开')
    check(controller.signal)
-   if (releaseFences.has(taskFence(this.libraryRoot, taskID))) throw playbackFailure('BUSY', '该视频正在释放')
+   if (releaseFences.has(fence)) throw playbackFailure('BUSY', '该视频正在释放')
    const opened = await openManaged(this.libraryRoot, taskID)
    file = opened.file
    const openedInfo = await file.stat(),
@@ -296,7 +307,7 @@ export class ManagedPlayback {
       )
    if (JSON.stringify(after) !== JSON.stringify(declared)) throw playbackFailure('CONFLICT', '视频来源记录已经改变')
    check(controller.signal)
-   if ((boundInput && generation !== releaseGeneration) || releaseFences.has(taskFence(this.libraryRoot, taskID)))
+   if ((releaseEpochs.get(fence) ?? 0) > generation || releaseFences.has(fence))
     throw playbackFailure('BUSY', '该视频正在释放')
    const id = randomBytes(32).toString('base64url'),
     now = Date.now()
@@ -339,10 +350,16 @@ export class ManagedPlayback {
    throw failure
   } finally {
    clearTimeout(deadline)
-   await Promise.allSettled([...mintPhysical])
+   // 物理 RPC 正常应随子进程退出而结算；进程活着但卡死时不能让全局核验槽永久占用。
+   await Promise.race([
+    Promise.allSettled([...mintPhysical]),
+    new Promise<void>(resolve => {
+     setTimeout(resolve, 30000).unref?.()
+    })
+   ])
+   globalHashing = false
    this.pending.delete(input.requestID)
    this.pendingTasks.delete(input.requestID)
-   globalHashing = false
    if (!registered) {
     this.requests.delete(input.requestID)
     if (file) await this.closeHandle({taskID: taskID!, file, reads: new Set()})
@@ -435,8 +452,19 @@ export class ManagedPlayback {
   clearInterval(this.cleanupTimer)
   for (const held of this.failedCloses) void this.closeHandle(held).catch(() => {})
   this.closeAll()
-  await Promise.allSettled([...this.mints, ...this.closing, ...this.physicalRPCs.keys()])
-  await Promise.allSettled([...this.closing])
+  const pending = [...this.mints, ...this.closing, ...this.physicalRPCs.keys()]
+  await Promise.race([
+   Promise.allSettled(pending),
+   new Promise<void>(resolve => {
+    setTimeout(resolve, 5000).unref?.()
+   })
+  ])
+  await Promise.race([
+   Promise.allSettled([...this.closing]),
+   new Promise<void>(resolve => {
+    setTimeout(resolve, 5000).unref?.()
+   })
+  ])
   this.maybeForgetOwner()
  }
  private async quiesceTask(taskID: string) {
@@ -463,7 +491,8 @@ export class ManagedPlayback {
   const previouslyUncertain = releaseFences.has(fence)
   releasesInFlight.add(fence)
   releaseFences.add(fence)
-  releaseGeneration++
+  releaseEpochs.set(fence, ++releaseEpoch)
+  let dispatched = false
   try {
    const candidate = {
     id: input.videoTaskID,
@@ -471,9 +500,15 @@ export class ManagedPlayback {
     expectedRefSHA256: input.expectedRefSHA256,
     releaseID: randomUUID()
    }
-   const prepared = playbackReleasePrepareSchema.parse(
-    await this.releaseRPC('video-ppt:prepare-playback-release', candidate, input.videoTaskID)
-   )
+   dispatched = true
+   let preparedRaw: unknown
+   try {
+    preparedRaw = await this.releaseRPC('video-ppt:prepare-playback-release', candidate, input.videoTaskID)
+   } catch (error) {
+    if ((error as {notDispatched?: boolean})?.notDispatched) dispatched = false
+    throw error
+   }
+   const prepared = playbackReleasePrepareSchema.parse(preparedRaw)
    if ('status' in prepared) {
     if (!previouslyUncertain) releaseFences.delete(fence)
     throw playbackFailure(prepared.code, prepared.message)
@@ -513,7 +548,11 @@ export class ManagedPlayback {
   } finally {
    const pendingRelease = this.physicalForTask(input.videoTaskID, true)
    if (pendingRelease.length) void Promise.allSettled(pendingRelease).then(() => releasesInFlight.delete(fence))
-   else releasesInFlight.delete(fence)
+   else {
+    releasesInFlight.delete(fence)
+    // 请求在真正发出前就失败（例如 Go core 正在重启）时不能留下永久 fence。
+    if (!dispatched) releaseFences.delete(fence)
+   }
   }
  }
  private expire() {
@@ -614,16 +653,14 @@ export class ManagedPlayback {
    if (released) return
    released = true
    clearTimeout(idle)
-   clearTimeout(deadline)
    signal?.removeEventListener('abort', abortRequest)
    token.streams.delete(controller)
    globalStreams--
   }
   const resetIdle = () => {
    clearTimeout(idle)
-   idle = setTimeout(() => controller.abort(playbackFailure('TIMEOUT', '媒体读取停滞')), 15000)
+   idle = setTimeout(() => controller.abort(playbackFailure('TIMEOUT', '媒体读取停滞')), STREAM_IDLE_MS)
   }
-  const deadline = setTimeout(() => controller.abort(playbackFailure('TIMEOUT', '媒体读取超时')), 120000)
   controller.signal.addEventListener(
    'abort',
    () => {

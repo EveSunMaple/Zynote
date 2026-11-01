@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 
 	"github.com/EveSunMaple/Zynote/backend/internal/contract"
+	"github.com/EveSunMaple/Zynote/backend/internal/jobs"
 	"github.com/EveSunMaple/Zynote/backend/internal/videoppt"
 )
 
@@ -25,6 +26,12 @@ func videoPptError(err error) error {
 	}
 	if errors.Is(err, context.DeadlineExceeded) {
 		return contract.NewError(contract.CodeTimeout, "视频处理超时，恢复文件保留")
+	}
+	if errors.Is(err, jobs.ErrBusy) {
+		return contract.NewError(contract.CodeBusy, err.Error())
+	}
+	if errors.Is(err, jobs.ErrCancelled) {
+		return contract.NewError(contract.CodeCancelled, err.Error())
 	}
 	var request *videoppt.RequestError
 	if errors.As(err, &request) {
