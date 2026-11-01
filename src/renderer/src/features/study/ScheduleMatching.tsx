@@ -58,7 +58,7 @@ function rowErrors(m: Matching, group: Matching['groups'][number], row: StudyEnt
  if (row.skipZhiyunMatch) return result
  const lookups = [m.searches[group.key], ...(row.zhiyunCourseId ? [m.catalogs[row.zhiyunCourseId]] : [])]
  for (const lookup of lookups) {
-  if (lookup.state !== 'error') continue
+  if (!lookup || lookup.state !== 'error') continue
   if (loginNeeded(lookup.message)) result.authRequired = true
   else result.failed = true
  }
