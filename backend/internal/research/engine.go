@@ -298,8 +298,8 @@ type researchCreateInput struct {
 
 func (engine *Engine) researchChannels(input map[string]any) ([]string, map[string]bool, bool, error) {
 	channels := stringList(input["channels"])
-	if len(channels) == 0 || len(channels) > 12 {
-		return nil, nil, false, fmt.Errorf("本次研究渠道重复")
+	if len(channels) == 0 || len(channels) > 16 {
+		return nil, nil, false, fmt.Errorf("本次研究渠道数量无效")
 	}
 	seen := map[string]bool{}
 	for _, channel := range channels {
@@ -309,12 +309,12 @@ func (engine *Engine) researchChannels(input map[string]any) ([]string, map[stri
 		seen[channel] = true
 		switch channel {
 		case "library", "memory", "notes", "conversations", "practice", "organize",
-			"crossref", "semantic", "arxiv", "web", "arxiv_fulltext", "web_pages":
+			"crossref", "semantic", "arxiv", "openalex", "wikipedia", "web", "arxiv_fulltext", "web_pages":
 		default:
 			return nil, nil, false, fmt.Errorf("所选外部研究渠道尚未完成原生适配")
 		}
 	}
-	remote := seen["crossref"] || seen["semantic"] || seen["arxiv"] || seen["web"]
+	remote := seen["crossref"] || seen["semantic"] || seen["arxiv"] || seen["openalex"] || seen["wikipedia"] || seen["web"]
 	return channels, seen, remote, nil
 }
 
@@ -403,7 +403,7 @@ func (engine *Engine) collectResearchSources(ctx context.Context, input map[stri
 			external = NewExternal()
 		}
 		remoteChannels := []string{}
-		for _, channel := range []string{"crossref", "semantic", "arxiv", "web"} {
+		for _, channel := range []string{"crossref", "semantic", "arxiv", "openalex", "wikipedia", "web"} {
 			if parsed.seen[channel] {
 				remoteChannels = append(remoteChannels, channel)
 			}
@@ -411,7 +411,7 @@ func (engine *Engine) collectResearchSources(ctx context.Context, input map[stri
 		queries := map[string]string{}
 		if keywords := engine.searchKeywords(ctx, parsed.question); keywords != "" {
 			parsed.keywords = keywords
-			for _, channel := range []string{"crossref", "semantic", "arxiv"} {
+			for _, channel := range []string{"crossref", "semantic", "arxiv", "openalex"} {
 				queries[channel] = keywords
 			}
 		}

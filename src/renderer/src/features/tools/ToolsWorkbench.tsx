@@ -389,6 +389,8 @@ export function ToolsWorkbench({visible, close}: Readonly<{visible: boolean; clo
          ['arxiv_fulltext', '所选论文页'],
          ['crossref', 'Crossref'],
          ['semantic', 'Semantic Scholar'],
+         ['openalex', 'OpenAlex'],
+         ['wikipedia', '维基百科'],
          ['notes', '已保存笔记'],
          ['memory', '学习记忆'],
          ['practice', '练习题'],
