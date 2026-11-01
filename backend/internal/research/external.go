@@ -550,18 +550,10 @@ func (external *External) searchCrossref(ctx context.Context, query string) ([]E
 	}
 	rows := []ExternalEvidence{}
 	for _, item := range payload.Message.Items {
-		if len(item.Title) == 0 || !regexp.MustCompile(`^10\.[0-9]{4,9}/\S+$`).MatchString(item.DOI) {
+		if len(item.Title) == 0 || !doiPattern.MatchString(item.DOI) {
 			continue
 		}
-		authors := crossrefAuthorNames(item.Author)
-		text := "作者：" + strings.Join(authors, ", ") + "\n" + item.Abstract
-		if item.Abstract == "" {
-			text = "作者：" + strings.Join(authors, ", ") + "\n仅取得题录，无可用摘要。"
-		}
-		scope := "metadata"
-		if item.Abstract != "" {
-			scope = "abstract"
-		}
+		text, scope := paperEvidenceText("作者："+strings.Join(crossrefAuthorNames(item.Author), ", "), item.Abstract)
 		row, err := external.evidence("crossref", item.Title[0], "https://doi.org/"+strings.ToLower(item.DOI), text, scope)
 		if err == nil {
 			rows = append(rows, row)
@@ -607,14 +599,7 @@ func (external *External) searchSemantic(ctx context.Context, query string) ([]E
 			}
 			names = append(names, author.Name)
 		}
-		text := fmt.Sprintf("年份：%d 作者：%s\n%s", item.Year, strings.Join(names, ", "), item.Abstract)
-		if item.Abstract == "" {
-			text = fmt.Sprintf("年份：%d 作者：%s\n仅取得题录，无可用摘要。", item.Year, strings.Join(names, ", "))
-		}
-		scope := "metadata"
-		if item.Abstract != "" {
-			scope = "abstract"
-		}
+		text, scope := paperEvidenceText(fmt.Sprintf("年份：%d 作者：%s", item.Year, strings.Join(names, ", ")), item.Abstract)
 		row, err := external.evidence("semantic", item.Title, "https://www.semanticscholar.org/paper/"+item.PaperID, text, scope)
 		if err == nil {
 			rows = append(rows, row)
@@ -785,10 +770,28 @@ func dedupeExternalEvidence(rows []ExternalEvidence) []ExternalEvidence {
 		seen[row.URL] = true
 		filtered = append(filtered, row)
 	}
-	if len(filtered) > 12 {
-		filtered = filtered[:12]
+	return interleaveByProvider(filtered, 12)
+}
+
+// interleaveByProvider 按渠道轮流取结果直到上限，避免排在前面的渠道占满名额、后面的渠道被整批截掉。
+func interleaveByProvider(rows []ExternalEvidence, limit int) []ExternalEvidence {
+	order := []string{}
+	groups := map[string][]ExternalEvidence{}
+	for _, row := range rows {
+		if _, ok := groups[row.Provider]; !ok {
+			order = append(order, row.Provider)
+		}
+		groups[row.Provider] = append(groups[row.Provider], row)
 	}
-	return filtered
+	picked := []ExternalEvidence{}
+	for round := 0; len(picked) < len(rows) && len(picked) < limit; round++ {
+		for _, provider := range order {
+			if round < len(groups[provider]) && len(picked) < limit {
+				picked = append(picked, groups[provider][round])
+			}
+		}
+	}
+	return picked
 }
 
 // ExternalSkip 记录本次检索中被跳过的渠道及中文原因。
@@ -799,6 +802,7 @@ type ExternalSkip struct {
 
 var externalChannelLabels = map[string]string{
 	"crossref": "Crossref", "semantic": "Semantic Scholar", "arxiv": "arXiv", "web": "网页搜索",
+	"openalex": "OpenAlex", "wikipedia": "维基百科",
 }
 
 func externalSkipFor(channel string, err error) ExternalSkip {
@@ -844,6 +848,10 @@ func (external *External) searchChannel(ctx context.Context, channel, query stri
 		return external.searchSemantic(ctx, query)
 	case "arxiv":
 		return external.searchArxiv(ctx, query)
+	case "openalex":
+		return external.searchOpenAlex(ctx, query)
+	case "wikipedia":
+		return external.searchWikipedia(ctx, query)
 	case "web":
 		return external.searchWeb(ctx, query, web)
 	}

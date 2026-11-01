@@ -42,8 +42,9 @@ type Plugin struct {
 
 var extensionPlugins = []Plugin{
 	{ID: "library", Name: "资料库阅读与管理", Description: "阅读原生知识库中的版本与引用原文。", Channels: []string{"library"}},
-	{ID: "papers", Name: "论文检索与阅读", Description: "按明确选定渠道检索题录、摘要和全文。", Channels: []string{"arxiv", "crossref", "semantic", "arxiv_fulltext"}},
+	{ID: "papers", Name: "论文检索与阅读", Description: "按明确选定渠道检索题录、摘要和全文。", Channels: []string{"arxiv", "crossref", "semantic", "openalex", "arxiv_fulltext"}},
 	{ID: "web", Name: "网页搜索与阅读", Description: "后台搜索公开网页并保留范围回执。", Channels: []string{"web", "web_pages"}},
+	{ID: "encyclopedia", Name: "百科检索", Description: "检索中英文维基百科条目导语。", Channels: []string{"wikipedia"}},
 	{ID: "memory", Name: "学习记忆", Description: "仅召回用户保存且可用的记忆。", Channels: []string{"memory"}},
 	{ID: "notes", Name: "笔记检索", Description: "检索用户明确保存的笔记。", Channels: []string{"notes"}},
 	{ID: "conversations", Name: "历史问答", Description: "读取选定知识会话，历史回答不作为原文。", Channels: []string{"conversations"}},
