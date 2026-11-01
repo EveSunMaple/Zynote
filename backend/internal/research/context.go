@@ -269,9 +269,10 @@ func (store *Store) verifyContextConversation(reference *ConversationRef) error 
 	if reference == nil {
 		return nil
 	}
-	current, err := store.Conversation(reference.ID)
-	if err != nil || int(number(current["revision"])) != reference.Revision {
-		return fmt.Errorf("所选知识会话版本已改变")
+	// 会话的版本号只随改名、置顶变化，与研究用到的内容无关；研究在后台运行期间用户可以照常
+	// 整理会话，所以完成时只要求会话仍在。引用到的历史问答逐条核对见 contextCurrentRow。
+	if _, err := store.Conversation(reference.ID); err != nil {
+		return fmt.Errorf("所选知识会话已被删除")
 	}
 	return nil
 }
@@ -293,7 +294,14 @@ func (store *Store) contextCurrentRow(row ContextRow) (any, error) {
 			return value, nil
 		}
 	case "conversation":
-		// Conversation rows are verified by revision above; individual turn changes are checked by digest at creation.
+		// 历史问答（已完成的研究）内容不可变，只核对它没被删除；会话轮次按创建时的摘要核对。
+		if opPattern.MatchString(row.ID) {
+			if _, err := store.Read("task", row.ID); err != nil {
+				if _, legacyErr := store.Read("legacy-task", row.ID); legacyErr != nil {
+					return nil, fmt.Errorf("研究期间引用的历史问答已被删除，请重新研究")
+				}
+			}
+		}
 		return nil, nil
 	}
 	return nil, fmt.Errorf("研究期间记忆、笔记或历史问答已改变，请重新研究")
@@ -307,12 +315,12 @@ func (store *Store) VerifyContext(snapshot Context, _ string) error {
 		return err
 	}
 	for _, row := range snapshot.Rows {
-		if row.Kind == "conversation" {
-			continue
-		}
 		current, err := store.contextCurrentRow(row)
 		if err != nil {
 			return err
+		}
+		if row.Kind == "conversation" {
+			continue
 		}
 		version, _ := json.Marshal(current)
 		if hashText(string(version)) != row.Version {

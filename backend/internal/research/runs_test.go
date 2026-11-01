@@ -120,3 +120,33 @@ func createdTask(t *testing.T, engine *Engine, created any) Task {
 	}
 	return task
 }
+
+// 研究在后台运行时用户给会话改名、置顶，不应让这次回答失败。
+func TestRenamingConversationDuringResearchKeepsAnswer(t *testing.T) {
+	release := make(chan struct{})
+	engine, bindings := backgroundEngine(t, "老师说“余项有两种形式”", release)
+	conversation, err := engine.Store.CreateConversation("复习")
+	if err != nil {
+		t.Fatal(err)
+	}
+	id := text(conversation["conversation_id"])
+	created, err := engine.Create(context.Background(), map[string]any{
+		"op": strings.Repeat("c", 32), "question": "余项", "channels": []any{"library", "conversations"},
+		"materials": bindings, "conversation": map[string]any{"id": id, "revision": 0},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	task := createdTask(t, engine, created)
+	waitTask(t, engine, task.TaskID, func(task Task) bool { return task.Progress != nil && task.Progress.Stage == "writing" })
+	if _, err := engine.Store.OrganizeConversation(map[string]any{
+		"id": id, "op": strings.Repeat("d", 32), "revision": 0, "title": "复习（改名）", "pinned": true,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	close(release)
+	done := waitTask(t, engine, task.TaskID, func(task Task) bool { return task.Status != "running" })
+	if done.Status != "completed" {
+		t.Fatalf("renaming the conversation must not fail the answer: %s (%s)", done.Status, done.ErrorCode)
+	}
+}
