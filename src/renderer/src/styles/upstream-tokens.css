@@ -52,13 +52,9 @@
  --on-accent: #ffffff;
  --shadow-color: rgba(0, 0, 0, 0.14);
  --study-highlight-focus: #ff9191;
- --study-highlight-senior: #ffa8cf;
+ --study-highlight-senior: #ffa9cf;
  --study-highlight-teacher: #c29c70;
  --study-highlight-ppt: #87c2ff;
- --study-highlight-ai: #8ccfad;
- --study-highlight-personal: #fcd973;
- /* Match the opacity of highlight annotations written to the PDF. */
- --study-highlight-opacity: 30%;
  --study-paper: #ffffff;
 }
 

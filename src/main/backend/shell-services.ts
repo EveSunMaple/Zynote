@@ -31,11 +31,7 @@ async function pickPaths(window: BrowserWindow, params: Record<string, unknown>,
  return picked.canceled ? [] : picked.filePaths
 }
 
-export function createShellServices(
- window: BrowserWindow,
- libraryRoot: string,
- currentReplay: () => {courseId: string; subId: string} | undefined
-): Record<string, ShellService> {
+export function createShellServices(window: BrowserWindow, libraryRoot: string): Record<string, ShellService> {
  return {
   'crypto.unprotect': params => {
    const value = params.value
@@ -70,7 +66,7 @@ export function createShellServices(
     value = decodeURIComponent(raw)
    } catch {}
    const token = /{i:\d+;s:\d+:"_token";i:\d+;s:\d+:"(.+?)";}/.exec(value)?.[1]
-   return {cookie, authorization: token ? 'Bearer ' + token : '', currentReplay: currentReplay()}
+   return {cookie, authorization: token ? 'Bearer ' + token : ''}
   },
   'shell.trashItem': async params => {
    const path = z.string().min(1).max(4096).parse(params.path),

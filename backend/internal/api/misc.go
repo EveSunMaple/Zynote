@@ -23,36 +23,31 @@ func (inv *Invoker) handleCourses(state *contract.State) (any, error) {
 	return courses, nil
 }
 
-func pickImagePath(store contract.StateStore, title string, extensions []string) (string, error) {
+func (inv *Invoker) handleImagePick(store contract.StateStore, state *contract.State, kind string) (any, error) {
 	reverse := store.Reverse()
 	if reverse == nil {
-		return "", contract.Unavailable("文件选择器不可用")
+		return nil, contract.Unavailable("文件选择器不可用")
 	}
-	raw, err := reverse.Call("shell.pickFile", map[string]any{
-		"title": title, "extensions": extensions,
-	}, 600000)
-	if err != nil {
-		return "", contract.Unavailable(err.Error())
-	}
-	var picked struct {
-		Path string `json:"path"`
-	}
-	if json.Unmarshal(raw, &picked) != nil {
-		return "", contract.Unavailable("文件选择器响应无效")
-	}
-	return picked.Path, nil
-}
-
-func (inv *Invoker) handleImagePick(store contract.StateStore, state *contract.State, kind string) (any, error) {
 	title := "选择聊天背景"
 	if kind == "avatar" {
 		title = "选择头像"
 	}
-	path, err := pickImagePath(store, title, []string{"png", "jpg", "jpeg", "webp"})
-	if err != nil || path == "" {
-		return nil, err
+	raw, err := reverse.Call("shell.pickFile", map[string]any{
+		"title": title, "extensions": []string{"png", "jpg", "jpeg", "webp"},
+	}, 600000)
+	if err != nil {
+		return nil, contract.Unavailable(err.Error())
 	}
-	info, err := os.Lstat(path)
+	var picked struct {
+		Path *string `json:"path"`
+	}
+	if json.Unmarshal(raw, &picked) != nil {
+		return nil, contract.Unavailable("文件选择器响应无效")
+	}
+	if picked.Path == nil || *picked.Path == "" {
+		return nil, nil
+	}
+	info, err := os.Lstat(*picked.Path)
 	if err != nil || !info.Mode().IsRegular() || info.Mode()&os.ModeSymlink != 0 {
 		return nil, contract.InputInvalid("图片文件无效")
 	}
@@ -66,8 +61,8 @@ func (inv *Invoker) handleImagePick(store contract.StateStore, state *contract.S
 	if kind == "avatar" {
 		mode = "avatar"
 	}
-	encoded, err := store.Reverse().Call("shell.imageDataUrl", map[string]any{
-		"path": path, "mode": mode,
+	encoded, err := reverse.Call("shell.imageDataUrl", map[string]any{
+		"path": *picked.Path, "mode": mode,
 	}, 30000)
 	if err != nil {
 		return nil, contract.Unavailable(err.Error())

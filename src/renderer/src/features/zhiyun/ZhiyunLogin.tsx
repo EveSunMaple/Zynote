@@ -55,7 +55,7 @@ export function ZhiyunLoginPanel() {
     <Button variant="tertiary" size="sm" onClick={() => void navigate('zhiyun:login')}>
      智云首页
     </Button>
-    <span>完成后关闭设置，即可返回刚才的页面。</span>
+    <span>登录完成后关闭设置，回到智云导入</span>
    </div>
    <div className="zhiyun-login-slot" ref={slot} />
   </div>

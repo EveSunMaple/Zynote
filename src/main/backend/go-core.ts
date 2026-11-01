@@ -44,16 +44,12 @@ const LONG_RUNNING_ACTIONS = new Set([
  'subtitle-sync:resume',
  'subtitle-sync:start',
  'subtitles:generate',
- 'textbook:comment',
  'textbook:manual',
  'textbook:apply',
  'textbook:clear',
- 'textbook:chapter-summary',
  'textbook:analyze',
  'textbook:analyze-images',
- 'textbook:ocr-page',
  'textbook:pick', // Includes time spent choosing the file, followed by native PDF inspection.
- 'textbook:resolve', // Restoring a cold selection inspects and hashes the complete PDF.
  'textbook:ppt-ocr',
  'video-ppt:auto',
  'video-ppt:batch',
@@ -79,7 +75,6 @@ const LONG_RUNNING_ACTIONS = new Set([
 const SLOW_ACTIONS = new Set([
  'zhiyun:search',
  'zhiyun:lessons',
- 'zhiyun:match-course',
  'settings:models',
  'subtitle-derived:audit-publication',
  'video-ppt:playback-source'

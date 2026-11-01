@@ -3607,11 +3607,9 @@ dependencies = [
 name = "zynote-native"
 version = "0.0.1"
 dependencies = [
- "base64 0.22.1",
  "docling-asr",
  "docling-onnx",
  "hmac",
- "image",
  "lopdf",
  "md-5 0.10.6",
  "ort",

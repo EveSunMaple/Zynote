@@ -24,13 +24,14 @@ func (inv *Invoker) zhiyunClient(store contract.StateStore) (*zhiyun.Client, err
 	if err != nil {
 		return nil, contract.Unavailable(msgZhiyunLoginUnavailable)
 	}
-	var session zhiyun.Session
+	var session struct {
+		Cookie        string `json:"cookie"`
+		Authorization string `json:"authorization"`
+	}
 	if err := json.Unmarshal(raw, &session); err != nil {
 		return nil, contract.Unavailable(msgZhiyunLoginUnavailable)
 	}
-	client := zhiyun.New("", session)
-	client.Calendar = &inv.zhiyunCalendar
-	return client, nil
+	return zhiyun.New("", zhiyun.Session{Cookie: session.Cookie, Authorization: session.Authorization}), nil
 }
 
 func (inv *Invoker) handleZhiyunSearch(store contract.StateStore, _ *contract.State, params json.RawMessage) (any, error) {
@@ -82,29 +83,4 @@ func (inv *Invoker) handleZhiyunLessons(store contract.StateStore, _ *contract.S
 		return nil, contract.Unavailable(err.Error())
 	}
 	return lessons, nil
-}
-
-func (inv *Invoker) handleZhiyunMatchCourse(store contract.StateStore, _ *contract.State, params json.RawMessage) (any, error) {
-	var input struct {
-		Title       string `json:"title"`
-		CatalogOnly bool   `json:"catalogOnly"`
-	}
-	if err := json.Unmarshal(params, &input); err != nil || strings.TrimSpace(input.Title) == "" || len([]rune(input.Title)) > 200 {
-		return nil, contract.InputInvalid("请填写有效的课表课程名称")
-	}
-	client, err := inv.zhiyunClient(store)
-	if err != nil {
-		return nil, err
-	}
-	ctx, cancel := context.WithTimeout(context.Background(), 70*time.Second)
-	defer cancel()
-	match := client.MatchCourse
-	if input.CatalogOnly {
-		match = client.MatchCatalogCourse
-	}
-	result, err := match(ctx, input.Title)
-	if err != nil {
-		return nil, contract.Unavailable(err.Error())
-	}
-	return result, nil
 }

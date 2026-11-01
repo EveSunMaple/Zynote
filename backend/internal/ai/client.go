@@ -367,10 +367,6 @@ func decodeChatResponse(response *http.Response, responses bool) (string, error)
 	return value, nil
 }
 
-func (client *Client) Chat(ctx context.Context, messages []Message, onText func(string)) (string, error) {
-	return client.chat(ctx, messages, onText, JSONOptions{})
-}
-
 type chatRequestParts struct {
 	endpoint            string
 	body                map[string]any
@@ -379,7 +375,7 @@ type chatRequestParts struct {
 	nativeFile, hasFile bool
 }
 
-func buildChatRequest(ctx context.Context, profile Profile, messages []Message, options JSONOptions, onText func(string)) (chatRequestParts, error) {
+func buildChatRequest(ctx context.Context, profile Profile, messages []Message, onText func(string)) (chatRequestParts, error) {
 	nativeFile, hasFile, hasImages := chatContentFlags(messages)
 	model, err := chatModel(profile, hasImages)
 	if err != nil {
@@ -393,13 +389,7 @@ func buildChatRequest(ctx context.Context, profile Profile, messages []Message, 
 		input = map[string]any{"messages": messages}
 	}
 	body := chatBody(profile, model, input, responses, onText != nil)
-	if options.DisableThinking && !responses {
-		body["enable_thinking"] = false
-	}
 	applyThinking(ctx, profile, body, responses)
-	if options.HighResolutionImages && !responses {
-		body["vl_high_resolution_images"] = true
-	}
 	encoded, err := marshalNoEscape(body)
 	if err != nil {
 		return chatRequestParts{}, err
@@ -445,9 +435,9 @@ func newChatHTTPRequest(
 	return request, cancel, nil
 }
 
-func (client *Client) chat(ctx context.Context, messages []Message, onText func(string), options JSONOptions) (string, error) {
+func (client *Client) Chat(ctx context.Context, messages []Message, onText func(string)) (string, error) {
 	profile := client.Profile
-	parts, err := buildChatRequest(ctx, profile, messages, options, onText)
+	parts, err := buildChatRequest(ctx, profile, messages, onText)
 	if err != nil {
 		return "", err
 	}
@@ -822,10 +812,8 @@ func repairJSONEscapes(data []byte) []byte {
 }
 
 type JSONOptions struct {
-	Images               []Image
-	OnRetry              func()
-	DisableThinking      bool
-	HighResolutionImages bool
+	Images  []Image
+	OnRetry func()
 }
 
 func (client *Client) JSON(ctx context.Context, prompt string, input any, validate func([]byte) error) ([]byte, error) {
@@ -863,10 +851,10 @@ func (client *Client) JSONWithOptions(
 		if _, observer := contract.GenerationObservationFrom(attemptContext); observer != nil {
 			attemptContext = context.WithValue(attemptContext, generationRequestFactsKey{}, &contract.GenerationAttemptEvidence{})
 		}
-		reply, err := client.chat(attemptContext, []Message{
+		reply, err := client.Chat(attemptContext, []Message{
 			{Role: "system", Content: prompt},
 			{Role: "user", Content: content},
-		}, nil, options)
+		}, nil)
 		if err != nil {
 			return nil, err
 		}

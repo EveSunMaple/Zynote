@@ -69,16 +69,6 @@ export interface ZhiyunLesson {
  videoAvailable: boolean
  videoUrl?: string
 }
-export interface ZhiyunCourseMatch {
- status: 'matched' | 'choose' | 'not-found'
- source: 'personal-calendar' | 'catalog'
- calendarUnavailable?: boolean
- catalogRequested?: boolean
- courses: ZhiyunCourse[]
- matchedId?: string
- truncated: boolean
- currentReplay?: {courseId: string; subId: string}
-}
 export type ZhiyunTaskState = 'queued' | 'running' | 'cancelling' | 'completed' | 'failed' | 'cancelled' | 'interrupted'
 export interface ZhiyunTask {
  id: string
@@ -224,14 +214,8 @@ export interface JobState {
  progress?: Progress
  source?: import('./media-source.js').MediaSource
 }
-export interface StudyImportProgress {
- requestId: string
- phase: 'reading' | 'ready' | 'uploading' | 'sent' | 'received' | 'retrying'
- fileName: string
-}
 export type EventPayload =
  | {kind: 'progress'; data: Progress}
- | {kind: 'study-import'; data: StudyImportProgress}
  | {kind: 'job'; data: {key: string; lectureId?: string; state: 'finished'; error?: string}}
  | {kind: 'chat'; requestId: string; text: string}
  | {kind: 'browser'; url: string}

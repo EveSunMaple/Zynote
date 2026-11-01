@@ -11,15 +11,13 @@ import (
 )
 
 type fakeCaller struct {
-	inspections int
-	previous    []Highlight
-	writes      [][]map[string]any
+	previous []Highlight
+	writes   [][]map[string]any
 }
 
 func (caller *fakeCaller) Call(method string, params any, timeoutMS int) (json.RawMessage, error) {
 	switch method {
 	case "pdf.inspect":
-		caller.inspections++
 		return json.Marshal(inspectResult{Pages: 1, Sizes: [][]float64{{600, 800, 0}}, Previous: caller.previous})
 	case "pdf.write":
 		values := params.(map[string]any)
@@ -37,42 +35,15 @@ func TestPrioritizedHighlights(t *testing.T) {
 		{ID: "11111111-1111-4111-8111-111111111111", Page: 1, Rect: [4]float64{0, 0, 100, 10}, Source: "teacher", Quote: "q", Evidence: "e"},
 		{ID: "22222222-2222-4222-8222-222222222222", Page: 1, Rect: [4]float64{0, 0, 50, 10}, Source: "focus", Quote: "q", Evidence: "e"},
 	})
-	if len(rows) != 2 || rows[0].Source != "focus" || rows[1].Rect != [4]float64{0, 0, 100, 10} {
+	if len(rows) != 2 || rows[0].Source != "focus" || rows[1].Rect != [4]float64{50, 0, 50, 10} {
 		t.Fatalf("priority mismatch: %+v", rows)
 	}
 	covered := prioritizedHighlights([]Highlight{
 		{ID: "33333333-3333-4333-8333-333333333333", Page: 1, Rect: [4]float64{0, 0, 100, 10}, Source: "focus", Quote: "q", Evidence: "e"},
 		{ID: "44444444-4444-4444-8444-444444444444", Page: 1, Rect: [4]float64{0, 0, 100, 10}, Source: "ppt", Quote: "q", Evidence: "e"},
 	})
-	if len(covered) != 2 || covered[0].Source != "focus" {
+	if len(covered) != 1 || covered[0].Source != "focus" {
 		t.Fatalf("covered mismatch: %+v", covered)
-	}
-}
-
-func TestApplyAcceptsPreviewIDForOverlappingHighlight(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "split.pdf")
-	if err := os.WriteFile(path, []byte("original"), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	service := New()
-	hash := mustHash(t, path)
-	service.books["book"] = book{path: path, hash: hash}
-	id, preview := service.AddDraft("book", hash, []Highlight{
-		{ID: "11111111-1111-4111-8111-111111111111", Page: 1, Rect: [4]float64{0, 5, 100, 10}, Source: "teacher", Quote: "a", Evidence: "a"},
-		{ID: "22222222-2222-4222-8222-222222222222", Page: 1, Rect: [4]float64{40, 5, 20, 10}, Source: "focus", Quote: "b", Evidence: "b"},
-	})
-	if len(preview) != 2 || preview[1].Rect != [4]float64{0, 5, 100, 10} {
-		t.Fatalf("expected the entire anchored text to remain: %v", preview)
-	}
-	if mustHash(t, path) != hash {
-		t.Fatal("creating the draft altered the original file")
-	}
-	caller := &fakeCaller{}
-	if _, err := service.Apply(caller, id, []string{preview[1].ID}); err != nil {
-		t.Fatalf("previously displayed annotation cannot be saved: %v", err)
-	}
-	if len(caller.writes) != 1 || len(caller.writes[0]) != 1 || caller.writes[0][0]["id"] != preview[1].ID {
-		t.Fatalf("unexpected annotations written: %v", caller.writes)
 	}
 }
 
@@ -84,8 +55,7 @@ func TestServiceFlow(t *testing.T) { // NOSONAR: end-to-end test intentionally e
 	}
 	caller := &fakeCaller{}
 	service := New()
-	register := func(string) (string, error) { return "11111111-1111-4111-8111-111111111111", nil }
-	selected, err := service.Select(caller, path, register)
+	selected, err := service.Select(caller, path)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -152,19 +122,9 @@ func TestServiceFlow(t *testing.T) { // NOSONAR: end-to-end test intentionally e
 		t.Fatalf("clear mismatch: %+v %+v", cleared, caller.writes[1])
 	}
 	service2 := New()
-	selected2, err := service2.Resolve(caller, id, path)
-	if err != nil {
-		t.Fatal(err)
-	}
+	selected2, _ := service2.Select(caller, path)
 	bookID := selected2.(map[string]any)["id"].(string)
-	if bookID != id {
-		t.Fatal("restored a different textbook")
-	}
-	inspections := caller.inspections
-	if _, err := service2.Resolve(caller, id, path); err != nil || caller.inspections != inspections {
-		t.Fatalf("unchanged book should reuse the current PDF inspection: %v", err)
-	}
-	draftID, _ := service2.AddDraft(bookID, mustHash(t, path), []Highlight{{
+	draftID := service2.AddDraft(bookID, mustHash(t, path), []Highlight{{
 		ID: "77777777-7777-4777-8777-777777777777", Page: 1, Rect: [4]float64{2, 2, 20, 10},
 		Source: "teacher", Quote: "q", Evidence: "e",
 	}})
@@ -177,12 +137,6 @@ func TestServiceFlow(t *testing.T) { // NOSONAR: end-to-end test intentionally e
 	}
 	if _, err := service2.Apply(caller, draftID, []string{"77777777-7777-4777-8777-777777777777"}); err == nil {
 		t.Fatal("draft must be consumed")
-	}
-	if err := os.Remove(path); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := service2.Resolve(caller, id, path); err == nil || !strings.Contains(err.Error(), "重新选择") {
-		t.Fatalf("a missing registered textbook should prompt for reselection: %v", err)
 	}
 	if !strings.Contains(path, "book.pdf") {
 		t.Fatal("unexpected path")

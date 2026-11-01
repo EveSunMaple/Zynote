@@ -134,75 +134,11 @@ try {
  await page.reload()
  const openSchedule = page.getByRole('button', {name: '课表与教材', exact: true})
  await openSchedule.click()
- const upload = page.getByRole('button', {name: '上传课表图片', exact: true})
- const more = page.getByRole('button', {name: '更多操作', exact: true})
- const addWeekly = page.getByRole('button', {name: '添加每周课程', exact: true})
- const openMore = async () => {
-  if ((await more.getAttribute('aria-expanded')) !== 'true') await more.click()
- }
- await upload.waitFor()
- await page.getByRole('button', {name: '查看示例', exact: true}).click()
- const examples = page.getByRole('dialog', {name: '课表截图示例', exact: true})
- const openExample = async (label: string) => {
-  await examples.getByRole('tab', {name: label, exact: true}).click()
-  await examples
-   .getByRole('tabpanel', {name: label, exact: true})
-   .locator('img')
-   .evaluate((image: HTMLImageElement) => image.decode())
- }
- await openExample('教务系统')
- await openExample('手机彩色')
- await openExample('手机单色')
- await page.keyboard.press('Escape')
- await examples.waitFor({state: 'hidden'})
- const guide = page.locator('.study-next-step:visible')
- check((await guide.innerText()).includes('上传课表图片'), 'empty schedule guide must name the import action')
+ await page.getByRole('button', {name: '识别课表', exact: true}).first().waitFor()
  check(
-  (await more.getAttribute('aria-expanded')) === 'false' && !(await addWeekly.isVisible()),
-  'import alternatives must start collapsed'
+  (await page.getByRole('button', {name: '上传课表图片', exact: true}).count()) === 0,
+  'image import should be reverted'
  )
- await openMore()
- await addWeekly.click()
- check((await guide.innerText()).includes('查看待补项'), 'incomplete draft should point to the missing field')
- await page.getByRole('textbox', {name: '课程名称', exact: true}).fill('周课表测试')
- check((await guide.innerText()).includes('保存课表'), 'valid draft should point to save')
- await page.getByRole('button', {name: '保存课表', exact: true}).click()
- await page.getByText('课表已保存，共 1 个课次。', {exact: true}).waitFor()
- const timetable = await invoke<Array<{title: string; courseId: string}>>('study:get')
- check(
-  timetable.length === 1 && timetable[0].title === '周课表测试' && timetable[0].courseId === '',
-  'unlinked timetable save failed'
- )
- const clearSchedule = page.getByRole('button', {name: '清空课表', exact: true})
- const clearDialog = page.getByRole('dialog', {name: '清空全部课表？', exact: true})
- const confirmClear = clearDialog.getByRole('button', {name: '确认清空', exact: true})
- const saveEmpty = page.getByRole('button', {name: '保存空课表', exact: true})
- const title = page.getByRole('textbox', {name: '课程名称', exact: true})
- await page.getByPlaceholder('搜索课次、章节或课程').fill('不存在的课次')
- await page.getByText('没有匹配的课次。', {exact: true}).waitFor()
- await openMore()
- await clearSchedule.click()
- check(/\b1\b/.test(await clearDialog.innerText()), 'clear confirmation must count filtered-out entries')
- await clearDialog.getByRole('button', {name: '取消', exact: true}).click()
- check((await title.inputValue()) === timetable[0].title, 'canceling clear discarded the draft')
- await clearSchedule.click()
- await confirmClear.click()
- await saveEmpty.waitFor()
- check(!(await clearSchedule.isVisible()), 'empty drafts must hide the clear action')
- check((await invoke<unknown[]>('study:get')).length === 1, 'clearing the draft changed the saved timetable')
- await page.getByRole('button', {name: '返回课程对话', exact: true}).click()
- await page.getByRole('button', {name: '放弃并关闭', exact: true}).click()
- await openSchedule.click()
- check((await title.inputValue()) === timetable[0].title, 'discarding the empty draft did not restore saved entries')
- await openMore()
- await clearSchedule.click()
- await confirmClear.click()
- await saveEmpty.click()
- await page.getByText('课表已保存，共 0 个课次。', {exact: true}).waitFor()
- await page.reload()
- await openSchedule.click()
- await upload.waitFor()
- check((await invoke<unknown[]>('study:get')).length === 0, 'saved empty timetable was not retained')
  const pdfiumFile = pdfiumLibraryName()
  if (statSync(join(target.resources, 'pdfium', pdfiumFile), {throwIfNoEntry: false})?.isFile()) {
   // Page one is a red JPEG 2000 scan. Page two uses a predefined Chinese CMap to draw blue text.
@@ -217,8 +153,7 @@ try {
    if (new URL(request.url()).pathname.startsWith('/textbooks/')) textbookRequests.push(request.url())
   })
   await page.getByRole('tab', {name: '教材划线', exact: true}).click()
-  check((await guide.innerText()).includes('打开教材 PDF'), 'empty textbook guide must name the PDF action')
-  await page.getByRole('button', {name: '打开教材 PDF', exact: true}).click()
+  await page.getByRole('button', {name: '选择原教材 PDF', exact: true}).click()
   const waitForPageColor = (channel: number) =>
    page.waitForFunction(channel => {
     const canvas = document.querySelector<HTMLCanvasElement>('.study-page__canvas')
@@ -235,7 +170,6 @@ try {
   await waitForPageColor(2)
   // Reopen the same path after changing the PDF; the last chunk now holds its xref table.
   enlargePdfFixture(fixture)
-  await openMore()
   await Promise.all([
    page.waitForResponse(
     response =>

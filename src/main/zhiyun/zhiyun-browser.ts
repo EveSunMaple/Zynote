@@ -58,28 +58,6 @@ export class ZhiyunBrowser {
   const history = this.ensure().webContents.navigationHistory
   if (history.canGoBack()) history.goBack()
  }
- currentReplay() {
-  const address = this.view?.webContents.getURL()
-  if (!address) return undefined
-  const url = URL.parse(address)
-  if (
-   !url ||
-   !['https://onlineroom.cmc.zju.edu.cn', 'https://livingroom.cmc.zju.edu.cn', 'https://classroom.zju.edu.cn'].includes(
-    url.origin
-   )
-  )
-   return undefined
-  // A SPA can put the replay query in its hash route. Read the two IDs from the same query.
-  const hashQuery = url.hash.indexOf('?')
-  const queries =
-   hashQuery < 0 ? [url.searchParams] : [new URLSearchParams(url.hash.slice(hashQuery + 1)), url.searchParams]
-  for (const params of queries) {
-   const courseId = params.get('course_id') || '',
-    subId = params.get('sub_id') || ''
-   if (/^\d+$/.test(courseId) && /^\d+$/.test(subId)) return {courseId, subId}
-  }
-  return undefined
- }
  dispose() {
   this.view?.webContents.close()
  }

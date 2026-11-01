@@ -1,6 +1,6 @@
 {
  "schema": 1,
- "total": 177,
+ "total": 171,
  "actions": [
   {
    "action": "runtime:install",
@@ -345,24 +345,6 @@
    "backend": "go"
   },
   {
-   "action": "textbook:annotations",
-   "source": "study.ts",
-   "phase": 3,
-   "backend": "go"
-  },
-  {
-   "action": "textbook:comment",
-   "source": "study.ts",
-   "phase": 3,
-   "backend": "go"
-  },
-  {
-   "action": "textbook:chapter-summary",
-   "source": "study.ts",
-   "phase": 3,
-   "backend": "go"
-  },
-  {
    "action": "textbook:analyze",
    "source": "study.ts",
    "phase": 3,
@@ -399,12 +381,6 @@
    "backend": "go"
   },
   {
-   "action": "textbook:ocr-page",
-   "source": "study.ts",
-   "phase": 3,
-   "backend": "go"
-  },
-  {
    "action": "textbook:open",
    "source": "study.ts",
    "phase": 3,
@@ -412,12 +388,6 @@
   },
   {
    "action": "textbook:pick",
-   "source": "study.ts",
-   "phase": 3,
-   "backend": "go"
-  },
-  {
-   "action": "textbook:resolve",
    "source": "study.ts",
    "phase": 3,
    "backend": "go"
@@ -598,12 +568,6 @@
   },
   {
    "action": "zhiyun:lessons",
-   "source": "desktop.ts",
-   "phase": 4,
-   "backend": "go"
-  },
-  {
-   "action": "zhiyun:match-course",
    "source": "desktop.ts",
    "phase": 4,
    "backend": "go"

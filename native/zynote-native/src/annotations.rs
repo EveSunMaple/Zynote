@@ -1,6 +1,5 @@
-use lopdf::{dictionary, Document as LopdfDocument, Object, ObjectId, StringFormat};
+use lopdf::{Document as LopdfDocument, Object, ObjectId, StringFormat};
 use serde_json::{json, Map as JsonMap, Value};
-use std::fmt::Write;
 
 const LEGACY_PREFIX: &str = "meijiang:";
 const CURRENT_PREFIX: &str = "zynote:";
@@ -44,48 +43,10 @@ fn name_starts_with_ours(value: &str) -> bool {
     value.starts_with(LEGACY_PREFIX) || value.starts_with(CURRENT_PREFIX)
 }
 
-// The appearance stream makes the margin note visible in ordinary PDF readers as well as Zynote.
-// UniGB-UCS2-H maps Unicode using the standard Adobe GB1 CJK font collection.
-fn chapter_appearance(document: &mut LopdfDocument, text: &str, width: f64, height: f64) -> Result<ObjectId, String> {
-    let cid = document.add_object(dictionary! {
-        "Type" => "Font", "Subtype" => "CIDFontType0", "BaseFont" => "STSong-Light",
-        "CIDSystemInfo" => dictionary! { "Registry" => Object::string_literal("Adobe"),
-            "Ordering" => Object::string_literal("GB1"), "Supplement" => 4 },
-        "DW" => 1000,
-    });
-    let font = document.add_object(dictionary! {
-        "Type" => "Font", "Subtype" => "Type0", "BaseFont" => "STSong-Light",
-        "Encoding" => "UniGB-UCS2-H", "DescendantFonts" => vec![Object::Reference(cid)],
-    });
-    // Try a normal reading size first and shrink only if the actual summary cannot fit.
-    let mut size = 9.0_f64;
-    let lines: Vec<String> = loop {
-        let columns = ((width-4.0)/size).floor().max(1.0) as usize;
-        let lines: Vec<String> = text.lines().flat_map(|line| {
-            line.chars().collect::<Vec<_>>().chunks(columns).map(|chunk| chunk.iter().collect()).collect::<Vec<String>>()
-        }).collect();
-        if (lines.len() as f64)*size*1.26 <= height-3.0 || size<=3.0 {break lines;}
-        size -= 0.5;
-    };
-    let mut content = format!("q BT /F0 {size:.2} Tf 0.12 0.18 0.22 rg {leading:.3} TL 2 {y:.3} Td\n",
-        leading=size*1.26,y=height-size-1.0);
-    for line in lines {
-        let mut hex = String::new();
-        for unit in line.encode_utf16() {write!(hex,"{unit:04X}").map_err(|e| e.to_string())?;}
-        writeln!(content,"<{hex}> Tj T*").map_err(|e| e.to_string())?;
-    }
-    content.push_str("ET Q\n");
-    let appearance = lopdf::Stream::new(dictionary! {
-        "Type" => "XObject", "Subtype" => "Form",
-        "BBox" => vec![0.into(), 0.into(), Object::Real(width as f32), Object::Real(height as f32)],
-        "Resources" => dictionary! {"Font" => dictionary! {"F0" => Object::Reference(font)}},
-    }, content.into_bytes());
-    document.try_add_object(appearance).map_err(|error|error.to_string())
-}
-
-fn annotation_dict(document: &mut LopdfDocument, row: &JsonMap<String, Value>) -> Result<Object, String> {
+fn annotation_dict(row: &JsonMap<String, Value>) -> Object {
     let mut dict = lopdf::dictionary! {};
     let id = row.get("id").and_then(|value| value.as_str()).unwrap_or_default();
+    let page = row.get("page").and_then(|value| value.as_f64()).unwrap_or_default();
     let rect: Vec<f64> = row
         .get("rect")
         .and_then(|value| value.as_array())
@@ -112,41 +73,9 @@ fn annotation_dict(document: &mut LopdfDocument, row: &JsonMap<String, Value>) -
             Object::Real((y + height) as f32),
         ]),
     );
-    if row.contains_key("chapter") {
-        let appearance = chapter_appearance(document, description, width, height)?;
-        dict.set("Subtype", Object::Name(b"FreeText".to_vec()));
-        dict.set("DA", Object::string_literal("/Helv 9 Tf 0 g"));
-        dict.set("Border", vec![0.into(), 0.into(), 0.into()]);
-        dict.set("AP", dictionary! {"N" => Object::Reference(appearance)});
-    } else if let Some(ink) = row.get("ink") {
-        let points: Vec<[f64; 2]> = serde_json::from_value(ink.clone()).map_err(|_| "笔迹坐标无效")?;
-        if !(2..=4096).contains(&points.len()) || color.len() != 3 {
-            return Err("笔迹数据无效".to_string());
-        }
-        let mut coordinates = Vec::with_capacity(points.len() * 2);
-        let mut drawing = format!("q\n{:.4} {:.4} {:.4} RG\n1.6 w 1 J 1 j\n", color[0], color[1], color[2]);
-        for (index, [px, py]) in points.into_iter().enumerate() {
-            if px < x - 0.02 || py < y - 0.02 || px > x + width + 0.02 || py > y + height + 0.02 {
-                return Err("笔迹超出选区".to_string());
-            }
-            coordinates.extend([Object::Real(px as f32), Object::Real(py as f32)]);
-            writeln!(drawing, "{:.4} {:.4} {}", px - x, py - y, if index == 0 { "m" } else { "l" })
-                .map_err(|error| error.to_string())?;
-        }
-        drawing.push_str("S\nQ\n");
-        let appearance = lopdf::Stream::new(lopdf::dictionary! {
-            "Type" => "XObject", "Subtype" => "Form",
-            "BBox" => vec![0.into(), 0.into(), Object::Real(width as f32), Object::Real(height as f32)],
-            "Resources" => lopdf::dictionary! {},
-        }, drawing.into_bytes());
-        let reference = document.try_add_object(appearance).map_err(|error| error.to_string())?;
-        dict.set("AP", lopdf::dictionary! {"N" => Object::Reference(reference)});
-        dict.set("Subtype", Object::Name(b"Ink".to_vec()));
-        dict.set("InkList", Object::Array(vec![Object::Array(coordinates)]));
-        dict.set("BS", lopdf::dictionary! {"W" => Object::Real(1.6), "S" => "S"});
-    } else {
-        dict.set("CA", Object::Real(0.3));
-        dict.set("QuadPoints", Object::Array(vec![
+    dict.set(
+        "QuadPoints",
+        Object::Array(vec![
             Object::Real(x as f32),
             Object::Real((y + height) as f32),
             Object::Real((x + width) as f32),
@@ -155,38 +84,49 @@ fn annotation_dict(document: &mut LopdfDocument, row: &JsonMap<String, Value>) -
             Object::Real(y as f32),
             Object::Real((x + width) as f32),
             Object::Real(y as f32),
-        ]));
-    }
+        ]),
+    );
     dict.set(
         "C",
         Object::Array(color.into_iter().map(|value| Object::Real(value as f32)).collect()),
     );
+    dict.set("CA", Object::Real(0.3));
     dict.set("F", Object::Integer(4));
     dict.set("NM", string_object(&(CURRENT_PREFIX.to_string() + id)));
     dict.set("T", string_object("Zynote"));
     dict.set("Contents", string_object(description));
     let metadata = serde_json::to_string(row).unwrap_or_default();
     dict.set("ZynoteData", string_object(&metadata));
-    Ok(Object::Dictionary(dict))
+    Object::Dictionary(dict)
 }
 
-fn inherited<'a>(document: &'a LopdfDocument, mut page: ObjectId, key: &[u8]) -> Option<&'a Object> {
-    let mut visited = std::collections::HashSet::new();
-    while visited.insert(page) {
-        let dict = document.get_dictionary(page).ok()?;
-        if let Ok(value) = dict.get_deref(key, document) {
-            return Some(value);
-        }
-        page = dict.get(b"Parent").ok()?.as_reference().ok()?;
+fn mediabox(document: &LopdfDocument, page_id: ObjectId) -> Option<(f64, f64, f64)> {
+    let object = document.objects.get(&page_id)?.clone();
+    let dict = document.dereference(&object).ok()?.1.as_dict().ok()?.clone();
+    let box_value = dict.get_deref(b"MediaBox", document).ok()?.clone();
+    let numbers: Vec<f64> = match box_value {
+        Object::Array(items) => items
+            .iter()
+            .filter_map(|item| match item {
+                Object::Integer(value) => Some(*value as f64),
+                Object::Real(value) => Some(*value as f64),
+                _ => None,
+            })
+            .collect(),
+        _ => return None,
+    };
+    if numbers.len() != 4 {
+        return None;
     }
-    None
-}
-
-fn mediabox(document: &LopdfDocument, page: ObjectId) -> Option<[f64; 4]> {
-    let values = inherited(document, page, b"MediaBox")?.as_array().ok()?;
-    let [left, bottom, right, top] = values.as_slice() else { return None };
-    Some([left.as_float().ok()? as f64, bottom.as_float().ok()? as f64,
-          right.as_float().ok()? as f64, top.as_float().ok()? as f64])
+    let rotation = dict
+        .get_deref(b"Rotate", document)
+        .ok()
+        .and_then(|value| match value {
+            Object::Integer(value) => Some(*value as f64),
+            _ => None,
+        })
+        .unwrap_or(0.0);
+    Some((numbers[2] - numbers[0], numbers[3] - numbers[1], rotation))
 }
 
 fn read_annotations(document: &LopdfDocument, page_id: ObjectId, page_number: u32) -> Result<Vec<Value>, String> {
@@ -263,11 +203,8 @@ fn inspect(document: &LopdfDocument) -> Result<Value, String> {
     let mut sizes = Vec::new();
     let mut previous = Vec::new();
     for (page_number, page_id) in &pages {
-        if let Some([left, bottom, right, top]) = mediabox(document, *page_id) {
-            let rotation = inherited(document, *page_id, b"Rotate").and_then(|v| v.as_i64().ok()).unwrap_or(0);
-            sizes.push(json!([right-left, top-bottom, rotation]));
-        } else {
-            sizes.push(Value::Null);
+        if let Some((width, height, rotation)) = mediabox(document, *page_id) {
+            sizes.push(json!([width, height, rotation]));
         }
         previous.extend(read_annotations(document, *page_id, *page_number)?);
     }
@@ -296,7 +233,7 @@ pub fn write_annotations(path: &str, output: &str, rows: &Value) -> Result<Value
             Ok(Object::Dictionary(dict)) => dict.get(b"Annots").cloned().unwrap_or(Object::Null),
             _ => Object::Null,
         };
-        let kept: Vec<Object> = match document.dereference(&existing_annots).map_err(|_| "教材页批注无法读取")?.1.clone() {
+        let kept: Vec<Object> = match existing_annots {
             Object::Array(items) => items
                 .into_iter()
                 .filter(|item| {
@@ -319,7 +256,7 @@ pub fn write_annotations(path: &str, output: &str, rows: &Value) -> Result<Value
         let dict = row.as_object().ok_or("划线数据无效")?;
         let page = dict.get("page").and_then(|value| value.as_f64()).unwrap_or(0.0);
         let page_id = pages.get(&(page as u32)).ok_or("划线超出教材页面，请重新检查")?;
-        let [left, bottom, right, top] = mediabox(&document, *page_id).ok_or("教材页面尺寸无法读取，原文件未修改")?;
+        let (width, height, _) = mediabox(&document, *page_id).ok_or("教材页面尺寸无法读取，原文件未修改")?;
         let rect: Vec<f64> = dict
             .get("rect")
             .and_then(|value| value.as_array())
@@ -329,13 +266,12 @@ pub fn write_annotations(path: &str, output: &str, rows: &Value) -> Result<Value
             return Err("划线超出教材页面，请重新检查".to_string());
         }
         let (x, y, rect_width, rect_height) = (rect[0], rect[1], rect[2], rect[3]);
-        if x < left - 0.01 || y < bottom - 0.01 || rect_width <= 0.0 || rect_height <= 0.0 ||
-            x + rect_width > right + 0.1 || y + rect_height > top + 0.1 {
+        if x < 0.0 || y < 0.0 || rect_width <= 0.0 || rect_height <= 0.0 ||
+            x + rect_width > width + 0.1 || y + rect_height > height + 0.1 {
             return Err("划线超出教材页面，请重新检查".to_string());
         }
-        let annotation = annotation_dict(&mut document, dict)?;
         let annotation_id = document
-            .try_add_object(annotation)
+            .try_add_object(annotation_dict(dict))
             .map_err(|error| format!("{error}"))?;
         let existing = match document.get_object_mut(*page_id) {
             Ok(Object::Dictionary(page_dict)) => page_dict.get(b"Annots").cloned().unwrap_or(Object::Array(Vec::new())),
@@ -380,7 +316,6 @@ pub fn write_annotations(path: &str, output: &str, rows: &Value) -> Result<Value
             };
             item.get("id").and_then(|value| value.as_str()) == Some(id)
                 && item.get("page").and_then(|value| value.as_f64()) == Some(page)
-                && item.get("comments") == dict.get("comments") && item.get("chapter") == dict.get("chapter")
                 && item
                     .get("rect")
                     .and_then(|value| value.as_array())
@@ -389,7 +324,7 @@ pub fn write_annotations(path: &str, output: &str, rows: &Value) -> Result<Value
                             && numbers
                                 .iter()
                                 .zip(rect.iter())
-                                .all(|(a, b)| (a.as_f64().unwrap_or_default() - b).abs() < 0.001)
+                                .all(|(a, b)| (a.as_f64().unwrap_or_default() - b).abs() < 0.00001)
                     })
                     .unwrap_or(false)
         });
@@ -445,7 +380,7 @@ mod tests {
             "color": [0.7, 0.5, 0.2],
             "description": "批注"
         });
-        let Object::Dictionary(dict) = annotation_dict(&mut LopdfDocument::new(), row.as_object().unwrap()).unwrap() else {
+        let Object::Dictionary(dict) = annotation_dict(row.as_object().unwrap()) else {
             panic!("expected dictionary");
         };
         assert_eq!(dict.get(b"Subtype").unwrap(), &Object::Name(b"Highlight".to_vec()));
@@ -493,20 +428,10 @@ mod tests {
             "color": [0.7, 0.5, 0.2], "description": "测试批注",
             "createdAt": "2026-10-23T00:00:00Z"
         });
-        let stroke = json!({
-            "id": "pen", "page": 1, "rect": [20.25, 32.5, 40.75, 50.25],
-            "ink": [[21, 33], [54, 79], [30, 67]],
-            "color": [0.7, 0.5, 0.2], "description": "手动笔迹"
-        });
-        let chapter = json!({
-            "id":"summary","page":1,"rect":[420.0,600.0,150.0,60.0],"color":[0.2,0.2,0.2],
-            "description":"理解定义和例题条件。\n第2页 第6行",
-            "chapter":{"title":"第一章","text":"理解定义和例题条件。","refs":[{"page":2,"line":6}]}
-        });
         let report = write_annotations(
             source.to_str().unwrap(),
             output.to_str().unwrap(),
-            &json!([row, stroke, chapter]),
+            &json!([row]),
         )
         .unwrap();
         assert_eq!(report["pages"], json!(1));
@@ -514,25 +439,11 @@ mod tests {
 
         let inspected = inspect_pdf(output.to_str().unwrap()).unwrap();
         let previous = inspected["previous"].as_array().unwrap();
-        assert_eq!(previous.len(), 3);
-        assert_eq!(previous[2]["chapter"], chapter["chapter"]);
+        assert_eq!(previous.len(), 1);
         let item = previous[0].as_object().unwrap();
         assert_eq!(item["id"], json!("abc"));
         assert_eq!(item["rect"], json!([10.0, 20.0, 30.0, 40.0]));
         assert_eq!(item["description"], json!("测试批注"));
-        assert_eq!(previous[1]["ink"], stroke["ink"]);
-        let saved = LopdfDocument::load(&output).unwrap();
-        let ink = saved.objects.values().filter_map(|obj| obj.as_dict().ok())
-            .find(|dict| dict.get(b"Subtype").and_then(Object::as_name).ok() == Some(b"Ink")).unwrap();
-        let free_text=saved.objects.values().filter_map(|obj|obj.as_dict().ok())
-            .find(|d|d.get(b"Subtype").and_then(Object::as_name).ok()==Some(b"FreeText")).unwrap();
-        assert_eq!(decode_string(free_text.get(b"Contents").unwrap()),chapter["description"].as_str().unwrap());
-        let ap=free_text.get(b"AP").unwrap().as_dict().unwrap().get_deref(b"N",&saved).unwrap().as_stream().unwrap();
-        assert!(std::str::from_utf8(&ap.content).unwrap().contains("7406")); // 理
-        let paths = ink.get(b"InkList").unwrap().as_array().unwrap();
-        assert_eq!(paths[0].as_array().unwrap().len(), 6);
-        assert!(ink.get(b"AP").is_ok());
-        assert!(ink.get(b"QuadPoints").is_err());
         std::fs::remove_dir_all(&directory).ok();
     }
 }

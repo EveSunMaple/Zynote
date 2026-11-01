@@ -436,43 +436,6 @@ func (w *WriteDB) DeleteLecture(id string) (bool, error) {
 	return true, nil
 }
 
-func ensureMessageParents(tx *sql.Tx, courseID string, lectureID, sessionID *string) (map[string]any, error) {
-	course, err := queryOneTx(tx, "SELECT id FROM courses WHERE id=?", courseID)
-	if err != nil {
-		return nil, err
-	}
-	if course == nil {
-		return nil, contract.NewError(contract.CodeNotFound, "课程不存在")
-	}
-	if lectureID != nil {
-		lecture, err := queryOneTx(tx, "SELECT course_id FROM lectures WHERE id=?", *lectureID)
-		if err != nil {
-			return nil, err
-		}
-		if lecture == nil {
-			return nil, contract.NewError(contract.CodeNotFound, "课次不存在")
-		}
-		if toStringValue(lecture["course_id"]) != courseID {
-			return nil, contract.InputInvalid(msgLectureNotInCourse)
-		}
-	}
-	if sessionID != nil {
-		session, err := queryOneTx(tx, sqlChatSessionByID, *sessionID, courseID)
-		if err != nil {
-			return nil, err
-		}
-		if session == nil {
-			return nil, contract.InputInvalid("会话不属于当前课程")
-		}
-		return session, nil
-	}
-	session, err := queryOneTx(tx, "SELECT * FROM chat_sessions WHERE course_id=? ORDER BY rowid LIMIT 1", courseID)
-	if err != nil || session != nil {
-		return session, err
-	}
-	return createSessionTx(tx, courseID, "", "")
-}
-
 func (w *WriteDB) AppendMessage(courseID string, lectureID *string, role, content string, sessionID *string) error {
 	if role != "user" && role != "assistant" {
 		return contract.InputInvalid("消息角色无效")
@@ -482,9 +445,45 @@ func (w *WriteDB) AppendMessage(courseID string, lectureID *string, role, conten
 		return err
 	}
 	defer tx.Rollback()
-	session, err := ensureMessageParents(tx, courseID, lectureID, sessionID)
+	course, err := queryOneTx(tx, "SELECT id FROM courses WHERE id=?", courseID)
 	if err != nil {
 		return err
+	}
+	if course == nil {
+		return contract.NewError(contract.CodeNotFound, "课程不存在")
+	}
+	if lectureID != nil {
+		lecture, err := queryOneTx(tx, "SELECT course_id FROM lectures WHERE id=?", *lectureID)
+		if err != nil {
+			return err
+		}
+		if lecture == nil {
+			return contract.NewError(contract.CodeNotFound, "课次不存在")
+		}
+		if toStringValue(lecture["course_id"]) != courseID {
+			return contract.InputInvalid(msgLectureNotInCourse)
+		}
+	}
+	var session map[string]any
+	if sessionID != nil {
+		session, err = queryOneTx(tx, sqlChatSessionByID, *sessionID, courseID)
+		if err != nil {
+			return err
+		}
+		if session == nil {
+			return contract.InputInvalid("会话不属于当前课程")
+		}
+	} else {
+		session, err = queryOneTx(tx, "SELECT * FROM chat_sessions WHERE course_id=? ORDER BY rowid LIMIT 1", courseID)
+		if err != nil {
+			return err
+		}
+		if session == nil {
+			session, err = createSessionTx(tx, courseID, "", "")
+			if err != nil {
+				return err
+			}
+		}
 	}
 	if _, err := tx.Exec(
 		"INSERT INTO messages(id,course_id,lecture_id,role,content,session_id) VALUES(?,?,?,?,?,?)",
@@ -529,17 +528,6 @@ func (w *WriteDB) DeleteManagedFile(path string) error {
 	return w.Checkpoint()
 }
 
-// Native file selection is the only caller allowed to register a textbook path.
-func (w *WriteDB) RegisterTextbook(path string) (string, error) {
-	var id string
-	err := w.db.QueryRow(`INSERT INTO textbook_files(id,path) VALUES(?,?)
-		ON CONFLICT(path) DO UPDATE SET path=excluded.path RETURNING id`, NewID(), path).Scan(&id)
-	if err != nil {
-		return "", contract.Unavailable("教材登记失败")
-	}
-	return id, nil
-}
-
 func (w *WriteDB) StudyEntries() ([]map[string]any, error) {
 	rows, err := queryAll(w.db, "SELECT json FROM study_entries ORDER BY rowid")
 	if err != nil {
@@ -556,56 +544,6 @@ func (w *WriteDB) StudyEntries() ([]map[string]any, error) {
 	return result, nil
 }
 
-func ensureStudyTextbook(tx *sql.Tx, entry map[string]any) error {
-	textbookID, ok := entry["textbookId"].(string)
-	if !ok {
-		return nil
-	}
-	var exists bool
-	if err := tx.QueryRow("SELECT EXISTS(SELECT 1 FROM textbook_files WHERE id=?)", textbookID).Scan(&exists); err != nil {
-		return err
-	}
-	if !exists {
-		return contract.InputInvalid("此教材尚未登记，请重新选择原教材 PDF")
-	}
-	return nil
-}
-
-func syncStudyLecture(tx *sql.Tx, entry map[string]any, courseID, lectureID string) error {
-	if lectureID == "" {
-		if courseID == "" {
-			return nil
-		}
-		course, err := queryOneTx(tx, "SELECT id FROM courses WHERE id=?", courseID)
-		if err != nil {
-			return err
-		}
-		if course == nil {
-			return contract.NewError(contract.CodeNotFound, "课程不存在")
-		}
-		return nil
-	}
-	lecture, err := queryOneTx(tx, "SELECT course_id,title FROM lectures WHERE id=?", lectureID)
-	if err != nil {
-		return err
-	}
-	if lecture == nil {
-		return contract.NewError(contract.CodeNotFound, "课次不存在")
-	}
-	if toStringValue(lecture["course_id"]) != courseID {
-		return contract.InputInvalid("课次不属于所选课程")
-	}
-	oldTitle := toStringValue(lecture["title"])
-	if _, err := tx.Exec("UPDATE lectures SET title=? WHERE id=?", toStringValue(entry["title"]), lectureID); err != nil {
-		return err
-	}
-	_, err = tx.Exec(
-		"UPDATE chat_sessions SET title=? WHERE lecture_id=? AND title=?",
-		toStringValue(entry["title"]), lectureID, oldTitle,
-	)
-	return err
-}
-
 func (w *WriteDB) SaveStudyEntries(entries []map[string]any) error {
 	tx, err := w.db.Begin()
 	if err != nil {
@@ -616,17 +554,44 @@ func (w *WriteDB) SaveStudyEntries(entries []map[string]any) error {
 		return err
 	}
 	for _, entry := range entries {
-		if err := ensureStudyTextbook(tx, entry); err != nil {
-			return err
-		}
-		if err := syncStudyLecture(tx, entry, toStringValue(entry["courseId"]), toStringValue(entry["lectureId"])); err != nil {
-			return err
+		id := toStringValue(entry["id"])
+		courseID := toStringValue(entry["courseId"])
+		lectureID := toStringValue(entry["lectureId"])
+		if lectureID != "" {
+			lecture, err := queryOneTx(tx, "SELECT course_id,title FROM lectures WHERE id=?", lectureID)
+			if err != nil {
+				return err
+			}
+			if lecture == nil {
+				return contract.NewError(contract.CodeNotFound, "课次不存在")
+			}
+			if toStringValue(lecture["course_id"]) != courseID {
+				return contract.InputInvalid("课次不属于所选课程")
+			}
+			oldTitle := toStringValue(lecture["title"])
+			if _, err := tx.Exec("UPDATE lectures SET title=? WHERE id=?", toStringValue(entry["title"]), lectureID); err != nil {
+				return err
+			}
+			if _, err := tx.Exec(
+				"UPDATE chat_sessions SET title=? WHERE lecture_id=? AND title=?",
+				toStringValue(entry["title"]), lectureID, oldTitle,
+			); err != nil {
+				return err
+			}
+		} else if courseID != "" {
+			course, err := queryOneTx(tx, "SELECT id FROM courses WHERE id=?", courseID)
+			if err != nil {
+				return err
+			}
+			if course == nil {
+				return contract.NewError(contract.CodeNotFound, "课程不存在")
+			}
 		}
 		encoded, err := json.Marshal(entry)
 		if err != nil {
 			return err
 		}
-		if _, err := tx.Exec("INSERT INTO study_entries(id,json) VALUES(?,?)", toStringValue(entry["id"]), string(encoded)); err != nil {
+		if _, err := tx.Exec("INSERT INTO study_entries(id,json) VALUES(?,?)", id, string(encoded)); err != nil {
 			return err
 		}
 	}
@@ -643,19 +608,6 @@ func (w *WriteDB) SetStatus(id, status string) error {
 
 func (w *WriteDB) SetLecturePptText(id, text string) error {
 	_, err := w.db.Exec("UPDATE lectures SET ppt_text=? WHERE id=?", text, id)
-	return err
-}
-
-// Courseware can be replaced while its OCR is running. Only update the file we actually read.
-func (w *WriteDB) SetLecturePptTextForSource(id, path, text string) error {
-	result, err := w.db.Exec("UPDATE lectures SET ppt_text=? WHERE id=? AND ppt_path=?", text, id, path)
-	if err != nil {
-		return err
-	}
-	count, err := result.RowsAffected()
-	if err == nil && count == 0 {
-		return contract.InputInvalid("课次或课件已改变，请重新分析")
-	}
 	return err
 }
 
