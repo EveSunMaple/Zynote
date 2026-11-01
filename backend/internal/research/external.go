@@ -214,18 +214,23 @@ func numberList(input any) []int {
 	return values
 }
 
-// 一般网页、检索接口的响应上限；论文 PDF 另有更大的上限（arxivPDFLimit）。
+// 一般网页、检索接口的响应上限与总时限；论文 PDF 另有更大的上限和更长的时限。
 const externalResponseLimit = 2 * 1024 * 1024
 
-const arxivPDFLimit = 8 * 1024 * 1024
+// 带大量插图的论文 PDF 可达数十 MB；只取指定的几页，但必须先完整下载。
+const arxivPDFLimit = 50 * 1024 * 1024
+
+// http.Client 的 Timeout 包括读完响应体；50 MB 在慢速网络下 30 秒读不完。
+const arxivPDFTimeout = 3 * time.Minute
 
 var errExternalTooLarge = errors.New("外部响应过大")
 
 func (external *External) getResponse(ctx context.Context, target string) ([]byte, string, error) {
-	return external.getResponseLimit(ctx, target, externalResponseLimit)
+	return external.getResponseLimit(ctx, target, externalResponseLimit, 0)
 }
 
-func (external *External) getResponseLimit(ctx context.Context, target string, limit int64) ([]byte, string, error) {
+// getResponseLimit 读取外部响应；timeout 为 0 时沿用客户端自身的总时限。
+func (external *External) getResponseLimit(ctx context.Context, target string, limit int64, timeout time.Duration) ([]byte, string, error) {
 	parsed, err := publicHTTPS(target)
 	if err != nil {
 		return nil, "", err
@@ -239,6 +244,12 @@ func (external *External) getResponseLimit(ctx context.Context, target string, l
 	client := external.Client
 	if client == nil {
 		client = &http.Client{Timeout: 30 * time.Second}
+	}
+	if timeout > 0 {
+		// 复制客户端只改总时限，传输层（代理与地址校验）共用。
+		extended := *client
+		extended.Timeout = timeout
+		client = &extended
 	}
 	response, err := client.Do(request)
 	if err != nil {
@@ -291,10 +302,10 @@ func validateArxivChoice(channels []string, choice FulltextChoice, parsed *url.U
 
 func downloadArxivPDF(ctx context.Context, external *External, parsed *url.URL) (string, string, []byte, error) {
 	target := "https://arxiv.org/pdf/" + strings.TrimPrefix(strings.TrimPrefix(parsed.Path, "/abs/"), "/pdf/")
-	body, _, err := external.getResponseLimit(ctx, target, arxivPDFLimit)
+	body, _, err := external.getResponseLimit(ctx, target, arxivPDFLimit, arxivPDFTimeout)
 	if err != nil {
 		if errors.Is(err, errExternalTooLarge) {
-			return "", "", nil, fmt.Errorf("论文正文超过大小上限（8 MB）")
+			return "", "", nil, fmt.Errorf("论文正文超过大小上限（50 MB）")
 		}
 		return "", "", nil, err
 	}
