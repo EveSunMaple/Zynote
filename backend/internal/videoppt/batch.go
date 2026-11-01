@@ -75,7 +75,7 @@ func validateBatch(batch BatchOperation) error {
 	seen := map[int]bool{}
 	for _, page := range batch.Input.Pages {
 		if page < 1 || page > 99999 || seen[page] {
-			return requestError("批次分集记录无效")
+			return requestError(errBatchEpisodeInvalid)
 		}
 		seen[page] = true
 	}
@@ -86,7 +86,7 @@ func validateBatch(batch BatchOperation) error {
 		return nil
 	}
 	if len(batch.Episodes) != len(batch.Input.Pages) {
-		return requestError("批次分集记录无效")
+		return requestError(errBatchEpisodeInvalid)
 	}
 	for index, episode := range batch.Episodes {
 		source, err := operationSource(VideoOperation{URL: episode.URL})
@@ -160,7 +160,7 @@ func (service *Service) SetBatchEpisodes(id string, episodes []BatchEpisode) (Ba
 		return batch, err
 	}
 	if len(episodes) == 0 {
-		return batch, requestError("批次分集记录无效")
+		return batch, requestError(errBatchEpisodeInvalid)
 	}
 	candidate := batch
 	candidate.Episodes = episodes
@@ -186,7 +186,7 @@ func (service *Service) CompleteBatch(id string) error {
 		return err
 	}
 	if len(batch.Episodes) == 0 {
-		return requestError("批次分集记录无效")
+		return requestError(errBatchEpisodeInvalid)
 	}
 	batch.Completed = true
 	path, _ := service.batchPath(id)
@@ -253,3 +253,5 @@ func batchChildID(namespace, parent string, page int) string {
 	raw := hex.EncodeToString(sum[:16])
 	return raw[:8] + "-" + raw[8:12] + "-" + raw[12:16] + "-" + raw[16:20] + "-" + raw[20:]
 }
+
+const errBatchEpisodeInvalid = "批次分集记录无效"

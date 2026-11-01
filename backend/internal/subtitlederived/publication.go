@@ -95,8 +95,8 @@ func readPublicationBytes(ctx context.Context, path, hash string, limit int) ([]
 	if err != nil || !info.Mode().IsRegular() || info.Mode()&os.ModeSymlink != 0 {
 		return nil, publicationError()
 	}
-	real, err := canonicalEvidencePath(path)
-	if err != nil || !strings.EqualFold(filepath.Clean(real), filepath.Clean(path)) {
+	resolved, err := canonicalEvidencePath(path)
+	if err != nil || !strings.EqualFold(filepath.Clean(resolved), filepath.Clean(path)) {
 		return nil, publicationError()
 	}
 	file, err := os.Open(path)
@@ -240,8 +240,8 @@ func (service *Service) locatePublicationPath(relative string, create bool) (str
 		if err != nil || !info.IsDir() || info.Mode()&os.ModeSymlink != 0 {
 			return "", publicationError()
 		}
-		real, err := canonicalEvidencePath(current)
-		if err != nil || !strings.EqualFold(real, current) {
+		resolved, err := canonicalEvidencePath(current)
+		if err != nil || !strings.EqualFold(resolved, current) {
 			return "", publicationError()
 		}
 	}

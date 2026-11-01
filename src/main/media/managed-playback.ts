@@ -352,7 +352,7 @@ export class ManagedPlayback {
    clearTimeout(deadline)
    // 物理 RPC 正常应随子进程退出而结算；进程活着但卡死时不能让全局核验槽永久占用。
    await Promise.race([
-    Promise.allSettled([...mintPhysical]),
+    Promise.allSettled(mintPhysical),
     new Promise<void>(resolve => {
      setTimeout(resolve, 30000).unref?.()
     })
@@ -422,7 +422,7 @@ export class ManagedPlayback {
  }
  private closeHandle(held: ClosingHandle) {
   this.failedCloses.delete(held)
-  const closing = Promise.allSettled([...held.reads])
+  const closing = Promise.allSettled(held.reads)
    .then(() => held.file.close())
    .then(() => {
     globalReservations--
@@ -460,7 +460,7 @@ export class ManagedPlayback {
    })
   ])
   await Promise.race([
-   Promise.allSettled([...this.closing]),
+   Promise.allSettled(this.closing),
    new Promise<void>(resolve => {
     setTimeout(resolve, 5000).unref?.()
    })
@@ -468,7 +468,7 @@ export class ManagedPlayback {
   this.maybeForgetOwner()
  }
  private async quiesceTask(taskID: string) {
-  for (const held of [...this.failedCloses]) if (held.taskID === taskID) void this.closeHandle(held).catch(() => {})
+  for (const held of this.failedCloses) if (held.taskID === taskID) void this.closeHandle(held).catch(() => {})
   for (const [requestID, id] of this.pendingTasks)
    if (id === undefined || id === taskID)
     this.pending.get(requestID)?.abort(playbackFailure('CANCELLED', '媒体正在释放'))

@@ -165,15 +165,15 @@ if (profile === 'components') {
  await writeFile(configPath, JSON.stringify(config))
  await build({targets: platform.createTarget(targets), config: configPath, publish: 'never'})
  const files = await readdir(output)
- const updateMetadata = files.filter(file => /^(?:latest|full).*\.yml$/.test(file))
+ const updateMetadata = files.filter(file => /^(?:latest|full)[\w.-]*\.yml$/.test(file))
  if (profile === 'portable') {
   if (updateMetadata.length) throw new Error('便携版不应生成自动更新元数据')
  } else {
   if (!updateMetadata.length) throw new Error('未生成自动更新元数据')
   const metadata = await readFile(join(output, updateMetadata[0]), 'utf8')
-  const version = /^version:\s*(.+)$/m.exec(metadata)?.[1]?.trim()
+  const version = /^version:[ \t]*([^\r\n]+)$/m.exec(metadata)?.[1]?.trim()
   if (version !== pkg.version) throw new Error('更新元数据版本与应用版本不一致')
-  const path = /^path:\s*(.+)$/m
+  const path = /^path:[ \t]*([^\r\n]+)$/m
    .exec(metadata)?.[1]
    ?.trim()
    .replace(/^['"]|['"]$/g, '')
@@ -189,7 +189,7 @@ if (profile === 'components') {
     platform: active,
     optionalComponents: [...skipped],
     artifacts: files.filter(
-     file => /\.(?:exe|dmg|zip|AppImage|deb)$/.test(file) || /^(?:latest|full).*\.yml$/.test(file)
+     file => /\.(?:exe|dmg|zip|AppImage|deb)$/.test(file) || /^(?:latest|full)[\w.-]*\.yml$/.test(file)
     )
    },
    null,

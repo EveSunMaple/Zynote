@@ -29,9 +29,9 @@ function inlineOptions(stem: string): {options: Option[]; start: number} {
  for (const candidate of matches) {
   if (candidate.key !== 'A') continue
   const sequence: InlineOption[] = []
-  let expected = 'A'.charCodeAt(0)
+  let expected = 'A'.codePointAt(0) ?? 0
   for (const match of matches.slice(matches.indexOf(candidate))) {
-   if (match.key.charCodeAt(0) !== expected) break
+   if (match.key.codePointAt(0) !== expected) break
    sequence.push(match)
    expected++
   }

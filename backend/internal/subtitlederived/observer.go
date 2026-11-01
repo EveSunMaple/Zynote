@@ -65,8 +65,8 @@ func locateEvidenceDirectory(root, taskID string, index int, create bool) (strin
 		if err != nil || !info.IsDir() || info.Mode()&os.ModeSymlink != 0 {
 			return "", observerError()
 		}
-		real, err := canonicalEvidencePath(current)
-		if err != nil || !strings.EqualFold(filepath.Clean(real), filepath.Clean(current)) {
+		resolved, err := canonicalEvidencePath(current)
+		if err != nil || !strings.EqualFold(filepath.Clean(resolved), filepath.Clean(current)) {
 			return "", observerError()
 		}
 	}
@@ -139,10 +139,10 @@ func validAttemptTransition(previous *contract.GenerationAttemptEvidence, event 
 			return false
 		}
 		if *previous.FormatValid {
-			completed := previous.State == "format-result" && event.Version == 1 || previous.State == "validated-points" && event.Version == 2
+			completed := previous.State == statusFormatResult && event.Version == 1 || previous.State == statusValidatedPoints && event.Version == 2
 			return completed && m.ChunkIndex == p.ChunkIndex+1 && m.AttemptIndex == 0 && m.CueIDs[0] == p.CueIDs[len(p.CueIDs)-1]+1
 		}
-		if previous.State != "format-result" {
+		if previous.State != statusFormatResult {
 			return false
 		}
 		return p.AttemptIndex == 0 && m.AttemptIndex == 1 && p.ChunkIndex == m.ChunkIndex && p.InputSHA256 == m.InputSHA256 && reflect.DeepEqual(p.CueIDs, m.CueIDs)
@@ -150,10 +150,10 @@ func validAttemptTransition(previous *contract.GenerationAttemptEvidence, event 
 		return previous != nil && previous.State == "dispatch-intent" && sameAttempt(*previous, event) && event.HTTPStatus >= 100 && event.HTTPStatus <= 599 && event.DecodedTextSHA256 == "" && event.FormatValid == nil && event.ValidatedPoints == nil
 	case "response-decoded":
 		return previous != nil && previous.State == "http-response-received" && sameAttempt(*previous, event) && event.HTTPStatus == previous.HTTPStatus && event.HTTPStatus >= 200 && event.HTTPStatus < 300 && recipeHashPattern.MatchString(event.DecodedTextSHA256) && event.FormatValid == nil && event.ValidatedPoints == nil
-	case "format-result":
+	case statusFormatResult:
 		return previous != nil && previous.State == "response-decoded" && sameAttempt(*previous, event) && event.HTTPStatus == previous.HTTPStatus && event.DecodedTextSHA256 == previous.DecodedTextSHA256 && event.FormatValid != nil && event.ValidatedPoints == nil
-	case "validated-points":
-		return event.Version == 2 && previous != nil && previous.State == "format-result" && previous.FormatValid != nil && *previous.FormatValid && sameAttempt(*previous, event) && event.HTTPStatus == previous.HTTPStatus && event.DecodedTextSHA256 == previous.DecodedTextSHA256 && event.FormatValid != nil && *event.FormatValid && event.ValidatedPoints != nil && event.ValidatedPoints.AcceptedFormatRef.Version == 2 && event.ValidatedPoints.AcceptedFormatRef.Sequence > 0 && recipeHashPattern.MatchString(event.ValidatedPoints.AcceptedFormatRef.SHA256) && recipeHashPattern.MatchString(event.ValidatedPoints.PointsSHA256) && event.ValidatedPoints.PointCount >= 0 && event.ValidatedPoints.PointCount <= recipe.ModeRecipe.MaxPoints
+	case statusValidatedPoints:
+		return event.Version == 2 && previous != nil && previous.State == statusFormatResult && previous.FormatValid != nil && *previous.FormatValid && sameAttempt(*previous, event) && event.HTTPStatus == previous.HTTPStatus && event.DecodedTextSHA256 == previous.DecodedTextSHA256 && event.FormatValid != nil && *event.FormatValid && event.ValidatedPoints != nil && event.ValidatedPoints.AcceptedFormatRef.Version == 2 && event.ValidatedPoints.AcceptedFormatRef.Sequence > 0 && recipeHashPattern.MatchString(event.ValidatedPoints.AcceptedFormatRef.SHA256) && recipeHashPattern.MatchString(event.ValidatedPoints.PointsSHA256) && event.ValidatedPoints.PointCount >= 0 && event.ValidatedPoints.PointCount <= recipe.ModeRecipe.MaxPoints
 	}
 	return false
 }
@@ -202,7 +202,7 @@ func (service *Service) observationContextVersion(ctx context.Context, task *Tas
 		if event.Version != traceVersion || m.TaskID != scope.TaskID || m.ItemIndex != scope.ItemIndex || m.SourceSHA256 != scope.SourceSHA256 || m.ItemRecipeSHA256 != scope.ItemRecipeSHA256 || event.ConfigurationSHA256 != configurationHash || event.EndpointSHA256 != task.Recipe.Configuration.EndpointSHA256 || !validAttemptTransition(previous, event, len(segments), item.Recipe) || count >= maxEvents {
 			return observerError()
 		}
-		if event.State == "validated-points" && event.ValidatedPoints.AcceptedFormatRef != (contract.GenerationEventRef{Version: traceVersion, Sequence: count, SHA256: head}) {
+		if event.State == statusValidatedPoints && event.ValidatedPoints.AcceptedFormatRef != (contract.GenerationEventRef{Version: traceVersion, Sequence: count, SHA256: head}) {
 			return observerError()
 		}
 		directory, err := evidenceDirectory(service.Root, task.ID, index)
@@ -250,3 +250,5 @@ func (service *Service) observationContextVersion(ctx context.Context, task *Tas
 	ctx = contract.WithGenerationReceiptReader(ctx, reader)
 	return contract.WithGenerationObservation(ctx, scope, observer), nil
 }
+
+const statusFormatResult = "format-result"

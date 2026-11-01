@@ -252,9 +252,9 @@ func projectSubtitleTask(task subtitlederived.Task) subtitlederived.Task {
 		task.Items[index].PublicationPlan = nil
 		task.Items[index].PublicationReceipt = nil
 		if task.Items[index].Prepared != nil {
-			copy := *task.Items[index].Prepared
-			copy.Evidence = nil
-			task.Items[index].Prepared = &copy
+			preparedCopy := *task.Items[index].Prepared
+			preparedCopy.Evidence = nil
+			task.Items[index].Prepared = &preparedCopy
 		}
 	}
 	return task

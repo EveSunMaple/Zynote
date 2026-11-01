@@ -44,7 +44,7 @@ func SavePreparedSubtitleWithProvenance(task CreatedTask, srt string, count int,
 	if err != nil || current != sourceHash {
 		return requestError("保存前视频内容已改变，请保留恢复记录")
 	}
-	return saveTaskJSON(filepath.Join(task.Dir, "subtitle-prepared.json"), value)
+	return saveTaskJSON(filepath.Join(task.Dir, subtitlePreparedFileName), value)
 }
 
 func SavePreparedSubtitle(task CreatedTask, srt string, count int) error {
@@ -52,12 +52,12 @@ func SavePreparedSubtitle(task CreatedTask, srt string, count int) error {
 	if err != nil {
 		return err
 	}
-	return saveTaskJSON(filepath.Join(task.Dir, "subtitle-prepared.json"), PreparedSubtitle{Version: 1, VideoSHA256: hash, SRT: srt, Count: count})
+	return saveTaskJSON(filepath.Join(task.Dir, subtitlePreparedFileName), PreparedSubtitle{Version: 1, VideoSHA256: hash, SRT: srt, Count: count})
 }
 
 func readPreparedSubtitle(task CreatedTask) (PreparedSubtitle, bool, error) {
 	var result PreparedSubtitle
-	body, err := os.ReadFile(filepath.Join(task.Dir, "subtitle-prepared.json"))
+	body, err := os.ReadFile(filepath.Join(task.Dir, subtitlePreparedFileName))
 	if os.IsNotExist(err) {
 		return result, false, nil
 	}
@@ -100,3 +100,5 @@ func LoadPreparedSubtitleForSavedOutput(task CreatedTask, srt string) (PreparedS
 	}
 	return result, true, nil
 }
+
+const subtitlePreparedFileName = "subtitle-prepared.json"

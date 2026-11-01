@@ -129,9 +129,9 @@ func observedHTTPClient(client *http.Client, observer contract.GenerationObserve
 	if observer == nil {
 		return client
 	}
-	copy := *client
-	copy.CheckRedirect = func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }
-	return &copy
+	clientCopy := *client
+	clientCopy.CheckRedirect = func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }
+	return &clientCopy
 }
 func emitFormatResult(ctx context.Context, valid bool) error {
 	metadata, observer := contract.GenerationObservationFrom(ctx)

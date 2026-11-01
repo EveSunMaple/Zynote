@@ -263,7 +263,7 @@ func (service *Service) createDirectOperation(srt, title, mode, course, id strin
 		}
 	}
 	hash := digest(srt)
-	return service.createOperation([]Source{{Kind: "direct-srt", Title: title, Path: path, Hash: hash, Generation: "srt-sha256:" + hash}}, []string{mode}, course, id, binding)
+	return service.createOperation([]Source{{Kind: sourceDirectSRT, Title: title, Path: path, Hash: hash, Generation: "srt-sha256:" + hash}}, []string{mode}, course, id, binding)
 }
 
 var operationCreateMu sync.Mutex
@@ -325,9 +325,9 @@ func (service *Service) createOperation(sources []Source, modes []string, course
 		if len(task.Items) != 1 || !videoppt.ValidPlaybackBinding(*binding) || task.Items[0].Source.Hash != binding.SubtitleSHA256 {
 			return Task{}, fmt.Errorf("播放绑定身份无效")
 		}
-		copy := *binding
-		task.Items[0].SourceBinding = &copy
-		task.Items[0].SourceBindingSHA256 = videoppt.PlaybackBindingSHA256(copy)
+		bindingCopy := *binding
+		task.Items[0].SourceBinding = &bindingCopy
+		task.Items[0].SourceBindingSHA256 = videoppt.PlaybackBindingSHA256(bindingCopy)
 		if err := service.createBindingAuthority(&task); err != nil {
 			return Task{}, err
 		}
@@ -343,7 +343,7 @@ func (service *Service) validateSources(sources []Source) ([]Source, error) {
 	checked := []Source{}
 	for _, source := range sources {
 		locator, err := subtitlesync.Locator(source.URL)
-		if source.Kind == "direct-srt" {
+		if source.Kind == sourceDirectSRT {
 			locator, err = source.Path, nil
 			if source.URL != "" || !inside(filepath.Join(service.Root, "inputs"), source.Path) || source.Generation != "srt-sha256:"+source.Hash {
 				return nil, fmt.Errorf("直接字幕来源身份无效")
@@ -359,7 +359,7 @@ func (service *Service) validateSources(sources []Source) ([]Source, error) {
 			return nil, fmt.Errorf("不要重复选择分集或笔记形式")
 		}
 		seen[locator] = true
-		if source.Kind != "direct-srt" {
+		if source.Kind != sourceDirectSRT {
 			source.URL = locator
 		}
 		checked = append(checked, source)
@@ -393,7 +393,7 @@ func (service *Service) current(source Source, dependencies Dependencies, ctx co
 	if digest(text) != source.Hash {
 		return "", fmt.Errorf("字幕来源已有改变，请重新同步并建立笔记任务；旧成果保留")
 	}
-	if source.Kind != "direct-srt" && dependencies.Generation != nil {
+	if source.Kind != sourceDirectSRT && dependencies.Generation != nil {
 		generation, err := dependencies.Generation(ctx, source.URL)
 		if err != nil || generation != source.Generation {
 			return "", fmt.Errorf("字幕来源已有改变，请重新同步并建立笔记任务；旧成果保留")
@@ -568,7 +568,7 @@ func (service *Service) processDerivedItem(ctx context.Context, task *Task, inde
 	}
 	stem := string(title) + "-" + modeTitles[item.Mode] + "-" + task.ID[:8] + "-" + itoa(index+1)
 	sourceLabel := item.Source.URL
-	if item.Source.Kind == "direct-srt" {
+	if item.Source.Kind == sourceDirectSRT {
 		sourceLabel = "传入 SRT 快照：" + item.Source.Path
 	}
 	anchorText := ""
@@ -679,3 +679,5 @@ func itoa(value int) string {
 	}
 	return string(digits)
 }
+
+const sourceDirectSRT = "direct-srt"

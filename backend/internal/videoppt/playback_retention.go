@@ -251,7 +251,7 @@ func (service *Service) ReservePlaybackRetention(ctx context.Context, id string,
 	if err != nil {
 		return empty, err
 	}
-	if _, err := immutableRetention(filepath.Join(directory, "retention-intent.json"), intent); err != nil {
+	if _, err := immutableRetention(filepath.Join(directory, retentionIntentFileName), intent); err != nil {
 		return empty, err
 	}
 	retentionReached("intent-written")
@@ -303,7 +303,7 @@ func (service *Service) retentionBound(ctx context.Context, id string) (retentio
 		return index, path, entry, retentionIntent{}, err
 	}
 	var intent retentionIntent
-	ref, err := retentionRecord(ctx, filepath.Join(directory, "retention-intent.json"), false, &intent)
+	ref, err := retentionRecord(ctx, filepath.Join(directory, retentionIntentFileName), false, &intent)
 	if err != nil || ref != entry.IntentSHA256 || intent.Version != 1 || intent.ID != id || intent.SourceSHA256 != entry.SourceSHA256 || intent.Size != entry.Size {
 		return index, path, entry, intent, retentionConflict()
 	}
@@ -336,7 +336,7 @@ func (service *Service) PreparePlaybackRetention(ctx context.Context, id, srt st
 		return err
 	}
 	candidate := retentionCandidate{1, id, entry.SourceSHA256, retentionHash([]byte(srt)), entry.IntentSHA256, intent.OperationSHA256}
-	candidateRef, err := immutableRetention(filepath.Join(service.Root, id, "retention-candidate.json"), candidate)
+	candidateRef, err := immutableRetention(filepath.Join(service.Root, id, retentionCandidateFileName), candidate)
 	if err != nil {
 		return err
 	}
@@ -376,7 +376,7 @@ func removeStagingFiles(directory string) error {
 }
 func retentionKeep(name string) bool {
 	switch name {
-	case "video.mp4", "operation.json", "video-ready.json", "media-source.json", "task.json", "retention-intent.json", "retention-candidate.json", "retention-receipt.json":
+	case "video.mp4", "operation.json", "video-ready.json", "media-source.json", "task.json", retentionIntentFileName, retentionCandidateFileName, retentionReceiptFileName:
 		return true
 	}
 	return false
@@ -398,7 +398,7 @@ func (service *Service) CompletePlaybackRetention(ctx context.Context, id, saved
 		return nil, err
 	}
 	var candidate retentionCandidate
-	candidateRef, err := retentionRecord(ctx, filepath.Join(directory, "retention-candidate.json"), false, &candidate)
+	candidateRef, err := retentionRecord(ctx, filepath.Join(directory, retentionCandidateFileName), false, &candidate)
 	if err != nil || candidate.Version != 1 || candidate.ID != id || candidate.IntentSHA256 != entry.IntentSHA256 || candidate.SourceSHA256 != entry.SourceSHA256 || candidateRef != entry.CandidateSHA256 || candidate.OperationSHA256 != intent.OperationSHA256 {
 		return nil, retentionConflict()
 	}
@@ -424,7 +424,7 @@ func (service *Service) CompletePlaybackRetention(ctx context.Context, id, saved
 		return nil, err
 	}
 	receipt := retentionReceipt{1, id, entry.SourceSHA256, candidate.SubtitleSHA256, candidateRef, filepath.ToSlash(relative)}
-	receiptRef, err := immutableRetention(filepath.Join(directory, "retention-receipt.json"), receipt)
+	receiptRef, err := immutableRetention(filepath.Join(directory, retentionReceiptFileName), receipt)
 	if err != nil {
 		return nil, err
 	}
@@ -465,7 +465,7 @@ func (service *Service) CompletePlaybackRetention(ctx context.Context, id, saved
 	return &PlaybackBinding{1, id, entry.SourceSHA256, candidate.SubtitleSHA256, receiptRef}, nil
 }
 func (service *Service) HasRetentionCandidate(id string) bool {
-	_, err := os.Lstat(filepath.Join(service.Root, id, "retention-candidate.json"))
+	_, err := os.Lstat(filepath.Join(service.Root, id, retentionCandidateFileName))
 	return err == nil || !errors.Is(err, os.ErrNotExist)
 }
 
@@ -553,7 +553,7 @@ func (service *Service) retainedCompleted(ctx context.Context, id string, index 
 		return false
 	}
 	var receipt retentionReceipt
-	ref, err := retentionRecord(ctx, filepath.Join(service.Root, id, "retention-receipt.json"), false, &receipt)
+	ref, err := retentionRecord(ctx, filepath.Join(service.Root, id, retentionReceiptFileName), false, &receipt)
 	if err != nil || ref != entry.ReceiptSHA256 || receipt.ID != id || receipt.SourceSHA256 != entry.SourceSHA256 {
 		return false
 	}
@@ -574,3 +574,9 @@ func (service *Service) retainedCompleted(ctx context.Context, id string, index 
 	binding := result.Binding
 	return binding.Version == 1 && binding.VideoTaskID == id && binding.SourceSHA256 == entry.SourceSHA256 && binding.RetentionReceiptSHA256 == ref && binding.SubtitleSHA256 == receipt.SubtitleSHA256
 }
+
+const retentionIntentFileName = "retention-intent.json"
+
+const retentionCandidateFileName = "retention-candidate.json"
+
+const retentionReceiptFileName = "retention-receipt.json"

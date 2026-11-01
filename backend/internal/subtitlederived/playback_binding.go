@@ -60,7 +60,7 @@ func (service *Service) ReadBoundAuthority(ctx context.Context, id, bindingSHA, 
 	if statErr != nil || closeErr != nil || afterErr != nil || !os.SameFile(before, opened) || !os.SameFile(opened, after) {
 		return Task{}, fmt.Errorf("播放绑定任务不可读")
 	}
-	path := filepath.Join(service.Root, id+".playback-binding.json")
+	path := filepath.Join(service.Root, id+playbackBindingSuffix)
 	if _, err := bindingSafeRegular(path); err != nil {
 		return Task{}, err
 	}
@@ -199,7 +199,7 @@ func (service *Service) createBindingAuthority(task *Task) error {
 	if err != nil || len(body) > 65536 {
 		return fmt.Errorf("播放绑定身份无效")
 	}
-	path := filepath.Join(service.Root, task.ID+".playback-binding.json")
+	path := filepath.Join(service.Root, task.ID+playbackBindingSuffix)
 	file, err := os.OpenFile(path, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0600)
 	if os.IsExist(err) {
 		previous, readErr := readBindingAuthority(path)
@@ -258,16 +258,18 @@ func (service *Service) validateTaskBinding(task Task) error {
 			return fmt.Errorf("播放绑定请求身份不一致")
 		}
 		expected, err := taskBindingAuthority(task)
-		actual, readErr := readBindingAuthority(filepath.Join(service.Root, task.ID+".playback-binding.json"))
+		actual, readErr := readBindingAuthority(filepath.Join(service.Root, task.ID+playbackBindingSuffix))
 		if err != nil || readErr != nil || !bytes.Equal(expected, actual) || digest(string(actual)) != item.BindingAuthoritySHA256 {
 			return fmt.Errorf("播放绑定记录身份不一致")
 		}
 	}
 	// Removing binding fields from a bound journal must not silently downgrade it.
 	if len(task.Items) > 0 && task.Items[0].SourceBinding == nil {
-		if _, err := os.Lstat(filepath.Join(service.Root, task.ID+".playback-binding.json")); !os.IsNotExist(err) {
+		if _, err := os.Lstat(filepath.Join(service.Root, task.ID+playbackBindingSuffix)); !os.IsNotExist(err) {
 			return fmt.Errorf("播放绑定记录不可降级")
 		}
 	}
 	return nil
 }
+
+const playbackBindingSuffix = ".playback-binding.json"

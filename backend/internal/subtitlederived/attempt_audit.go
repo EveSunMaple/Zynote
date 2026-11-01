@@ -113,22 +113,22 @@ func (service *Service) auditAttemptEvidence(ctx context.Context, task Task, ind
 	}
 	library, err := canonicalEvidencePath(service.Library)
 	if err != nil {
-		return AttemptAudit{State: "unknown", Reason: "source-unverifiable"}
+		return AttemptAudit{State: "unknown", Reason: statusSourceUnverifiable}
 	}
 	source, err := canonicalEvidencePath(item.Source.Path)
 	if err != nil {
-		return AttemptAudit{State: "unknown", Reason: "source-unverifiable"}
+		return AttemptAudit{State: "unknown", Reason: statusSourceUnverifiable}
 	}
 	if !inside(library, source) {
 		return invalidAudit("source-path-invalid")
 	}
 	info, err := os.Stat(source)
 	if err != nil || !info.Mode().IsRegular() || info.Size() > 32*1024*1024 {
-		return AttemptAudit{State: "unknown", Reason: "source-unverifiable"}
+		return AttemptAudit{State: "unknown", Reason: statusSourceUnverifiable}
 	}
 	file, err := os.Open(source)
 	if err != nil {
-		return AttemptAudit{State: "unknown", Reason: "source-unverifiable"}
+		return AttemptAudit{State: "unknown", Reason: statusSourceUnverifiable}
 	}
 	body, readErr := io.ReadAll(io.LimitReader(file, 32*1024*1024+1))
 	closeErr := file.Close()
@@ -136,7 +136,7 @@ func (service *Service) auditAttemptEvidence(ctx context.Context, task Task, ind
 		return AttemptAudit{State: "unknown", Reason: "cancelled"}
 	}
 	if readErr != nil || closeErr != nil || len(body) > 32*1024*1024 {
-		return AttemptAudit{State: "unknown", Reason: "source-unverifiable"}
+		return AttemptAudit{State: "unknown", Reason: statusSourceUnverifiable}
 	}
 	if digest(string(body)) != item.Source.Hash {
 		return invalidAudit("source-changed")
@@ -180,7 +180,7 @@ func (service *Service) auditAttemptEvidence(ctx context.Context, task Task, ind
 			if ctx.Err() != nil {
 				return AttemptAudit{State: "unknown", Reason: "cancelled"}
 			}
-			return invalidAudit("chain-invalid")
+			return invalidAudit(statusChainInvalid)
 		}
 		if record.Version != reference.Version || record.Event.Version != reference.Version {
 			return invalidAudit("protocol-mixed")
@@ -188,10 +188,10 @@ func (service *Service) auditAttemptEvidence(ctx context.Context, task Task, ind
 		hashes[sequence-1] = hash
 		if sequence == 1 {
 			if record.PreviousSHA256 != "" {
-				return invalidAudit("chain-invalid")
+				return invalidAudit(statusChainInvalid)
 			}
 		} else if !recipeHashPattern.MatchString(record.PreviousSHA256) {
-			return invalidAudit("chain-invalid")
+			return invalidAudit(statusChainInvalid)
 		}
 		hash = record.PreviousSHA256
 	}
@@ -208,10 +208,10 @@ func (service *Service) auditAttemptEvidence(ctx context.Context, task Task, ind
 			if ctx.Err() != nil {
 				return AttemptAudit{State: "unknown", Reason: "cancelled"}
 			}
-			return invalidAudit("chain-invalid")
+			return invalidAudit(statusChainInvalid)
 		}
 		if indexInChain > 0 && record.PreviousSHA256 != hashes[indexInChain-1] {
-			return invalidAudit("chain-invalid")
+			return invalidAudit(statusChainInvalid)
 		}
 		event := record.Event
 		m := event.Observation
@@ -221,7 +221,7 @@ func (service *Service) auditAttemptEvidence(ctx context.Context, task Task, ind
 		if m.AttemptIndex >= policy.JSONPolicy.MaxAttempts || m.ChunkCount != len(parts) || m.ChunkIndex >= len(parts) || m.InputSHA256 != inputHashes[m.ChunkIndex] || len(m.CueIDs) != len(parts[m.ChunkIndex]) || m.CueIDs[0] != starts[m.ChunkIndex] {
 			return invalidAudit("input-contract-invalid")
 		}
-		if event.State == "validated-points" {
+		if event.State == statusValidatedPoints {
 			if reference.Version != 2 || indexInChain < 1 || event.ValidatedPoints.AcceptedFormatRef != (contract.GenerationEventRef{Version: 2, Sequence: indexInChain, SHA256: hashes[indexInChain-1]}) {
 				return invalidAudit("validated-reference-invalid")
 			}
@@ -231,12 +231,12 @@ func (service *Service) auditAttemptEvidence(ctx context.Context, task Task, ind
 		}
 		result.CheckedEvents++
 		result.TotalChunks = m.ChunkCount
-		if ((reference.Version == 1 && event.State == "format-result") || (reference.Version == 2 && event.State == "validated-points")) && event.FormatValid != nil && *event.FormatValid {
+		if ((reference.Version == 1 && event.State == "format-result") || (reference.Version == 2 && event.State == statusValidatedPoints)) && event.FormatValid != nil && *event.FormatValid {
 			result.CompleteChunks++
 		}
 		previous = &event
 	}
-	if previous != nil && ((reference.Version == 1 && previous.State == "format-result") || (reference.Version == 2 && previous.State == "validated-points")) && previous.FormatValid != nil && *previous.FormatValid && previous.Observation.ChunkIndex == previous.Observation.ChunkCount-1 && result.CompleteChunks == result.TotalChunks {
+	if previous != nil && ((reference.Version == 1 && previous.State == "format-result") || (reference.Version == 2 && previous.State == statusValidatedPoints)) && previous.FormatValid != nil && *previous.FormatValid && previous.Observation.ChunkIndex == previous.Observation.ChunkCount-1 && result.CompleteChunks == result.TotalChunks {
 		result.State = "complete"
 		if collect {
 			result.sourceText = string(body)
@@ -244,3 +244,7 @@ func (service *Service) auditAttemptEvidence(ctx context.Context, task Task, ind
 	}
 	return result
 }
+
+const statusSourceUnverifiable = "source-unverifiable"
+
+const statusChainInvalid = "chain-invalid"

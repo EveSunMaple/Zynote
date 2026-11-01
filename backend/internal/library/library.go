@@ -31,7 +31,7 @@ func MigrateLegacyDirectories(root string) error {
 		if os.IsNotExist(err) {
 			return nil
 		}
-		return contract.Unavailable("资料目录不可访问")
+		return contract.Unavailable(errLibraryUnavailable)
 	}
 	if !rootInfo.IsDir() {
 		return contract.Unavailable("资料目录无效")
@@ -43,14 +43,14 @@ func MigrateLegacyDirectories(root string) error {
 			continue
 		}
 		if err != nil {
-			return contract.Unavailable("资料目录不可访问")
+			return contract.Unavailable(errLibraryUnavailable)
 		}
 		if info.Mode()&os.ModeSymlink != 0 || !info.IsDir() {
 			continue
 		}
 		entries, err := os.ReadDir(source)
 		if err != nil {
-			return contract.Unavailable("资料目录不可访问")
+			return contract.Unavailable(errLibraryUnavailable)
 		}
 		if len(entries) == 0 {
 			if err := os.Remove(source); err != nil {
@@ -61,11 +61,11 @@ func MigrateLegacyDirectories(root string) error {
 		targetPath := filepath.Join(root, target)
 		if _, err := os.Lstat(targetPath); os.IsNotExist(err) {
 			if err := os.Rename(source, targetPath); err != nil {
-				return contract.Unavailable("资料目录迁移失败")
+				return contract.Unavailable(errLibraryMigration)
 			}
 			continue
 		} else if err != nil {
-			return contract.Unavailable("资料目录不可访问")
+			return contract.Unavailable(errLibraryUnavailable)
 		}
 		if err := mergeLegacyDirectory(source, targetPath); err != nil {
 			return err
@@ -77,7 +77,7 @@ func MigrateLegacyDirectories(root string) error {
 func mergeLegacyDirectory(source, target string) error {
 	entries, err := os.ReadDir(source)
 	if err != nil {
-		return contract.Unavailable("资料目录不可访问")
+		return contract.Unavailable(errLibraryUnavailable)
 	}
 	for _, entry := range entries {
 		from := filepath.Join(source, entry.Name())
@@ -85,7 +85,7 @@ func mergeLegacyDirectory(source, target string) error {
 		if _, err := os.Lstat(to); err == nil {
 			if entry.IsDir() && entry.Type()&os.ModeSymlink == 0 {
 				if err := os.MkdirAll(to, 0o755); err != nil {
-					return contract.Unavailable("资料目录迁移失败")
+					return contract.Unavailable(errLibraryMigration)
 				}
 				if err := mergeLegacyDirectory(from, to); err != nil {
 					return err
@@ -93,10 +93,10 @@ func mergeLegacyDirectory(source, target string) error {
 			}
 			continue
 		} else if !os.IsNotExist(err) {
-			return contract.Unavailable("资料目录不可访问")
+			return contract.Unavailable(errLibraryUnavailable)
 		}
 		if err := os.Rename(from, to); err != nil {
-			return contract.Unavailable("资料目录迁移失败")
+			return contract.Unavailable(errLibraryMigration)
 		}
 	}
 	if err := os.Remove(source); err != nil && !os.IsNotExist(err) {
@@ -183,7 +183,7 @@ func ListDirectory(root, relative string) ([]map[string]any, error) {
 		if os.IsNotExist(err) {
 			return nil, contract.Unavailable("资料目录不存在")
 		}
-		return nil, contract.Unavailable("资料目录不可访问")
+		return nil, contract.Unavailable(errLibraryUnavailable)
 	}
 	if !rootInfo.IsDir() {
 		return nil, contract.Unavailable("资料目录无效")
@@ -360,3 +360,7 @@ func ReserveFile(directory, filename string) (string, error) {
 		}
 	}
 }
+
+const errLibraryUnavailable = "资料目录不可访问"
+
+const errLibraryMigration = "资料目录迁移失败"

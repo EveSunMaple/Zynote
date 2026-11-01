@@ -214,7 +214,7 @@ async function startApplication() {
   await snapanyDownload(window, url, path, () => {}, AbortSignal.timeout(30 * 60 * 1000))
   return true
  }
- shellServices['tools.configure'] = async () => true
+ shellServices['tools.configure'] = () => true
  let playback: ManagedPlayback | undefined
  const goCore = new GoCore({
   appVersion: app.getVersion(),

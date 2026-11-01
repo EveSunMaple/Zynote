@@ -157,7 +157,8 @@ func (engine *Engine) launch(ctx context.Context, id string, run *runState, asyn
 		}()
 		return work(runContext, engine)
 	}
-	runContext, cancel := context.WithCancel(context.Background())
+	// Keep request-scoped values but detach cancellation: the background run must outlive the RPC.
+	runContext, cancel := context.WithCancel(context.WithoutCancel(ctx))
 	run.mu.Lock()
 	run.cancel = cancel
 	run.mu.Unlock()

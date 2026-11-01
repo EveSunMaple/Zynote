@@ -508,7 +508,7 @@ func (resources *Resources) readContext(ctx context.Context, requestPath string,
 	if err != nil {
 		return nil, err
 	}
-	if requestPath == "/x/passport-login/web/qrcode/poll" {
+	if requestPath == qrPollPath {
 		row, _ := data.(map[string]any)
 		if row["code"] != float64(0) {
 			return data, nil
@@ -524,7 +524,7 @@ func (resources *Resources) readContext(ctx context.Context, requestPath string,
 		}
 	}
 	if resources.cookies != nil {
-		generation, err := resources.cookies.applyResponse(request.URL.Hostname(), response, &requestGeneration, requestPath == "/x/passport-login/web/qrcode/poll")
+		generation, err := resources.cookies.applyResponse(request.URL.Hostname(), response, &requestGeneration, requestPath == qrPollPath)
 		if err != nil {
 			return nil, err
 		}
@@ -798,7 +798,7 @@ func (resources *Resources) PollWithSession() (map[string]any, uint64, error) {
 	}
 	resources.mu.Unlock()
 	var generation uint64
-	data, err := resources.readContext(context.Background(), "/x/passport-login/web/qrcode/poll", map[string]string{"qrcode_key": current.key}, true, &generation)
+	data, err := resources.readContext(context.Background(), qrPollPath, map[string]string{"qrcode_key": current.key}, true, &generation)
 	if err != nil {
 		return nil, 0, err
 	}
@@ -931,3 +931,5 @@ func (resources *Resources) Videos(id int64, page int) (map[string]any, error) {
 	}
 	return map[string]any{"videos": videos, "hasMore": hasMore, "page": page}, nil
 }
+
+const qrPollPath = "/x/passport-login/web/qrcode/poll"
