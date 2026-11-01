@@ -6,6 +6,7 @@ import {LearningRecords} from '@renderer/features/tools/LearningRecords'
 import {SavedLearningNotes} from '@renderer/features/tools/SavedLearningNotes'
 import {RunProgress, type RunProgressValue} from '@renderer/features/tools/RunProgress'
 import {DeleteRecord} from '@renderer/features/tools/DeleteRecord'
+import {QuickModeToggle} from '@renderer/features/tools/QuickModeToggle'
 import {notify} from '@renderer/ui/ToastHost'
 import {SettingsLink} from '@renderer/app/settings-navigation'
 import type {Settings} from '@shared/types'
@@ -215,6 +216,7 @@ export function ToolsWorkbench({visible, close}: Readonly<{visible: boolean; clo
   [skills, setSkills] = useState<string[]>([]),
   [mcp, setMcp] = useState<string[]>([]),
   [flow, setFlow] = useState(false),
+  [quick, setQuick] = useState(false),
   [busy, setBusy] = useState(false),
   [focus, setFocus] = useState<string>()
  const [retryConsent, setRetryConsent] = useState<string[]>([]),
@@ -376,6 +378,7 @@ export function ToolsWorkbench({visible, close}: Readonly<{visible: boolean; clo
         两步工作流：先整理材料，再综合回答
        </Checkbox.Content>
       </Checkbox>
+      <QuickModeToggle value={quick} onChange={setQuick} />
       {!flow && (
        <div className="row">
         {[
@@ -475,7 +478,8 @@ export function ToolsWorkbench({visible, close}: Readonly<{visible: boolean; clo
        </>
       )}
       <p className="hint">
-       点击开始才将已选资料交给当前模型，只执行勾选的渠道和工具。回答中带来源编号的引号原话会逐句回原文核对，对不上的标为待核对；来源核对不等于结论正确。两步工作流保留每一步结果，失败后可继续。
+       点击开始才将已选资料交给当前模型，只执行勾选的渠道和工具。回答中带来源编号的引号原话会逐句回原文核对，对不上的标为待核对；来源核对不等于结论正确。资料不够时模型会自动多轮补充（继续读后半节课、再检索、调用所选工具），最多
+       8 轮，每轮做了什么见“处理过程与来源”。两步工作流保留每一步结果，失败后可继续。
       </p>
       <Button
        variant="primary"
@@ -488,6 +492,7 @@ export function ToolsWorkbench({visible, close}: Readonly<{visible: boolean; clo
           {
            op: op(),
            question,
+           quick,
            channels,
            web_search: provider === 'searxng' ? {provider, endpoint: settings?.searchEndpoint ?? ''} : {provider},
            fulltext: fulltextTargets.trim()

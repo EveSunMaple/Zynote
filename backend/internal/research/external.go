@@ -179,6 +179,9 @@ func publicHTTPS(value string) (*url.URL, error) {
 	return parsed, nil
 }
 
+// maxPDFPages 是论文 PDF 的页数上限；每次只读所选的至多 4 页，整篇页数只用于校验页码。
+const maxPDFPages = 2000
+
 func parseFulltextChoices(input any) []FulltextChoice {
 	choices := []FulltextChoice{}
 	rows, _ := input.([]any)
@@ -186,7 +189,7 @@ func parseFulltextChoices(input any) []FulltextChoice {
 		value, _ := raw.(map[string]any)
 		choice := FulltextChoice{URL: text(value["url"])}
 		for _, page := range numberList(value["pages"]) {
-			if page >= 1 && page <= 64 {
+			if page >= 1 && page <= maxPDFPages {
 				choice.Pages = append(choice.Pages, page)
 			}
 		}
@@ -333,8 +336,11 @@ func arxivEvidenceRows(external *External, path, target, name string, pages []in
 		if err != nil {
 			return nil, err
 		}
-		if total > 64 || page > total {
-			return nil, fmt.Errorf("论文页数超出预算或所选物理页不存在")
+		if total > maxPDFPages {
+			return nil, fmt.Errorf("论文超过 %d 页，暂不支持", maxPDFPages)
+		}
+		if page > total {
+			return nil, fmt.Errorf("所选第 %d 页不存在（全文共 %d 页）", page, total)
 		}
 		text = strings.TrimSpace(text)
 		if text == "" {

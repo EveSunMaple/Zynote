@@ -368,6 +368,7 @@ func (client *Client) Chat(ctx context.Context, messages []Message, onText func(
 		input = map[string]any{"messages": messages}
 	}
 	body := chatBody(profile, model, input, responses, onText != nil)
+	applyThinking(ctx, profile, body, responses)
 	encoded, err := marshalNoEscape(body)
 	if err != nil {
 		return "", err

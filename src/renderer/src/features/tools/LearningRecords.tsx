@@ -5,6 +5,7 @@ import {notify} from '@renderer/ui/ToastHost'
 import {MemorySuggestions} from '@renderer/features/tools/MemorySuggestions'
 import {SelectField} from '@renderer/ui/SelectField'
 import {RunProgress, type RunProgressValue} from '@renderer/features/tools/RunProgress'
+import {QuickModeToggle} from '@renderer/features/tools/QuickModeToggle'
 const request = <T,>(action: string, args: unknown = {}) => window.assistant.invoke<T>('tools:request', {action, args})
 const op = () => crypto.randomUUID().replaceAll('-', '')
 type Session = {conversation_id: string; title: string; revision: number; pinned: boolean}
@@ -36,6 +37,7 @@ export function LearningRecords() {
   [detail, setDetail] = useState<Detail>(),
   [title, setTitle] = useState(''),
   [question, setQuestion] = useState(''),
+  [quick, setQuick] = useState(false),
   [memories, setMemories] = useState<Memories>(),
   [editing, setEditing] = useState<Memory>(),
   [kind, setKind] = useState('preference'),
@@ -198,6 +200,7 @@ export function LearningRecords() {
        onChange={e => setQuestion(e.target.value)}
        placeholder="依据知识库继续提问…"
       />
+      <QuickModeToggle value={quick} onChange={setQuick} />
       <Button
        variant="primary"
        size="sm"
@@ -208,6 +211,7 @@ export function LearningRecords() {
          await request('agent-create', {
           op: op(),
           question,
+          quick,
           channels: ['library', 'memory', 'conversations'],
           skills: {revision: overview.extensions.revision, ids: []},
           mcp: {revision: overview.mcp.revision, items: []},
