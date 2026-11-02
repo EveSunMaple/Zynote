@@ -525,10 +525,73 @@ export function TextbookContent(props: TextbookProps) { // NOSONAR: cohesive flo
   </div>
  )
  const currentBook = book
+ const rangeControls = (
+  <div className="textbook-range-panel">
+   <div className="study-range textbook-range">
+    <StudyField label="起始页">
+     <NumberField
+      aria-label="章节起始页"
+      isDisabled={busy}
+      minValue={1}
+      maxValue={book.pages}
+      value={first}
+      onChange={value => onFirst(value)}
+     >
+      <NumberField.Group>
+       <NumberField.DecrementButton />
+       <NumberField.Input onFocus={event => event.currentTarget.select()} />
+       <NumberField.IncrementButton />
+      </NumberField.Group>
+     </NumberField>
+    </StudyField>
+    <StudyField label="结束页">
+     <NumberField
+      aria-label="章节结束页"
+      isDisabled={busy}
+      minValue={1}
+      maxValue={book.pages}
+      value={last}
+      onChange={value => onLast(value)}
+     >
+      <NumberField.Group>
+       <NumberField.DecrementButton />
+       <NumberField.Input onFocus={event => event.currentTarget.select()} />
+       <NumberField.IncrementButton />
+      </NumberField.Group>
+     </NumberField>
+    </StudyField>
+   </div>
+   <div className="study-range-actions">
+    <Button
+     variant="ghost"
+     size="sm"
+     isDisabled={busy}
+     onClick={() => {
+      onFirst(pageNumber)
+      if (last < pageNumber) onLast(pageNumber)
+     }}
+    >
+     当前页设为起点
+    </Button>
+    <Button variant="ghost" size="sm" isDisabled={busy} onClick={() => onLast(pageNumber)}>
+     当前页设为终点
+    </Button>
+    {!followsPage && (
+     <Button variant="ghost" size="sm" isDisabled={busy} onClick={onFollowPage}>
+      恢复跟随阅读页
+     </Button>
+    )}
+   </div>
+   <small className={rangeProblem(first, last, book.pages) ? 'study-side-hint study-side-hint--warning' : 'study-side-hint'}>
+    {rangeProblem(first, last, book.pages) || `将分析第 ${first}–${last} 页，共 ${last - first + 1} 页。`}
+   </small>
+  </div>
+ )
  function inspectorBody() {
   if (mode === 'teacher')
    return (
        <div className="study-inspector-body">
+        {rangeControls}
         {analysisError && <div role="alert" className="study-inline-error">{analysisError}</div>}
         <TeacherAnnotations bookId={currentBook.id} lectureId={entry?.lectureId} version={pdfVersion + commentVersion} onLocate={locateTeacher}
          actions={replaySubId => { // NOSONAR: render prop needs the resolved replay id; hoisting it would thread state through props.
@@ -543,6 +606,7 @@ export function TextbookContent(props: TextbookProps) { // NOSONAR: cohesive flo
    return (
        <div className="study-inspector-body">
         {!draft && <h3>AI 批注</h3>}
+        {rangeControls}
         {analysisError && <div role="alert" className="study-inline-error">{analysisError}</div>}
         <AnalysisAction {...actionProps} teacher={false} />
         {!busy && <SettingsLink section="qwen">千问模型设置</SettingsLink>}
@@ -625,68 +689,8 @@ export function TextbookContent(props: TextbookProps) { // NOSONAR: cohesive flo
      ))}
     </fieldset>
 
-    <div className="textbook-toolbar">
-     <div className="study-range textbook-range">
-      <StudyField label="起始页">
-       <NumberField
-        aria-label="章节起始页"
-        isDisabled={busy}
-        minValue={1}
-        maxValue={book.pages}
-        value={first}
-        onChange={value => onFirst(value)}
-       >
-        <NumberField.Group>
-         <NumberField.DecrementButton />
-         <NumberField.Input onFocus={event => event.currentTarget.select()} />
-         <NumberField.IncrementButton />
-        </NumberField.Group>
-       </NumberField>
-      </StudyField>
-      <StudyField label="结束页">
-       <NumberField
-        aria-label="章节结束页"
-        isDisabled={busy}
-        minValue={1}
-        maxValue={book.pages}
-        value={last}
-        onChange={value => onLast(value)}
-       >
-        <NumberField.Group>
-         <NumberField.DecrementButton />
-         <NumberField.Input onFocus={event => event.currentTarget.select()} />
-         <NumberField.IncrementButton />
-        </NumberField.Group>
-       </NumberField>
-      </StudyField>
-     </div>
-     <div className="study-range-actions">
-      <Button
-       variant="ghost"
-       size="sm"
-       isDisabled={busy}
-       onClick={() => {
-        onFirst(pageNumber)
-        if (last < pageNumber) onLast(pageNumber)
-       }}
-      >
-       当前页设为起点
-      </Button>
-      <Button variant="ghost" size="sm" isDisabled={busy} onClick={() => onLast(pageNumber)}>
-       当前页设为终点
-      </Button>
-      {!followsPage && (
-       <Button variant="ghost" size="sm" isDisabled={busy} onClick={onFollowPage}>
-        恢复跟随阅读页
-       </Button>
-      )}
-     </div>
-     <span className={rangeProblem(first, last, book.pages) ? 'study-side-hint study-side-hint--warning' : 'study-side-hint'}>
-      {rangeProblem(first, last, book.pages) || `将分析第 ${first}–${last} 页，共 ${last - first + 1} 页。`}
-     </span>
     </div>
-   </div>
-   <ul className="textbook-color-key textbook-color-key--toolbar" aria-label="批注颜色">
+    <ul className="textbook-color-key textbook-color-key--toolbar" aria-label="批注颜色">
     <li className="textbook-color-key__title">批注颜色</li>
     {sourceKeys.map(source => (
      <li key={source}>

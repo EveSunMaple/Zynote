@@ -378,7 +378,7 @@
 .study-entry-group {
  display: flex;
  flex-direction: column;
- gap: 2px;
+ gap: 8px;
  min-width: 0;
 }
 .study-entry-group__label {
@@ -770,7 +770,7 @@
 .study-range-actions {
  display: flex;
  flex-wrap: wrap;
- gap: 4px;
+ gap: 8px;
 }
 .study-side-hint {
  margin: 0;
@@ -808,6 +808,20 @@
  flex-direction: column;
  gap: 18px;
  min-width: 0;
+}
+.autocomplete__popover > [data-slot="search-field"] {
+ box-sizing: border-box;
+ flex: none;
+ width: 100%;
+}
+.autocomplete__popover .search-field__group {
+ width: 100%;
+}
+.autocomplete__popover .search-field__input {
+ min-width: 0;
+}
+.autocomplete__popover [data-slot="list-box"] {
+ scrollbar-gutter: stable;
 }
 .search-select-option {
  display: flex;
@@ -1016,7 +1030,7 @@
 }
 .study-inspector-heading__actions {
  display: flex;
- gap: 2px;
+ gap: 8px;
 }
 .study-suggestion-list {
  display: flex;
@@ -1025,8 +1039,8 @@
 .study-suggestion {
  display: flex;
  align-items: flex-start;
- gap: 6px;
- padding: 10px 0;
+ gap: 10px;
+ padding: 12px 0;
  border-bottom: 1px solid var(--line);
 }
 .study-suggestion:first-child {
