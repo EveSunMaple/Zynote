@@ -309,7 +309,9 @@ func (engine *Engine) SaveNote(id string, expected map[string]any) (any, error) 
 		}
 		noteID := randomID()
 		taskID := id
-		answerHash := text(task.AnswerHash)
+		// AnswerHash 是 *string，text() 只认 string，会得到空串，导致来源核验永远报“已改变”。
+		// VerifyResult 已保证已完成研究的 AnswerHash 非空。
+		answerHash := *task.AnswerHash
 		value := note{
 			Receipt: noteReceipt{
 				NoteID: noteID, Title: task.Question, BodySHA256: text(preview["note_sha256"]),

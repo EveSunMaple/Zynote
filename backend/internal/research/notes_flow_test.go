@@ -37,6 +37,8 @@ func TestResearchNoteLifecycleFlow(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	// 刚保存、研究未变时，来源核验必须报告“仍可核验”，而不是“已改变”。
+	assertNoteSource(t, engine, original.Receipt.NoteID, "research_current")
 	revised, err := engine.Store.ReviseNote(map[string]any{
 		"action": "manual_revision", "schema_version": "1", "operation_id": strings.Repeat("9", 32),
 		"parent_note_id": original.Receipt.NoteID, "parent_body_sha256": original.Receipt.BodySHA256,
@@ -49,9 +51,7 @@ func TestResearchNoteLifecycleFlow(t *testing.T) {
 	if !ok || next.Receipt.NoteID == "" || next.ParentNoteID == nil || *next.ParentNoteID != original.Receipt.NoteID {
 		t.Fatalf("revision must return the new note: %#v", revised)
 	}
-	if _, err := engine.Store.NoteSource(next.Receipt.NoteID); err != nil {
-		t.Fatal(err)
-	}
+	assertNoteSource(t, engine, next.Receipt.NoteID, "research_current")
 	if _, err := engine.Store.ExportNote(next.Receipt.NoteID); err != nil {
 		t.Fatal(err)
 	}
@@ -66,5 +66,16 @@ func TestResearchNoteLifecycleFlow(t *testing.T) {
 		}); err != nil {
 			t.Fatalf("%s: %v", action, err)
 		}
+	}
+}
+
+func assertNoteSource(t *testing.T, engine *Engine, noteID, want string) {
+	t.Helper()
+	source, err := engine.Store.NoteSource(noteID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if status := source.(map[string]any)["status"]; status != want {
+		t.Fatalf("note source status = %v, want %s", status, want)
 	}
 }
