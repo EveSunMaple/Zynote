@@ -2173,8 +2173,11 @@ html[data-platform="linux"][data-maximized="true"] #root {
  flex: none;
 }
 .study-menu__scroll {
+ display: flex;
  flex: 1;
  min-height: 0;
+ flex-direction: column;
+ gap: 12px;
  padding-right: 2px;
  scrollbar-gutter: stable;
 }
