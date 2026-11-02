@@ -503,7 +503,6 @@ export function Study({ // NOSONAR: transitional TS fallback/UI flow retained fo
   draft,
   chosen,
   busy,
-  progress,
   pdfVersion,
   onPdfSaved: () => setPdfVersion(value => value + 1),
   onPickBook: pickBook,
@@ -512,7 +511,6 @@ export function Study({ // NOSONAR: transitional TS fallback/UI flow retained fo
    if (book) void run(() => invoke('textbook:open', {id: book.id}))
   },
   onRemoveHighlights: removeHighlights,
-  onCancel: () => void invoke('cancel'),
   onPageNumber: goPage,
   onFirst: changeFirst,
   onLast: changeLast,

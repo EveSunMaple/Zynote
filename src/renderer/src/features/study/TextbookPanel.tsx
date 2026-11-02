@@ -1,5 +1,5 @@
 import {useEffect, useMemo, useRef, useState, type CSSProperties, type Ref} from 'react'
-import {Button, Checkbox, Disclosure, NumberField, ProgressBar, ScrollShadow, Spinner, TextArea} from '@heroui/react'
+import {Button, Checkbox, Disclosure, NumberField, ScrollShadow, TextArea} from '@heroui/react'
 import {
  BookOpen,
  ChevronLeft,
@@ -27,7 +27,6 @@ import {SettingsLink} from '@renderer/app/settings-navigation'
 import type {AnalysisSource, Book, Draft} from '@renderer/features/study/types'
 import type {Highlight, StudyEntry} from '@shared/study'
 import {highlightLabels} from '@shared/study'
-import type {Progress} from '@shared/types'
 import '@renderer/features/study/textbook-workspace.css'
 
 export type TextbookProps = Readonly<{
@@ -58,14 +57,12 @@ export type TextbookProps = Readonly<{
  draft: Draft | null
  chosen: string[] // NOSONAR: shared props type; this member is used by the sibling component.
  busy: boolean
- progress: Progress | null // NOSONAR: shared props type; this member is used by the sibling component.
  pdfVersion: number // NOSONAR: shared props type; this member is used by the sibling component.
  onPdfSaved: () => void
  onPickBook: () => void // NOSONAR: shared props type; this member is used by the sibling component.
  onAnalyze: (source: AnalysisSource) => void
  onOpenBook: () => void // NOSONAR: shared props type; this member is used by the sibling component.
  onRemoveHighlights: () => void // NOSONAR: shared props type; this member is used by the sibling component.
- onCancel: () => void // NOSONAR: shared props type; this member is used by the sibling component.
  onPageNumber: (page: number) => void
  onFirst: (page: number) => void // NOSONAR: shared props type; this member is used by the sibling component.
  onLast: (page: number) => void // NOSONAR: shared props type; this member is used by the sibling component.
@@ -245,32 +242,6 @@ export function TextbookMenu(props: TextbookProps) {
     </ConfirmDialog>
    ) : null}
   </div>
- )
-}
-
-function TextbookProgress({busy, progress, onCancel}: Pick<TextbookProps, 'busy' | 'progress' | 'onCancel'>) {
- if (!busy) return null
- return (
-  <section // NOSONAR: existing element/role semantics are intentional for layout and keyboard behavior.
-   className="study-progress"
-   role="status" // NOSONAR: styled live region; native output would change layout and announcement behavior.
-  >
-   <Spinner size="sm" />
-   <div>
-    <strong>{progress?.stage || '正在处理教材'}</strong>
-    <small>{progress?.message || '请稍候'}</small>
-   </div>
-   <Button variant="ghost" size="sm" onClick={onCancel}>
-    取消
-   </Button>
-   {progress?.part !== undefined && progress?.total !== undefined ? (
-    <ProgressBar aria-label="分析进度" maxValue={progress.total} value={progress.part}>
-     <ProgressBar.Track>
-      <ProgressBar.Fill />
-     </ProgressBar.Track>
-    </ProgressBar>
-   ) : null}
-  </section>
  )
 }
 
@@ -551,7 +522,6 @@ export function TextbookContent(props: TextbookProps) { // NOSONAR: cohesive flo
     </Button>
    </div>
    {props.resolvingBook && <output>正在打开已关联的教材…</output>}
-   <TextbookProgress {...props} />
   </div>
  )
  const currentBook = book
@@ -733,8 +703,7 @@ export function TextbookContent(props: TextbookProps) { // NOSONAR: cohesive flo
     {props.bookFailure}
     <Button variant="ghost" size="sm" isDisabled={busy} onPress={props.onPickBook}>重新选择教材</Button>
    </div>}
-   <TextbookProgress {...props} />
-   <div className={'study-textbook' + (mode === 'read' ? ' textbook-reading' : '')}>
+    <div className={'study-textbook' + (mode === 'read' ? ' textbook-reading' : '')}>
     <div className="study-canvas-column">
       {document && <TextbookBookmarks key={document.loadingTask.docId} document={document} onPageNumber={onPageNumber} />}
       {document && mode === 'read' && <ChapterSummary document={document} book={book} pageNumber={pageNumber} viewport={viewport} annotations={annotations.rows} paper={paper} onPageNumber={onPageNumber} onSaved={props.onPdfSaved} busy={busy} />}
