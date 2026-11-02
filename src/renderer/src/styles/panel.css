@@ -311,14 +311,6 @@
  font-size: 13px;
  line-height: 1.6;
 }
-.study-next-step__label {
- flex: none;
- padding: 1px 7px;
- border-radius: var(--radius-md);
- background: color-mix(in srgb, var(--blue) 12%, var(--surface-raised));
- font-size: 12px;
- font-weight: 600;
-}
 .study-file-start > .study-next-step {
  margin: 8px 0 20px;
  text-align: start;
@@ -341,11 +333,10 @@
  align-items: flex-start;
 }
 .study-menu__search {
- position: sticky;
- top: -4px;
- z-index: 4;
- padding: 4px 0 6px;
- background: var(--list);
+ position: relative;
+ top: auto;
+ padding: 0;
+ background: transparent;
 }
 .study-menu__actions {
  display: grid;
@@ -386,7 +377,7 @@
 .study-entry-group {
  display: flex;
  flex-direction: column;
- gap: 2px;
+ gap: 8px;
  min-width: 0;
 }
 .study-entry-group__label {
@@ -614,16 +605,19 @@
 }
 .study-savebar {
  position: sticky;
- top: 0;
+ top: auto;
+ bottom: 0;
  z-index: 3;
  display: flex;
  justify-content: space-between;
  align-items: center;
  gap: 16px;
- margin-bottom: 16px;
- padding: 10px 0;
- background: var(--shell-backdrop);
- border-bottom: 1px solid var(--line);
+ margin-top: 20px;
+ margin-bottom: 0;
+ padding: 14px 16px;
+ background: var(--chat);
+ border: 1px solid var(--line-strong);
+ border-radius: 12px;
 }
 .study-savebar > :first-child {
  flex: 1;
@@ -778,7 +772,7 @@
 .study-range-actions {
  display: flex;
  flex-wrap: wrap;
- gap: 4px;
+ gap: 8px;
 }
 .study-side-hint {
  margin: 0;
@@ -816,6 +810,20 @@
  flex-direction: column;
  gap: 18px;
  min-width: 0;
+}
+.autocomplete__popover > [data-slot="search-field"] {
+ box-sizing: border-box;
+ flex: none;
+ width: 100%;
+}
+.autocomplete__popover .search-field__group {
+ width: 100%;
+}
+.autocomplete__popover .search-field__input {
+ min-width: 0;
+}
+.autocomplete__popover [data-slot="list-box"] {
+ scrollbar-gutter: stable;
 }
 .search-select-option {
  display: flex;
@@ -1024,7 +1032,7 @@
 }
 .study-inspector-heading__actions {
  display: flex;
- gap: 2px;
+ gap: 8px;
 }
 .study-suggestion-list {
  display: flex;
@@ -1033,8 +1041,8 @@
 .study-suggestion {
  display: flex;
  align-items: flex-start;
- gap: 6px;
- padding: 10px 0;
+ gap: 10px;
+ padding: 12px 0;
  border-bottom: 1px solid var(--line);
 }
 .study-suggestion:first-child {
@@ -2099,4 +2107,63 @@ html[data-platform="linux"][data-maximized="true"] #root {
 
 .publication-audit .hint {
  color: var(--text);
+}
+
+/* Legacy schedule UI kept on the hybrid branch. */
+.study-modebar__status {
+ color: var(--muted);
+ font-size: 12px;
+}
+
+/* Study sidebars: fixed header, scrollable card list. */
+.study-menu-stack,
+.study-menu-pane {
+ display: flex;
+ flex: 1;
+ min-height: 0;
+ flex-direction: column;
+}
+.study-menu-pane[hidden] {
+ display: none;
+}
+.study-menu--fixed {
+ height: 100%;
+ min-height: 0;
+ gap: 0;
+}
+.study-menu__fixed {
+ display: flex;
+ flex: none;
+ flex-direction: column;
+ gap: 12px;
+ padding-bottom: 12px;
+}
+.study-menu__manage {
+ display: flex;
+ flex-direction: column;
+ gap: 8px;
+}
+.study-entry-row {
+ display: flex;
+ align-items: center;
+ gap: 8px;
+}
+.study-entry-row .window-menu-item {
+ flex: 1;
+ min-width: 0;
+}
+.study-entry-check {
+ flex: none;
+}
+.study-menu__scroll {
+ display: flex;
+ flex: 1;
+ min-height: 0;
+ flex-direction: column;
+ gap: 12px;
+ padding-right: 2px;
+ scrollbar-gutter: stable;
+}
+.study-menu__scroll .study-entry-groups {
+ padding-bottom: 4px;
 }

@@ -1,5 +1,4 @@
-import {Button, Tabs} from '@heroui/react'
-import {ArrowLeft} from 'lucide-react'
+import {Tabs} from '@heroui/react'
 import {ConfirmDialog} from '@renderer/ui/ConfirmDialog'
 import {WindowPanel} from '@renderer/ui/WindowPanel'
 import {errorMessage, notify} from '@renderer/ui/ToastHost'
@@ -11,16 +10,22 @@ import {
  type ScheduleProps
 } from '@renderer/features/study/SchedulePanel'
 import {TextbookContent, TextbookMenu, type TextbookProps} from '@renderer/features/study/TextbookPanel'
-import {useScheduleImportStatus} from '@renderer/features/study/ScheduleImportStatus'
-import {StudyNextStep} from '@renderer/features/study/StudyNextStep'
-import {ScheduleMatching, useScheduleMatching} from '@renderer/features/study/ScheduleMatching'
 import {validTimeZone} from '@renderer/features/study/datetime'
 import {sameTeachingCourse, setSessionTextbook} from '@renderer/features/study/course-textbook'
 import type {AnalysisSource, Book, Draft} from '@renderer/features/study/types'
 import type {Highlight, StudyEntry} from '@shared/study'
-import type {Course, Detail, Progress} from '@shared/types'
+import type {Course, Detail, Progress, StudyImportProgress} from '@shared/types'
 
 const invoke = <T,>(action: string, args?: unknown) => window.assistant.invoke<T>(action, args)
+
+const importLabels: Record<StudyImportProgress['phase'], string> = {
+ reading: '已选中图片，正在读取',
+ ready: '图片已读取，正在准备识别',
+ uploading: '正在发送图片给千问',
+ sent: '图片已发送，正在等待千问返回',
+ received: '已收到千问响应，正在读取识别结果',
+ retrying: '千问返回的课表格式有误，正在重试'
+}
 
 const normalize = (entry: StudyEntry): StudyEntry => ({
  id: entry.id,
@@ -44,29 +49,20 @@ const normalize = (entry: StudyEntry): StudyEntry => ({
 
 const snapshotOf = (entries: StudyEntry[]) => JSON.stringify(entries.map(normalize))
 
-function analyzeNotice(source: AnalysisSource, result: Draft, rows: Highlight[], pageCount: number) {
- if (!result.rows.length && result.skippedContentsPages?.length === pageCount)
-  return '已跳过目录。请翻到正文章节，或选择包含正文的页码再生成。'
- if (source === 'teacher' && !rows.length) return '本次智云回放的语音转写与所选正文页没有匹配的原话。'
- if (result.warnings?.length) return '部分候选未通过核对，已按页列出原因。你可以继续核对并保存其余建议。'
- if (result.rows.length) return '请核对划线内容、位置与依据，再保存到原教材。'
- return '此范围没有找到依据充分的内容，原教材未修改。'
-}
-
 // biome-ignore format: NOSONAR must stay on the function line
 function collectIssues(entries: StudyEntry[]): ScheduleIssue[] { // NOSONAR: transitional TS fallback/UI flow retained for behavior compatibility; decomposition tracked separately to avoid sequencing regressions.
  const issues: ScheduleIssue[] = []
  for (const entry of entries) {
-  if (!entry.courseId && (!entry.weekly || entry.lectureId)) issues.push({id: entry.id, message: '选择课程', field: '课程'})
-  if (!entry.title.trim()) issues.push({id: entry.id, message: '填写课次名称', field: entry.weekly ? '课程名称' : '课次名称'})
-  if (!entry.weekly && !entry.chapter.trim()) issues.push({id: entry.id, message: '填写教材章节', field: '教材章节'})
+  if (!entry.courseId && (!entry.weekly || entry.lectureId)) issues.push({id: entry.id, message: '选择课程'})
+  if (!entry.title.trim()) issues.push({id: entry.id, message: entry.weekly ? '填写课程名称' : '填写课次名称'})
+  if (!entry.weekly && !entry.chapter.trim()) issues.push({id: entry.id, message: '填写教材章节'})
   if (entry.startPeriod !== undefined && entry.endPeriod !== undefined && entry.endPeriod < entry.startPeriod)
-   issues.push({id: entry.id, message: '结束节次不能早于开始节次', field: '结束节次'})
+   issues.push({id: entry.id, message: '结束节次不能早于开始节次'})
   if (entry.endsAt && !Number.isFinite(Date.parse(entry.endsAt)))
-   issues.push({id: entry.id, message: '填写有效的结束时间，或勾选时间待定', field: '课程结束时间'})
+   issues.push({id: entry.id, message: '填写有效的结束时间，或勾选时间待定'})
   if (entry.zhiyunCourseId && !/^\d+$/.test(entry.zhiyunCourseId))
-   issues.push({id: entry.id, message: '智云课程编号只能是数字', field: '智云'})
-  if (entry.subId && !/^\d+$/.test(entry.subId)) issues.push({id: entry.id, message: '智云课次编号只能是数字', field: '智云'})
+   issues.push({id: entry.id, message: '智云课程编号只能是数字'})
+  if (entry.subId && !/^\d+$/.test(entry.subId)) issues.push({id: entry.id, message: '智云课次编号只能是数字'})
  }
  return issues
 }
@@ -76,17 +72,14 @@ export function Study({ // NOSONAR: transitional TS fallback/UI flow retained fo
  visible,
  courses,
  close,
- refresh,
- openZhiyun
+ refresh
 }: Readonly<{
  visible: boolean
  courses: Course[]
  close: () => void
- refresh?: () => Promise<unknown>
- openZhiyun: () => void
+ refresh: () => Promise<unknown>
 }>) {
  const [entries, setEntries] = useState<StudyEntry[]>([]),
-  [initialSchedule, setInitialSchedule] = useState<'loading' | 'ready' | {error: string}>('loading'),
   [savedEntries, setSavedEntries] = useState<StudyEntry[]>([]),
   [selected, setSelected] = useState(''),
   [detail, setDetail] = useState<Detail | null>(null),
@@ -95,7 +88,6 @@ export function Study({ // NOSONAR: transitional TS fallback/UI flow retained fo
   [books, setBooks] = useState<Record<string, Book>>({}),
   [standaloneBook, setStandaloneBook] = useState(''),
   [bookFailure, setBookFailure] = useState<{id: string; message: string} | null>(null),
-  [linkTarget, setLinkTarget] = useState(''),
   [pageNumber, setPageNumber] = useState(1),
   [customRange, setCustomRange] = useState<{first: number; last: number} | null>(null),
   [draft, setDraft] = useState<Draft | null>(null),
@@ -106,11 +98,10 @@ export function Study({ // NOSONAR: transitional TS fallback/UI flow retained fo
   [pdfVersion, setPdfVersion] = useState(0),
   [busy, setBusy] = useState(false),
   [progress, setProgress] = useState<Progress | null>(null),
+  [importStatus, setImportStatus] = useState<StudyImportProgress | null>(null),
   [confirmClose, setConfirmClose] = useState(false)
  const working = useRef(false),
   loaded = useRef(false)
- const tracker = useScheduleImportStatus()
- const matching = useScheduleMatching(entries, setEntries, courses)
  const entry = entries.find(item => item.id === selected),
   bookId = (entry ? entry.textbookId : standaloneBook) || '',
   book = books[bookId] ?? null,
@@ -126,17 +117,20 @@ export function Study({ // NOSONAR: transitional TS fallback/UI flow retained fo
   courseName = courses.find(course => course.id === entry?.courseId)?.name || ''
  const readingContext = useRef({selected, bookId, subId: entry?.subId, lectureId: entry?.lectureId})
  readingContext.current = {selected, bookId, subId: entry?.subId, lectureId: entry?.lectureId}
- const relatedBooks = new Set(entries.filter(row => entry && sameTeachingCourse(entry, row) && row.textbookId).map(row => row.textbookId!))
+ const relatedBooks = new Set(
+  entries.filter(row => entry && sameTeachingCourse(entry, row) && row.textbookId).map(row => row.textbookId!)
+ )
  const savedCourseBook = relatedBooks.size === 1 ? [...relatedBooks][0] : undefined
  const suggestedBook = !bookId ? savedCourseBook || standaloneBook : undefined
  const savedBookSessions = new Set(savedEntries.filter(row => row.textbookId === bookId).map(row => row.id))
  const bookSessions = entries.filter(row => row.textbookId === bookId)
- const savedAssociation = bookSessions.length === savedBookSessions.size && bookSessions.every(row => savedBookSessions.has(row.id))
+ const savedAssociation =
+  bookSessions.length === savedBookSessions.size && bookSessions.every(row => savedBookSessions.has(row.id))
  useEffect(() => {
   setAnalysisError('')
  }, [selected, bookId, reopenVersion, first, last, entry?.lectureId, entry?.subId, entry?.chapter])
  useEffect(() => {
-  setDraft(current => current?.source === 'teacher' ? null : current)
+  setDraft(current => (current?.source === 'teacher' ? null : current))
  }, [entry?.lectureId, entry?.subId])
  useEffect(() => {
   setDraft(null)
@@ -150,12 +144,16 @@ export function Study({ // NOSONAR: transitional TS fallback/UI flow retained fo
   if (!visible || tab !== 'textbook' || !bookId || book) return
   let active = true
   setBookFailure(null)
-  void invoke<Book>('textbook:resolve', {id: bookId}).then(result => {
-   if (active) setBooks(current => ({...current, [result.id]: result}))
-  }).catch(reason => {
-   if (active) setBookFailure({id: bookId, message: reason instanceof Error ? reason.message : String(reason)})
-  })
-  return () => { active = false }
+  void invoke<Book>('textbook:resolve', {id: bookId})
+   .then(result => {
+    if (active) setBooks(current => ({...current, [result.id]: result}))
+   })
+   .catch(reason => {
+    if (active) setBookFailure({id: bookId, message: errorMessage(reason)})
+   })
+  return () => {
+   active = false
+  }
  }, [bookId, book, visible, tab])
  async function run(task: () => Promise<void>, onError?: (reason: unknown) => void) {
   if (working.current) return false
@@ -173,23 +171,21 @@ export function Study({ // NOSONAR: transitional TS fallback/UI flow retained fo
    working.current = false
    setBusy(false)
    setProgress(null)
+   setImportStatus(null)
   }
  }
  function loadSchedule() {
   if (loaded.current) return
   loaded.current = true
-  setInitialSchedule('loading')
   void invoke<StudyEntry[]>('study:get')
    .then(rows => {
     setEntries(rows)
-    // Keep an independently opened book if the user retries after a failed timetable load.
-    if (!readingContext.current.bookId) setSelected(rows[0]?.id || '')
     setSavedEntries(rows)
-    setInitialSchedule('ready')
+    if (!readingContext.current.bookId) setSelected(rows[0]?.id || '')
    })
    .catch(reason => {
     loaded.current = false
-    setInitialSchedule({error: errorMessage(reason)})
+    notify.error(reason, {title: '读取课表失败'})
    })
  }
  useEffect(() => {
@@ -198,7 +194,9 @@ export function Study({ // NOSONAR: transitional TS fallback/UI flow retained fo
  useEffect(
   () =>
    window.assistant.onEvent(event => {
-    if (working.current && event.kind === 'progress') setProgress(event.data)
+    if (!working.current) return
+    if (event.kind === 'progress') setProgress(event.data)
+    else if (event.kind === 'study-import') setImportStatus(event.data)
    }),
   []
  )
@@ -210,9 +208,9 @@ export function Study({ // NOSONAR: transitional TS fallback/UI flow retained fo
     .then(value => {
      if (active) setDetail(value)
     })
-   .catch(reason => {
-    if (active) notify.error(reason, {title: '读取课程信息失败'})
-   })
+    .catch(reason => {
+     if (active) notify.error(reason, {title: '读取课程信息失败'})
+    })
   return () => {
    active = false
   }
@@ -266,66 +264,51 @@ export function Study({ // NOSONAR: transitional TS fallback/UI flow retained fo
   setDraft(null)
   setChosen([])
  }
- function clearSchedule() {
-  matching.reset()
-  tracker.clear()
-  setEntries([])
-  setSelected('')
+ function deleteEntries(ids: string[]) {
+  const removing = new Set(ids),
+   rows = entries.filter(item => !removing.has(item.id))
+  setEntries(rows)
+  if (removing.has(selected)) setSelected(rows[0]?.id || '')
   setDraft(null)
   setChosen([])
  }
  function save() {
   void run(async () => {
-   matching.stop()
    const rows = await invoke<StudyEntry[]>('study:save', {entries})
-   // Keep any edits made while the save was in flight as a new draft.
-   setEntries(current => current === entries ? rows : current)
+   setEntries(rows)
    setSavedEntries(rows)
-   tracker.markSaved()
-   notify.success(`课表已保存，共 ${rows.length} 个课次。`)
-   if (refresh) {
-    try {
-     await refresh()
-    } catch (reason) {
-     notify.error(reason, {title: '课表已保存，刷新本地课程详情失败'})
-    }
-   }
+   await refresh()
+   notify.success('课表已保存，已关联课次的名称和聊天标题已同步更新。', {timeout: 8000})
   })
  }
- async function parseSchedule(text: string | null, nextTimezone: string) {
-  const fromImage = text === null
-  if (!fromImage && !validTimeZone(nextTimezone)) {
+ async function parseSchedule(text: string, nextTimezone: string) {
+  if (!validTimeZone(nextTimezone)) {
    notify.warning('课表时区无效，请填写类似 Asia/Shanghai 的时区。')
    return false
   }
-  let imported = false, requestId: string | undefined
-  await run(async () => {
-   if (fromImage) requestId = tracker.begin()
-   const input = fromImage ? {source: 'image', requestId} : {text, timezone: nextTimezone}
-   const rows = await invoke<StudyEntry[] | null>('study:parse', input)
-   if (!rows) {
-    if (requestId) tracker.cancel(requestId)
-    return
-   }
-   if (!rows.length) throw new Error(fromImage ? '图片中没有识别到课程，请换一张清晰的课表截图或手动添加。' : '课表缺少明确的日期、结束时间或章节，或课程无法匹配，请补充后重试')
-   if (!fromImage) {
-    matching.reset()
-    tracker.clear()
-    setTimezone(nextTimezone)
-   }
-   setEntries(current => fromImage ? [...current, ...rows] : rows)
+  return run(async () => {
+   const rows = await invoke<StudyEntry[]>('study:parse', {text, timezone: nextTimezone})
+   if (!rows.length) throw new Error('课表缺少明确的日期、结束时间或章节，或课程无法匹配，请补充后重试')
+   setTimezone(nextTimezone)
+   setEntries(rows)
    setSelected(rows[0].id)
    setDraft(null)
    setChosen([])
-   imported = true
-   if (requestId) {
-    tracker.finish(requestId, rows.length)
-    void matching.match(rows)
-   } else notify.info(`已识别 ${rows.length} 条课次，请核对后保存。`, {timeout: 6000})
-  }, reason => {
-   if (requestId) tracker.fail(requestId, reason)
+   notify.info(`已识别 ${rows.length} 条课次，请逐条核对并关联课次后保存。`, {timeout: 6000})
   })
-  return imported
+ }
+ async function parseScheduleImage() {
+  const requestId = crypto.randomUUID()
+  return run(async () => {
+   const rows = await invoke<StudyEntry[] | null>('study:parse', {source: 'image', requestId})
+   if (!rows) return
+   if (!rows.length) throw new Error('图片中没有识别到课程，请换一张清晰的课表截图，或手动添加。')
+   setEntries(current => [...current, ...rows])
+   setSelected(rows[0].id)
+   setDraft(null)
+   setChosen([])
+   notify.info(`已识别 ${rows.length} 条每周课程，请核对星期、节次和课程名后保存。`, {timeout: 6000})
+  })
  }
  function pickBook() {
   const target = selected
@@ -333,7 +316,6 @@ export function Study({ // NOSONAR: transitional TS fallback/UI flow retained fo
   void run(async () => {
    const result = await invoke<Book | null>('textbook:pick')
    if (!result) return
-   // Reopening a path keeps its catalog ID even if the PDF bytes have changed.
    if (readingContext.current.bookId === result.id) setReopenVersion(value => value + 1)
    setBooks(current => ({...current, [result.id]: result}))
    setBookFailure(null)
@@ -387,14 +369,22 @@ export function Study({ // NOSONAR: transitional TS fallback/UI flow retained fo
    setAnalysisError('')
    setDraft(null)
    setChosen([])
-   const result = await invoke<Draft>('textbook:analyze', {id: book.id, entryId: hasClass ? entry?.id : undefined, first, last})
+   const result = await invoke<Draft>('textbook:analyze', {
+    id: book.id,
+    entryId: hasClass ? entry?.id : undefined,
+    first,
+    last
+   })
    if (!currentSource()) return
-   // A textbook-only explanation can share a draft with a transcript match.
-   // The teacher review and its save button operate only on marks with an actual transcript quote.
-   const rows = source === 'teacher' ? result.rows.filter(row => row.comments?.some(c => c.kind === 'teacher' && c.quote?.trim())) : result.rows
+   const rows = source === 'teacher'
+    ? result.rows.filter(row => row.comments?.some(comment => comment.kind === 'teacher' && comment.quote?.trim()))
+    : result.rows
    setDraft({...result, rows, source, analyzedRange: [first, last]})
    setChosen(rows.map(row => row.id))
-   notify.info(analyzeNotice(source, result, rows, last - first + 1), {timeout: 6000})
+   notify.info(
+    rows.length ? '请核对划线内容、位置与依据，再保存到原教材。' : '此范围没有找到依据充分的内容，原教材未修改。',
+    {timeout: 6000}
+   )
   }, reason => {
    if (currentSource()) setAnalysisError(errorMessage(reason))
   })
@@ -458,14 +448,11 @@ export function Study({ // NOSONAR: transitional TS fallback/UI flow retained fo
   onAdd: addEntry,
   onUpdate: update,
   onDelete: deleteEntry,
-  onClear: clearSchedule,
+  onDeleteMany: deleteEntries,
   onSave: save,
-  onCourseBook: () => entry?.textbookId ? setTab('textbook') : pickBook(),
-  linkTarget,
-  onLinkShown: () => setLinkTarget(''),
   onTimezone: setTimezone,
-  importStatus: tracker.status,
-  onParse: parseSchedule
+  onParse: parseSchedule,
+  onParseImage: parseScheduleImage
  }
  const textbookProps: TextbookProps = {
   entry,
@@ -487,15 +474,17 @@ export function Study({ // NOSONAR: transitional TS fallback/UI flow retained fo
    setTab('schedule')
   },
   onSaveSchedule: save,
-  bookSuggestion: savedCourseBook ? '使用本课程已选教材' : '将刚才单独阅读的教材用于此课程',
-  useCourseBook: entry && suggestedBook ? () => setEntries(rows => setSessionTextbook(rows, entry.id, suggestedBook, true)) : undefined,
+  bookSuggestion: savedCourseBook ? '使用本课程已选教材' : '将刚才单独阅读的教材用于此课次',
+  useCourseBook:
+   entry && suggestedBook
+    ? () => setEntries(rows => setSessionTextbook(rows, entry.id, suggestedBook, true))
+    : undefined,
   timezone,
   onLinkSession: (id, checked) => {
    if (!bookId) return
    const previousBook = savedEntries.find(row => row.id === id)?.textbookId
    setEntries(rows => setSessionTextbook(rows, id, bookId, checked, previousBook))
    if (!checked && id === selected) {
-    // Keep the open PDF visible when its current session is unchecked.
     setStandaloneBook(bookId)
     selectEntry('')
    }
@@ -514,7 +503,6 @@ export function Study({ // NOSONAR: transitional TS fallback/UI flow retained fo
   draft,
   chosen,
   busy,
-  progress,
   pdfVersion,
   onPdfSaved: () => setPdfVersion(value => value + 1),
   onPickBook: pickBook,
@@ -523,7 +511,6 @@ export function Study({ // NOSONAR: transitional TS fallback/UI flow retained fo
    if (book) void run(() => invoke('textbook:open', {id: book.id}))
   },
   onRemoveHighlights: removeHighlights,
-  onCancel: () => void invoke('cancel'),
   onPageNumber: goPage,
   onFirst: changeFirst,
   onLast: changeLast,
@@ -531,66 +518,47 @@ export function Study({ // NOSONAR: transitional TS fallback/UI flow retained fo
   onApply: applyDraft,
   onManual: manual,
   onGoSchedule: () => {
-   // Standalone readers can start an unsaved course association with this PDF already attached.
-   setLinkTarget(entry?.id || addEntry(true, book?.id) || '')
+   if (!entry) {
+    const id = addEntry(false, book?.id)
+    if (id) setSelected(id)
+   }
    setTab('schedule')
   }
  }
- function scheduleBody() {
-  if (initialSchedule === 'loading')
-   return <output className="study-menu__hint">正在读取已保存的课表…</output>
-  if (typeof initialSchedule === 'object')
-   return (
-    <div className="textbook-next">
-     <p role="alert" className="study-inline-error">
-      读取课表失败。{initialSchedule.error}
-     </p>
-     <StudyNextStep>点「重新读取课表」，载入已保存的课程。</StudyNextStep>
-     <Button variant="primary" size="sm" onPress={loadSchedule}>
-      重新读取课表
-     </Button>
-    </div>
-   )
-  return (
-   <ScheduleContent {...scheduleProps}>
-    {toolsOpen => (
-     <ScheduleMatching
-      matching={matching}
-      entries={entries}
-      selected={selected}
-      onSelect={selectEntry}
-      courses={courses}
-      busy={busy}
-      openZhiyun={openZhiyun}
-      toolsOpen={toolsOpen}
-     />
-    )}
-   </ScheduleContent>
-  )
- }
- const welcome = !entries.length && (tab === 'schedule' || !book)
- const activeCourse = tab === 'textbook' && entry
-  ? [entry.title || '未命名课次', courseName !== entry.title ? courseName : ''].filter(Boolean).join(' · ')
-  : undefined
- function closeStudy() {
-  if (dirty) setConfirmClose(true)
-  else close()
- }
+ let subheading = '还没有打开教材'
+ if (tab === 'schedule') subheading = `${entries.length} 个课次 · 保存后会同步已关联课次的名称`
+ else if (entry) subheading = `${entry.title || '未命名课次'}${courseName ? ' · ' + courseName : ''}`
+ else if (book) subheading = `${book.pages} 页教材`
+ let modeStatus = '未选择教材'
+ if (importStatus) modeStatus = importLabels[importStatus.phase]
+ else if (busy) modeStatus = `${progress?.stage || '正在处理'}…`
+ else if (tab === 'schedule') modeStatus = '课表设置'
+ else if (book) modeStatus = `${book.pages} 页教材`
  return (
   <>
    <WindowPanel
     visible={visible}
-    className={'study-window' + (tab === 'textbook' ? ' study-window--textbook' : '') + (welcome ? ' study-window--welcome' : '')}
+    className={'study-window' + (tab === 'textbook' ? ' study-window--textbook' : '')}
     label="课表与教材"
-    title={tab === 'schedule' ? '课次列表' : '我的教材'}
-    description={null}
-    heading="课表与教材"
-    subheading={activeCourse}
-    close={closeStudy}
-    actions={welcome && (
-     <Button variant="ghost" size="sm" onPress={closeStudy}><ArrowLeft size={16} aria-hidden="true" />返回课程对话</Button>
-    )}
-    menu={tab === 'schedule' ? <ScheduleMenu {...scheduleProps} /> : <TextbookMenu {...textbookProps} />}
+    title="课表与教材"
+    description="先准备课表，再为每节课设置教材页面与划线。"
+    heading={tab === 'schedule' ? '课表' : '教材划线'}
+    subheading={subheading}
+    close={() => {
+     if (dirty) setConfirmClose(true)
+     else close()
+    }}
+    menuScrollable={false}
+    menu={
+     <div className="study-menu-stack">
+      <div className="study-menu-pane" hidden={tab !== 'schedule'}>
+       <ScheduleMenu {...scheduleProps} />
+      </div>
+      <div className="study-menu-pane" hidden={tab !== 'textbook'}>
+       <TextbookMenu {...textbookProps} />
+      </div>
+     </div>
+    }
    >
     <Tabs
      className="study-tabs"
@@ -600,7 +568,7 @@ export function Study({ // NOSONAR: transitional TS fallback/UI flow retained fo
      }}
     >
      <div className="study-modebar">
-      <div className="app-tabs__list-container tabs__list-container">
+      <Tabs.ListContainer className="app-tabs__list-container">
        <Tabs.List aria-label="课表与教材">
         <Tabs.Tab className="app-tabs__tab" id="schedule">
          课表
@@ -611,25 +579,22 @@ export function Study({ // NOSONAR: transitional TS fallback/UI flow retained fo
          <Tabs.Indicator />
         </Tabs.Tab>
        </Tabs.List>
-      </div>
+      </Tabs.ListContainer>
+      <small className="study-modebar__status">{modeStatus}</small>
      </div>
      <Tabs.Panel
       className={'study-panel' + (tab !== 'schedule' ? ' study-panel--hidden' : '')}
       id="schedule"
       shouldForceMount
      >
-      {scheduleBody()}
+      <ScheduleContent {...scheduleProps} />
      </Tabs.Panel>
      <Tabs.Panel
       className={'study-panel' + (tab !== 'textbook' ? ' study-panel--hidden' : '')}
       id="textbook"
       shouldForceMount
      >
-      {initialSchedule === 'loading' ? (
-       <output className="study-menu__hint">正在读取教材的课程关联…</output>
-      ) : (
-       <TextbookContent key={`${bookId}/${reopenVersion}`} {...textbookProps} />
-      )}
+      <TextbookContent key={`${bookId}/${reopenVersion}`} {...textbookProps} />
      </Tabs.Panel>
     </Tabs>
    </WindowPanel>
@@ -639,8 +604,6 @@ export function Study({ // NOSONAR: transitional TS fallback/UI flow retained fo
      confirmLabel="放弃并关闭"
      onCancel={() => setConfirmClose(false)}
      onConfirm={() => {
-      matching.reset()
-      tracker.clear()
       setEntries(savedEntries)
       setSelected(savedEntries.find(row => row.id === selected)?.id ?? savedEntries[0]?.id ?? '')
       setDraft(null)
@@ -649,7 +612,7 @@ export function Study({ // NOSONAR: transitional TS fallback/UI flow retained fo
       close()
      }}
     >
-     课表还有未保存的修改。放弃后将恢复为上次保存的课表。
+      左侧课表还有未保存的修改。关闭窗口不会丢失已保存的课次，但会放弃这些修改。
     </ConfirmDialog>
    ) : null}
   </>

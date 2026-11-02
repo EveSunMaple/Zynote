@@ -1,5 +1,5 @@
 import {Button, Input} from '@heroui/react'
-import {useEffect, useRef, useState} from 'react'
+import {useEffect, useState} from 'react'
 import {SelectField} from '@renderer/ui/SelectField'
 import {notify} from '@renderer/ui/ToastHost'
 import type {Profile, Settings} from '@shared/types'
@@ -15,40 +15,6 @@ const fallback: Profile = {
  models: []
 }
 const jobRunning = (error: unknown) => /当前已有任务运行/.test(error instanceof Error ? error.message : String(error))
-
-// 模型读取和测试共用后台任务槽。其他任务运行时只查任务状态，避免反复禁用表单。
-function whenJobsIdle<T>(
- delay: number,
- request: () => Promise<T>,
- waiting: () => void,
- done: (result: T) => void,
- failed: (error: unknown) => void
-) {
- let active = true
- let timer = window.setTimeout(check, delay)
- function wait() {
-  waiting()
-  timer = window.setTimeout(check, 1500)
- }
- async function check() {
-  try {
-   const job = await invoke('job:current')
-   if (!active) return
-   if (job) return wait()
-   const result = await request()
-   if (active) done(result)
-  } catch (error) {
-   if (!active) return
-   if (jobRunning(error)) wait()
-   else failed(error)
-  }
- }
- return () => {
-  active = false
-  window.clearTimeout(timer)
- }
-}
-
 export function QwenSettings({
  value,
  update,
@@ -64,18 +30,19 @@ export function QwenSettings({
   [manualText, setManualText] = useState(''),
   [manualVision, setManualVision] = useState(''),
   [reading, setReading] = useState(false),
+  [testing, setTesting] = useState(false),
+  [attempt, setAttempt] = useState(0),
+  [probeAttempt, setProbeAttempt] = useState(0),
   [available, setAvailable] = useState<boolean | null>(null)
  const profile = value.profiles.find(p => p.id === value.activeProfile) || value.profiles[0] || fallback
- const latestProfile = useRef(profile)
- latestProfile.current = profile
  useEffect(() => {
   if (!value.profiles.length) update({profiles: [fallback], activeProfile: fallback.id, connection: 'qwen'})
  }, [])
  const patch = (fields: Partial<Profile>) =>
   update({
    connection: 'qwen',
-   activeProfile: latestProfile.current.id,
-   profiles: [{...latestProfile.current, ...fields, provider: 'qwen', apiFormat: 'chat_completions'}]
+   activeProfile: profile.id,
+   profiles: [{...profile, ...fields, provider: 'qwen', apiFormat: 'chat_completions'}]
   })
  const disabled = busy || reading,
   hasKey = !!(profile.apiKey?.trim() || profile.hasKey),
@@ -88,66 +55,81 @@ export function QwenSettings({
  else if (unavailable) visionPlaceholder = '暂无可用的视觉模型'
  // 自动读取可用模型：进入页面、地址或密钥变化时重新读取；失败即视为 API 不可用。
  useEffect(() => {
-  setReading(false)
-  setAvailable(false)
   if (!hasKey) {
+   setAvailable(false)
    setNotice('填写并保存通义千问 API Key 后自动读取可用模型')
    return
   }
-  const waiting = () => {
-   setReading(false)
-   setNotice('任务运行中，稍后自动读取模型')
+  if (busy) return
+  let cancelled = false
+  const timer = setTimeout(() => {
+   setReading(true)
+   setNotice('正在读取可用模型…')
+   void invoke<string[]>('settings:models', {profile})
+    .then(models => {
+     if (cancelled) return
+     patch({models})
+     setAvailable(true)
+     setNotice(`已自动读取 ${models.length} 个可用模型`)
+    })
+    .catch(error => {
+     if (cancelled) return
+     if (jobRunning(error)) {
+      setNotice('任务运行中，稍后自动重试读取模型')
+      setTimeout(() => {
+       if (!cancelled) setAttempt(value => value + 1) // NOSONAR: nested callbacks mirror the protocol/UI structure; extraction would obscure ordering.
+      }, 1500)
+      return
+     }
+     setAvailable(false)
+     setNotice(error instanceof Error ? error.message : String(error))
+     notify.error(error, {title: '读取可用模型失败'})
+    })
+    .finally(() => {
+     if (!cancelled) setReading(false)
+    })
+  }, 700)
+  return () => {
+   cancelled = true
+   clearTimeout(timer)
   }
-  if (busy) return waiting()
-  return whenJobsIdle(
-   700,
-   () => {
-    setReading(true)
-    setNotice('正在读取可用模型…')
-    return invoke<string[]>('settings:models', {profile: latestProfile.current})
-   },
-   waiting,
-   models => {
-    const added = (latestProfile.current.models || []).filter(model => !profile.models?.includes(model))
-    patch({models: [...new Set([...models, ...added])]})
-    setReading(false)
-    setAvailable(true)
-    setNotice(`已自动读取 ${models.length} 个可用模型`)
-   },
-   error => {
-    setReading(false)
-    setNotice(error instanceof Error ? error.message : String(error))
-    notify.error(error, {title: '读取可用模型失败'})
-   }
-  )
- }, [profile.baseUrl, profile.apiKey, profile.hasKey, profile.id, busy])
+ }, [profile.baseUrl, profile.apiKey, profile.hasKey, profile.id, busy, attempt])
  // 自动测试连接：读取成功后，所选文本模型或连接信息变化时静默测试。
  useEffect(() => {
-  if (busy || !available || !hasKey) return
-  if (!profile.model) {
-   setNotice(`已自动读取 ${profile.models?.length ?? 0} 个可用模型`)
-   return
+  if (busy || !available || !hasKey || !profile.model) return
+  let cancelled = false
+  const timer = setTimeout(() => {
+   setTesting(true)
+   void invoke<string>('settings:probe', {profile})
+    .then(reply => {
+     if (!cancelled) setNotice('连接测试成功：' + reply)
+    })
+    .catch(error => {
+     if (cancelled) return
+     if (jobRunning(error)) {
+      setTimeout(() => {
+       if (!cancelled) setProbeAttempt(value => value + 1) // NOSONAR: nested callbacks mirror the protocol/UI structure; extraction would obscure ordering.
+      }, 1500)
+      return
+     }
+     setNotice('连接测试失败：' + (error instanceof Error ? error.message : String(error)))
+     notify.error(error, {title: '连接测试失败'})
+    })
+    .finally(() => {
+     if (!cancelled) setTesting(false)
+    })
+  }, 500)
+  return () => {
+   cancelled = true
+   clearTimeout(timer)
   }
-  return whenJobsIdle(
-   500,
-   () => {
-    setNotice('正在自动测试连接…')
-    return invoke<string>('settings:probe', {profile: latestProfile.current})
-   },
-   () => setNotice('任务运行中，稍后自动测试连接'),
-   reply => setNotice('连接测试成功：' + reply),
-   error => {
-    setNotice('连接测试失败：' + (error instanceof Error ? error.message : String(error)))
-    notify.error(error, {title: '连接测试失败'})
-   }
-  )
- }, [profile.model, profile.baseUrl, profile.apiKey, profile.hasKey, profile.id, available, busy])
+ }, [profile.model, profile.baseUrl, profile.apiKey, profile.hasKey, available, busy, probeAttempt])
  const known = [...new Set(profile.models || [])]
- // qwen3.8-flash 支持图像输入，但模型名不含 VL。
+ // VL 名称仅作候选提示，实际能力由服务商确认。
  const visionCandidates = [
   ...new Set([
    profile.visionModel || '',
-   ...(profile.models || []).filter(model => model === 'qwen3.8-flash' || /(?:^|[-_/.])vl(?:$|[-_/.\d])/i.test(model))
+   ...(profile.models || []).filter(model => /(?:^|[-_/.])vl(?:$|[-_/.\d])/i.test(model))
   ])
  ]
  return (
@@ -179,9 +161,6 @@ export function QwenSettings({
      value={profile.baseUrl}
      onChange={e => patch({baseUrl: e.target.value})}
     />
-    <small className="hint">
-     使用业务空间密钥时，从百炼控制台复制该空间的 API 地址，保留末尾的 /compatible-mode/v1。
-    </small>
    </label>
    <label>
     通义千问 API Key
@@ -267,15 +246,16 @@ export function QwenSettings({
     </Button>
    </div>
    <p className="hint">
-    课表截图等图片任务使用视觉模型。可从列表选择 qwen3.8-flash 或 VL 模型，也可手动填写支持图像输入的模型
+    请选择服务端可用的文本模型和视觉模型。含图像的任务使用视觉模型。视觉候选按可用模型的 VL
+    名称筛选，名称不保证支持图像；请核对服务商说明，也可手动填写完整
     ID。模型调用会将字幕、图片和课程资料发送到你配置的服务端。
    </p>
-   {notice && (
+   {(notice || testing) && (
     <p // NOSONAR: existing element/role semantics are intentional for layout and keyboard behavior.
      role="status" // NOSONAR: styled live region; native output would change layout and announcement behavior.
      className="notice"
     >
-     {notice}
+     {testing ? '正在自动测试连接…' : notice}
     </p>
    )}
   </div>

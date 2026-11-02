@@ -1,10 +1,9 @@
 import {useEffect, useMemo, useRef, useState, type CSSProperties, type Ref} from 'react'
-import {Button, Checkbox, Disclosure, NumberField, ProgressBar, Spinner, TextArea} from '@heroui/react'
+import {Button, Checkbox, Disclosure, NumberField, ScrollShadow, TextArea} from '@heroui/react'
 import {
  BookOpen,
  ChevronLeft,
  ChevronRight,
- Ellipsis,
  Highlighter,
  MessagesSquare,
  Scan,
@@ -28,7 +27,6 @@ import {SettingsLink} from '@renderer/app/settings-navigation'
 import type {AnalysisSource, Book, Draft} from '@renderer/features/study/types'
 import type {Highlight, StudyEntry} from '@shared/study'
 import {highlightLabels} from '@shared/study'
-import type {Progress} from '@shared/types'
 import '@renderer/features/study/textbook-workspace.css'
 
 export type TextbookProps = Readonly<{
@@ -59,14 +57,12 @@ export type TextbookProps = Readonly<{
  draft: Draft | null
  chosen: string[] // NOSONAR: shared props type; this member is used by the sibling component.
  busy: boolean
- progress: Progress | null // NOSONAR: shared props type; this member is used by the sibling component.
  pdfVersion: number // NOSONAR: shared props type; this member is used by the sibling component.
  onPdfSaved: () => void
  onPickBook: () => void // NOSONAR: shared props type; this member is used by the sibling component.
  onAnalyze: (source: AnalysisSource) => void
  onOpenBook: () => void // NOSONAR: shared props type; this member is used by the sibling component.
  onRemoveHighlights: () => void // NOSONAR: shared props type; this member is used by the sibling component.
- onCancel: () => void // NOSONAR: shared props type; this member is used by the sibling component.
  onPageNumber: (page: number) => void
  onFirst: (page: number) => void // NOSONAR: shared props type; this member is used by the sibling component.
  onLast: (page: number) => void // NOSONAR: shared props type; this member is used by the sibling component.
@@ -143,203 +139,93 @@ function Overlay({
 
 export function TextbookMenu(props: TextbookProps) {
  const {book, entry, busy} = props
- return (
-  <div className="study-menu">
-   <section className="study-side-card">
-    <small>当前课次</small>
-    {props.entries.length ? (
-     <SelectField
-      label="当前课次"
-      value={entry?.id || 'standalone'}
-      searchable={props.entries.length > 8}
-      isDisabled={busy}
-      onChange={value => props.onSelectEntry(value === 'standalone' ? '' : value)}
-      options={[
-       {value: 'standalone', label: '独立阅读'},
-       ...props.entries.map(row => ({
-        value: row.id,
-        label: row.title || '未命名课次',
-        description: sessionDescription(row, props.timezone)
-       }))
-      ]}
-     />
-    ) : (
-     <span>独立阅读</span>
-    )}
-    {entry && <span>{sessionDescription(entry, props.timezone)}</span>}
-   </section>
-   {book && (
-    <>
-     <div className="study-book">
-      <small>当前教材</small>
-      <strong title={book.path}>{basename(book.path)}</strong>
-      <small>{book.pages} 页</small>
-     </div>
-     <TextbookSessions
-      key={book.id}
-      entries={props.entries}
-      bookId={book.id}
-      currentTitle={entry?.title}
-      timezone={props.timezone}
-      busy={busy}
-      onLink={props.onLinkSession}
-     />
-    </>
-   )}
-   {props.useCourseBook && (
-    <Button variant="tertiary" size="sm" isDisabled={busy} onPress={props.useCourseBook}>
-     {props.bookSuggestion}
-    </Button>
-   )}
-   {book && !props.savedAssociation && <p className="study-menu__hint">教材关联待保存</p>}
-   {props.dirty && (entry || book) && (
-    <>
-     <Button variant="secondary" size="sm" isDisabled={busy || props.issues > 0} onPress={props.onSaveSchedule}>
-      保存课表与教材关联
-     </Button>
-     {props.issues > 0 && (
-      <Button variant="ghost" size="sm" onPress={props.onReviewIssues}>
-       返回课表补全必填项（{props.issues}）
-      </Button>
-     )}
-    </>
-   )}
-  </div>
- )
-}
-
-function TextbookProgress({busy, progress, onCancel}: Pick<TextbookProps, 'busy' | 'progress' | 'onCancel'>) {
- if (!busy) return null
- return (
-  <section // NOSONAR: existing element/role semantics are intentional for layout and keyboard behavior.
-   className="study-progress"
-   role="status" // NOSONAR: styled live region; native output would change layout and announcement behavior.
-  >
-   <Spinner size="sm" />
-   <div>
-    <strong>{progress?.stage || '正在处理教材'}</strong>
-    <small>{progress?.message || '请稍候'}</small>
-   </div>
-   <Button variant="ghost" size="sm" onClick={onCancel}>
-    取消
-   </Button>
-   {progress?.part !== undefined && progress?.total !== undefined ? (
-    <ProgressBar aria-label="分析进度" maxValue={progress.total} value={progress.part}>
-     <ProgressBar.Track>
-      <ProgressBar.Fill />
-     </ProgressBar.Track>
-    </ProgressBar>
-   ) : null}
-  </section>
- )
-}
-
-function TextbookMore(props: TextbookProps & {rangeInput: Ref<HTMLInputElement>}) {
- const {book, pageNumber, first, last, busy, onFirst, onLast, onPageNumber, onOpenBook, onRemoveHighlights} = props
  const [confirmRemove, setConfirmRemove] = useState(false)
- if (!book) return null
- const problem = rangeProblem(first, last, book.pages)
  return (
-  <div className="textbook-more" id="textbook-more">
-   <section className="study-side-section">
-    <h3>页码范围</h3>
-    <p className="study-menu__hint">
-     {props.followsPage
-      ? '跟随阅读页，从当前页起最多分析 5 页。手动修改页码可以固定范围。'
-      : '已固定分析范围，翻页不会改变起止页。'}
-    </p>
-    {!props.followsPage && (
-     <Button variant="ghost" size="sm" isDisabled={busy} onPress={props.onFollowPage}>
-      恢复跟随阅读页
+  <div className="study-menu study-menu--fixed">
+   <ScrollShadow className="study-menu__scroll" orientation="vertical">
+    <section className="study-side-card">
+     <small>当前课次</small>
+     {props.entries.length ? (
+      <SelectField
+       label="当前课次"
+       value={entry?.id || 'standalone'}
+       searchable={props.entries.length > 8}
+       isDisabled={busy}
+       onChange={value => props.onSelectEntry(value === 'standalone' ? '' : value)}
+       options={[
+        {value: 'standalone', label: '独立阅读'},
+        ...props.entries.map(row => ({
+         value: row.id,
+         label: row.title || '未命名课次',
+         description: sessionDescription(row, props.timezone)
+        }))
+       ]}
+      />
+     ) : (
+      <span>独立阅读</span>
+     )}
+     {entry && <span>{sessionDescription(entry, props.timezone)}</span>}
+    </section>
+    {book && (
+     <>
+      <div className="study-book">
+       <small>当前教材</small>
+       <strong title={book.path}>{basename(book.path)}</strong>
+       <small>{book.pages} 页</small>
+      </div>
+      <section className="study-side-section">
+       <h3>文件操作</h3>
+       <Button variant="tertiary" size="sm" isDisabled={busy} onPress={props.onPickBook}>
+        更换教材 PDF
+       </Button>
+       <div className="study-side-actions">
+        <Button variant="ghost" size="sm" isDisabled={busy} onPress={props.onOpenBook}>
+         打开原教材
+        </Button>
+        <Button variant="ghost" size="sm" isDisabled={busy} onPress={() => props.onPageNumber(1)}>
+         回到第一页
+        </Button>
+       </div>
+       <div className="study-danger-zone study-danger-zone--compact">
+        <div>
+         <strong>移除软件划线</strong>
+         <small>原有批注会保留。</small>
+        </div>
+        <Button variant="danger-soft" size="sm" isDisabled={busy} onPress={() => setConfirmRemove(true)}>
+         移除划线
+        </Button>
+       </div>
+      </section>
+      <TextbookSessions
+       key={book.id}
+       entries={props.entries}
+       bookId={book.id}
+       currentTitle={entry?.title}
+       timezone={props.timezone}
+       busy={busy}
+       onLink={props.onLinkSession}
+      />
+     </>
+    )}
+    {props.useCourseBook && (
+     <Button variant="tertiary" size="sm" isDisabled={busy} onPress={props.useCourseBook}>
+      {props.bookSuggestion}
      </Button>
     )}
-    <div className="study-range">
-     <StudyField label="起始页">
-      <NumberField
-       aria-label="章节起始页"
-       isDisabled={busy}
-       minValue={1}
-       maxValue={book.pages}
-       value={first}
-       onChange={value => onFirst(value)}
-      >
-       <NumberField.Group>
-        <NumberField.DecrementButton />
-        <NumberField.Input ref={props.rangeInput} onFocus={event => event.currentTarget.select()} />
-        <NumberField.IncrementButton />
-       </NumberField.Group>
-      </NumberField>
-     </StudyField>
-     <StudyField label="结束页">
-      <NumberField
-       aria-label="章节结束页"
-       isDisabled={busy}
-       minValue={1}
-       maxValue={book.pages}
-       value={last}
-       onChange={value => onLast(value)}
-      >
-       <NumberField.Group>
-        <NumberField.DecrementButton />
-        <NumberField.Input onFocus={event => event.currentTarget.select()} />
-        <NumberField.IncrementButton />
-       </NumberField.Group>
-      </NumberField>
-     </StudyField>
-    </div>
-    <div className="study-range-actions">
-     <Button
-      variant="ghost"
-      size="sm"
-      isDisabled={busy}
-      onClick={() => {
-       onFirst(pageNumber)
-       if (last < pageNumber) onLast(pageNumber)
-      }}
-     >
-      当前页设为起点
-     </Button>
-     <Button variant="ghost" size="sm" isDisabled={busy} onClick={() => onLast(pageNumber)}>
-      当前页设为终点
-     </Button>
-    </div>
-    <p className={problem ? 'study-side-hint study-side-hint--warning' : 'study-side-hint'}>
-     {problem || `将分析第 ${first}–${last} 页，共 ${last - first + 1} 页。`}
-    </p>
-   </section>
-   <section className="study-side-section study-side-section--quiet">
-    <h3>批注颜色</h3>
-    <ul className="textbook-color-key" aria-label="批注颜色">
-     {sourceKeys.map(source => (
-      <li key={source}>
-       <SourceLabel source={source} />
-      </li>
-     ))}
-    </ul>
-   </section>
-   <section className="study-side-section study-side-section--quiet">
-    <h3>文件操作</h3>
-    <Button variant="tertiary" size="sm" isDisabled={busy} onPress={props.onPickBook}>
-     更换教材 PDF
-    </Button>
-    <div className="study-side-actions">
-     <Button variant="ghost" size="sm" isDisabled={busy} onClick={onOpenBook}>
-      打开原教材
-     </Button>
-     <Button variant="ghost" size="sm" isDisabled={busy} onClick={() => onPageNumber(1)}>
-      回到第一页
-     </Button>
-    </div>
-    <div className="study-danger-zone study-danger-zone--compact">
-     <div>
-      <strong>移除软件划线</strong>
-      <small>原有批注会保留。</small>
-     </div>
-     <Button variant="danger-soft" size="sm" isDisabled={busy} onClick={() => setConfirmRemove(true)}>
-      移除划线
-     </Button>
-    </div>
-   </section>
+    {book && !props.savedAssociation && <p className="study-menu__hint">教材关联待保存</p>}
+    {props.dirty && (entry || book) && (
+     <>
+      <Button variant="secondary" size="sm" isDisabled={busy || props.issues > 0} onPress={props.onSaveSchedule}>
+       保存课表与教材关联
+      </Button>
+      {props.issues > 0 && (
+       <Button variant="ghost" size="sm" onPress={props.onReviewIssues}>
+        返回课表补全必填项（{props.issues}）
+       </Button>
+      )}
+     </>
+    )}
+   </ScrollShadow>
    {confirmRemove ? (
     <ConfirmDialog
      title="移除本软件添加的划线？"
@@ -348,11 +234,10 @@ function TextbookMore(props: TextbookProps & {rangeInput: Ref<HTMLInputElement>}
      onCancel={() => setConfirmRemove(false)}
      onConfirm={() => {
       setConfirmRemove(false)
-      onRemoveHighlights()
+      props.onRemoveHighlights()
      }}
     >
-     将移除本软件写入这份教材的划线、附在划线上的笔记和章小结。保存前会创建
-     <code>.划线前备份.pdf</code>。{/* NOSONAR: adjacent JSX spacing is intentional for the rendered layout. */}
+     将移除本软件写入这份教材的划线、附在划线上的笔记和章小结。保存前会创建 <code>.划线前备份.pdf</code>。
     </ConfirmDialog>
    ) : null}
   </div>
@@ -380,13 +265,12 @@ function readingHint(
  return rows.some(row => !row.chapter) ? '将鼠标放到正文划线上即可查看批注。' : '在教材顶部选择一种批注方式即可开始。'
 }
 
-function AnalysisAction(props: TextbookProps & {teacher: boolean; replaySubId?: string; editRange: () => void}) {
- if (props.busy) return null
+function AnalysisAction(props: TextbookProps & {teacher: boolean; replaySubId?: string}) {
  const teacher = props.teacher
  const source = teacher ? 'teacher' : 'ai'
  const action = teacher ? '用智云课堂转写生成批注' : '根据教材生成批注'
  if (teacher && !props.replaySubId && !props.entry?.subId)
-  return <ReplayPrompt entry={props.entry} onGoSchedule={props.onGoSchedule} />
+  return <ReplayPrompt entry={props.entry} busy={props.busy} onGoSchedule={props.onGoSchedule} />
  const problem = props.book && rangeProblem(props.first, props.last, props.book.pages)
  const emptyResult = props.draft?.rows.length === 0
  if (problem || emptyResult)
@@ -396,7 +280,7 @@ function AnalysisAction(props: TextbookProps & {teacher: boolean; replaySubId?: 
     emptyResult={emptyResult}
     action={action}
     source={source}
-    onEditRange={props.editRange}
+    busy={props.busy}
     onAnalyze={props.onAnalyze}
    />
   )
@@ -404,6 +288,7 @@ function AnalysisAction(props: TextbookProps & {teacher: boolean; replaySubId?: 
   return (
    <LectureAssociation
     issues={props.issues}
+    busy={props.busy}
     onReviewIssues={props.onReviewIssues}
     onSaveSchedule={props.onSaveSchedule}
    />
@@ -411,7 +296,11 @@ function AnalysisAction(props: TextbookProps & {teacher: boolean; replaySubId?: 
  return <AnalysisRun {...props} teacher={teacher} source={source} action={action} />
 }
 
-function ReplayPrompt({entry, onGoSchedule}: Readonly<{entry: StudyEntry | undefined; onGoSchedule: () => void}>) {
+function ReplayPrompt({
+ entry,
+ busy,
+ onGoSchedule
+}: Readonly<{entry: StudyEntry | undefined; busy: boolean; onGoSchedule: () => void}>) {
  return (
   <div className="textbook-next">
    <p className="study-menu__hint">
@@ -419,7 +308,7 @@ function ReplayPrompt({entry, onGoSchedule}: Readonly<{entry: StudyEntry | undef
      ? '选择这节课的智云回放，千问就能根据老师讲话的语音转写标注教材。'
      : '先关联一节课的智云回放，千问会用老师讲话的语音转写标注教材。'}
    </p>
-   <Button size="sm" variant="primary" onPress={onGoSchedule}>
+   <Button size="sm" variant="primary" isDisabled={busy} onPress={onGoSchedule}>
     关联智云回放
    </Button>
   </div>
@@ -431,25 +320,22 @@ function AnalysisProblem({
  emptyResult,
  action,
  source,
- onEditRange,
+ busy,
  onAnalyze
 }: Readonly<{
  problem: string | null | false
  emptyResult: boolean | undefined
  action: string
  source: 'teacher' | 'ai'
- onEditRange: () => void
+ busy: boolean
  onAnalyze: (source: 'teacher' | 'ai' | 'materials') => void
 }>) {
  return (
   <div className="textbook-next">
    {problem && <p className="study-inline-error">{problem}</p>}
-   <StudyNextStep>点「修改分析页码」，选择要分析的正文页。</StudyNextStep>
-   <Button size="sm" variant="primary" onPress={onEditRange}>
-    修改分析页码
-   </Button>
+   <StudyNextStep>请在上方工具栏调整分析页码范围。</StudyNextStep>
    {emptyResult && !problem && (
-    <Button size="sm" variant="ghost" onPress={() => onAnalyze(source)}>
+    <Button size="sm" variant="ghost" isDisabled={busy} onPress={() => onAnalyze(source)}>
      {action}
     </Button>
    )}
@@ -459,15 +345,16 @@ function AnalysisProblem({
 
 function LectureAssociation({
  issues,
+ busy,
  onReviewIssues,
  onSaveSchedule
-}: Readonly<{issues: number; onReviewIssues: () => void; onSaveSchedule: () => void}>) {
+}: Readonly<{issues: number; busy: boolean; onReviewIssues: () => void; onSaveSchedule: () => void}>) {
  return (
   <div className="textbook-next">
    <StudyNextStep>
     {issues ? '点「去补全课表」，填写缺少的信息。' : '点「保存课堂资料关联」，让千问读取本次课的资料。'}
    </StudyNextStep>
-   <Button size="sm" variant="primary" onPress={issues ? onReviewIssues : onSaveSchedule}>
+   <Button size="sm" variant="primary" isDisabled={busy} onPress={issues ? onReviewIssues : onSaveSchedule}>
     {issues ? `去补全课表（${issues} 项）` : '保存课堂资料关联'}
    </Button>
   </div>
@@ -509,12 +396,12 @@ function AnalysisRun({
     {action}
    </Button>
    {!teacher && entry?.lectureId && lectureSaved && (
-    <Button size="sm" variant="ghost" onPress={() => onAnalyze('materials')}>
+    <Button size="sm" variant="ghost" isDisabled={busy} onPress={() => onAnalyze('materials')}>
      结合已关联的课次资料
     </Button>
    )}
    {analysisError && teacher && (
-    <Button size="sm" variant="ghost" onPress={onGoSchedule}>
+    <Button size="sm" variant="ghost" isDisabled={busy} onPress={onGoSchedule}>
      检查课堂资料
     </Button>
    )}
@@ -526,10 +413,26 @@ function AnalysisRun({
 export function TextbookContent(props: TextbookProps) { // NOSONAR: cohesive flow; further extraction would risk behavior changes.
  // NOSONAR: cohesive flow; further extraction would risk behavior changes.
  // NOSONAR: retained cohesive flow; decomposition tracked separately to avoid behavior regressions.
- const {entry, book, pageNumber, chosen, busy, pdfVersion, onPageNumber, onChosen, onApply, onManual} = props
+ const {
+  entry,
+  book,
+  pageNumber,
+  first,
+  last,
+  followsPage,
+  chosen,
+  busy,
+  pdfVersion,
+  onFirst,
+  onLast,
+  onFollowPage,
+  onPageNumber,
+  onChosen,
+  onApply,
+  onManual
+ } = props
  const [mode, setMode] = useState<'read' | 'teacher' | 'manual' | 'ai'>('read'),
   [destination, setDestination] = useState<TeacherMark | null>(null),
-  [more, setMore] = useState(false),
   [preview, setPreview] = useState<{page: number; ids: string[]} | null>(null),
   [source, setSource] = useState<Highlight['source']>('personal'),
   [evidence, setEvidence] = useState(''),
@@ -564,14 +467,12 @@ export function TextbookContent(props: TextbookProps) { // NOSONAR: cohesive flo
   setDestination(mark)
   onPageNumber(mark.page)
   setMode('read')
-  setMore(false)
  }
  useEffect(() => {
   setDestination(null)
   setEvidence('')
   setPreview(null)
   setMode('read')
-  setMore(false)
  }, [entry?.id, book?.id])
  const groups = useMemo(() => {
   if (!draft) return []
@@ -597,11 +498,6 @@ export function TextbookContent(props: TextbookProps) { // NOSONAR: cohesive flo
   return [...map.entries()].sort((a, b) => a[1].page - b[1].page)
  }, [draft])
  const selectedCount = groups.filter(group => group[1].ids.every(id => chosen.includes(id))).length
- const rangeInput = useRef<HTMLInputElement>(null)
- function editRange() {
-  setMore(true)
-  requestAnimationFrame(() => rangeInput.current?.focus())
- }
  const saveManual = async () => {
   if (!selection.marks.length) return
   const ok = await onManual({marks: selection.marks, source, evidence: evidence.trim(), extension})
@@ -612,28 +508,96 @@ export function TextbookContent(props: TextbookProps) { // NOSONAR: cohesive flo
   }
  }
  if (!book) return (
-  <div className="study-file-start">
-   <span className="study-file-start__icon"><BookOpen size={26} aria-hidden="true" /></span>
-   <h3>打开一本教材</h3>
-   {props.bookFailure && <p role="alert" className="study-inline-error">{props.bookFailure}</p>}
-   {!busy && !props.resolvingBook && <StudyNextStep>{props.bookFailure ? '点「打开教材 PDF」，重新选择一份可读的文件。' : '点「打开教材 PDF」，选择要读的本地教材。'}</StudyNextStep>}
+  <div className="study-empty">
+   <h3>先准备教材</h3>
+   {props.bookFailure ? (
+    <p role="alert" className="study-inline-error">{props.bookFailure}</p>
+   ) : (
+    <p>在左侧打开一本教材 PDF，或先在课表里选择课次并关联教材。</p>
+   )}
+   <div className="study-empty__actions">
+    <Button variant="primary" size="sm" isDisabled={busy || props.resolvingBook} onPress={props.onPickBook}>
+     打开教材 PDF
+    </Button>
+   </div>
    {props.resolvingBook && <output>正在打开已关联的教材…</output>}
-   {!busy && !props.resolvingBook && <Button className="study-file-start__button" variant="primary" onPress={props.onPickBook}>打开教材 PDF</Button>}
-   <TextbookProgress {...props} />
   </div>
  )
  const currentBook = book
+ const rangeControls = (
+  <div className="textbook-range-panel">
+   <div className="study-range textbook-range">
+    <StudyField label="起始页">
+     <NumberField
+      aria-label="章节起始页"
+      isDisabled={busy}
+      minValue={1}
+      maxValue={book.pages}
+      value={first}
+      onChange={value => onFirst(value)}
+     >
+      <NumberField.Group>
+       <NumberField.DecrementButton />
+       <NumberField.Input onFocus={event => event.currentTarget.select()} />
+       <NumberField.IncrementButton />
+      </NumberField.Group>
+     </NumberField>
+    </StudyField>
+    <StudyField label="结束页">
+     <NumberField
+      aria-label="章节结束页"
+      isDisabled={busy}
+      minValue={1}
+      maxValue={book.pages}
+      value={last}
+      onChange={value => onLast(value)}
+     >
+      <NumberField.Group>
+       <NumberField.DecrementButton />
+       <NumberField.Input onFocus={event => event.currentTarget.select()} />
+       <NumberField.IncrementButton />
+      </NumberField.Group>
+     </NumberField>
+    </StudyField>
+   </div>
+   <div className="study-range-actions">
+    <Button
+     variant="ghost"
+     size="sm"
+     isDisabled={busy}
+     onClick={() => {
+      onFirst(pageNumber)
+      if (last < pageNumber) onLast(pageNumber)
+     }}
+    >
+     当前页设为起点
+    </Button>
+    <Button variant="ghost" size="sm" isDisabled={busy} onClick={() => onLast(pageNumber)}>
+     当前页设为终点
+    </Button>
+    {!followsPage && (
+     <Button variant="ghost" size="sm" isDisabled={busy} onClick={onFollowPage}>
+      恢复跟随阅读页
+     </Button>
+    )}
+   </div>
+   <small className={rangeProblem(first, last, book.pages) ? 'study-side-hint study-side-hint--warning' : 'study-side-hint'}>
+    {rangeProblem(first, last, book.pages) || `将分析第 ${first}–${last} 页，共 ${last - first + 1} 页。`}
+   </small>
+  </div>
+ )
  function inspectorBody() {
   if (mode === 'teacher')
    return (
        <div className="study-inspector-body">
+        {rangeControls}
         {analysisError && <div role="alert" className="study-inline-error">{analysisError}</div>}
         <TeacherAnnotations bookId={currentBook.id} lectureId={entry?.lectureId} version={pdfVersion + commentVersion} onLocate={locateTeacher}
          actions={replaySubId => { // NOSONAR: render prop needs the resolved replay id; hoisting it would thread state through props.
           const replay = replayDescription(entry, replaySubId, props.lectureTitle)
           return <>
            {replay && <p className="study-menu__hint">本次智云回放 · {replay}</p>}
-           <AnalysisAction {...actionProps} teacher replaySubId={replaySubId} editRange={editRange} />
+           <AnalysisAction {...actionProps} teacher replaySubId={replaySubId} />
           </>
          }} />
        </div>)
@@ -641,8 +605,9 @@ export function TextbookContent(props: TextbookProps) { // NOSONAR: cohesive flo
    return (
        <div className="study-inspector-body">
         {!draft && <h3>AI 批注</h3>}
+        {rangeControls}
         {analysisError && <div role="alert" className="study-inline-error">{analysisError}</div>}
-        <AnalysisAction {...actionProps} teacher={false} editRange={editRange} />
+        <AnalysisAction {...actionProps} teacher={false} />
         {!busy && <SettingsLink section="qwen">千问模型设置</SettingsLink>}
        </div>)
   return (
@@ -659,16 +624,8 @@ export function TextbookContent(props: TextbookProps) { // NOSONAR: cohesive flo
          ) : null}
         </div>
         {selection.toolbar}
-        {selection.marks.length > 0 && !busy && <div className="textbook-next">
-         <Button variant="primary" size="sm" onPress={() => void saveManual()}>保存手动划线</Button>
-         <small className="study-menu__hint">写入原教材前会创建备份。</small>
-        </div>}
         {selection.tool === 'text' && selection.marks.length > 0 &&
          <p className="study-menu__hint">已选文字：{selection.marks.map(mark => mark.quote).join(' ')}</p>}
-        <StudyField label="我的笔记（可选）">
-         <TextArea aria-label="我的笔记" value={evidence} maxLength={3000} onChange={event => setEvidence(event.target.value)} placeholder="记下自己的理解，阅读时悬停即可查看。" />
-        </StudyField>
-        <details><summary>划线分类与延伸</summary>
         <StudyField label="划线分类">
          {' '}
          {/* NOSONAR: existing element/role semantics are intentional for layout and keyboard behavior. */}
@@ -692,6 +649,9 @@ export function TextbookContent(props: TextbookProps) { // NOSONAR: cohesive flo
           ))}
          </div>
         </StudyField>
+        <StudyField label="我的笔记（可选）">
+         <TextArea aria-label="我的笔记" value={evidence} maxLength={3000} onChange={event => setEvidence(event.target.value)} placeholder="记下自己的理解，阅读时悬停即可查看。" />
+        </StudyField>
         <Checkbox isSelected={extension} onChange={setExtension}>
          <Checkbox.Content>
           <Checkbox.Control>
@@ -700,7 +660,14 @@ export function TextbookContent(props: TextbookProps) { // NOSONAR: cohesive flo
           这是教材对课堂内容的适当延伸
          </Checkbox.Content>
         </Checkbox>
-        </details>
+        {selection.marks.length > 0 && !busy && (
+         <div className="study-inspector-footer">
+          <small>写入原教材前会创建备份。</small>
+          <Button variant="primary" size="sm" onPress={() => void saveManual()}>
+           保存手动划线
+          </Button>
+         </div>
+        )}
        </div>)
  }
 
@@ -714,18 +681,23 @@ export function TextbookContent(props: TextbookProps) { // NOSONAR: cohesive flo
       {value:'manual',label:'自主批注',icon:Highlighter},
       {value:'ai',label:'AI 批注',icon:Sparkles}
      ] as const).map(({value,label,icon:Icon}) => (
-      <Button key={value} aria-pressed={mode === value} variant="ghost" size="sm" onPress={() => {setMode(value); setMore(false)}}
+      <Button key={value} aria-pressed={mode === value} variant="ghost" size="sm" onPress={() => setMode(value)}
        className={'study-segmented__button' + (mode === value ? ' study-segmented__button--active' : '')}>
        <Icon size={15} aria-hidden="true" />{label}
       </Button>
      ))}
     </fieldset>
-    <Button variant="ghost" size="sm" aria-expanded={more} aria-controls="textbook-more" onPress={() => setMore(!more)}>
-     <Ellipsis size={16} aria-hidden="true" />更多操作
-    </Button>
-   </div>
-   {more && <TextbookMore {...props} rangeInput={rangeInput} />}
-   {mode === 'read' && !busy && !more && !error && !props.bookFailure && (
+
+    </div>
+    <ul className="textbook-color-key textbook-color-key--toolbar" aria-label="批注颜色">
+    <li className="textbook-color-key__title">批注颜色</li>
+    {sourceKeys.map(source => (
+     <li key={source}>
+      <SourceLabel source={source} />
+     </li>
+    ))}
+   </ul>
+   {mode === 'read' && !busy && !error && !props.bookFailure && (
     <StudyNextStep>
      {readingHint(entry, props.savedAssociation, props.dirty, props.issues, annotations.rows)}
     </StudyNextStep>
@@ -734,11 +706,10 @@ export function TextbookContent(props: TextbookProps) { // NOSONAR: cohesive flo
     {props.bookFailure}
     <Button variant="ghost" size="sm" isDisabled={busy} onPress={props.onPickBook}>重新选择教材</Button>
    </div>}
-   <TextbookProgress {...props} />
-   <div className={'study-textbook' + (mode === 'read' ? ' textbook-reading' : '')}>
+    <div className={'study-textbook' + (mode === 'read' ? ' textbook-reading' : '')}>
     <div className="study-canvas-column">
       {document && <TextbookBookmarks key={document.loadingTask.docId} document={document} onPageNumber={onPageNumber} />}
-      {document && mode === 'read' && <ChapterSummary document={document} book={book} pageNumber={pageNumber} viewport={viewport} annotations={annotations.rows} paper={paper} onPageNumber={onPageNumber} onSaved={props.onPdfSaved} busy={busy} more={more} />}
+      {document && mode === 'read' && <ChapterSummary document={document} book={book} pageNumber={pageNumber} viewport={viewport} annotations={annotations.rows} paper={paper} onPageNumber={onPageNumber} onSaved={props.onPdfSaved} busy={busy} />}
       <div className="study-canvas-toolbar">
        <Button
         variant="ghost"
