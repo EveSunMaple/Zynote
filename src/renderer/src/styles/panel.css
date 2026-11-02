@@ -765,6 +765,10 @@
  border: 1px solid color-mix(in srgb, var(--study-highlight-ppt) 70%, transparent);
  background: color-mix(in srgb, var(--study-highlight-ppt) 42%, transparent);
 }
+.study-highlight--ai {
+ border: 1px solid color-mix(in srgb, var(--study-highlight-ai) 70%, transparent);
+ background: color-mix(in srgb, var(--study-highlight-ai) 42%, transparent);
+}
 .study-highlight--active {
  z-index: 2;
  outline: 2px solid var(--accent);
@@ -922,6 +926,10 @@
 .study-source--ppt i,
 .study-source-dot--ppt {
  background: var(--study-highlight-ppt);
+}
+.study-source--ai i,
+.study-source-dot--ai {
+ background: var(--study-highlight-ai);
 }
 .study-source-choices {
  display: grid;

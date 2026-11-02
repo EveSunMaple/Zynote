@@ -15,19 +15,37 @@ import {TextbookContent, TextbookMenu, type TextbookProps} from '@renderer/featu
 import {validTimeZone} from '@renderer/features/study/datetime'
 import type {Book, Draft} from '@renderer/features/study/types'
 import type {Highlight, StudyEntry} from '@shared/study'
-import type {Course, Detail, Progress} from '@shared/types'
+import type {Course, Detail, Progress, StudyImportProgress} from '@shared/types'
 
 const invoke = <T,>(action: string, args?: unknown) => window.assistant.invoke<T>(action, args)
+
+const importLabels: Record<StudyImportProgress['phase'], string> = {
+ reading: '已选中图片，正在读取',
+ ready: '图片已读取，正在准备识别',
+ uploading: '正在发送图片给千问',
+ sent: '图片已发送，正在等待千问返回',
+ received: '已收到千问响应，正在读取识别结果',
+ retrying: '千问返回的课表格式有误，正在重试'
+}
 
 const normalize = (entry: StudyEntry): StudyEntry => ({
  id: entry.id,
  courseId: entry.courseId,
  lectureId: entry.lectureId,
+ textbookId: entry.textbookId,
  title: entry.title,
  chapter: entry.chapter,
  endsAt: entry.endsAt,
+ weekly: entry.weekly,
+ weekday: entry.weekday,
+ startPeriod: entry.startPeriod,
+ endPeriod: entry.endPeriod,
+ location: entry.location,
+ skipZhiyunMatch: entry.skipZhiyunMatch,
  zhiyunCourseId: entry.zhiyunCourseId,
- subId: entry.subId
+ zhiyunCourseLabel: entry.zhiyunCourseLabel,
+ subId: entry.subId,
+ zhiyunReplayLabel: entry.zhiyunReplayLabel
 })
 
 const snapshotOf = (entries: StudyEntry[]) => JSON.stringify(entries.map(normalize))
@@ -36,9 +54,11 @@ const snapshotOf = (entries: StudyEntry[]) => JSON.stringify(entries.map(normali
 function collectIssues(entries: StudyEntry[]): ScheduleIssue[] { // NOSONAR: transitional TS fallback/UI flow retained for behavior compatibility; decomposition tracked separately to avoid sequencing regressions.
  const issues: ScheduleIssue[] = []
  for (const entry of entries) {
-  if (!entry.courseId) issues.push({id: entry.id, message: '选择课程'})
-  if (!entry.title.trim()) issues.push({id: entry.id, message: '填写课次名称'})
-  if (!entry.chapter.trim()) issues.push({id: entry.id, message: '填写教材章节'})
+  if (!entry.courseId && (!entry.weekly || entry.lectureId)) issues.push({id: entry.id, message: '选择课程'})
+  if (!entry.title.trim()) issues.push({id: entry.id, message: entry.weekly ? '填写课程名称' : '填写课次名称'})
+  if (!entry.weekly && !entry.chapter.trim()) issues.push({id: entry.id, message: '填写教材章节'})
+  if (entry.startPeriod !== undefined && entry.endPeriod !== undefined && entry.endPeriod < entry.startPeriod)
+   issues.push({id: entry.id, message: '结束节次不能早于开始节次'})
   if (entry.endsAt && !Number.isFinite(Date.parse(entry.endsAt)))
    issues.push({id: entry.id, message: '填写有效的结束时间，或勾选时间待定'})
   if (entry.zhiyunCourseId && !/^\d+$/.test(entry.zhiyunCourseId))
@@ -75,6 +95,7 @@ export function Study({ // NOSONAR: transitional TS fallback/UI flow retained fo
   [pdfVersion, setPdfVersion] = useState(0),
   [busy, setBusy] = useState(false),
   [progress, setProgress] = useState<Progress | null>(null),
+  [importStatus, setImportStatus] = useState<StudyImportProgress | null>(null),
   [confirmClose, setConfirmClose] = useState(false)
  const working = useRef(false),
   loaded = useRef(false)
@@ -98,6 +119,7 @@ export function Study({ // NOSONAR: transitional TS fallback/UI flow retained fo
    working.current = false
    setBusy(false)
    setProgress(null)
+   setImportStatus(null)
   }
  }
  useEffect(() => {
@@ -117,7 +139,9 @@ export function Study({ // NOSONAR: transitional TS fallback/UI flow retained fo
  useEffect(
   () =>
    window.assistant.onEvent(event => {
-    if (working.current && event.kind === 'progress') setProgress(event.data)
+    if (!working.current) return
+    if (event.kind === 'progress') setProgress(event.data)
+    else if (event.kind === 'study-import') setImportStatus(event.data)
    }),
   []
  )
@@ -203,6 +227,19 @@ export function Study({ // NOSONAR: transitional TS fallback/UI flow retained fo
    setDraft(null)
    setChosen([])
    notify.info(`已识别 ${rows.length} 条课次，请逐条核对并关联课次后保存。`, {timeout: 6000})
+  })
+ }
+ async function parseScheduleImage() {
+  const requestId = crypto.randomUUID()
+  return run(async () => {
+   const rows = await invoke<StudyEntry[] | null>('study:parse', {source: 'image', requestId})
+   if (!rows) return
+   if (!rows.length) throw new Error('图片中没有识别到课程，请换一张清晰的课表截图，或手动添加。')
+   setEntries(current => [...current, ...rows])
+   setSelected(rows[0].id)
+   setDraft(null)
+   setChosen([])
+   notify.info(`已识别 ${rows.length} 条每周课程，请核对星期、节次和课程名后保存。`, {timeout: 6000})
   })
  }
  function pickBook() {
@@ -379,7 +416,8 @@ export function Study({ // NOSONAR: transitional TS fallback/UI flow retained fo
   onDelete: deleteEntry,
   onSave: save,
   onTimezone: setTimezone,
-  onParse: parseSchedule
+  onParse: parseSchedule,
+  onParseImage: parseScheduleImage
  }
  const textbookProps: TextbookProps = {
   entry,
@@ -412,7 +450,8 @@ export function Study({ // NOSONAR: transitional TS fallback/UI flow retained fo
  if (tab === 'schedule') subheading = `${entries.length} 个课次 · 保存后会同步已关联课次的名称`
  else if (entry) subheading = `${entry.title || '未命名课次'}${courseName ? ' · ' + courseName : ''}`
  let modeStatus = '未选择教材'
- if (busy) modeStatus = `${progress?.stage || '正在处理'}…`
+ if (importStatus) modeStatus = importLabels[importStatus.phase]
+ else if (busy) modeStatus = `${progress?.stage || '正在处理'}…`
  else if (tab === 'schedule') modeStatus = '课表设置'
  else if (book) modeStatus = `${book.pages} 页教材`
  return (

@@ -214,8 +214,14 @@ export interface JobState {
  progress?: Progress
  source?: import('./media-source.js').MediaSource
 }
+export interface StudyImportProgress {
+ requestId: string
+ phase: 'reading' | 'ready' | 'uploading' | 'sent' | 'received' | 'retrying'
+ fileName: string
+}
 export type EventPayload =
  | {kind: 'progress'; data: Progress}
+ | {kind: 'study-import'; data: StudyImportProgress}
  | {kind: 'job'; data: {key: string; lectureId?: string; state: 'finished'; error?: string}}
  | {kind: 'chat'; requestId: string; text: string}
  | {kind: 'browser'; url: string}

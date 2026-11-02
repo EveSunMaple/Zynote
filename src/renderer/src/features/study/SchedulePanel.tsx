@@ -35,14 +35,80 @@ export type ScheduleProps = Readonly<{
  onSave: () => void // NOSONAR: shared props type; this member is used by the sibling component.
  onTimezone: (value: string) => void // NOSONAR: shared props type; this member is used by the sibling component.
  onParse: (text: string, timezone: string) => Promise<boolean> // NOSONAR: shared props type; this member is used by the sibling component.
+ onParseImage: () => Promise<boolean> // NOSONAR: shared props type; this member is used by the sibling component.
 }>
+
+const weekdays = ['周一', '周二', '周三', '周四', '周五', '周六', '周日']
+const dayOptions = weekdays.map((label, index) => ({value: String(index + 1), label}))
+const periodOptions = Array.from({length: 30}, (_, index) => ({value: String(index + 1), label: `第 ${index + 1} 节`}))
 
 function courseName(courses: Course[], id: string) {
  return courses.find(course => course.id === id)?.name || '未知课程'
 }
 
+function weekdayName(day?: number) {
+ return weekdays[(day || 0) - 1] || '星期待核对'
+}
+
+function periodName(entry: StudyEntry) {
+ const {startPeriod, endPeriod} = entry
+ if (!startPeriod && !endPeriod) return '节次待核对'
+ if (startPeriod === endPeriod) return `第 ${startPeriod} 节`
+ return `第 ${startPeriod ?? '?'}–${endPeriod ?? '?'} 节`
+}
+
+function WeeklyFields({
+ entry,
+ onUpdate
+}: Readonly<{entry: StudyEntry; onUpdate: (value: Partial<StudyEntry>) => void}>) {
+ return (
+  <>
+   <StudyField label="星期">
+    <SelectField
+     label="星期"
+     placeholder="待核对"
+     clearable
+     options={dayOptions}
+     value={String(entry.weekday ?? '')}
+     onChange={value => onUpdate({weekday: Number(value) || undefined})}
+    />
+   </StudyField>
+   <StudyField label="教室">
+    <Input
+     aria-label="教室"
+     placeholder="例如：东1-201"
+     maxLength={200}
+     value={entry.location ?? ''}
+     onChange={event => onUpdate({location: event.target.value})}
+    />
+   </StudyField>
+   <StudyField label="开始节次">
+    <SelectField
+     label="开始节次"
+     placeholder="待核对"
+     clearable
+     options={periodOptions}
+     value={String(entry.startPeriod ?? '')}
+     onChange={value => onUpdate({startPeriod: Number(value) || undefined})}
+    />
+   </StudyField>
+   <StudyField label="结束节次">
+    <SelectField
+     label="结束节次"
+     placeholder="待核对"
+     clearable
+     options={periodOptions}
+     value={String(entry.endPeriod ?? '')}
+     onChange={value => onUpdate({endPeriod: Number(value) || undefined})}
+    />
+   </StudyField>
+  </>
+ )
+}
+
 export function ScheduleMenu(props: ScheduleProps) {
- const {entries, selected, courses, timezone, busy, dirty, issues, onSelect, onAdd, onTimezone, onParse} = props
+ const {entries, selected, courses, timezone, busy, dirty, issues, onSelect, onAdd, onTimezone, onParse, onParseImage} =
+  props
  const issueIds = new Set(issues.map(issue => issue.id))
  const [query, setQuery] = useState(''),
   [importing, setImporting] = useState(false),
@@ -53,13 +119,23 @@ export function ScheduleMenu(props: ScheduleProps) {
   if (!keyword) return true
   return [entry.title, entry.chapter, courseName(courses, entry.courseId)].join(' ').toLowerCase().includes(keyword)
  })
- const sorted = [...filtered].sort((a, b) => {
-  const left = a.endsAt ? Date.parse(a.endsAt) : Number.POSITIVE_INFINITY,
-   right = b.endsAt ? Date.parse(b.endsAt) : Number.POSITIVE_INFINITY
-  return left - right || a.title.localeCompare(b.title, 'zh-CN')
- })
- const groups: {label: string; rows: StudyEntry[]}[] = []
- for (const entry of sorted) {
+ const weekly = filtered
+  .filter(entry => entry.weekly)
+  .sort(
+   (a, b) =>
+    (a.weekday ?? 99) - (b.weekday ?? 99) ||
+    (a.startPeriod ?? 99) - (b.startPeriod ?? 99) ||
+    a.title.localeCompare(b.title, 'zh-CN')
+  )
+ const dated = filtered
+  .filter(entry => !entry.weekly)
+  .sort((a, b) => {
+   const left = a.endsAt ? Date.parse(a.endsAt) : Number.POSITIVE_INFINITY,
+    right = b.endsAt ? Date.parse(b.endsAt) : Number.POSITIVE_INFINITY
+   return left - right || a.title.localeCompare(b.title, 'zh-CN')
+  })
+ const groups: {label: string; rows: StudyEntry[]}[] = weekly.length ? [{label: '每周课程', rows: weekly}] : []
+ for (const entry of dated) {
   const label = formatDay(entry.endsAt, timezone)
   const group = groups.at(-1)
   if (group?.label === label) group.rows.push(entry)
@@ -78,9 +154,12 @@ export function ScheduleMenu(props: ScheduleProps) {
      <SearchField.ClearButton />
     </SearchField.Group>
    </SearchField>
+   <Button variant="primary" size="sm" fullWidth isDisabled={busy} onClick={() => void onParseImage()}>
+    上传课表图片
+   </Button>
    <div className="study-menu__actions">
     <Button variant="tertiary" size="sm" fullWidth isDisabled={busy} onClick={openImport}>
-     识别课表
+     识别文字课表
     </Button>
     <Button variant="tertiary" size="sm" fullWidth isDisabled={busy || !courses.length} onClick={onAdd}>
      手动添加
@@ -98,8 +177,16 @@ export function ScheduleMenu(props: ScheduleProps) {
          title={entry.title || '未命名课次'}
          note={
           <span className="study-entry-note">
-           <span>{courseName(courses, entry.courseId)}</span>
-           <span>{entry.endsAt ? formatTime(entry.endsAt, timezone) : '时间待定'}</span>
+           <span>
+            {entry.courseId ? courseName(courses, entry.courseId) : entry.weekly ? '未关联课程' : '未知课程'}
+           </span>
+           <span>
+            {entry.weekly
+             ? `${weekdayName(entry.weekday)} · ${periodName(entry)}${entry.location ? ` · ${entry.location}` : ''}`
+             : entry.endsAt
+               ? formatTime(entry.endsAt, timezone)
+               : '时间待定'}
+           </span>
            {entry.lectureId ? <span className="study-entry-linked">已关联</span> : null}
            {issueIds.has(entry.id) ? <span className="study-entry-warning">待完善</span> : null}
           </span>
@@ -114,7 +201,7 @@ export function ScheduleMenu(props: ScheduleProps) {
      {!filtered.length ? <p className="study-menu__hint">没有匹配的课次。</p> : null}
     </div>
    ) : (
-    <p className="study-menu__hint">还没有课表。粘贴课表识别，或手动添加一节课。</p>
+    <p className="study-menu__hint">还没有课表。上传课表图片、粘贴课表识别，或手动添加一节课。</p>
    )}
    {confirmReplace ? (
     <ConfirmDialog
@@ -130,7 +217,7 @@ export function ScheduleMenu(props: ScheduleProps) {
     </ConfirmDialog>
    ) : null}
    {importing ? (
-    <Modal title="识别课表" close={() => !busy && setImporting(false)}>
+    <Modal title="识别文字课表" close={() => !busy && setImporting(false)}>
      <div className="study-import">
       <p className="study-menu__hint">
        请粘贴包含日期、结束时间和章节的课表；课程名称需要与已有课程匹配。缺少任一信息时不会猜测。
@@ -178,16 +265,19 @@ export function ScheduleMenu(props: ScheduleProps) {
 }
 
 export function ScheduleContent(props: ScheduleProps) {
- const {entries, selected, busy, dirty, issues, onSave, onAdd, onDelete} = props
+ const {entries, selected, busy, dirty, issues, onSave, onAdd, onDelete, onParseImage} = props
  const [confirmDelete, setConfirmDelete] = useState(false)
  const entry = entries.find(item => item.id === selected)
  if (!entries.length)
   return (
    <div className="study-empty">
     <h3>先准备课表</h3>
-    <p>在左侧粘贴课表识别，或手动添加一节课。课表条目会用来命名课次、关联教材划线。</p>
+    <p>在左侧上传课表图片或粘贴课表识别，也可以手动添加一节课。课表条目会用来命名课次、关联教材划线。</p>
     <div className="study-empty__actions">
-     <Button variant="tertiary" size="sm" isDisabled={!props.courses.length} onClick={onAdd}>
+     <Button variant="primary" size="sm" isDisabled={busy} onClick={() => void onParseImage()}>
+      上传课表图片
+     </Button>
+     <Button variant="tertiary" size="sm" isDisabled={busy || !props.courses.length} onClick={onAdd}>
       手动添加
      </Button>
     </div>
@@ -264,92 +354,109 @@ function ScheduleDetail({entry, courses, detail, timezone, busy, onUpdate}: Sche
   else onUpdate({endsAt: ''})
  }
  const lectures = detail?.lectures || []
+ const weekly = !!entry.weekly
+ const summary = weekly
+  ? [weekdayName(entry.weekday), periodName(entry), entry.location].filter(Boolean).join(' · ')
+  : entry.chapter || '还没有填写教材章节'
  return (
   <div className="study-detail">
    <header className="study-detail__header">
     <div>
      <h3>{entry.title || '未命名课次'}</h3>
-     <p>{entry.chapter || '还没有填写教材章节'}</p>
+     <p>{summary}</p>
     </div>
    </header>
    <section className="study-form-section">
     <h4>基本信息</h4>
     <div className="study-form-grid">
-     <StudyField label="课程">
+     <StudyField label={weekly ? '课程（可选）' : '课程'}>
       <SelectField
        label="课程"
        searchable={courses.length > 8}
+       clearable={weekly}
+       placeholder={weekly ? '暂不关联' : '选择课程'}
        value={entry.courseId}
        onChange={next => onUpdate({courseId: next, lectureId: undefined, zhiyunCourseId: undefined, subId: undefined})}
        options={courses.map(course => ({value: course.id, label: course.name}))}
       />
      </StudyField>
-     <StudyField label="课次名称">
+     <StudyField label={weekly ? '课程名称' : '课次名称'}>
       <Input
-       aria-label="课次名称"
+       aria-label={weekly ? '课程名称' : '课次名称'}
        value={entry.title}
        onChange={event => onUpdate({title: event.target.value})}
-       placeholder="例如：第 3 讲 极限"
+       placeholder={weekly ? '例如：高等数学' : '例如：第 3 讲 极限'}
       />
      </StudyField>
-     <StudyField label="教材章节" className="study-field--wide">
-      <Input
-       aria-label="教材章节"
-       value={entry.chapter}
-       onChange={event => onUpdate({chapter: event.target.value})}
-       placeholder="例如：第二章 极限与连续"
-      />
-     </StudyField>
+     {!weekly ? (
+      <StudyField label="教材章节" className="study-field--wide">
+       <Input
+        aria-label="教材章节"
+        value={entry.chapter}
+        onChange={event => onUpdate({chapter: event.target.value})}
+        placeholder="例如：第二章 极限与连续"
+       />
+      </StudyField>
+     ) : null}
     </div>
    </section>
-   <section className="study-form-section">
-    <h4>时间</h4>
-    <div className="study-form-grid">
-     <StudyField
-      label="课程结束时间"
-      hint={`按 ${timezone || '课表时区'} 显示和保存`}
-      error={validTimeZone(timezone) ? undefined : '课表时区无效，请回到识别课表里修改。'}
-     >
-      <DateField
-       aria-label="课程结束时间"
-       granularity="minute"
-       isDisabled={busy || !validTimeZone(timezone)}
-       value={date}
-       onChange={next => setDateTime((next as CalendarDateTime | null) || null)}
-      >
-       <DateField.Group>
-        <DateField.Input>{segment => <DateField.Segment segment={segment} />}</DateField.Input>
-       </DateField.Group>
-      </DateField>
-     </StudyField>
-     <div className="study-field study-field--check">
-      <Checkbox
-       isSelected={!entry.endsAt}
-       onChange={checked => {
-        if (checked) {
-         setDate(null)
-         onUpdate({endsAt: ''})
-        } else {
-         const now = dateTimeInZone(new Date().toISOString(), timezone)
-         setDateTime(now)
-        }
-       }}
-      >
-       <Checkbox.Content>
-        <Checkbox.Control>
-         <Checkbox.Indicator />
-        </Checkbox.Control>
-        时间待定
-       </Checkbox.Content>
-      </Checkbox>
-      <small>
-       {entry.endsAt && Number.isFinite(Date.parse(entry.endsAt))
-        ? `将保存为 ${formatDateTime(entry.endsAt, timezone)}`
-        : '补课或时间未定时勾选，不计算提醒时间。'}
-      </small>
+   {weekly ? (
+    <section className="study-form-section">
+     <h4>每周安排</h4>
+     <div className="study-form-grid">
+      <WeeklyFields entry={entry} onUpdate={onUpdate} />
      </div>
-    </div>
-   </section>
+    </section>
+   ) : (
+    <section className="study-form-section">
+     <h4>时间</h4>
+     <div className="study-form-grid">
+      <StudyField
+       label="课程结束时间"
+       hint={`按 ${timezone || '课表时区'} 显示和保存`}
+       error={validTimeZone(timezone) ? undefined : '课表时区无效，请回到识别课表里修改。'}
+      >
+       <DateField
+        aria-label="课程结束时间"
+        granularity="minute"
+        isDisabled={busy || !validTimeZone(timezone)}
+        value={date}
+        onChange={next => setDateTime((next as CalendarDateTime | null) || null)}
+       >
+        <DateField.Group>
+         <DateField.Input>{segment => <DateField.Segment segment={segment} />}</DateField.Input>
+        </DateField.Group>
+       </DateField>
+      </StudyField>
+      <div className="study-field study-field--check">
+       <Checkbox
+        isSelected={!entry.endsAt}
+        onChange={checked => {
+         if (checked) {
+          setDate(null)
+          onUpdate({endsAt: ''})
+         } else {
+          const now = dateTimeInZone(new Date().toISOString(), timezone)
+          setDateTime(now)
+         }
+        }}
+       >
+        <Checkbox.Content>
+         <Checkbox.Control>
+          <Checkbox.Indicator />
+         </Checkbox.Control>
+         时间待定
+        </Checkbox.Content>
+       </Checkbox>
+       <small>
+        {entry.endsAt && Number.isFinite(Date.parse(entry.endsAt))
+         ? `将保存为 ${formatDateTime(entry.endsAt, timezone)}`
+         : '补课或时间未定时勾选，不计算提醒时间。'}
+       </small>
+      </div>
+     </div>
+    </section>
+   )}
    <section className="study-form-section">
     <h4>关联与同步</h4>
     <div className="study-form-grid">

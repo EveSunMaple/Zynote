@@ -43,7 +43,8 @@ export type TextbookProps = Readonly<{
 }>
 
 const basename = (path: string) => path.split(/[\\/]/).at(-1) || path
-const sourceKeys = Object.keys(highlightLabels) as Highlight['source'][]
+// AI 批注只用于展示后端返回的建议，不作为手动划线的来源选项。
+const sourceKeys: Highlight['source'][] = ['teacher', 'focus', 'ppt', 'senior']
 
 function rangeProblem(first: number, last: number, pages: number) {
  if (!Number.isFinite(first) || !Number.isFinite(last)) return '请填写有效的页码范围'

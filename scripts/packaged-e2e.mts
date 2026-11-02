@@ -134,10 +134,10 @@ try {
  await page.reload()
  const openSchedule = page.getByRole('button', {name: '课表与教材', exact: true})
  await openSchedule.click()
- await page.getByRole('button', {name: '识别课表', exact: true}).first().waitFor()
+ await page.getByRole('button', {name: '上传课表图片', exact: true}).first().waitFor()
  check(
-  (await page.getByRole('button', {name: '上传课表图片', exact: true}).count()) === 0,
-  'image import should be reverted'
+  (await page.getByRole('button', {name: '识别文字课表', exact: true}).count()) > 0,
+  'text import should remain available'
  )
  const pdfiumFile = pdfiumLibraryName()
  if (statSync(join(target.resources, 'pdfium', pdfiumFile), {throwIfNoEntry: false})?.isFile()) {
