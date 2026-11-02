@@ -43,6 +43,22 @@ export function WeeklyFields({
      onChange={event => onUpdate({location: event.target.value})}
     />
    </StudyField>
+   <StudyField label="时刻（原图）" hint="只保留可见原文，不按节次猜测钟点；请对照原图核对。">
+    <Input
+     aria-label="时刻（原图）"
+     value={entry.timeText ?? ''}
+     maxLength={200}
+     onChange={event => onUpdate({timeText: event.target.value})}
+    />
+   </StudyField>
+   <StudyField label="周次与单双周（原图）" hint="仅作核对提示，不自动换算日期；存在限制时请手动选择智云回放。">
+    <Input
+     aria-label="周次与单双周（原图）"
+     value={entry.weekText ?? ''}
+     maxLength={200}
+     onChange={event => onUpdate({weekText: event.target.value})}
+    />
+   </StudyField>
    <StudyField label="开始节次">
     <SelectField
      label="开始节次"
@@ -162,6 +178,8 @@ export function WeeklySchedule({
                >
                 <span>{entry.title || '课程名待核对'}</span>
                 {entry.location && <small className="study-week__location">{entry.location}</small>}
+                {entry.timeText && <small className="study-week__location">{entry.timeText}</small>}
+                {entry.weekText && <small className="study-week__location">{entry.weekText}</small>}
                </Button>
               ))}
              </td>

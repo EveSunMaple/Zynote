@@ -157,8 +157,22 @@
 .chat-bubble pre {
  overflow: auto;
  background: var(--markdown-code-block-bg);
+ color: var(--markdown-code-block-fg);
  padding: 16px;
  border-radius: 12px;
+}
+.chat-bubble code {
+ font-family: Consolas, "Cascadia Code", monospace;
+}
+.chat-bubble :not(pre) > code {
+ padding: 2px 5px;
+ border-radius: var(--radius-sm);
+ background: var(--surface-subtle);
+ color: var(--text);
+ font-size: 0.9em;
+}
+.chat-bubble pre > code {
+ white-space: pre;
 }
 .chat-bubble img {
  max-width: 100%;
@@ -852,4 +866,10 @@
 .chat-styled .agent-composer {
  max-width: var(--chat-width);
  border-color: color-mix(in srgb, var(--appearance-accent) 35%, var(--line-strong));
+}
+
+.chat-bubble .katex-display {
+ max-width: 100%;
+ overflow-x: auto;
+ overflow-y: hidden;
 }

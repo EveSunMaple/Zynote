@@ -55,7 +55,7 @@ func TestStudyImageDraftAndSave(t *testing.T) { // NOSONAR: end-to-end import te
 		if err != nil || r.URL.Path != "/v1/chat/completions" || !containsAll(string(payload), `"model":"vision-test"`, `"type":"image_url"`, url) {
 			t.Errorf("expected a vision chat with the selected PNG")
 		}
-		blocks := `[{"title":" 数据思维（甲）I ","weekday":"3","startPeriod":5,"endPeriod":"7","location":"A106","lectureId":"invented"},null,{"title":"","weekday":3,"startPeriod":9,"endPeriod":"看不清"},{"title":"晚课","weekday":8,"startPeriod":9,"endPeriod":7}]`
+		blocks := `[{"title":" 数据思维（甲）I ","weekday":"3","startPeriod":5,"endPeriod":"7","location":"A106","timeText":"14:00-16:25","weekText":"1-16周（单周）","lectureId":"invented"},null,{"title":"","weekday":3,"startPeriod":9,"endPeriod":"看不清"},{"title":"晚课","weekday":8,"startPeriod":9,"endPeriod":7}]`
 		if attempts.Add(1) == 1 {
 			blocks = "not JSON"
 		}
@@ -83,7 +83,7 @@ func TestStudyImageDraftAndSave(t *testing.T) { // NOSONAR: end-to-end import te
 	first, covered := rows[0], rows[1]
 	if first["title"] != "数据思维（甲）I" || first["weekly"] != true || first["courseId"] != "" ||
 		first["chapter"] != "" || first["endsAt"] != "" || first["lectureId"] != nil || first["weekday"] != 3.0 ||
-		first["startPeriod"] != 5.0 || first["endPeriod"] != 7.0 || first["location"] != "A106" {
+		first["startPeriod"] != 5.0 || first["endPeriod"] != 7.0 || first["location"] != "A106" || first["timeText"] != "14:00-16:25" || first["weekText"] != "1-16周（单周）" {
 		t.Fatalf("weekly fields: %+v", first)
 	}
 	if covered["title"] != "" || covered["endPeriod"] != nil || covered["id"] == first["id"] {
@@ -106,7 +106,7 @@ func TestStudyImageDraftAndSave(t *testing.T) { // NOSONAR: end-to-end import te
 		t.Fatal("invalid period range was accepted")
 	}
 	raw, failure = f.call("study:get", nil)
-	if failure != nil || !containsAll(string(raw), "补录课程", "A106", `"endPeriod":7`, `"skipZhiyunMatch":true`) {
+	if failure != nil || !containsAll(string(raw), "补录课程", "A106", "14:00-16:25", "1-16周（单周）", `"endPeriod":7`, `"skipZhiyunMatch":true`) {
 		t.Fatalf("saved weekly entries were lost: %s %+v", raw, failure)
 	}
 	if err := os.WriteFile(path, []byte("not a screenshot"), 0o600); err != nil {

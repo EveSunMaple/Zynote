@@ -45,7 +45,7 @@
   "@heroui/styles": "^3.2.6",
   "@internationalized/date": "3.12.4",
   "electron-updater": "^6.8.11",
-  "katex": "^0.19.1",
+  "katex": "0.16.47",
   "koffi": "3.3.3",
   "lucide-react": "^1.58.0",
   "pdfjs-dist": "^6.3.289",
@@ -55,6 +55,8 @@
   "rehype-katex": "^7.0.1",
   "remark-gfm": "^4.0.1",
   "remark-math": "^6.0.0",
+  "remark-parse": "11.0.0",
+  "unified": "11.0.5",
   "zod": "^4.1.12"
  },
  "devDependencies": {

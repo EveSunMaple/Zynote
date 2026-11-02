@@ -16,14 +16,22 @@ import (
 )
 
 func TestChatStreamsAndPersists(t *testing.T) { // NOSONAR: end-to-end test intentionally exercises one workflow; extracting helpers would obscure the scenario.
+	chunks := []string{`公式：\(`, `\frac{1}{2}`, `\)；金额 $5 and $10。`}
+	wantReply := strings.Join(chunks, "")
+	question := "请给一个分数公式"
+	bodies := make(chan []byte, 1)
 	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
 		if request.URL.Path != "/v1/chat/completions" {
 			http.NotFound(writer, request)
 			return
 		}
+		body, _ := io.ReadAll(request.Body)
+		bodies <- body
 		writer.Header().Set("Content-Type", "text/event-stream")
-		fmt.Fprint(writer, "data: {\"choices\":[{\"delta\":{\"content\":\"你\"}}]}\n\n")
-		fmt.Fprint(writer, "data: {\"choices\":[{\"delta\":{\"content\":\"好\"},\"finish_reason\":\"stop\"}]}\n\n")
+		for _, chunk := range chunks {
+			payload, _ := json.Marshal(map[string]any{"choices": []any{map[string]any{"delta": map[string]string{"content": chunk}}}})
+			fmt.Fprintf(writer, "data: %s\n\n", payload)
+		}
 		fmt.Fprint(writer, "data: [DONE]\n\n")
 	}))
 	defer server.Close()
@@ -50,14 +58,28 @@ func TestChatStreamsAndPersists(t *testing.T) { // NOSONAR: end-to-end test inte
 	_ = json.Unmarshal(courseRaw, &course)
 	courseID := course["id"].(string)
 	raw, errReply := f.call("chat", map[string]any{
-		"courseId": courseID, "content": "你好", "requestId": "req-1",
+		"courseId": courseID, "content": question, "requestId": "req-1",
 	})
 	if errReply != nil {
 		t.Fatalf("chat failed: %+v", errReply)
 	}
 	var reply string
-	if err := json.Unmarshal(raw, &reply); err != nil || reply != "你好" {
+	if err := json.Unmarshal(raw, &reply); err != nil || reply != wantReply {
 		t.Fatalf("chat reply mismatch: %s %v", raw, err)
+	}
+	var requestBody struct {
+		Messages []struct {
+			Role    string
+			Content string
+		}
+	}
+	if err := json.Unmarshal(<-bodies, &requestBody); err != nil {
+		t.Fatal(err)
+	}
+	if len(requestBody.Messages) < 2 || requestBody.Messages[0].Role != "system" ||
+		!strings.Contains(requestBody.Messages[0].Content, "数学呈现格式") ||
+		!strings.Contains(requestBody.Messages[0].Content, "除非用户要求展示源码") {
+		t.Fatal("actual HTTP model request missing math presentation contract")
 	}
 	db, err := sql.Open("sqlite", filepath.Join(dataRoot, "assistant.db"))
 	if err != nil {
@@ -70,11 +92,15 @@ func TestChatStreamsAndPersists(t *testing.T) { // NOSONAR: end-to-end test inte
 	}
 	var role, content string
 	if err := db.QueryRow("SELECT role,content FROM messages WHERE course_id=? ORDER BY rowid LIMIT 1", courseID).Scan(&role, &content); err != nil ||
-		role != "user" || content != "你好" {
+		role != "user" || content != question {
 		t.Fatalf("user message mismatch: %s %s %v", role, content, err)
+	}
+	if err := db.QueryRow("SELECT content FROM messages WHERE course_id=? AND role='assistant'", courseID).Scan(&content); err != nil || content != wantReply {
+		t.Fatalf("assistant raw LaTeX persistence mismatch: %q %v", content, err)
 	}
 	chatEvents := 0
 	jobEvents := 0
+	var emitted strings.Builder
 	for _, event := range f.events {
 		var payload map[string]any
 		_ = json.Unmarshal(event.Params, &payload)
@@ -82,12 +108,14 @@ func TestChatStreamsAndPersists(t *testing.T) { // NOSONAR: end-to-end test inte
 		case "chat":
 			if payload["requestId"] == "req-1" {
 				chatEvents++
+				text, _ := payload["text"].(string)
+				emitted.WriteString(text)
 			}
 		case "job":
 			jobEvents++
 		}
 	}
-	if chatEvents != 2 || jobEvents != 1 {
+	if chatEvents != len(chunks) || jobEvents != 1 || emitted.String() != wantReply {
 		t.Fatalf("event mismatch: chat=%d job=%d %+v", chatEvents, jobEvents, f.events)
 	}
 	if strings.Contains(string(raw), "event") {

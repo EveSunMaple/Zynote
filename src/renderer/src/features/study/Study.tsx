@@ -40,6 +40,8 @@ const normalize = (entry: StudyEntry): StudyEntry => ({
  startPeriod: entry.startPeriod,
  endPeriod: entry.endPeriod,
  location: entry.location,
+ timeText: entry.timeText,
+ weekText: entry.weekText,
  skipZhiyunMatch: entry.skipZhiyunMatch,
  zhiyunCourseId: entry.zhiyunCourseId,
  zhiyunCourseLabel: entry.zhiyunCourseLabel,
@@ -307,7 +309,7 @@ export function Study({ // NOSONAR: transitional TS fallback/UI flow retained fo
    setSelected(rows[0].id)
    setDraft(null)
    setChosen([])
-   notify.info(`已识别 ${rows.length} 条每周课程，请核对星期、节次和课程名后保存。`, {timeout: 6000})
+   notify.info(`已识别 ${rows.length} 条每周课程，请核对星期、节次、原图时刻和周次限制后保存。`, {timeout: 6000})
   })
  }
  function pickBook() {

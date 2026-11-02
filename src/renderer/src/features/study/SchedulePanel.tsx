@@ -53,7 +53,7 @@ function entryCourseLabel(entry: StudyEntry, courses: Course[]) {
 function entryTimeLabel(entry: StudyEntry, timezone: string) {
  if (entry.weekly) {
   const period = `${weekdayName(entry.weekday)} · ${periodName(entry)}`
-  return entry.location ? `${period} · ${entry.location}` : period
+  return [period, entry.timeText, entry.weekText, entry.location].filter(Boolean).join(' · ')
  }
  return entry.endsAt ? formatTime(entry.endsAt, timezone) : '时间待定'
 }
@@ -190,7 +190,7 @@ function ScheduleTextImportDialog({
   <Modal title="识别文字课表" close={() => !busy && onClose()}>
    <div className="study-import">
     <p className="study-menu__hint">
-     请粘贴包含日期、结束时间和章节的课表；课程名称需要与已有课程匹配。缺少任一信息时不会猜测。
+     请粘贴包含明确日期、结束时间和章节的课表，课程须匹配已有课程。只有星期、节次或单双周时，请补充学期周次规则和作息时刻表；节次不是课次，也不是几点。识别后核对再保存。
     </p>
     <StudyField label="课表文本">
      <TextArea
@@ -499,7 +499,9 @@ function ScheduleDetail({entry, courses, detail, timezone, busy, onUpdate}: Sche
  const lectures = detail?.lectures || []
  const weekly = !!entry.weekly
  const summary = weekly
-  ? [weekdayName(entry.weekday), periodName(entry), entry.location].filter(Boolean).join(' · ')
+  ? [weekdayName(entry.weekday), periodName(entry), entry.timeText, entry.weekText, entry.location]
+     .filter(Boolean)
+     .join(' · ')
   : entry.chapter || '还没有填写教材章节'
  return (
   <div className="study-detail">
