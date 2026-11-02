@@ -180,14 +180,36 @@ func startStudyParseFixture(t *testing.T, serverURL string) *fixture {
 
 func TestStudyParse(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
-		fmt.Fprint(writer, `{"choices":[{"finish_reason":"stop","message":{"content":"[{\"id\":\"33333333-3333-4333-8333-333333333333\",\"courseId\":\"44444444-4444-4444-8444-444444444444\",\"title\":\" 第一讲 \",\"chapter\":\" 第一章 \",\"endsAt\":\"2026-10-23T10:00:00+08:00\"}]"}}]}`)
+		var payload struct {
+			Messages []struct {
+				Content string `json:"content"`
+			} `json:"messages"`
+		}
+		if err := json.NewDecoder(request.Body).Decode(&payload); err != nil || len(payload.Messages) != 2 {
+			t.Error("missing model messages")
+			return
+		}
+		var input struct {
+			Courses []struct {
+				ID string `json:"id"`
+			} `json:"courses"`
+			Text     string `json:"text"`
+			Timezone string `json:"timezone"`
+		}
+		if err := json.Unmarshal([]byte(payload.Messages[1].Content), &input); err != nil || len(input.Courses) != 1 || input.Timezone != "Asia/Shanghai" || !strings.Contains(input.Text, "2026年10月23日") {
+			t.Error("missing calendar/catalog context", err)
+			return
+		}
+		parsedCourseID := input.Courses[0].ID
+		fmt.Fprintf(writer, `{"choices":[{"finish_reason":"stop","message":{"content":"[{\"id\":\"33333333-3333-4333-8333-333333333333\",\"courseId\":\"%s\",\"title\":\" 第一讲 \",\"chapter\":\" 第一章 \",\"endsAt\":\"2026-10-23T10:00:00+08:00\"}]"}}]}`, parsedCourseID)
 	}))
 	defer server.Close()
 	f := startStudyParseFixture(t, server.URL)
-	if _, errReply := f.call("course:create", map[string]any{"name": "解析课"}); errReply != nil {
-		t.Fatalf("course:create failed: %+v", errReply)
+	_, courseErr := f.call("course:create", map[string]any{"name": "解析课"})
+	if courseErr != nil {
+		t.Fatalf("course:create failed: %+v", courseErr)
 	}
-	raw, errReply := f.call("study:parse", map[string]any{"text": "周一一二节 第一讲", "timezone": "Asia/Shanghai"})
+	raw, errReply := f.call("study:parse", map[string]any{"text": "2026年10月23日 解析课 第一讲 第一章 第1-2节；第1节08:00-08:45，第2节09:15-10:00", "timezone": "Asia/Shanghai"})
 	if errReply != nil {
 		t.Fatalf("study:parse failed: %+v", errReply)
 	}

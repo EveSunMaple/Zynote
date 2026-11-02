@@ -5,7 +5,15 @@ import type {StudyEntry} from '@shared/study'
 
 export function sessionDescription(row: StudyEntry, timezone: string) {
  const time = row.weekly ? `${weekdayName(row.weekday)} · ${periodName(row)}` : formatDateTime(row.endsAt, timezone)
- return [time, !row.weekly && row.chapter, row.zhiyunCourseLabel].filter(Boolean).join(' · ')
+ return [
+  time,
+  row.weekly && row.timeText,
+  row.weekly && row.weekText,
+  !row.weekly && row.chapter,
+  row.zhiyunCourseLabel
+ ]
+  .filter(Boolean)
+  .join(' · ')
 }
 
 export function TextbookSessions({

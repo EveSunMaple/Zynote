@@ -3,6 +3,7 @@ import ReactMarkdown from 'react-markdown'
 import rehypeKatex from 'rehype-katex'
 import remarkGfm from 'remark-gfm'
 import remarkMath from 'remark-math'
+import {remarkChatMath} from '@shared/math-markdown'
 
 const inlineComponents: Components = {
  p: ({children}) => <span>{children}</span>
@@ -19,8 +20,8 @@ export function MathMarkdown({
  return (
   <Tag className={'math-markdown' + (className ? ' ' + className : '')}>
    <ReactMarkdown
-    remarkPlugins={[remarkGfm, remarkMath]}
-    rehypePlugins={[[rehypeKatex, {strict: 'ignore', output: 'html'}]]}
+    remarkPlugins={[remarkGfm, remarkChatMath, remarkMath]}
+    rehypePlugins={[[rehypeKatex, {strict: 'ignore', output: 'html', trust: false}]]}
     components={inline ? {...inlineComponents, ...components} : components}
    >
     {children}

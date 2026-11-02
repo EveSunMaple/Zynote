@@ -13,6 +13,8 @@ export const studyEntrySchema = z
   startPeriod: z.number().int().min(1).max(30).optional(),
   endPeriod: z.number().int().min(1).max(30).optional(),
   location: z.string().trim().max(200).optional(),
+  timeText: z.string().trim().max(200).optional(),
+  weekText: z.string().trim().max(200).optional(),
   skipZhiyunMatch: z.boolean().optional(),
   zhiyunCourseId: z.string().regex(/^\d+$/).optional(),
   zhiyunCourseLabel: z.string().optional(),

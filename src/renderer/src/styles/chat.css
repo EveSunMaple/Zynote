@@ -853,3 +853,9 @@
  max-width: var(--chat-width);
  border-color: color-mix(in srgb, var(--appearance-accent) 35%, var(--line-strong));
 }
+
+.chat-bubble .katex-display {
+ max-width: 100%;
+ overflow-x: auto;
+ overflow-y: hidden;
+}

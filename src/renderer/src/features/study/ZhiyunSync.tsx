@@ -44,10 +44,11 @@ function entryDate(entry: StudyEntry) {
  return dateTimeInZone(entry.endsAt, 'Asia/Shanghai')?.toString().slice(0, 10) || ''
 }
 
-function autoReplay(entry: StudyEntry, lessons: ZhiyunLesson[]) {
+export function autoReplay(entry: StudyEntry, lessons: ZhiyunLesson[]) {
  const playable = lessons.filter(lesson => lesson.videoAvailable)
  if (!playable.length) return undefined
  if (entry.weekly) {
+  if (entry.weekText?.trim()) return undefined
   const matched = playable.filter(lesson => matchesWeeklySlot(entry, lesson))
   return matched.length === 1 ? matched[0] : undefined
  }
@@ -55,6 +56,23 @@ function autoReplay(entry: StudyEntry, lessons: ZhiyunLesson[]) {
  if (!date) return undefined
  const matched = playable.filter(lesson => replayDate(lesson.title)?.toISOString().slice(0, 10) === date)
  return matched.length === 1 ? matched[0] : undefined
+}
+
+function replayMatchIdentity(entry: StudyEntry) {
+ return JSON.stringify([
+  entry.id,
+  entry.courseId,
+  entry.title,
+  entry.weekly,
+  entry.weekday,
+  entry.startPeriod,
+  entry.endPeriod,
+  entry.endsAt,
+  entry.timeText,
+  entry.weekText,
+  entry.zhiyunCourseId,
+  entry.subId
+ ])
 }
 
 function loginHint(message: string) {
@@ -78,6 +96,8 @@ export function ZhiyunSync({
   [loadingLessons, setLoadingLessons] = useState(false),
   [message, setMessage] = useState('')
  const request = useRef(0)
+ const latestEntry = useRef(entry)
+ latestEntry.current = entry
  useEffect(() => {
   request.current++
   setCourses([])
@@ -88,25 +108,28 @@ export function ZhiyunSync({
  }, [entry.id])
  async function loadLessons(courseId: string, candidates: ZhiyunCourse[]) {
   const current = ++request.current
+  const identity = replayMatchIdentity({...latestEntry.current, zhiyunCourseId: courseId})
   setLoadingLessons(true)
   setLessons(null)
   try {
    const rows = await invoke<ZhiyunLesson[]>('zhiyun:lessons', {courseId})
-   if (current !== request.current) return
+   if (current !== request.current || identity !== replayMatchIdentity(latestEntry.current)) return
    setLessons(rows)
-   const replay = autoReplay(entry, rows)
+   const replay = latestEntry.current.subId ? undefined : autoReplay(latestEntry.current, rows)
    if (replay) {
     onUpdate({subId: replay.id, zhiyunReplayLabel: lessonLabel(replay)})
     setMessage('已自动选中匹配的课堂回放。')
    } else if (!rows.length) {
     setMessage('这门课暂无可选课次。')
    } else {
-    setMessage('请选择课堂回放。')
+    setMessage(
+     latestEntry.current.weekText?.trim() ? '课表包含周次或单双周限制，请核对后手动选择课堂回放。' : '请选择课堂回放。'
+    )
    }
    const course = candidates.find(item => item.id === courseId)
    if (course) onUpdate({zhiyunCourseLabel: courseLabel(course)})
   } catch (reason) {
-   if (current !== request.current) return
+   if (current !== request.current || identity !== replayMatchIdentity(latestEntry.current)) return
    const text = errorMessage(reason)
    setMessage(loginHint(text))
    notify.error(reason, {title: '读取智云回放失败'})
@@ -116,13 +139,15 @@ export function ZhiyunSync({
  }
  async function chooseCourse(id: string, candidates = courses) {
   const course = candidates.find(item => item.id === id)
-  onUpdate({
+  const update = {
    zhiyunCourseId: id,
    zhiyunCourseLabel: course ? courseLabel(course) : entry.zhiyunCourseLabel,
    subId: undefined,
    zhiyunReplayLabel: undefined,
    skipZhiyunMatch: undefined
-  })
+  }
+  latestEntry.current = {...latestEntry.current, ...update}
+  onUpdate(update)
   await loadLessons(id, candidates)
  }
  const searchTitle = (
@@ -135,13 +160,14 @@ export function ZhiyunSync({
    return
   }
   const current = ++request.current
+  const identity = replayMatchIdentity(latestEntry.current)
   setMatching(true)
   setCourses([])
   setLessons(null)
   setMessage('正在匹配智云课程…')
   try {
    const result = await invoke<ZhiyunCourseMatch>('zhiyun:match-course', {title})
-   if (current !== request.current) return
+   if (current !== request.current || identity !== replayMatchIdentity(latestEntry.current)) return
    setCourses(result.courses)
    let matched = result.courses.length === 1 && !result.truncated ? result.courses[0].id : undefined
    if (result.status === 'matched') matched = result.matchedId
@@ -153,7 +179,7 @@ export function ZhiyunSync({
     setMessage(`找到 ${result.courses.length} 个教学班，请选择。`)
    }
   } catch (reason) {
-   if (current !== request.current) return
+   if (current !== request.current || identity !== replayMatchIdentity(latestEntry.current)) return
    const text = errorMessage(reason)
    setMessage(loginHint(text))
    notify.error(reason, {title: '匹配智云课程失败'})
