@@ -1,0 +1,89 @@
+.book-comment__anchor {
+ position: absolute;
+ z-index: 2;
+ appearance: none;
+ padding: 0;
+ background: transparent;
+ border: 0;
+ cursor: help;
+}
+.book-comment__anchor:focus-visible,
+.book-comment__anchor:hover {
+ outline: 1px solid var(--study-source-color);
+}
+.book-comment__ink {
+ pointer-events: none;
+}
+.book-comment__ink polyline {
+ fill: none;
+ stroke: transparent;
+ stroke-width: 7px;
+ pointer-events: stroke;
+}
+.book-comment {
+ position: fixed;
+ z-index: 1600;
+ display: grid;
+ gap: 8px;
+ box-sizing: border-box;
+ width: min(305px, var(--comment-width, calc(100vw - 12px)));
+ max-height: min(400px, var(--comment-height, calc(100vh - 18px)));
+ overflow: auto;
+ padding: 12px 14px;
+ border: 1px solid var(--line-strong);
+ border-radius: var(--radius-lg);
+ background: var(--surface-raised);
+ color: var(--text);
+ box-shadow: 0 6px 24px var(--shadow-color);
+ font-size: 13px;
+ overflow-wrap: anywhere;
+}
+.book-comment[data-docked="true"] {
+ position: static;
+ width: 100%;
+ max-height: min(400px, 50dvh);
+ margin-top: 8px;
+}
+.study-highlight.study-highlight--preview {
+ border: 1px dashed var(--study-source-color);
+ background: transparent;
+}
+.book-comment__head {
+ display: flex;
+ align-items: center;
+ justify-content: space-between;
+}
+.book-comment__item {
+ display: grid;
+ gap: 3px;
+ padding-block: 5px;
+ padding-inline-start: 8px;
+ border-inline-start: 3px solid var(--study-source-color);
+ border-top: 1px solid var(--line);
+}
+.book-comment__item strong,
+.book-comment small {
+ color: var(--muted);
+ font-size: 12px;
+}
+.book-comment__item p {
+ margin: 0;
+ line-height: 1.55;
+ white-space: pre-wrap;
+}
+.book-comment__editor {
+ display: grid;
+ gap: 6px;
+}
+.textbook-color-key {
+ display: grid;
+ grid-template-columns: repeat(auto-fit, minmax(105px, 1fr));
+ gap: 6px;
+ margin: 0;
+ padding: 0;
+ list-style: none;
+}
+.study-source-choice .study-source,
+.textbook-color-key .study-source {
+ color: inherit;
+}

@@ -1,0 +1,50 @@
+.teacher-annotations {
+ display: grid;
+ gap: 6px;
+ min-width: 0;
+}
+.teacher-annotations__list {
+ display: grid;
+ gap: 2px;
+ max-height: min(44vh, 420px);
+ overflow-y: auto;
+ margin: 0;
+ padding: 0 2px;
+ list-style: none;
+}
+.teacher-annotations .teacher-annotations__entry {
+ display: grid;
+ justify-content: stretch;
+ gap: 4px;
+ height: auto;
+ min-width: 0;
+ padding: 9px 6px;
+ border-bottom: 1px solid var(--line);
+ text-align: start;
+ white-space: normal;
+}
+.teacher-annotations__page {
+ color: var(--blue);
+ font-size: 12px;
+}
+.teacher-annotations__quote {
+ color: var(--text);
+ font-size: 13px;
+ line-height: 1.55;
+ overflow-wrap: anywhere;
+ white-space: pre-wrap;
+}
+.teacher-annotations__time {
+ margin-inline-end: 6px;
+ font-size: 11px;
+ font-variant-numeric: tabular-nums;
+ color: var(--muted);
+}
+.teacher-annotations__text {
+ min-width: 0;
+ overflow: hidden;
+ text-overflow: ellipsis;
+ white-space: nowrap;
+ font-size: 11px;
+ color: var(--muted);
+}

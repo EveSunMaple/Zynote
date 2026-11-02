@@ -1,0 +1,92 @@
+.textbook-workspace {
+ display: grid;
+ gap: 12px;
+}
+.textbook-session-list {
+ display: grid;
+ gap: 8px;
+ max-height: 36dvh;
+ overflow: auto;
+ border: 0;
+ margin: 0;
+ padding: 0;
+ min-width: 0;
+}
+.textbook-tools {
+ display: flex;
+ flex-wrap: wrap;
+ align-items: center;
+ justify-content: space-between;
+ gap: 8px;
+}
+.textbook-tools .textbook-modes {
+ grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+.textbook-modes .study-segmented__button {
+ width: 100%;
+}
+.textbook-workspace .textbook-reading {
+ grid-template-columns: minmax(0, 1fr);
+}
+.textbook-reading .study-page {
+ cursor: grab;
+}
+.textbook-reading .study-page[data-panning="true"] {
+ cursor: grabbing;
+}
+.textbook-workspace .study-canvas {
+ /* The page's auto margins center a small sheet without hiding the left edge of a wide sheet. */
+ justify-content: flex-start;
+ scrollbar-gutter: stable;
+ overflow-anchor: none;
+ min-height: min(420px, 55dvh);
+ max-height: max(220px, calc(100dvh - 280px));
+}
+.textbook-workspace .study-page__canvas {
+ width: 100%;
+ height: 100%;
+}
+.textbook-workspace .study-canvas-toolbar {
+ flex-wrap: wrap;
+}
+.textbook-gestures {
+ min-width: 0;
+ overflow: hidden;
+ color: var(--muted);
+ font-size: 11px;
+ text-overflow: ellipsis;
+ white-space: nowrap;
+}
+.textbook-workspace .study-page__loading {
+ display: flex;
+ align-items: center;
+ justify-content: center;
+ white-space: nowrap;
+}
+.textbook-more {
+ display: grid;
+ grid-template-columns: repeat(auto-fit, minmax(min(100%, 240px), 1fr));
+ align-items: start;
+ gap: 20px;
+ padding: 16px;
+ background: var(--surface-subtle);
+ border: 1px solid var(--line);
+ border-radius: var(--radius-lg);
+}
+.textbook-more .study-side-section {
+ margin: 0;
+ padding: 0;
+ border: 0;
+}
+.textbook-more .study-range {
+ grid-template-columns: repeat(auto-fit, minmax(min(100%, 140px), 1fr));
+}
+.textbook-next {
+ display: grid;
+ gap: 8px;
+}
+@media (max-width: 1200px) {
+ .textbook-workspace .study-inspector {
+  grid-row: 1;
+ }
+}

@@ -1,10 +1,8 @@
 import {Tabs} from '@heroui/react'
 import {ConfirmDialog} from '@renderer/ui/ConfirmDialog'
 import {WindowPanel} from '@renderer/ui/WindowPanel'
-import {notify} from '@renderer/ui/ToastHost'
+import {errorMessage, notify} from '@renderer/ui/ToastHost'
 import {useEffect, useRef, useState} from 'react'
-import {getDocument} from 'pdfjs-dist/legacy/build/pdf.mjs'
-import {openStudyPdf} from '@renderer/features/study/pdf-document'
 import {
  ScheduleContent,
  ScheduleMenu,
@@ -13,7 +11,8 @@ import {
 } from '@renderer/features/study/SchedulePanel'
 import {TextbookContent, TextbookMenu, type TextbookProps} from '@renderer/features/study/TextbookPanel'
 import {validTimeZone} from '@renderer/features/study/datetime'
-import type {Book, Draft} from '@renderer/features/study/types'
+import {sameTeachingCourse, setSessionTextbook} from '@renderer/features/study/course-textbook'
+import type {AnalysisSource, Book, Draft} from '@renderer/features/study/types'
 import type {Highlight, StudyEntry} from '@shared/study'
 import type {Course, Detail, Progress, StudyImportProgress} from '@shared/types'
 
@@ -81,17 +80,21 @@ export function Study({ // NOSONAR: transitional TS fallback/UI flow retained fo
  refresh: () => Promise<unknown>
 }>) {
  const [entries, setEntries] = useState<StudyEntry[]>([]),
-  [snapshot, setSnapshot] = useState('[]'),
+  [savedEntries, setSavedEntries] = useState<StudyEntry[]>([]),
   [selected, setSelected] = useState(''),
   [detail, setDetail] = useState<Detail | null>(null),
   [tab, setTab] = useState<'schedule' | 'textbook'>('schedule'),
   [timezone, setTimezone] = useState('Asia/Shanghai'),
-  [book, setBook] = useState<Book | null>(null),
+  [books, setBooks] = useState<Record<string, Book>>({}),
+  [standaloneBook, setStandaloneBook] = useState(''),
+  [bookFailure, setBookFailure] = useState<{id: string; message: string} | null>(null),
   [pageNumber, setPageNumber] = useState(1),
-  [first, setFirst] = useState(1),
-  [last, setLast] = useState(1),
+  [customRange, setCustomRange] = useState<{first: number; last: number} | null>(null),
   [draft, setDraft] = useState<Draft | null>(null),
+  [analysisError, setAnalysisError] = useState(''),
+  [analysisSource, setAnalysisSource] = useState<AnalysisSource>('ai'),
   [chosen, setChosen] = useState<string[]>([]),
+  [reopenVersion, setReopenVersion] = useState(0),
   [pdfVersion, setPdfVersion] = useState(0),
   [busy, setBusy] = useState(false),
   [progress, setProgress] = useState<Progress | null>(null),
@@ -100,11 +103,59 @@ export function Study({ // NOSONAR: transitional TS fallback/UI flow retained fo
  const working = useRef(false),
   loaded = useRef(false)
  const entry = entries.find(item => item.id === selected),
+  bookId = (entry ? entry.textbookId : standaloneBook) || '',
+  book = books[bookId] ?? null,
+  first = customRange?.first ?? pageNumber,
+  last = customRange?.last ?? Math.min(book?.pages ?? pageNumber, pageNumber + 4),
+  savedEntry = savedEntries.find(item => item.id === selected),
+  lectureSaved = !!entry && !!savedEntry && savedEntry.lectureId === entry.lectureId &&
+   savedEntry.subId === entry.subId && savedEntry.zhiyunCourseId === entry.zhiyunCourseId &&
+   savedEntry.courseId === entry.courseId && savedEntry.chapter === entry.chapter,
   issues = collectIssues(entries),
-  dirty = JSON.stringify(entries.map(normalize)) !== snapshot,
+  dirty = snapshotOf(entries) !== snapshotOf(savedEntries),
   lectureTitle = detail?.lectures.find(lecture => lecture.id === entry?.lectureId)?.title,
   courseName = courses.find(course => course.id === entry?.courseId)?.name || ''
- async function run(task: () => Promise<void>) {
+ const readingContext = useRef({selected, bookId, subId: entry?.subId, lectureId: entry?.lectureId})
+ readingContext.current = {selected, bookId, subId: entry?.subId, lectureId: entry?.lectureId}
+ const relatedBooks = new Set(
+  entries.filter(row => entry && sameTeachingCourse(entry, row) && row.textbookId).map(row => row.textbookId!)
+ )
+ const savedCourseBook = relatedBooks.size === 1 ? [...relatedBooks][0] : undefined
+ const suggestedBook = !bookId ? savedCourseBook || standaloneBook : undefined
+ const savedBookSessions = new Set(savedEntries.filter(row => row.textbookId === bookId).map(row => row.id))
+ const bookSessions = entries.filter(row => row.textbookId === bookId)
+ const savedAssociation =
+  bookSessions.length === savedBookSessions.size && bookSessions.every(row => savedBookSessions.has(row.id))
+ useEffect(() => {
+  setAnalysisError('')
+ }, [selected, bookId, reopenVersion, first, last, entry?.lectureId, entry?.subId, entry?.chapter])
+ useEffect(() => {
+  setDraft(current => (current?.source === 'teacher' ? null : current))
+ }, [entry?.lectureId, entry?.subId])
+ useEffect(() => {
+  setDraft(null)
+  setChosen([])
+ }, [selected, bookId, reopenVersion])
+ useEffect(() => {
+  setPageNumber(1)
+  setCustomRange(null)
+ }, [bookId, reopenVersion])
+ useEffect(() => {
+  if (!visible || tab !== 'textbook' || !bookId || book) return
+  let active = true
+  setBookFailure(null)
+  void invoke<Book>('textbook:resolve', {id: bookId})
+   .then(result => {
+    if (active) setBooks(current => ({...current, [result.id]: result}))
+   })
+   .catch(reason => {
+    if (active) setBookFailure({id: bookId, message: errorMessage(reason)})
+   })
+  return () => {
+   active = false
+  }
+ }, [bookId, book, visible, tab])
+ async function run(task: () => Promise<void>, onError?: (reason: unknown) => void) {
   if (working.current) return false
   working.current = true
   setBusy(true)
@@ -113,6 +164,7 @@ export function Study({ // NOSONAR: transitional TS fallback/UI flow retained fo
    await task()
    return true
   } catch (reason) {
+   onError?.(reason)
    notify.error(reason)
    return false
   } finally {
@@ -122,19 +174,22 @@ export function Study({ // NOSONAR: transitional TS fallback/UI flow retained fo
    setImportStatus(null)
   }
  }
- useEffect(() => {
-  if (!visible || loaded.current) return
+ function loadSchedule() {
+  if (loaded.current) return
   loaded.current = true
   void invoke<StudyEntry[]>('study:get')
    .then(rows => {
     setEntries(rows)
-    setSelected(rows[0]?.id || '')
-    setSnapshot(snapshotOf(rows))
+    setSavedEntries(rows)
+    if (!readingContext.current.bookId) setSelected(rows[0]?.id || '')
    })
    .catch(reason => {
     loaded.current = false
     notify.error(reason, {title: '读取课表失败'})
    })
+ }
+ useEffect(() => {
+  if (visible) loadSchedule()
  }, [visible])
  useEffect(
   () =>
@@ -147,13 +202,15 @@ export function Study({ // NOSONAR: transitional TS fallback/UI flow retained fo
  )
  useEffect(() => {
   let active = true
+  setDetail(null)
   if (entry?.courseId)
    void invoke<Detail>('course:detail', {id: entry.courseId})
     .then(value => {
      if (active) setDetail(value)
     })
-    .catch(reason => notify.error(reason, {title: '读取课程信息失败'}))
-  else setDetail(null)
+    .catch(reason => {
+     if (active) notify.error(reason, {title: '读取课程信息失败'})
+    })
   return () => {
    active = false
   }
@@ -179,14 +236,16 @@ export function Study({ // NOSONAR: transitional TS fallback/UI flow retained fo
    notify.info('课表信息已修改，当前划线建议已清空')
   }
  }
- function addEntry() {
-  if (!courses.length) {
+ function addEntry(weekly = false, textbookId?: string) {
+  if (!weekly && !courses.length) {
    notify.warning('还没有课程，请先创建课程')
    return
   }
   const row: StudyEntry = {
    id: crypto.randomUUID(),
-   courseId: courses[0].id,
+   courseId: weekly ? '' : courses[0].id,
+   ...(weekly ? {weekly: true} : {}),
+   ...(textbookId ? {textbookId} : {}),
    title: '',
    chapter: '',
    endsAt: ''
@@ -194,6 +253,7 @@ export function Study({ // NOSONAR: transitional TS fallback/UI flow retained fo
   setEntries(rows => [...rows, row])
   setSelected(row.id)
   setTab('schedule')
+  return row.id
  }
  function deleteEntry() {
   if (!entry) return
@@ -208,7 +268,7 @@ export function Study({ // NOSONAR: transitional TS fallback/UI flow retained fo
   void run(async () => {
    const rows = await invoke<StudyEntry[]>('study:save', {entries})
    setEntries(rows)
-   setSnapshot(snapshotOf(rows))
+   setSavedEntries(rows)
    await refresh()
    notify.success('课表已保存，已关联课次的名称和聊天标题已同步更新。', {timeout: 8000})
   })
@@ -243,42 +303,49 @@ export function Study({ // NOSONAR: transitional TS fallback/UI flow retained fo
   })
  }
  function pickBook() {
+  const target = selected
+  const previousBookId = bookId
   void run(async () => {
    const result = await invoke<Book | null>('textbook:pick')
    if (!result) return
-   setBook(result)
-   setPageNumber(1)
-   setFirst(1)
-   setLast(1)
-   setDraft(null)
-   setChosen([])
+   if (readingContext.current.bookId === result.id) setReopenVersion(value => value + 1)
+   setBooks(current => ({...current, [result.id]: result}))
+   setBookFailure(null)
+   if (target) setEntries(rows => setSessionTextbook(rows, target, result.id, true))
+   else setStandaloneBook(result.id)
+   if (readingContext.current.selected === target) setTab('textbook')
+  }, reason => {
+   if (readingContext.current.selected === target && readingContext.current.bookId === previousBookId)
+    setBookFailure({id: previousBookId, message: errorMessage(reason)})
   })
  }
  function changeFirst(value: number) {
-  setFirst(value)
+  setCustomRange(range => ({first: value, last: range?.last ?? last}))
   if (draft) {
    setDraft(null)
    setChosen([])
   }
  }
  function changeLast(value: number) {
-  setLast(value)
+  setCustomRange(range => ({first: range?.first ?? first, last: value}))
   if (draft) {
    setDraft(null)
    setChosen([])
   }
  }
  function goPage(value: number) {
-  if (!book) return
-  setPageNumber(Math.max(1, Math.min(book.pages, value)))
+  if (!book || !Number.isFinite(value)) return
+  setPageNumber(Math.max(1, Math.min(book.pages, Math.trunc(value))))
  }
- function analyze() {
-  if (!entry) {
-   notify.warning('先在课表里选择一个课次。')
-   return
+ function analyze(source: AnalysisSource) {
+  const hasClass = source !== 'ai' && !!(entry?.subId || entry?.lectureId)
+  const currentSource = () => {
+   const current = readingContext.current
+   return current.selected === selected && current.bookId === book?.id &&
+    (!hasClass || (current.subId === entry?.subId && current.lectureId === entry?.lectureId))
   }
-  if (!entry.lectureId) {
-   notify.warning('请先在课表中关联已有课次，AI 才能读取本课字幕、重点与课件。')
+  if (hasClass && !lectureSaved) {
+   notify.warning('请先保存课表中的课堂资料关联，再生成划线建议。')
    return
   }
   if (!book) {
@@ -290,72 +357,28 @@ export function Study({ // NOSONAR: transitional TS fallback/UI flow retained fo
    return
   }
   void run(async () => {
-   let result: Draft
-   const ppt = await invoke<{data: string; hash: string} | null>('textbook:ppt-source', {entryId: entry.id})
-   if (ppt) {
-    notify.info('正在识别本节课图片型 PPT 的文字，供 PPT 内容划线使用。', {timeout: 6000})
-    const task = getDocument({data: Uint8Array.from(atob(ppt.data), character => character.charCodeAt(0))}), // NOSONAR: code point conversion is intentional for the parser.
-     images: string[] = []
-    try {
-     const pdf = await task.promise
-     if (pdf.numPages > 500) throw new Error('请选择本节课 PPT，不能使用全课程合并课件')
-     for (let number = 1; number <= pdf.numPages; number++) {
-      // biome-ignore format: NOSONAR must stay on the await line
-      const page = await pdf.getPage(number), // NOSONAR: ordered/limited operation; parallelizing would change atomicity, rate limits, or deterministic progress.
-       viewport = page.getViewport({scale: 900 / page.getViewport({scale: 1}).width}),
-       canvas = document.createElement('canvas')
-      canvas.width = viewport.width
-      canvas.height = viewport.height
-      // biome-ignore format: NOSONAR must stay on the await line
-      await page.render({canvas, canvasContext: canvas.getContext('2d')!, viewport}).promise // NOSONAR: ordered/limited operation; parallelizing would change atomicity, rate limits, or deterministic progress.
-      images.push(canvas.toDataURL('image/jpeg', 0.8))
-     }
-    } finally {
-     await task.destroy()
-    }
-    await invoke('textbook:ppt-ocr', {entryId: entry.id, hash: ppt.hash, images})
-   }
-   try {
-    result = await invoke<Draft>('textbook:analyze', {id: book.id, entryId: entry.id, first, last})
-   } catch (error) {
-    if (!String(error).includes('扫描图片')) throw error
-    if (last < first || last - first > 99 || last > book.pages) throw new Error('请选择不超过 100 页的章节范围')
-    notify.info('正在识别扫描教材；请逐条核对文字和位置后保存。', {timeout: 6000})
-    const data = await invoke<string>('textbook:bytes', {id: book.id}),
-     controller = new AbortController(),
-     pdf = await openStudyPdf(data, controller.signal, reason => controller.abort(reason)),
-     images: string[] = []
-    try {
-     for (let number = first; number <= last; number++) {
-      // biome-ignore format: NOSONAR must stay on the await line
-      const page = await pdf.getPage(number), // NOSONAR: ordered/limited operation; parallelizing would change atomicity, rate limits, or deterministic progress.
-       viewport = page.getViewport({scale: Math.min(1.5, 1200 / page.getViewport({scale: 1}).width)}),
-       canvas = document.createElement('canvas')
-      canvas.width = viewport.width
-      canvas.height = viewport.height
-      // biome-ignore format: NOSONAR must stay on the await line
-      await page.render({canvas, canvasContext: canvas.getContext('2d')!, viewport}).promise // NOSONAR: ordered/limited operation; parallelizing would change atomicity, rate limits, or deterministic progress.
-      images.push(canvas.toDataURL('image/jpeg', 0.85))
-     }
-    } finally {
-     controller.abort()
-    }
-    result = await invoke<Draft>('textbook:analyze-images', {
-     id: book.id,
-     entryId: entry.id,
-     first,
-     last,
-     images
-    })
-   }
-   setDraft(result)
-   setChosen(result.rows.map(row => row.id))
+   setAnalysisSource(source)
+   setAnalysisError('')
+   setDraft(null)
+   setChosen([])
+   const result = await invoke<Draft>('textbook:analyze', {
+    id: book.id,
+    entryId: hasClass ? entry?.id : undefined,
+    first,
+    last
+   })
+   if (!currentSource()) return
+   const rows = source === 'teacher'
+    ? result.rows.filter(row => row.comments?.some(comment => comment.kind === 'teacher' && comment.quote?.trim()))
+    : result.rows
+   setDraft({...result, rows, source, analyzedRange: [first, last]})
+   setChosen(rows.map(row => row.id))
    notify.info(
-    result.rows.length
-     ? '请核对划线内容、位置与依据，再保存到原教材。'
-     : '此范围没有找到依据充分的内容，原教材未修改。',
+    rows.length ? '请核对划线内容、位置与依据，再保存到原教材。' : '此范围没有找到依据充分的内容，原教材未修改。',
     {timeout: 6000}
    )
+  }, reason => {
+   if (currentSource()) setAnalysisError(errorMessage(reason))
   })
  }
  function applyDraft() {
@@ -371,21 +394,24 @@ export function Study({ // NOSONAR: transitional TS fallback/UI flow retained fo
   })
  }
  async function manual(value: {
-  rect: Highlight['rect']
+  marks: {rect: Highlight['rect']; quote: string; ink?: [number, number][]}[]
   source: Highlight['source']
   evidence: string
   extension: boolean
  }) {
-  if (!book) return false
+  if (!book || !value.marks.length) return false
   return run(async () => {
    await invoke('textbook:manual', {
     id: book.id,
-    highlight: {
+    highlights: value.marks.map(mark => ({
      id: crypto.randomUUID(),
      page: pageNumber,
-     quote: '手动框选区域',
-     ...value
-    }
+     ...mark,
+     source: value.source,
+     evidence: value.evidence.trim() || '手动标注',
+     comments: value.evidence.trim() ? [{kind: 'personal', text: value.evidence.trim()}] : [],
+     extension: value.extension
+    }))
    })
    setPdfVersion(current => current + 1)
    notify.success('手动划线已保存到原教材。')
@@ -421,16 +447,56 @@ export function Study({ // NOSONAR: transitional TS fallback/UI flow retained fo
  }
  const textbookProps: TextbookProps = {
   entry,
+  analysisError,
+  analysisSource,
+  entries,
+  onSelectEntry: id => {
+   if (!id && bookId) setStandaloneBook(bookId)
+   selectEntry(id)
+  },
+  bookFailure: bookFailure?.id === bookId ? bookFailure.message : '',
+  resolvingBook: !!bookId && !book && bookFailure?.id !== bookId,
+  savedAssociation,
+  lectureSaved,
+  dirty,
+  issues: issues.length,
+  onReviewIssues: () => {
+   if (issues[0]) selectEntry(issues[0].id)
+   setTab('schedule')
+  },
+  onSaveSchedule: save,
+  bookSuggestion: savedCourseBook ? '使用本课程已选教材' : '将刚才单独阅读的教材用于此课次',
+  useCourseBook:
+   entry && suggestedBook
+    ? () => setEntries(rows => setSessionTextbook(rows, entry.id, suggestedBook, true))
+    : undefined,
+  timezone,
+  onLinkSession: (id, checked) => {
+   if (!bookId) return
+   const previousBook = savedEntries.find(row => row.id === id)?.textbookId
+   setEntries(rows => setSessionTextbook(rows, id, bookId, checked, previousBook))
+   if (!checked && id === selected) {
+    setStandaloneBook(bookId)
+    selectEntry('')
+   }
+  },
   lectureTitle,
   book,
   pageNumber,
   first,
   last,
+  followsPage: customRange === null,
+  onFollowPage: () => {
+   setCustomRange(null)
+   setDraft(null)
+   setChosen([])
+  },
   draft,
   chosen,
   busy,
   progress,
   pdfVersion,
+  onPdfSaved: () => setPdfVersion(value => value + 1),
   onPickBook: pickBook,
   onAnalyze: analyze,
   onOpenBook: () => {
@@ -444,7 +510,13 @@ export function Study({ // NOSONAR: transitional TS fallback/UI flow retained fo
   onChosen: setChosen,
   onApply: applyDraft,
   onManual: manual,
-  onGoSchedule: () => setTab('schedule')
+  onGoSchedule: () => {
+   if (!entry) {
+    const id = addEntry(false, book?.id)
+    if (id) setSelected(id)
+   }
+   setTab('schedule')
+  }
  }
  let subheading = '先在课表里选择一个课次'
  if (tab === 'schedule') subheading = `${entries.length} 个课次 · 保存后会同步已关联课次的名称`
@@ -506,7 +578,7 @@ export function Study({ // NOSONAR: transitional TS fallback/UI flow retained fo
       id="textbook"
       shouldForceMount
      >
-      <TextbookContent {...textbookProps} />
+      <TextbookContent key={`${bookId}/${reopenVersion}`} {...textbookProps} />
      </Tabs.Panel>
     </Tabs>
    </WindowPanel>
@@ -516,11 +588,15 @@ export function Study({ // NOSONAR: transitional TS fallback/UI flow retained fo
      confirmLabel="放弃并关闭"
      onCancel={() => setConfirmClose(false)}
      onConfirm={() => {
+      setEntries(savedEntries)
+      setSelected(savedEntries.find(row => row.id === selected)?.id ?? savedEntries[0]?.id ?? '')
+      setDraft(null)
+      setChosen([])
       setConfirmClose(false)
       close()
      }}
     >
-     左侧课表还有未保存的修改。关闭窗口不会丢失已保存的课次，但会放弃这些修改。
+      左侧课表还有未保存的修改。关闭窗口不会丢失已保存的课次，但会放弃这些修改。
     </ConfirmDialog>
    ) : null}
   </>

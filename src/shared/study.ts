@@ -32,6 +32,7 @@ export const checkAt = (endsAt: string) =>
 export const highlightColors = {
  teacher: [0.76, 0.61, 0.44],
  focus: [1, 0.57, 0.57],
+ personal: [0.99, 0.85, 0.45],
  ai: [0.55, 0.81, 0.68],
  ppt: [0.53, 0.76, 1],
  senior: [1, 0.66, 0.81]
@@ -41,42 +42,55 @@ export const highlightLabels = {
  senior: '学长学姐重点',
  teacher: '老师讲授内容',
  ppt: 'PPT 内容',
- ai: 'AI 批注'
+ ai: 'AI 批注',
+ personal: '我的笔记'
 }
 export const highlightSchema = z.object({
  id: z.string().uuid(),
  page: z.number().int().positive(),
  rect: z.tuple([z.number(), z.number(), z.number(), z.number()]),
- source: z.enum(['teacher', 'focus', 'ppt', 'senior', 'ai']),
+ ink: z
+  .array(z.tuple([z.number(), z.number()]))
+  .min(2)
+  .max(4096)
+  .optional(),
+ source: z.enum(['teacher', 'focus', 'ppt', 'senior', 'ai', 'personal']),
  quote: z.string().min(1).max(3000),
  evidence: z.string().min(1).max(5000),
+ comments: z
+  .array(
+   z.object({
+    kind: z.enum(['teacher', 'ai', 'personal']),
+    text: z.string().min(1).max(5000),
+    quote: z.string().max(3000).optional(),
+    timestamp: z.string().max(100).optional()
+   })
+  )
+  .max(100)
+  .optional(),
+ chapter: z
+  .object({
+   title: z.string().min(1).max(500),
+   text: z.string().min(1).max(600),
+   lastPage: z.number().int().positive(),
+   refs: z
+    .array(
+     z.object({
+      page: z.number().int().positive(),
+      line: z.number().int().positive(),
+      quote: z.string().min(1).max(500),
+      rect: z.tuple([z.number(), z.number(), z.number(), z.number()])
+     })
+    )
+    .min(1)
+    .max(3)
+  })
+  .optional(),
  extension: z.boolean()
 })
 export type Highlight = z.infer<typeof highlightSchema>
-export const highlightPriority = {focus: 0, senior: 1, teacher: 2, ppt: 3, ai: 4} as const
-// Subtract only the covered area; preserve the rest of a lower-priority line.
+export const highlightPriority = {focus: 0, senior: 1, teacher: 2, ppt: 3, ai: 4, personal: 5} as const
+// Distinct sources may cover the same words.
 export function prioritizedHighlights(rows: Highlight[]): Highlight[] {
- const result: Highlight[] = []
- for (const row of [...rows].sort((a, b) => highlightPriority[a.source] - highlightPriority[b.source])) {
-  let rects = [row.rect]
-  for (const above of result.filter(r => r.page === row.page)) {
-   const [ax, ay, aw, ah] = above.rect
-   rects = rects.flatMap(rect => {
-    const [x, y, w, h] = rect,
-     l = Math.max(x, ax),
-     b = Math.max(y, ay),
-     r = Math.min(x + w, ax + aw),
-     t = Math.min(y + h, ay + ah)
-    if (r <= l || t <= b) return [rect]
-    const pieces: Highlight['rect'][] = []
-    if (b > y) pieces.push([x, y, w, b - y])
-    if (t < y + h) pieces.push([x, t, w, y + h - t])
-    if (l > x) pieces.push([x, b, l - x, t - b])
-    if (r < x + w) pieces.push([r, b, x + w - r, t - b])
-    return pieces.filter(p => p[2] > 0.2 && p[3] > 0.2)
-   })
-  }
-  for (const [index, rect] of rects.entries()) result.push({...row, id: index ? crypto.randomUUID() : row.id, rect})
- }
- return result
+ return [...rows].sort((a, b) => highlightPriority[a.source] - highlightPriority[b.source])
 }

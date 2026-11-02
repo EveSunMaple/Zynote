@@ -153,7 +153,7 @@ try {
    if (new URL(request.url()).pathname.startsWith('/textbooks/')) textbookRequests.push(request.url())
   })
   await page.getByRole('tab', {name: '教材划线', exact: true}).click()
-  await page.getByRole('button', {name: '选择原教材 PDF', exact: true}).click()
+  await page.getByRole('button', {name: '打开教材 PDF', exact: true}).click()
   const waitForPageColor = (channel: number) =>
    page.waitForFunction(channel => {
     const canvas = document.querySelector<HTMLCanvasElement>('.study-page__canvas')
@@ -170,6 +170,7 @@ try {
   await waitForPageColor(2)
   // Reopen the same path after changing the PDF; the last chunk now holds its xref table.
   enlargePdfFixture(fixture)
+  await page.getByRole('button', {name: '更多操作', exact: true}).click()
   await Promise.all([
    page.waitForResponse(
     response =>
