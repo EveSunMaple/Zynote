@@ -778,6 +778,32 @@ export default function App() { // NOSONAR: transitional TS fallback/UI flow ret
         })
         if (!ok) throw failure ?? new Error('课程未删除，请重试')
        }}
+       removeMany={async ids => {
+        const deleted = new Set<string>()
+        let failure: unknown
+        const ok = await task(async () => {
+         for (const id of ids) {
+          try {
+           await invoke('course:delete', {id, confirmed: true})
+           deleted.add(id)
+          } catch (e) {
+           failure = e
+           break
+          }
+         }
+         const remaining = await reloadCourses()
+         if (deleted.size) setSessions(v => v.filter(s => !deleted.has(s.course_id)))
+         if (deleted.has(courseId)) {
+          setCourseId(remaining[0]?.id || '')
+          setDetail(null)
+          setLecture(null)
+          setLectureId('')
+          setTab('chat')
+         }
+         if (failure) throw failure
+        })
+        if (!ok) throw failure ?? new Error('课程未删除，请重试')
+       }}
       />
      </aside>
      <main

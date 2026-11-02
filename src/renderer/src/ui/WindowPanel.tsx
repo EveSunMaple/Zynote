@@ -1,4 +1,4 @@
-import type {DragEventHandler, ReactNode} from 'react'
+import {useEffect, useRef, type DragEventHandler, type ReactNode} from 'react'
 import {ArrowLeft} from 'lucide-react'
 import {Button, ScrollShadow} from '@heroui/react'
 
@@ -46,6 +46,8 @@ export function WindowPanel({
  title,
  description,
  menu,
+ menuKey,
+ menuScrollShadow = true,
  heading,
  subheading,
  actions,
@@ -61,6 +63,8 @@ export function WindowPanel({
  title: string
  description: ReactNode
  menu?: ReactNode
+ menuKey?: string
+ menuScrollShadow?: boolean
  heading?: ReactNode
  subheading?: ReactNode
  actions?: ReactNode
@@ -71,6 +75,16 @@ export function WindowPanel({
  onDrop?: DragEventHandler<HTMLElement>
  children: ReactNode
 }>) {
+ const menuScroll = useRef<HTMLDivElement>(null)
+ const menuPositions = useRef(new Map<string, number>())
+ const previousMenuKey = useRef(menuKey ?? '')
+ useEffect(() => {
+  const element = menuScroll.current
+  const key = menuKey ?? ''
+  if (!element || key === previousMenuKey.current) return
+  previousMenuKey.current = key
+  element.scrollTop = menuPositions.current.get(key) ?? 0
+ }, [menuKey])
  return (
   <section
    className={'learning-window' + (className ? ` ${className}` : '')}
@@ -83,7 +97,15 @@ export function WindowPanel({
    <aside className="learning-menu" aria-label={label + '导航'}>
     <h2>{title}</h2>
     <p>{description}</p>
-    <ScrollShadow className="learning-menu__items" orientation="vertical">
+    <ScrollShadow
+     ref={menuScroll}
+     className="learning-menu__items"
+     isEnabled={menuScrollShadow}
+     orientation="vertical"
+     onScroll={event => {
+      menuPositions.current.set(menuKey ?? '', event.currentTarget.scrollTop)
+     }}
+    >
      {menu}
     </ScrollShadow>
     <Button variant="ghost" size="sm" fullWidth className="window-panel__back" onPress={close}>

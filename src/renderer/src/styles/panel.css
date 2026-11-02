@@ -281,9 +281,9 @@
 }
 .study-menu__search {
  position: sticky;
- top: -4px;
+ top: 0;
  z-index: 4;
- padding: 4px 0 6px;
+ padding: 8px 0;
  background: var(--list);
 }
 .study-menu__actions {
@@ -460,9 +460,13 @@
  align-items: center;
  gap: 16px;
  margin-top: 20px;
- padding: 14px 0 4px;
- background: var(--shell-backdrop);
- border-top: 1px solid var(--line);
+ padding: 14px 16px;
+ background: var(--chat);
+ border: 1px solid var(--line-strong);
+ border-radius: 12px;
+ box-shadow:
+  0 18px 0 var(--chat),
+  0 -12px 24px color-mix(in srgb, var(--chat) 82%, transparent);
 }
 .study-savebar strong,
 .study-danger-zone strong {
@@ -1411,6 +1415,20 @@
 .button.new-session {
  justify-content: flex-start;
  height: auto;
+}
+.course-list__toolbar {
+ display: flex;
+ flex-wrap: wrap;
+ align-items: center;
+ gap: 6px;
+ padding: 2px 8px 8px;
+}
+.course-select {
+ flex: none;
+ margin-left: 4px;
+}
+.course-row--managing .button.course {
+ padding-left: 4px;
 }
 .sidebar .course-row {
  position: relative;

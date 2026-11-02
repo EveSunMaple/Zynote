@@ -468,6 +468,8 @@ export function Study({ // NOSONAR: transitional TS fallback/UI flow retained fo
      if (dirty) setConfirmClose(true)
      else close()
     }}
+    menuKey={tab}
+    menuScrollShadow={false}
     menu={tab === 'schedule' ? <ScheduleMenu {...scheduleProps} /> : <TextbookMenu {...textbookProps} />}
    >
     <Tabs
