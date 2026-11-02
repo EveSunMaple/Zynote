@@ -64,77 +64,124 @@ function renderMathFences(tree: MarkdownNode, source: string, math: (body: strin
  const visit = (parent: MarkdownNode) => {
   if (!parent.children) return
   parent.children = parent.children.flatMap(node => {
-   if (node.type !== 'code') {
-    visit(node)
-    return [node]
-   }
-   const language = node.lang?.toLowerCase() || ''
-   if (language && !['math', 'latex', 'tex', 'katex'].includes(language)) return [node]
-   const literal = language === 'math' ? {...node, lang: 'text'} : node
-   const raw = source.slice(node.position?.start.offset, node.position?.end.offset)
-   const lines = raw.split(/\r?\n/),
-    opening = lines[0]?.match(/^(`{3,}|~{3,})/)
-   const closing = lines
-    .at(-1)
-    ?.replace(/^(?:[ \t]*>[ \t]?)+/, '')
-    .trim()
-   if (
-    !opening ||
-    lines.length < 2 ||
-    !closing ||
-    !new RegExp(`^${opening[1][0]}{${opening[1].length},}$`).test(closing)
-   )
-    return [literal]
-   const value = node.value || ''
-   // Unlabeled programs may contain formula-shaped strings; explicit TeX labels express math intent.
-   if (
-    !language &&
-    /^\s*(?:const\b|let\b|var\b|import\b|export\b|from\b|def\b|class\b|function\b|return\b|\/\/|#)|=>|;\s*$/m.test(
-     value
-    )
-   )
-    return [literal]
-   const content = value.split('\n'),
-    result: MarkdownNode[] = [],
-    pending: string[] = []
-   const flush = () => {
-    if (pending.some(line => line.trim())) result.push({...literal, value: pending.join('\n'), position: undefined})
-    pending.length = 0
-   }
-   for (let index = 0; index < content.length; index++) {
-    const line = content[index].trim()
-    let body: string | undefined
-    for (const [open, close] of [
-     ['$$', '$$'],
-     ['\\[', '\\]'],
-     ['\\(', '\\)'],
-     ['$', '$']
-    ]) {
-     if (!line.startsWith(open)) continue
-     if (line.length > open.length + close.length && line.endsWith(close)) {
-      const candidate = line.slice(open.length, -close.length)
-      if (candidate.trim() && !candidate.includes('$') && (language || !/^\d+(?:[.,]\d+)?(?:\s|$)/.test(candidate)))
-       body = candidate
-     } else if ((open === '$$' || open === '\\[') && line === open) {
-      const end = content.findIndex((part, at) => at > index && part.trim() === close)
-      if (end > index + 1) {
-       body = content.slice(index + 1, end).join('\n')
-       index = end
-      }
-     }
-     if (body !== undefined) break
-    }
-    if (body !== undefined) {
-     flush()
-     result.push(...math(body))
-    } else pending.push(content[index])
-   }
-   if (!result.length && language && value.trim() && !/[$`]|\\[()[\]]/.test(value)) return math(value)
-   flush()
-   return result.length ? result : [literal]
+   if (node.type === 'code') return renderMathCode(node, source, math)
+   visit(node)
+   return [node]
   })
  }
  visit(tree)
+}
+
+function renderMathCode(node: MarkdownNode, source: string, math: (body: string) => MarkdownNode[]): MarkdownNode[] {
+ const language = node.lang?.toLowerCase() || ''
+ if (language && !['math', 'latex', 'tex', 'katex'].includes(language)) return [node]
+ // Prevent rehype-katex's implicit language-math rendering while an input is incomplete.
+ const literal = language === 'math' ? {...node, lang: 'text'} : node
+ if (!isClosedFence(node, source)) return [literal]
+ const value = node.value || ''
+ if (!language && isProgram(value)) return [literal]
+ return splitMathCode(literal, value, !!language, math)
+}
+
+function isClosedFence(node: MarkdownNode, source: string): boolean {
+ const raw = source.slice(node.position?.start.offset, node.position?.end.offset)
+ const lines = raw.split(/\r?\n/),
+  opening = /^(`{3,}|~{3,})/.exec(lines[0] || '')
+ if (!opening || lines.length < 2) return false
+ let closing = lines.at(-1)?.trim() || ''
+ while (closing.startsWith('>')) closing = closing.slice(1).trimStart()
+ return new RegExp(`^${opening[1][0]}{${opening[1].length},}$`).test(closing)
+}
+
+function isProgram(value: string): boolean {
+ const keywords = /^(?:const|let|var|import|export|from|def|class|function|return)\b/
+ return value.split('\n').some(line => {
+  const text = line.trim()
+  return (
+   keywords.test(text) || text.startsWith('//') || text.startsWith('#') || text.includes('=>') || text.endsWith(';')
+  )
+ })
+}
+
+function splitMathCode(node: MarkdownNode, value: string, explicit: boolean, math: (body: string) => MarkdownNode[]) {
+ const content = value.split('\n'),
+  result: MarkdownNode[] = [],
+  pending: string[] = []
+ const closers = indexClosingLines(content)
+ const flush = () => {
+  if (pending.some(line => line.trim())) result.push({...node, value: pending.join('\n'), position: undefined})
+  pending.length = 0
+ }
+ let index = 0
+ while (index < content.length) {
+  const segment = readMathSegment(content, index, explicit, closers)
+  if (!segment) {
+   pending.push(content[index++])
+   continue
+  }
+  flush()
+  result.push(...math(segment.body))
+  index = segment.next
+ }
+ if (!result.length && explicit && value.trim() && !/[$`]|\\[()[\]]/.test(value)) return math(value)
+ flush()
+ return result.length ? result : [node]
+}
+
+const mathDelimiters = [
+ ['$$', '$$'],
+ [String.raw`\[`, String.raw`\]`],
+ [String.raw`\(`, String.raw`\)`],
+ ['$', '$']
+]
+function indexClosingLines(content: string[]): Map<string, number[]> {
+ const result = new Map<string, number[]>()
+ for (const close of ['$$', String.raw`\]`]) {
+  const positions: number[] = []
+  let next = -1
+  for (let index = content.length - 1; index >= 0; index--) {
+   positions[index] = next
+   if (content[index].trim() === close) next = index
+  }
+  result.set(close, positions)
+ }
+ return result
+}
+function readMathSegment(
+ content: string[],
+ index: number,
+ explicit: boolean,
+ closers: Map<string, number[]>
+): {body: string; next: number} | undefined {
+ const line = content[index].trim()
+ for (const [open, close] of mathDelimiters) {
+  if (!line.startsWith(open)) continue
+  const body = singleLineFormula(line, open, close, explicit)
+  if (body !== undefined) return {body, next: index + 1}
+  const segment = multilineFormula(content, index, open, close, closers)
+  if (segment) return segment
+ }
+ return undefined
+}
+
+function singleLineFormula(line: string, open: string, close: string, explicit: boolean): string | undefined {
+ if (line.length <= open.length + close.length || !line.endsWith(close)) return undefined
+ const candidate = line.slice(open.length, -close.length)
+ if (!candidate.trim() || candidate.includes('$')) return undefined
+ if (!explicit && /^\d+(?:[.,]\d+)?(?:\s|$)/.test(candidate)) return undefined
+ return candidate
+}
+
+function multilineFormula(
+ content: string[],
+ index: number,
+ open: string,
+ close: string,
+ closers: Map<string, number[]>
+) {
+ if ((open !== '$$' && open !== String.raw`\[`) || content[index].trim() !== open) return undefined
+ const end = closers.get(close)?.[index] ?? -1
+ return end > index + 1 ? {body: content.slice(index + 1, end).join('\n'), next: end + 1} : undefined
 }
 
 function normalizeMathProse(source: string): string {

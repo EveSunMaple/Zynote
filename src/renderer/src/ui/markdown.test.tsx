@@ -105,6 +105,8 @@ describe('chat Markdown actual rendering pipeline', () => {
   ])
    expect(mathCount(render(text)), text).toBe(0)
   expect(mathCount(render('```tex\nx^2\n```'))).toBe(1)
+  expect(mathCount(render('```tex\n' + '\\[\n'.repeat(2000) + '```'))).toBe(0)
+  expect(mathCount(render('```tex\n' + '$$\n'.repeat(2000) + '```'))).toBe(0)
  })
  it('shows invalid LaTeX visibly and never trusts commands from a formula fence', () => {
   expect(render('```latex\n\\frac{\n```')).toContain('katex-error')
