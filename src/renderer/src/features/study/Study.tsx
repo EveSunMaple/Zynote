@@ -527,9 +527,10 @@ export function Study({ // NOSONAR: transitional TS fallback/UI flow retained fo
    setTab('schedule')
   }
  }
- let subheading = '先在课表里选择一个课次'
+ let subheading = '还没有打开教材'
  if (tab === 'schedule') subheading = `${entries.length} 个课次 · 保存后会同步已关联课次的名称`
  else if (entry) subheading = `${entry.title || '未命名课次'}${courseName ? ' · ' + courseName : ''}`
+ else if (book) subheading = `${book.pages} 页教材`
  let modeStatus = '未选择教材'
  if (importStatus) modeStatus = importLabels[importStatus.phase]
  else if (busy) modeStatus = `${progress?.stage || '正在处理'}…`

@@ -203,7 +203,7 @@ export function ZhiyunSync({
       isDisabled={busy || matching || loadingLessons || !searchTitle}
       onClick={() => void match()}
      >
-      {matching ? '正在匹配…' : '自动匹配智云'}
+      自动匹配智云
      </Button>
      <Button
       variant="ghost"

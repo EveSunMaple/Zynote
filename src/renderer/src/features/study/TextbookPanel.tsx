@@ -296,12 +296,11 @@ function readingHint(
 }
 
 function AnalysisAction(props: TextbookProps & {teacher: boolean; replaySubId?: string}) {
- if (props.busy) return null
  const teacher = props.teacher
  const source = teacher ? 'teacher' : 'ai'
  const action = teacher ? '用智云课堂转写生成批注' : '根据教材生成批注'
  if (teacher && !props.replaySubId && !props.entry?.subId)
-  return <ReplayPrompt entry={props.entry} onGoSchedule={props.onGoSchedule} />
+  return <ReplayPrompt entry={props.entry} busy={props.busy} onGoSchedule={props.onGoSchedule} />
  const problem = props.book && rangeProblem(props.first, props.last, props.book.pages)
  const emptyResult = props.draft?.rows.length === 0
  if (problem || emptyResult)
@@ -311,6 +310,7 @@ function AnalysisAction(props: TextbookProps & {teacher: boolean; replaySubId?: 
     emptyResult={emptyResult}
     action={action}
     source={source}
+    busy={props.busy}
     onAnalyze={props.onAnalyze}
    />
   )
@@ -318,6 +318,7 @@ function AnalysisAction(props: TextbookProps & {teacher: boolean; replaySubId?: 
   return (
    <LectureAssociation
     issues={props.issues}
+    busy={props.busy}
     onReviewIssues={props.onReviewIssues}
     onSaveSchedule={props.onSaveSchedule}
    />
@@ -325,7 +326,11 @@ function AnalysisAction(props: TextbookProps & {teacher: boolean; replaySubId?: 
  return <AnalysisRun {...props} teacher={teacher} source={source} action={action} />
 }
 
-function ReplayPrompt({entry, onGoSchedule}: Readonly<{entry: StudyEntry | undefined; onGoSchedule: () => void}>) {
+function ReplayPrompt({
+ entry,
+ busy,
+ onGoSchedule
+}: Readonly<{entry: StudyEntry | undefined; busy: boolean; onGoSchedule: () => void}>) {
  return (
   <div className="textbook-next">
    <p className="study-menu__hint">
@@ -333,7 +338,7 @@ function ReplayPrompt({entry, onGoSchedule}: Readonly<{entry: StudyEntry | undef
      ? '选择这节课的智云回放，千问就能根据老师讲话的语音转写标注教材。'
      : '先关联一节课的智云回放，千问会用老师讲话的语音转写标注教材。'}
    </p>
-   <Button size="sm" variant="primary" onPress={onGoSchedule}>
+   <Button size="sm" variant="primary" isDisabled={busy} onPress={onGoSchedule}>
     关联智云回放
    </Button>
   </div>
@@ -345,12 +350,14 @@ function AnalysisProblem({
  emptyResult,
  action,
  source,
+ busy,
  onAnalyze
 }: Readonly<{
  problem: string | null | false
  emptyResult: boolean | undefined
  action: string
  source: 'teacher' | 'ai'
+ busy: boolean
  onAnalyze: (source: 'teacher' | 'ai' | 'materials') => void
 }>) {
  return (
@@ -358,7 +365,7 @@ function AnalysisProblem({
    {problem && <p className="study-inline-error">{problem}</p>}
    <StudyNextStep>请在上方工具栏调整分析页码范围。</StudyNextStep>
    {emptyResult && !problem && (
-    <Button size="sm" variant="ghost" onPress={() => onAnalyze(source)}>
+    <Button size="sm" variant="ghost" isDisabled={busy} onPress={() => onAnalyze(source)}>
      {action}
     </Button>
    )}
@@ -368,15 +375,16 @@ function AnalysisProblem({
 
 function LectureAssociation({
  issues,
+ busy,
  onReviewIssues,
  onSaveSchedule
-}: Readonly<{issues: number; onReviewIssues: () => void; onSaveSchedule: () => void}>) {
+}: Readonly<{issues: number; busy: boolean; onReviewIssues: () => void; onSaveSchedule: () => void}>) {
  return (
   <div className="textbook-next">
    <StudyNextStep>
     {issues ? '点「去补全课表」，填写缺少的信息。' : '点「保存课堂资料关联」，让千问读取本次课的资料。'}
    </StudyNextStep>
-   <Button size="sm" variant="primary" onPress={issues ? onReviewIssues : onSaveSchedule}>
+   <Button size="sm" variant="primary" isDisabled={busy} onPress={issues ? onReviewIssues : onSaveSchedule}>
     {issues ? `去补全课表（${issues} 项）` : '保存课堂资料关联'}
    </Button>
   </div>
@@ -418,12 +426,12 @@ function AnalysisRun({
     {action}
    </Button>
    {!teacher && entry?.lectureId && lectureSaved && (
-    <Button size="sm" variant="ghost" onPress={() => onAnalyze('materials')}>
+    <Button size="sm" variant="ghost" isDisabled={busy} onPress={() => onAnalyze('materials')}>
      结合已关联的课次资料
     </Button>
    )}
    {analysisError && teacher && (
-    <Button size="sm" variant="ghost" onPress={onGoSchedule}>
+    <Button size="sm" variant="ghost" isDisabled={busy} onPress={onGoSchedule}>
      检查课堂资料
     </Button>
    )}
@@ -530,13 +538,19 @@ export function TextbookContent(props: TextbookProps) { // NOSONAR: cohesive flo
   }
  }
  if (!book) return (
-  <div className="study-file-start">
-   <span className="study-file-start__icon"><BookOpen size={26} aria-hidden="true" /></span>
-   <h3>打开一本教材</h3>
-   {props.bookFailure && <p role="alert" className="study-inline-error">{props.bookFailure}</p>}
-   {!busy && !props.resolvingBook && <StudyNextStep>{props.bookFailure ? '点「打开教材 PDF」，重新选择一份可读的文件。' : '点「打开教材 PDF」，选择要读的本地教材。'}</StudyNextStep>}
+  <div className="study-empty">
+   <h3>先准备教材</h3>
+   {props.bookFailure ? (
+    <p role="alert" className="study-inline-error">{props.bookFailure}</p>
+   ) : (
+    <p>在左侧打开一本教材 PDF，或先在课表里选择课次并关联教材。</p>
+   )}
+   <div className="study-empty__actions">
+    <Button variant="primary" size="sm" isDisabled={busy || props.resolvingBook} onPress={props.onPickBook}>
+     打开教材 PDF
+    </Button>
+   </div>
    {props.resolvingBook && <output>正在打开已关联的教材…</output>}
-   {!busy && !props.resolvingBook && <Button className="study-file-start__button" variant="primary" onPress={props.onPickBook}>打开教材 PDF</Button>}
    <TextbookProgress {...props} />
   </div>
  )
