@@ -54,9 +54,30 @@ export const remarkChatMath: Plugin = function () {
    for (const child of node.children || []) restoreAlts(child)
   }
   restoreAlts(tree)
+  renderInlineCodeMath(tree, body => {
+   const fragment = parse(`$${body}$`, file) as MarkdownNode
+   return fragment.children?.[0]?.children || []
+  })
   renderMathFences(tree, normalized, body => (parse(`$$\n${body}\n$$`, file) as MarkdownNode).children || [])
   return tree
  }
+}
+
+function renderInlineCodeMath(tree: MarkdownNode, math: (body: string) => MarkdownNode[]) {
+ const visit = (parent: MarkdownNode) => {
+  if (!parent.children) return
+  parent.children = parent.children.flatMap(node => {
+   if (node.type !== 'inlineCode') {
+    visit(node)
+    return [node]
+   }
+   const value = node.value || ''
+   const segment = readMathSegment([value], 0, false, new Map())
+   if (!segment || isProgram(segment.body)) return [node]
+   return math(segment.body)
+  })
+ }
+ visit(tree)
 }
 
 /** Explicit formula lines in a closed fence are presentation math. Other code stays code. */

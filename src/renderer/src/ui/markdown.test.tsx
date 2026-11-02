@@ -23,7 +23,7 @@ describe('chat Markdown actual rendering pipeline', () => {
  })
  it('leaves code, escaped dollars, currency and incomplete streams literal', () => {
   for (const text of [
-   '`$x$`',
+   '`const x = "$x$";`',
    '```js\n$x$\n```',
    '    $x$',
    String.raw`\$x\$`,
@@ -97,7 +97,7 @@ describe('chat Markdown actual rendering pipeline', () => {
    '```\nconst x = 2;\n$x$\n```',
    '```tex\n$5 and $10\n```',
    '```\nlong_source\n```',
-   '`$x^2$`',
+   '`$x^2`',
    '```tex\nx^2',
    '```math\nx^2',
    '```latex\n\\(x^2',
@@ -114,5 +114,27 @@ describe('chat Markdown actual rendering pipeline', () => {
   const html = render('```latex\n\\href{javascript:alert(1)}{x}\n```')
   expect(html).not.toContain('href="javascript:')
   expect(html).not.toContain('<script>')
+ })
+ it('renders complete formulas inside inline code as inline math but keeps money and real code', () => {
+  for (const value of ['$x^2$', String.raw`\(x^2\)`, String.raw`\[x_i^2\]`, '$$x^2$$']) {
+   const html = render('前 `' + value + '` 后')
+   expect(mathCount(html)).toBe(1)
+   expect(html).not.toContain('katex-display')
+   expect(html).not.toContain('<code>')
+  }
+  for (const value of [
+   '$5',
+   '$5 and $10',
+   '$10$',
+   'const total = price * quantity;',
+   'print("$x$")',
+   '$x +',
+   String.raw`\(x +`
+  ]) {
+   const html = render('`' + value + '`')
+   expect(mathCount(html)).toBe(0)
+   expect(html).toContain('<code>')
+  }
+  expect(render('费用 $5 and $10')).toContain('费用 $5 and $10')
  })
 })

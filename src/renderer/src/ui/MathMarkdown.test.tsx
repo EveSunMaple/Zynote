@@ -1,7 +1,18 @@
 import {renderToStaticMarkup} from 'react-dom/server'
 import {expect, it} from 'vitest'
+import {createRequire} from 'node:module'
+import {readFileSync} from 'node:fs'
+import {dirname, resolve} from 'node:path'
 import {MathMarkdown} from './MathMarkdown'
 import {Markdown} from './UiParts'
+
+it('uses the same KaTeX version for imported styles and rehype rendering', () => {
+ const require = createRequire(import.meta.url)
+ const stylesVersion = require('katex/package.json').version
+ const renderer = require.resolve('katex', {paths: [require.resolve('rehype-katex')]})
+ const rendererVersion = JSON.parse(readFileSync(resolve(dirname(renderer), '../package.json'), 'utf8')).version
+ expect(stylesVersion).toBe(rendererVersion)
+})
 
 it('renders inline and display math through KaTeX', () => {
  const markup = renderToStaticMarkup(<MathMarkdown>{'行内 $x^2$\n\n$$\n\\frac{a}{b}\n$$\n'}</MathMarkdown>)
