@@ -1,4 +1,5 @@
 import {noteGroups, type VideoNotePoint} from '@shared/video-notes'
+import {MathMarkdown} from '@renderer/ui/MathMarkdown'
 export function VideoMindmap({title, points}: Readonly<{title: string; points: VideoNotePoint[]}>) {
  return (
   <div className="video-mindmap" aria-label="课程思维导图">
@@ -16,7 +17,9 @@ export function VideoMindmap({title, points}: Readonly<{title: string; points: V
       <div>
        {group.items.map(point => (
         <article key={`${point.timestamp}-${point.point}`}>
-         <strong>{point.point}</strong>
+         <strong>
+          <MathMarkdown inline>{point.point}</MathMarkdown>
+         </strong>
          <small>{point.timestamp}</small>
          <p>“{point.quote}”</p>
         </article>

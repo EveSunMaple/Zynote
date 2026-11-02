@@ -4,6 +4,7 @@ import {Button, TextArea} from '@heroui/react'
 import type {PageViewport} from 'pdfjs-dist/legacy/build/pdf.mjs'
 import {type Highlight, highlightLabels} from '@shared/study'
 import {errorMessage} from '@renderer/ui/ToastHost'
+import {MathMarkdown} from '@renderer/ui/MathMarkdown'
 import '@renderer/features/study/textbook-comments.css'
 
 const labels = {teacher: '老师讲解 · 智云原文', ai: highlightLabels.ai, personal: '我的笔记'}
@@ -40,7 +41,9 @@ export function CommentText({comment}: Readonly<{comment: Comment}>) {
    <strong>
     {labels[comment.kind]} {comment.timestamp}
    </strong>
-   <p>{comment.text}</p>
+   <p>
+    <MathMarkdown inline>{comment.text}</MathMarkdown>
+   </p>
    {comment.quote && comment.quote !== comment.text && <small>课堂原话 · {comment.quote}</small>}
   </div>
  )

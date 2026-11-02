@@ -4,6 +4,7 @@ import {SelectField} from '@renderer/ui/SelectField'
 import {useState} from 'react'
 import type {CourseFile, Detail, LectureNotes, PastQuestion} from '@shared/types'
 import {invoke, Modal, FilePicker} from '@renderer/ui/UiParts'
+import {MathMarkdown} from '@renderer/ui/MathMarkdown'
 export function NewCourse({
  close,
  create,
@@ -241,7 +242,9 @@ export function Notes({
           return '待判断'
          })()}
         </span>
-        <strong>{p.topic}</strong>
+        <strong>
+         <MathMarkdown inline>{p.topic}</MathMarkdown>
+        </strong>
         <button className="timestamp" onClick={() => jump(p.timestamp)}>
          <StudyIcon name="clock" />
          {p.timestamp}
@@ -269,7 +272,11 @@ export function Notes({
          删除
         </Button>
        </div>
-       {'detail' in p && <p>{p.detail}</p>}
+       {'detail' in p && (
+        <p>
+         <MathMarkdown inline>{p.detail}</MathMarkdown>
+        </p>
+       )}
        <blockquote>{p.quote}</blockquote>
        {'pptRef' in p && p.pptRef && <small>课件：{p.pptRef}</small>}
        {!p.verified && <p className="warning">待核对：原话、时间或字幕疑点未通过校验，不作为教师明确考点。</p>}

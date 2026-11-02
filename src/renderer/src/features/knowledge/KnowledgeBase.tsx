@@ -4,6 +4,7 @@ import {BookOpen} from 'lucide-react'
 import {notify} from '@renderer/ui/ToastHost'
 import {WindowMenuButton, WindowPanel} from '@renderer/ui/WindowPanel'
 import {SelectField} from '@renderer/ui/SelectField'
+import {MathMarkdown} from '@renderer/ui/MathMarkdown'
 import {KnowledgeClassification} from '@renderer/features/knowledge/KnowledgeClassification'
 import {SettingsLink} from '@renderer/app/settings-navigation'
 import type {KnowledgeEntry, KnowledgeList, KnowledgeHit, KnowledgeSearch} from '@shared/knowledge'
@@ -376,7 +377,9 @@ export function KnowledgeBase({visible, close}: Readonly<{visible: boolean; clos
       <h3>资料回答</h3>
       {answer.answer.paragraphs.map(paragraph => (
        <div key={paragraph.text}>
-        <p>{paragraph.text}</p>
+        <p>
+         <MathMarkdown inline>{paragraph.text}</MathMarkdown>
+        </p>
         {paragraph.citations.map(citation => (
          <button
           key={citation.id}
@@ -389,7 +392,11 @@ export function KnowledgeBase({visible, close}: Readonly<{visible: boolean; clos
         ))}
        </div>
       ))}
-      {answer.answer.limitation && <p className="hint">{answer.answer.limitation}</p>}
+      {answer.answer.limitation && (
+       <p className="hint">
+        <MathMarkdown inline>{answer.answer.limitation}</MathMarkdown>
+       </p>
+      )}
      </Card>
     )}
     {reading && (
