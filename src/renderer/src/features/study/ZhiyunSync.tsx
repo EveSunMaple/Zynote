@@ -143,12 +143,8 @@ export function ZhiyunSync({
    const result = await invoke<ZhiyunCourseMatch>('zhiyun:match-course', {title})
    if (current !== request.current) return
    setCourses(result.courses)
-   const matched =
-    result.status === 'matched'
-     ? result.matchedId
-     : result.courses.length === 1 && !result.truncated
-       ? result.courses[0].id
-       : undefined
+   let matched = result.courses.length === 1 && !result.truncated ? result.courses[0].id : undefined
+   if (result.status === 'matched') matched = result.matchedId
    if (matched) {
     await chooseCourse(matched, result.courses)
    } else if (!result.courses.length) {

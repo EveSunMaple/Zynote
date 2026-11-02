@@ -333,11 +333,10 @@
  align-items: flex-start;
 }
 .study-menu__search {
- position: sticky;
- top: -4px;
- z-index: 4;
- padding: 4px 0 6px;
- background: var(--list);
+ position: relative;
+ top: auto;
+ padding: 0;
+ background: transparent;
 }
 .study-menu__actions {
  display: grid;
@@ -606,16 +605,19 @@
 }
 .study-savebar {
  position: sticky;
- top: 0;
+ top: auto;
+ bottom: 0;
  z-index: 3;
  display: flex;
  justify-content: space-between;
  align-items: center;
  gap: 16px;
- margin-bottom: 16px;
- padding: 10px 0;
- background: var(--shell-backdrop);
- border-bottom: 1px solid var(--line);
+ margin-top: 20px;
+ margin-bottom: 0;
+ padding: 14px 16px;
+ background: var(--chat);
+ border: 1px solid var(--line-strong);
+ border-radius: 12px;
 }
 .study-savebar > :first-child {
  flex: 1;
@@ -2108,28 +2110,9 @@ html[data-platform="linux"][data-maximized="true"] #root {
 }
 
 /* Legacy schedule UI kept on the hybrid branch. */
-.study-menu__search {
- position: sticky;
- top: 0;
- z-index: 4;
- padding: 8px 0;
- background: var(--list);
-}
 .study-modebar__status {
  color: var(--muted);
  font-size: 12px;
-}
-.study-savebar {
- position: sticky;
- top: auto;
- bottom: 0;
- z-index: 3;
- margin-top: 20px;
- margin-bottom: 0;
- padding: 14px 16px;
- background: var(--chat);
- border: 1px solid var(--line-strong);
- border-radius: 12px;
 }
 
 /* Study sidebars: fixed header, scrollable card list. */
@@ -2183,10 +2166,4 @@ html[data-platform="linux"][data-maximized="true"] #root {
 }
 .study-menu__scroll .study-entry-groups {
  padding-bottom: 4px;
-}
-.study-menu__search {
- position: relative;
- top: auto;
- padding: 0;
- background: transparent;
 }

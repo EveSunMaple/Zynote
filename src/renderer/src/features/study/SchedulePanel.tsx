@@ -6,6 +6,7 @@ import {SelectField} from '@renderer/ui/SelectField'
 import {Modal} from '@renderer/ui/UiParts'
 import {WindowMenuButton} from '@renderer/ui/WindowPanel'
 import {StudyField} from '@renderer/features/study/Field'
+import {periodName, weekdayName, WeeklyFields} from '@renderer/features/study/WeeklySchedule'
 import {ZhiyunSync} from '@renderer/features/study/ZhiyunSync'
 import {
  dateTimeInZone,
@@ -40,71 +41,194 @@ export type ScheduleProps = Readonly<{
  onParseImage: () => Promise<boolean> // NOSONAR: shared props type; this member is used by the sibling component.
 }>
 
-const weekdays = ['周一', '周二', '周三', '周四', '周五', '周六', '周日']
-const dayOptions = weekdays.map((label, index) => ({value: String(index + 1), label}))
-const periodOptions = Array.from({length: 30}, (_, index) => ({value: String(index + 1), label: `第 ${index + 1} 节`}))
-
 function courseName(courses: Course[], id: string) {
  return courses.find(course => course.id === id)?.name || '未知课程'
 }
 
-function weekdayName(day?: number) {
- return weekdays[(day || 0) - 1] || '星期待核对'
+function entryCourseLabel(entry: StudyEntry, courses: Course[]) {
+ if (entry.courseId) return courseName(courses, entry.courseId)
+ return entry.weekly ? '未关联课程' : '未知课程'
 }
 
-function periodName(entry: StudyEntry) {
- const {startPeriod, endPeriod} = entry
- if (!startPeriod && !endPeriod) return '节次待核对'
- if (startPeriod === endPeriod) return `第 ${startPeriod} 节`
- return `第 ${startPeriod ?? '?'}–${endPeriod ?? '?'} 节`
+function entryTimeLabel(entry: StudyEntry, timezone: string) {
+ if (entry.weekly) {
+  const period = `${weekdayName(entry.weekday)} · ${periodName(entry)}`
+  return entry.location ? `${period} · ${entry.location}` : period
+ }
+ return entry.endsAt ? formatTime(entry.endsAt, timezone) : '时间待定'
 }
 
-function WeeklyFields({
+type ScheduleGroup = {label: string; rows: StudyEntry[]}
+
+function ScheduleEntryCard({
  entry,
- onUpdate
-}: Readonly<{entry: StudyEntry; onUpdate: (value: Partial<StudyEntry>) => void}>) {
+ selected,
+ managing,
+ checked,
+ courses,
+ timezone,
+ linked,
+ issue,
+ onSelect,
+ onToggle
+}: Readonly<{
+ entry: StudyEntry
+ selected: boolean
+ managing: boolean
+ checked: boolean
+ courses: Course[]
+ timezone: string
+ linked: boolean
+ issue: boolean
+ onSelect: () => void
+ onToggle: (checked: boolean) => void
+}>) {
  return (
-  <>
-   <StudyField label="星期">
-    <SelectField
-     label="星期"
-     placeholder="待核对"
-     clearable
-     options={dayOptions}
-     value={String(entry.weekday ?? '')}
-     onChange={value => onUpdate({weekday: Number(value) || undefined})}
-    />
-   </StudyField>
-   <StudyField label="教室">
-    <Input
-     aria-label="教室"
-     placeholder="例如：东1-201"
-     maxLength={200}
-     value={entry.location ?? ''}
-     onChange={event => onUpdate({location: event.target.value})}
-    />
-   </StudyField>
-   <StudyField label="开始节次">
-    <SelectField
-     label="开始节次"
-     placeholder="待核对"
-     clearable
-     options={periodOptions}
-     value={String(entry.startPeriod ?? '')}
-     onChange={value => onUpdate({startPeriod: Number(value) || undefined})}
-    />
-   </StudyField>
-   <StudyField label="结束节次">
-    <SelectField
-     label="结束节次"
-     placeholder="待核对"
-     clearable
-     options={periodOptions}
-     value={String(entry.endPeriod ?? '')}
-     onChange={value => onUpdate({endPeriod: Number(value) || undefined})}
-    />
-   </StudyField>
-  </>
+  <div className="study-entry-row">
+   {managing ? (
+    <Checkbox
+     className="study-entry-check"
+     aria-label={`选择课表条目 ${entry.title || '未命名课次'}`}
+     isSelected={checked}
+     onChange={onToggle}
+    >
+     <Checkbox.Content>
+      <Checkbox.Control>
+       <Checkbox.Indicator />
+      </Checkbox.Control>
+     </Checkbox.Content>
+    </Checkbox>
+   ) : null}
+   <WindowMenuButton
+    active={managing ? checked : selected}
+    title={entry.title || '未命名课次'}
+    note={
+     <span className="study-entry-note">
+      <span>{entryCourseLabel(entry, courses)}</span>
+      <span>{entryTimeLabel(entry, timezone)}</span>
+      {linked ? <span className="study-entry-linked">已关联</span> : null}
+      {issue ? <span className="study-entry-warning">待完善</span> : null}
+     </span>
+    }
+    onSelect={onSelect}
+   >
+    {entry.title || '未命名课次'}
+   </WindowMenuButton>
+  </div>
+ )
+}
+
+function ScheduleEntryList({
+ groups,
+ hasEntries,
+ managing,
+ batch,
+ selected,
+ courses,
+ timezone,
+ issueIds,
+ onSelect,
+ onToggleBatch
+}: Readonly<{
+ groups: ScheduleGroup[]
+ hasEntries: boolean
+ managing: boolean
+ batch: Set<string>
+ selected: string
+ courses: Course[]
+ timezone: string
+ issueIds: Set<string>
+ onSelect: (id: string) => void
+ onToggleBatch: (id: string, checked: boolean) => void
+}>) {
+ if (!hasEntries) return <p className="study-menu__hint">还没有课表。上传课表图片、粘贴课表识别，或手动添加一节课。</p>
+ if (!groups.length) return <p className="study-menu__hint">没有匹配的课次。</p>
+ return (
+  <div className="study-entry-groups">
+   {groups.map(group => (
+    <section key={group.label} className="study-entry-group">
+     <p className="study-entry-group__label">{group.label}</p>
+     {group.rows.map(entry => (
+      <ScheduleEntryCard
+       key={entry.id}
+       entry={entry}
+       selected={entry.id === selected}
+       managing={managing}
+       checked={batch.has(entry.id)}
+       courses={courses}
+       timezone={timezone}
+       linked={!!entry.lectureId}
+       issue={issueIds.has(entry.id)}
+       onSelect={() => (managing ? onToggleBatch(entry.id, !batch.has(entry.id)) : onSelect(entry.id))}
+       onToggle={checked => onToggleBatch(entry.id, checked)}
+      />
+     ))}
+    </section>
+   ))}
+  </div>
+ )
+}
+
+function ScheduleTextImportDialog({
+ busy,
+ text,
+ setText,
+ timezone,
+ onTimezone,
+ onClose,
+ onParse
+}: Readonly<{
+ busy: boolean
+ text: string
+ setText: (value: string) => void
+ timezone: string
+ onTimezone: (value: string) => void
+ onClose: () => void
+ onParse: (text: string, timezone: string) => Promise<boolean>
+}>) {
+ return (
+  <Modal title="识别文字课表" close={() => !busy && onClose()}>
+   <div className="study-import">
+    <p className="study-menu__hint">
+     请粘贴包含日期、结束时间和章节的课表；课程名称需要与已有课程匹配。缺少任一信息时不会猜测。
+    </p>
+    <StudyField label="课表文本">
+     <TextArea
+      aria-label="课表文本"
+      value={text}
+      onChange={event => setText(event.target.value)}
+      placeholder="例如：10 月 8 日 高等数学 第 3 讲 极限 20:00 结束"
+     />
+    </StudyField>
+    <StudyField
+     label="课表时区"
+     hint="用于解释课表里的时间；保存时会写成带偏移的完整时间。"
+     error={validTimeZone(timezone) ? undefined : '请输入有效的 IANA 时区，例如 Asia/Shanghai。'}
+    >
+     <Input aria-label="课表时区" value={timezone} onChange={event => onTimezone(event.target.value)} />
+    </StudyField>
+    <div className="study-import__footer">
+     <Button variant="ghost" size="sm" isDisabled={busy} onClick={onClose}>
+      取消
+     </Button>
+     <Button
+      variant="primary"
+      size="sm"
+      isDisabled={busy || !text.trim() || !validTimeZone(timezone)}
+      onClick={() =>
+       void onParse(text, timezone).then(ok => {
+        if (ok) {
+         setText('')
+         onClose()
+        }
+       })
+      }
+     >
+      开始识别
+     </Button>
+    </div>
+   </div>
+  </Modal>
  )
 }
 
@@ -227,59 +351,18 @@ export function ScheduleMenu(props: ScheduleProps) {
     </div>
    </div>
    <ScrollShadow className="study-menu__scroll" orientation="vertical">
-    {entries.length ? (
-     <div className="study-entry-groups">
-      {groups.map(group => (
-       <section key={group.label} className="study-entry-group">
-        <p className="study-entry-group__label">{group.label}</p>
-        {group.rows.map(entry => (
-         <div className="study-entry-row" key={entry.id}>
-          {managing ? (
-           <Checkbox
-            className="study-entry-check"
-            aria-label={`选择课表条目 ${entry.title || '未命名课次'}`}
-            isSelected={batch.has(entry.id)}
-            onChange={checked => toggleBatch(entry.id, checked)}
-           >
-            <Checkbox.Content>
-             <Checkbox.Control>
-              <Checkbox.Indicator />
-             </Checkbox.Control>
-            </Checkbox.Content>
-           </Checkbox>
-          ) : null}
-          <WindowMenuButton
-           active={managing ? batch.has(entry.id) : entry.id === selected}
-           title={entry.title || '未命名课次'}
-           note={
-            <span className="study-entry-note">
-             <span>
-              {entry.courseId ? courseName(courses, entry.courseId) : entry.weekly ? '未关联课程' : '未知课程'}
-             </span>
-             <span>
-              {entry.weekly
-               ? `${weekdayName(entry.weekday)} · ${periodName(entry)}${entry.location ? ` · ${entry.location}` : ''}`
-               : entry.endsAt
-                 ? formatTime(entry.endsAt, timezone)
-                 : '时间待定'}
-             </span>
-             {entry.lectureId ? <span className="study-entry-linked">已关联</span> : null}
-             {issueIds.has(entry.id) ? <span className="study-entry-warning">待完善</span> : null}
-            </span>
-           }
-           onSelect={() => (managing ? toggleBatch(entry.id, !batch.has(entry.id)) : onSelect(entry.id))}
-          >
-           {entry.title || '未命名课次'}
-          </WindowMenuButton>
-         </div>
-        ))}
-       </section>
-      ))}
-      {!filtered.length ? <p className="study-menu__hint">没有匹配的课次。</p> : null}
-     </div>
-    ) : (
-     <p className="study-menu__hint">还没有课表。上传课表图片、粘贴课表识别，或手动添加一节课。</p>
-    )}
+    <ScheduleEntryList
+     groups={groups}
+     hasEntries={!!entries.length}
+     managing={managing}
+     batch={batch}
+     selected={selected}
+     courses={courses}
+     timezone={timezone}
+     issueIds={issueIds}
+     onSelect={onSelect}
+     onToggleBatch={toggleBatch}
+    />
    </ScrollShadow>
    {confirmReplace ? (
     <ConfirmDialog
@@ -310,48 +393,15 @@ export function ScheduleMenu(props: ScheduleProps) {
     </ConfirmDialog>
    ) : null}
    {importing ? (
-    <Modal title="识别文字课表" close={() => !busy && setImporting(false)}>
-     <div className="study-import">
-      <p className="study-menu__hint">
-       请粘贴包含日期、结束时间和章节的课表；课程名称需要与已有课程匹配。缺少任一信息时不会猜测。
-      </p>
-      <StudyField label="课表文本">
-       <TextArea
-        aria-label="课表文本"
-        value={text}
-        onChange={event => setText(event.target.value)}
-        placeholder="例如：10 月 8 日 高等数学 第 3 讲 极限 20:00 结束"
-       />
-      </StudyField>
-      <StudyField
-       label="课表时区"
-       hint="用于解释课表里的时间；保存时会写成带偏移的完整时间。"
-       error={validTimeZone(timezone) ? undefined : '请输入有效的 IANA 时区，例如 Asia/Shanghai。'}
-      >
-       <Input aria-label="课表时区" value={timezone} onChange={event => onTimezone(event.target.value)} />
-      </StudyField>
-      <div className="study-import__footer">
-       <Button variant="ghost" size="sm" isDisabled={busy} onClick={() => setImporting(false)}>
-        取消
-       </Button>
-       <Button
-        variant="primary"
-        size="sm"
-        isDisabled={busy || !text.trim() || !validTimeZone(timezone)}
-        onClick={() =>
-         void onParse(text, timezone).then(ok => {
-          if (ok) {
-           setImporting(false)
-           setText('')
-          }
-         })
-        }
-       >
-        开始识别
-       </Button>
-      </div>
-     </div>
-    </Modal>
+    <ScheduleTextImportDialog
+     busy={busy}
+     text={text}
+     setText={setText}
+     timezone={timezone}
+     onTimezone={onTimezone}
+     onClose={() => setImporting(false)}
+     onParse={onParse}
+    />
    ) : null}
   </div>
  )

@@ -237,8 +237,7 @@ export function TextbookMenu(props: TextbookProps) {
       props.onRemoveHighlights()
      }}
     >
-     将移除本软件写入这份教材的划线、附在划线上的笔记和章小结。保存前会创建
-     <code>.划线前备份.pdf</code>。
+     将移除本软件写入这份教材的划线、附在划线上的笔记和章小结。保存前会创建 <code>.划线前备份.pdf</code>。
     </ConfirmDialog>
    ) : null}
   </div>
