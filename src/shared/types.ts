@@ -69,6 +69,16 @@ export interface ZhiyunLesson {
  videoAvailable: boolean
  videoUrl?: string
 }
+export interface ZhiyunCourseMatch {
+ status: 'matched' | 'choose' | 'not-found'
+ source: 'personal-calendar' | 'catalog'
+ calendarUnavailable?: boolean
+ catalogRequested?: boolean
+ courses: ZhiyunCourse[]
+ matchedId?: string
+ truncated: boolean
+ currentReplay?: {courseId: string; subId: string}
+}
 export type ZhiyunTaskState = 'queued' | 'running' | 'cancelling' | 'completed' | 'failed' | 'cancelled' | 'interrupted'
 export interface ZhiyunTask {
  id: string

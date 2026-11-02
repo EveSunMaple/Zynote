@@ -6,6 +6,7 @@ import {SelectField} from '@renderer/ui/SelectField'
 import {Modal} from '@renderer/ui/UiParts'
 import {WindowMenuButton} from '@renderer/ui/WindowPanel'
 import {StudyField} from '@renderer/features/study/Field'
+import {ZhiyunSync} from '@renderer/features/study/ZhiyunSync'
 import {
  dateTimeInZone,
  formatDateTime,
@@ -480,10 +481,11 @@ function ScheduleDetail({entry, courses, detail, timezone, busy, onUpdate}: Sche
       />
      </StudyField>
     </div>
+    <ZhiyunSync entry={entry} courses={courses} busy={busy} onUpdate={onUpdate} />
     <Disclosure>
      <Disclosure.Heading>
       <Disclosure.Trigger>
-       智云同步（可选）
+       手动填写智云编号（备用）
        <Disclosure.Indicator />
       </Disclosure.Trigger>
      </Disclosure.Heading>
