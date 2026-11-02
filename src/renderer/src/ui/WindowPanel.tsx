@@ -48,6 +48,7 @@ export function WindowPanel({
  menu,
  menuKey,
  menuScrollShadow = true,
+ menuScrollable = true,
  heading,
  subheading,
  actions,
@@ -65,6 +66,7 @@ export function WindowPanel({
  menu?: ReactNode
  menuKey?: string
  menuScrollShadow?: boolean
+ menuScrollable?: boolean
  heading?: ReactNode
  subheading?: ReactNode
  actions?: ReactNode
@@ -97,17 +99,21 @@ export function WindowPanel({
    <aside className="learning-menu" aria-label={label + '导航'}>
     <h2>{title}</h2>
     <p>{description}</p>
-    <ScrollShadow
-     ref={menuScroll}
-     className="learning-menu__items"
-     isEnabled={menuScrollShadow}
-     orientation="vertical"
-     onScroll={event => {
-      menuPositions.current.set(menuKey ?? '', event.currentTarget.scrollTop)
-     }}
-    >
-     {menu}
-    </ScrollShadow>
+    {menuScrollable ? (
+     <ScrollShadow
+      ref={menuScroll}
+      className="learning-menu__items"
+      isEnabled={menuScrollShadow}
+      orientation="vertical"
+      onScroll={event => {
+       menuPositions.current.set(menuKey ?? '', event.currentTarget.scrollTop)
+      }}
+     >
+      {menu}
+     </ScrollShadow>
+    ) : (
+     <div className="learning-menu__items">{menu}</div>
+    )}
     <Button variant="ghost" size="sm" fullWidth className="window-panel__back" onPress={close}>
      <ArrowLeft size={16} aria-hidden="true" />
      {backLabel}

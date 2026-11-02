@@ -1,5 +1,5 @@
 import {useEffect, useState} from 'react'
-import {Button, Checkbox, DateField, Disclosure, Input, SearchField, TextArea} from '@heroui/react'
+import {Button, Checkbox, DateField, Disclosure, Input, ScrollShadow, SearchField, TextArea} from '@heroui/react'
 import type {CalendarDateTime} from '@internationalized/date'
 import {ConfirmDialog} from '@renderer/ui/ConfirmDialog'
 import {SelectField} from '@renderer/ui/SelectField'
@@ -147,63 +147,67 @@ export function ScheduleMenu(props: ScheduleProps) {
   else setImporting(true)
  }
  return (
-  <div className="study-menu">
-   <SearchField aria-label="搜索课次" className="study-menu__search" fullWidth value={query} onChange={setQuery}>
-    <SearchField.Group>
-     <SearchField.SearchIcon />
-     <SearchField.Input placeholder="搜索课次、章节或课程" />
-     <SearchField.ClearButton />
-    </SearchField.Group>
-   </SearchField>
-   <Button variant="primary" size="sm" fullWidth isDisabled={busy} onClick={() => void onParseImage()}>
-    上传课表图片
-   </Button>
-   <div className="study-menu__actions">
-    <Button variant="tertiary" size="sm" fullWidth isDisabled={busy} onClick={openImport}>
-     识别文字课表
+  <div className="study-menu study-menu--fixed">
+   <div className="study-menu__fixed">
+    <SearchField aria-label="搜索课次" className="study-menu__search" fullWidth value={query} onChange={setQuery}>
+     <SearchField.Group>
+      <SearchField.SearchIcon />
+      <SearchField.Input placeholder="搜索课次、章节或课程" />
+      <SearchField.ClearButton />
+     </SearchField.Group>
+    </SearchField>
+    <Button variant="primary" size="sm" fullWidth isDisabled={busy} onClick={() => void onParseImage()}>
+     上传课表图片
     </Button>
-    <Button variant="tertiary" size="sm" fullWidth isDisabled={busy || !courses.length} onClick={onAdd}>
-     手动添加
-    </Button>
-   </div>
-   {entries.length ? (
-    <div className="study-entry-groups">
-     {groups.map(group => (
-      <section key={group.label} className="study-entry-group">
-       <p className="study-entry-group__label">{group.label}</p>
-       {group.rows.map(entry => (
-        <WindowMenuButton
-         key={entry.id}
-         active={entry.id === selected}
-         title={entry.title || '未命名课次'}
-         note={
-          <span className="study-entry-note">
-           <span>
-            {entry.courseId ? courseName(courses, entry.courseId) : entry.weekly ? '未关联课程' : '未知课程'}
-           </span>
-           <span>
-            {entry.weekly
-             ? `${weekdayName(entry.weekday)} · ${periodName(entry)}${entry.location ? ` · ${entry.location}` : ''}`
-             : entry.endsAt
-               ? formatTime(entry.endsAt, timezone)
-               : '时间待定'}
-           </span>
-           {entry.lectureId ? <span className="study-entry-linked">已关联</span> : null}
-           {issueIds.has(entry.id) ? <span className="study-entry-warning">待完善</span> : null}
-          </span>
-         }
-         onSelect={() => onSelect(entry.id)}
-        >
-         {entry.title || '未命名课次'}
-        </WindowMenuButton>
-       ))}
-      </section>
-     ))}
-     {!filtered.length ? <p className="study-menu__hint">没有匹配的课次。</p> : null}
+    <div className="study-menu__actions">
+     <Button variant="tertiary" size="sm" fullWidth isDisabled={busy} onClick={openImport}>
+      识别文字课表
+     </Button>
+     <Button variant="tertiary" size="sm" fullWidth isDisabled={busy || !courses.length} onClick={onAdd}>
+      手动添加
+     </Button>
     </div>
-   ) : (
-    <p className="study-menu__hint">还没有课表。上传课表图片、粘贴课表识别，或手动添加一节课。</p>
-   )}
+   </div>
+   <ScrollShadow className="study-menu__scroll" orientation="vertical">
+    {entries.length ? (
+     <div className="study-entry-groups">
+      {groups.map(group => (
+       <section key={group.label} className="study-entry-group">
+        <p className="study-entry-group__label">{group.label}</p>
+        {group.rows.map(entry => (
+         <WindowMenuButton
+          key={entry.id}
+          active={entry.id === selected}
+          title={entry.title || '未命名课次'}
+          note={
+           <span className="study-entry-note">
+            <span>
+             {entry.courseId ? courseName(courses, entry.courseId) : entry.weekly ? '未关联课程' : '未知课程'}
+            </span>
+            <span>
+             {entry.weekly
+              ? `${weekdayName(entry.weekday)} · ${periodName(entry)}${entry.location ? ` · ${entry.location}` : ''}`
+              : entry.endsAt
+                ? formatTime(entry.endsAt, timezone)
+                : '时间待定'}
+            </span>
+            {entry.lectureId ? <span className="study-entry-linked">已关联</span> : null}
+            {issueIds.has(entry.id) ? <span className="study-entry-warning">待完善</span> : null}
+           </span>
+          }
+          onSelect={() => onSelect(entry.id)}
+         >
+          {entry.title || '未命名课次'}
+         </WindowMenuButton>
+        ))}
+       </section>
+      ))}
+      {!filtered.length ? <p className="study-menu__hint">没有匹配的课次。</p> : null}
+     </div>
+    ) : (
+     <p className="study-menu__hint">还没有课表。上传课表图片、粘贴课表识别，或手动添加一节课。</p>
+    )}
+   </ScrollShadow>
    {confirmReplace ? (
     <ConfirmDialog
      title="替换当前课表草稿？"

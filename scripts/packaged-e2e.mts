@@ -170,7 +170,6 @@ try {
   await waitForPageColor(2)
   // Reopen the same path after changing the PDF; the last chunk now holds its xref table.
   enlargePdfFixture(fixture)
-  await page.getByRole('button', {name: '更多操作', exact: true}).click()
   await Promise.all([
    page.waitForResponse(
     response =>

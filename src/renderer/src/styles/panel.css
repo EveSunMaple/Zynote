@@ -311,14 +311,6 @@
  font-size: 13px;
  line-height: 1.6;
 }
-.study-next-step__label {
- flex: none;
- padding: 1px 7px;
- border-radius: var(--radius-md);
- background: color-mix(in srgb, var(--blue) 12%, var(--surface-raised));
- font-size: 12px;
- font-weight: 600;
-}
 .study-file-start > .study-next-step {
  margin: 8px 0 20px;
  text-align: start;
@@ -2124,9 +2116,6 @@ html[data-platform="linux"][data-maximized="true"] #root {
  background: var(--chat);
  border: 1px solid var(--line-strong);
  border-radius: 12px;
- box-shadow:
-  0 18px 0 var(--chat),
-  0 -12px 24px color-mix(in srgb, var(--chat) 82%, transparent);
 }
 .course-list__toolbar {
  display: flex;
@@ -2141,4 +2130,43 @@ html[data-platform="linux"][data-maximized="true"] #root {
 }
 .course-row--managing .button.course {
  padding-left: 4px;
+}
+
+/* Study sidebars: fixed header, scrollable card list. */
+.study-menu-stack,
+.study-menu-pane {
+ display: flex;
+ flex: 1;
+ min-height: 0;
+ flex-direction: column;
+}
+.study-menu-pane[hidden] {
+ display: none;
+}
+.study-menu--fixed {
+ height: 100%;
+ min-height: 0;
+ gap: 0;
+}
+.study-menu__fixed {
+ display: flex;
+ flex: none;
+ flex-direction: column;
+ gap: 12px;
+ padding-bottom: 12px;
+}
+.study-menu__scroll {
+ flex: 1;
+ min-height: 0;
+ padding-right: 2px;
+ scrollbar-gutter: stable;
+}
+.study-menu__scroll .study-entry-groups {
+ padding-bottom: 4px;
+}
+.study-menu__search {
+ position: relative;
+ top: auto;
+ padding: 0;
+ background: transparent;
 }

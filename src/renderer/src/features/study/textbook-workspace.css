@@ -90,3 +90,42 @@
   grid-row: 1;
  }
 }
+
+.textbook-toolbar {
+ display: flex;
+ flex: 1 1 520px;
+ min-width: 0;
+ flex-direction: column;
+ gap: 8px;
+}
+.textbook-range {
+ grid-template-columns: repeat(2, minmax(120px, 1fr));
+ margin: 0;
+}
+.textbook-color-key--toolbar {
+ display: flex;
+ flex-wrap: wrap;
+ align-items: center;
+ gap: 8px 18px;
+ padding: 8px 0;
+ border-top: 1px solid var(--line);
+ border-bottom: 1px solid var(--line);
+}
+.textbook-color-key__title {
+ color: var(--muted);
+ font-size: 12px;
+ font-weight: 600;
+}
+.study-manual-tools .study-match__controls {
+ display: flex;
+ flex-wrap: wrap;
+ align-items: center;
+ gap: 8px;
+ min-width: 0;
+ margin: 0;
+ padding: 0;
+ border: 0;
+}
+.study-source-choices {
+ gap: 8px;
+}

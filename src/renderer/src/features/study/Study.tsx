@@ -540,9 +540,17 @@ export function Study({ // NOSONAR: transitional TS fallback/UI flow retained fo
      if (dirty) setConfirmClose(true)
      else close()
     }}
-    menuKey={tab}
-    menuScrollShadow={false}
-    menu={tab === 'schedule' ? <ScheduleMenu {...scheduleProps} /> : <TextbookMenu {...textbookProps} />}
+    menuScrollable={false}
+    menu={
+     <div className="study-menu-stack">
+      <div className="study-menu-pane" hidden={tab !== 'schedule'}>
+       <ScheduleMenu {...scheduleProps} />
+      </div>
+      <div className="study-menu-pane" hidden={tab !== 'textbook'}>
+       <TextbookMenu {...textbookProps} />
+      </div>
+     </div>
+    }
    >
     <Tabs
      className="study-tabs"

@@ -54,14 +54,15 @@ export function CourseList({
    {courses.length ? (
     <div className="course-list__toolbar">
      <Button
-      variant="ghost"
+      variant="tertiary"
       size="sm"
+      fullWidth={!managing}
       onClick={() => {
        setManaging(value => !value)
        setSelectedIds(new Set())
       }}
      >
-      {managing ? '完成' : '批量管理'}
+      {managing ? '完成' : '批量管理课程'}
      </Button>
      {managing ? (
       <>
