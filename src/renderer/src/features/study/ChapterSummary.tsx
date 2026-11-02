@@ -13,6 +13,7 @@ import {
  type Rect
 } from '@renderer/features/study/chapter-lines'
 import {errorMessage} from '@renderer/ui/ToastHost'
+import {MathMarkdown} from '@renderer/ui/MathMarkdown'
 import './chapter-summary.css'
 
 type Props = {
@@ -308,7 +309,9 @@ export function ChapterSummary({
           style={{...position(row.rect, viewport), fontSize: Math.max(5, visualRect(row.rect, viewport)[2] / 19)}}
          >
           <strong>本章小结</strong>
-          <span>{row.chapter.text}</span>
+          <span>
+           <MathMarkdown inline>{row.chapter.text}</MathMarkdown>
+          </span>
           <span className="chapter-links">
            {row.chapter.refs.map(ref => (
             <button

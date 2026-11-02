@@ -2,6 +2,7 @@ import {Button, Card, Checkbox, Input, TextArea} from '@heroui/react'
 import {useEffect, useState} from 'react'
 import {notify} from '@renderer/ui/ToastHost'
 import {SelectField} from '@renderer/ui/SelectField'
+import {MathMarkdown} from '@renderer/ui/MathMarkdown'
 import {SettingsLink} from '@renderer/app/settings-navigation'
 type Scope = {
  connection_id: string
@@ -331,7 +332,11 @@ export function ImAutomation({
     {jobs.map(job => (
      <article key={job.id}>
       <strong>{labels[job.state] || '待核验'}</strong>
-      {job.output?.text && <p>{job.output.text}</p>}
+      {job.output?.text && (
+       <p>
+        <MathMarkdown inline>{job.output.text}</MathMarkdown>
+       </p>
+      )}
       {job.error && <p className="hint">本条需重新核验当前连接或规则，未确认完成。</p>}
       <div className="row">
        {job.output?.text && (

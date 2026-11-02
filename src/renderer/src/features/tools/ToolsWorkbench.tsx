@@ -669,7 +669,9 @@ export function ToolsWorkbench({visible, close}: Readonly<{visible: boolean; clo
          {task.rejected_answer && (
           <>
            <p className="hint">模型原始回答（未通过核验，仅供排查，不作为研究成果）：</p>
-           <p className="knowledge-text">{task.rejected_answer}</p>
+           <div className="knowledge-text">
+            <MathMarkdown>{task.rejected_answer}</MathMarkdown>
+           </div>
           </>
          )}
         </details>

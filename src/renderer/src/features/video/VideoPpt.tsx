@@ -9,7 +9,7 @@ import {SelectField} from '@renderer/ui/SelectField'
 import {SettingsLink} from '@renderer/app/settings-navigation'
 import {FileText, SlidersHorizontal} from 'lucide-react'
 import type {VideoNoteMode, VideoNoteResult} from '@shared/video-notes'
-import ReactMarkdown from 'react-markdown'
+import {MathMarkdown} from '@renderer/ui/MathMarkdown'
 import {useEffect, useRef, useState} from 'react'
 import {
  defaultVideoPrompt,
@@ -933,7 +933,7 @@ export function VideoPpt({
          {summaryMode === 'mindmap' ? (
           <VideoMindmap title={subtitle?.title || '课程笔记'} points={summary.points} />
          ) : (
-          <ReactMarkdown>{summary.markdown}</ReactMarkdown>
+          <MathMarkdown>{summary.markdown}</MathMarkdown>
          )}
         </div>
         <SummaryReferences key={summary.path} summary={summary} srt={subtitle?.srt || ''} />
