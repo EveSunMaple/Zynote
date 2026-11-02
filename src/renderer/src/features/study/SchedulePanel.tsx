@@ -33,6 +33,7 @@ export type ScheduleProps = Readonly<{
  onAdd: () => void // NOSONAR: shared props type; this member is used by the sibling component.
  onUpdate: (value: Partial<StudyEntry>) => void // NOSONAR: shared props type; this member is used by the sibling component.
  onDelete: () => void // NOSONAR: shared props type; this member is used by the sibling component.
+ onDeleteMany: (ids: string[]) => void // NOSONAR: shared props type; this member is used by the sibling component.
  onSave: () => void // NOSONAR: shared props type; this member is used by the sibling component.
  onTimezone: (value: string) => void // NOSONAR: shared props type; this member is used by the sibling component.
  onParse: (text: string, timezone: string) => Promise<boolean> // NOSONAR: shared props type; this member is used by the sibling component.
@@ -108,13 +109,41 @@ function WeeklyFields({
 }
 
 export function ScheduleMenu(props: ScheduleProps) {
- const {entries, selected, courses, timezone, busy, dirty, issues, onSelect, onAdd, onTimezone, onParse, onParseImage} =
-  props
+ const {
+  entries,
+  selected,
+  courses,
+  timezone,
+  busy,
+  dirty,
+  issues,
+  onSelect,
+  onAdd,
+  onDeleteMany,
+  onTimezone,
+  onParse,
+  onParseImage
+ } = props
  const issueIds = new Set(issues.map(issue => issue.id))
  const [query, setQuery] = useState(''),
   [importing, setImporting] = useState(false),
   [confirmReplace, setConfirmReplace] = useState(false),
-  [text, setText] = useState('')
+  [text, setText] = useState(''),
+  [managing, setManaging] = useState(false),
+  [batch, setBatch] = useState<Set<string>>(new Set()),
+  [confirmBatch, setConfirmBatch] = useState(false)
+ useEffect(() => {
+  setBatch(current => new Set([...current].filter(id => entries.some(entry => entry.id === id))))
+ }, [entries])
+ const toggleBatch = (id: string, checked: boolean) => {
+  setBatch(current => {
+   const next = new Set(current)
+   if (checked) next.add(id)
+   else next.delete(id)
+   return next
+  })
+ }
+ const allBatchSelected = entries.length > 0 && entries.every(entry => batch.has(entry.id))
  const keyword = query.trim().toLowerCase()
  const filtered = entries.filter(entry => {
   if (!keyword) return true
@@ -167,6 +196,35 @@ export function ScheduleMenu(props: ScheduleProps) {
       手动添加
      </Button>
     </div>
+    <div className="study-menu__manage">
+     <Button
+      variant="tertiary"
+      size="sm"
+      fullWidth
+      isDisabled={busy || !entries.length}
+      onClick={() => {
+       setManaging(value => !value)
+       setBatch(new Set())
+      }}
+     >
+      {managing ? '完成' : '批量修改课表'}
+     </Button>
+     {managing ? (
+      <div className="study-menu__actions">
+       <Button
+        variant="ghost"
+        size="sm"
+        isDisabled={busy}
+        onClick={() => setBatch(allBatchSelected ? new Set() : new Set(entries.map(entry => entry.id)))}
+       >
+        {allBatchSelected ? '取消全选' : '全选'}
+       </Button>
+       <Button variant="danger-soft" size="sm" isDisabled={busy || !batch.size} onClick={() => setConfirmBatch(true)}>
+        删除所选（{batch.size}）
+       </Button>
+      </div>
+     ) : null}
+    </div>
    </div>
    <ScrollShadow className="study-menu__scroll" orientation="vertical">
     {entries.length ? (
@@ -175,30 +233,45 @@ export function ScheduleMenu(props: ScheduleProps) {
        <section key={group.label} className="study-entry-group">
         <p className="study-entry-group__label">{group.label}</p>
         {group.rows.map(entry => (
-         <WindowMenuButton
-          key={entry.id}
-          active={entry.id === selected}
-          title={entry.title || '未命名课次'}
-          note={
-           <span className="study-entry-note">
-            <span>
-             {entry.courseId ? courseName(courses, entry.courseId) : entry.weekly ? '未关联课程' : '未知课程'}
+         <div className="study-entry-row" key={entry.id}>
+          {managing ? (
+           <Checkbox
+            className="study-entry-check"
+            aria-label={`选择课表条目 ${entry.title || '未命名课次'}`}
+            isSelected={batch.has(entry.id)}
+            onChange={checked => toggleBatch(entry.id, checked)}
+           >
+            <Checkbox.Content>
+             <Checkbox.Control>
+              <Checkbox.Indicator />
+             </Checkbox.Control>
+            </Checkbox.Content>
+           </Checkbox>
+          ) : null}
+          <WindowMenuButton
+           active={managing ? batch.has(entry.id) : entry.id === selected}
+           title={entry.title || '未命名课次'}
+           note={
+            <span className="study-entry-note">
+             <span>
+              {entry.courseId ? courseName(courses, entry.courseId) : entry.weekly ? '未关联课程' : '未知课程'}
+             </span>
+             <span>
+              {entry.weekly
+               ? `${weekdayName(entry.weekday)} · ${periodName(entry)}${entry.location ? ` · ${entry.location}` : ''}`
+               : entry.endsAt
+                 ? formatTime(entry.endsAt, timezone)
+                 : '时间待定'}
+             </span>
+             {entry.lectureId ? <span className="study-entry-linked">已关联</span> : null}
+             {issueIds.has(entry.id) ? <span className="study-entry-warning">待完善</span> : null}
             </span>
-            <span>
-             {entry.weekly
-              ? `${weekdayName(entry.weekday)} · ${periodName(entry)}${entry.location ? ` · ${entry.location}` : ''}`
-              : entry.endsAt
-                ? formatTime(entry.endsAt, timezone)
-                : '时间待定'}
-            </span>
-            {entry.lectureId ? <span className="study-entry-linked">已关联</span> : null}
-            {issueIds.has(entry.id) ? <span className="study-entry-warning">待完善</span> : null}
-           </span>
-          }
-          onSelect={() => onSelect(entry.id)}
-         >
-          {entry.title || '未命名课次'}
-         </WindowMenuButton>
+           }
+           onSelect={() => (managing ? toggleBatch(entry.id, !batch.has(entry.id)) : onSelect(entry.id))}
+          >
+           {entry.title || '未命名课次'}
+          </WindowMenuButton>
+         </div>
         ))}
        </section>
       ))}
@@ -219,6 +292,21 @@ export function ScheduleMenu(props: ScheduleProps) {
      }}
     >
      当前有未保存的课表修改，识别成功后会用识别结果替换左侧草稿。
+    </ConfirmDialog>
+   ) : null}
+   {confirmBatch ? (
+    <ConfirmDialog
+     title={`删除所选的 ${batch.size} 个课表条目？`}
+     confirmLabel="删除所选"
+     onCancel={() => setConfirmBatch(false)}
+     onConfirm={() => {
+      onDeleteMany([...batch])
+      setBatch(new Set())
+      setManaging(false)
+      setConfirmBatch(false)
+     }}
+    >
+     这些条目会从当前课表草稿移除，点击「保存课表」后才会写入；不会删除已关联的课次、聊天记录或教材划线。
     </ConfirmDialog>
    ) : null}
    {importing ? (

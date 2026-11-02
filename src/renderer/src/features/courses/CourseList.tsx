@@ -1,6 +1,6 @@
-import {Button, Checkbox, ScrollShadow} from '@heroui/react'
+import {Button, ScrollShadow} from '@heroui/react'
 import {ConfirmDialog} from '@renderer/ui/ConfirmDialog'
-import {useEffect, useState} from 'react'
+import {useState} from 'react'
 import type {Course, ChatSession} from '@shared/types'
 import {BookMarked, ChevronDown, MessageSquare, Trash2} from 'lucide-react'
 import {courseLabel, courseYear, courseSubject, sortCoursesForNavigation} from '@shared/course-groups'
@@ -11,7 +11,6 @@ export function CourseList({
  busy,
  select,
  remove,
- removeMany,
  sessions,
  selectedSession,
  selectSession,
@@ -23,7 +22,6 @@ export function CourseList({
  busy: boolean
  select: (id: string) => void
  remove: (id: string) => Promise<void>
- removeMany: (ids: string[]) => Promise<void>
  sessions: ChatSession[]
  selectedSession: string
  selectSession: (courseId: string, sessionId: string) => void
@@ -33,59 +31,9 @@ export function CourseList({
  const [pendingSession, setPendingSession] = useState<ChatSession | null>(null)
  const [pending, setPending] = useState<Course | null>(null),
   [deleting, setDeleting] = useState(false),
-  [collapsed, setCollapsed] = useState<Record<string, boolean>>({}),
-  [managing, setManaging] = useState(false),
-  [selectedIds, setSelectedIds] = useState<Set<string>>(new Set()),
-  [confirmBatch, setConfirmBatch] = useState(false)
- useEffect(() => {
-  setSelectedIds(current => new Set([...current].filter(id => courses.some(course => course.id === id))))
- }, [courses])
- const allSelected = courses.length > 0 && courses.every(course => selectedIds.has(course.id))
- const toggleSelected = (id: string, checked: boolean) => {
-  setSelectedIds(current => {
-   const next = new Set(current)
-   if (checked) next.add(id)
-   else next.delete(id)
-   return next
-  })
- }
+  [collapsed, setCollapsed] = useState<Record<string, boolean>>({})
  return (
   <>
-   {courses.length ? (
-    <div className="course-list__toolbar">
-     <Button
-      variant="tertiary"
-      size="sm"
-      fullWidth={!managing}
-      onClick={() => {
-       setManaging(value => !value)
-       setSelectedIds(new Set())
-      }}
-     >
-      {managing ? '完成' : '批量管理课程'}
-     </Button>
-     {managing ? (
-      <>
-       <Button
-        variant="ghost"
-        size="sm"
-        isDisabled={busy}
-        onClick={() => setSelectedIds(allSelected ? new Set() : new Set(courses.map(course => course.id)))}
-       >
-        {allSelected ? '取消全选' : '全选'}
-       </Button>
-       <Button
-        variant="danger-soft"
-        size="sm"
-        isDisabled={busy || !selectedIds.size}
-        onClick={() => setConfirmBatch(true)}
-       >
-        删除所选（{selectedIds.size}）
-       </Button>
-      </>
-     ) : null}
-    </div>
-   ) : null}
    <ScrollShadow className="course-list" orientation="vertical">
     {sortCoursesForNavigation(courses).map(c => {
      const label = courseLabel(c.name),
@@ -93,31 +41,13 @@ export function CourseList({
       folded = collapsed[c.id] ?? !active
      return (
       <section className="course-group" key={c.id}>
-       <div className={'course-row ' + (active ? 'selected' : '') + (managing ? ' course-row--managing' : '')}>
-        {managing ? (
-         <Checkbox
-          className="course-select"
-          aria-label={'选择课程 ' + label}
-          isSelected={selectedIds.has(c.id)}
-          onChange={checked => toggleSelected(c.id, checked)}
-         >
-          <Checkbox.Content>
-           <Checkbox.Control>
-            <Checkbox.Indicator />
-           </Checkbox.Control>
-          </Checkbox.Content>
-         </Checkbox>
-        ) : null}
+       <div className={'course-row ' + (active ? 'selected' : '')}>
         <Button
          variant="ghost"
          isDisabled={busy}
          className={'course ' + (active ? 'selected' : '')}
          aria-label={'打开课程 ' + label}
          onClick={() => {
-          if (managing) {
-           toggleSelected(c.id, !selectedIds.has(c.id))
-           return
-          }
           select(c.id)
           setCollapsed(v => ({...v, [c.id]: false}))
          }}
@@ -241,29 +171,6 @@ export function CourseList({
      本课程及全部课次、字幕、笔记、练习和对话记录会删除。资料文件和已导出文件保留。
     </ConfirmDialog>
    )}
-   {confirmBatch ? (
-    <ConfirmDialog
-     title={`删除所选的 ${selectedIds.size} 门课程？`}
-     confirmLabel="删除所选课程"
-     busy={busy || deleting}
-     onCancel={() => setConfirmBatch(false)}
-     onConfirm={() => {
-      const ids = [...selectedIds]
-      setDeleting(true)
-      void removeMany(ids)
-       .then(() => {
-        setConfirmBatch(false)
-        setManaging(false)
-        setSelectedIds(new Set())
-        notify.success(`已删除 ${ids.length} 门课程`)
-       })
-       .catch(e => notify.error(e, {title: '批量删除课程失败'}))
-       .finally(() => setDeleting(false))
-     }}
-    >
-     这些课程的全部课次、字幕、笔记、练习和对话记录都会删除。资料文件和已导出文件保留。此操作无法撤销。
-    </ConfirmDialog>
-   ) : null}
   </>
  )
 }

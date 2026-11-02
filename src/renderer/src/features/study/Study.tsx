@@ -264,6 +264,14 @@ export function Study({ // NOSONAR: transitional TS fallback/UI flow retained fo
   setDraft(null)
   setChosen([])
  }
+ function deleteEntries(ids: string[]) {
+  const removing = new Set(ids),
+   rows = entries.filter(item => !removing.has(item.id))
+  setEntries(rows)
+  if (removing.has(selected)) setSelected(rows[0]?.id || '')
+  setDraft(null)
+  setChosen([])
+ }
  function save() {
   void run(async () => {
    const rows = await invoke<StudyEntry[]>('study:save', {entries})
@@ -440,6 +448,7 @@ export function Study({ // NOSONAR: transitional TS fallback/UI flow retained fo
   onAdd: addEntry,
   onUpdate: update,
   onDelete: deleteEntry,
+  onDeleteMany: deleteEntries,
   onSave: save,
   onTimezone: setTimezone,
   onParse: parseSchedule,

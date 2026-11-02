@@ -2117,20 +2117,6 @@ html[data-platform="linux"][data-maximized="true"] #root {
  border: 1px solid var(--line-strong);
  border-radius: 12px;
 }
-.course-list__toolbar {
- display: flex;
- flex-wrap: wrap;
- align-items: center;
- gap: 6px;
- padding: 2px 8px 8px;
-}
-.course-select {
- flex: none;
- margin-left: 4px;
-}
-.course-row--managing .button.course {
- padding-left: 4px;
-}
 
 /* Study sidebars: fixed header, scrollable card list. */
 .study-menu-stack,
@@ -2154,6 +2140,23 @@ html[data-platform="linux"][data-maximized="true"] #root {
  flex-direction: column;
  gap: 12px;
  padding-bottom: 12px;
+}
+.study-menu__manage {
+ display: flex;
+ flex-direction: column;
+ gap: 8px;
+}
+.study-entry-row {
+ display: flex;
+ align-items: center;
+ gap: 8px;
+}
+.study-entry-row .window-menu-item {
+ flex: 1;
+ min-width: 0;
+}
+.study-entry-check {
+ flex: none;
 }
 .study-menu__scroll {
  flex: 1;
