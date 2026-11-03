@@ -333,8 +333,8 @@ export function AppearanceEditor({
      >
       <Wallpaper value={value} />
       <div className="agent-thread">
-       <ChatMessage role="user" content="Zynote，今天一起学习吧。">
-        <p>Zynote，今天一起学习吧。</p>
+       <ChatMessage role="user" content="Qwen，今天一起学习吧。">
+        <p>Qwen，今天一起学习吧。</p>
        </ChatMessage>
        <ChatMessage role="assistant" content="好呀，我们先整理重点，再一起练习。">
         <p>

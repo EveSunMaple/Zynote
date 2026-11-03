@@ -17,11 +17,14 @@ type Identity struct {
 	Persona         string `json:"persona"`
 }
 
-const defaultPersona = "你是 Zynote，连酱的学习伙伴。你反应快、靠谱，带着一点幽默感，偶尔会俏皮地回嘴，但分寸得当；主动、自信，尊重彼此的意愿和边界。日常对话自然、亲切，不过度表演，不重复口头禅；陪连酱学习时认真清楚：先回答问题，再按需要解释概念、举例和梳理重点，区分老师原话、资料内容和自己的推断，不因角色互动编造知识或答案。角色互动保持日常、友善，不使用露骨、性化或强迫性的描写。"
+const defaultPersona = "你是 Qwen，用户的学习伙伴。你反应快、靠谱，带着一点幽默感，偶尔会轻松地回嘴，但分寸得当；主动、自信，尊重彼此的意愿和边界。日常对话自然、亲切，不过度表演，不重复口头禅；陪用户学习时认真清楚：先回答问题，再按需要解释概念、举例和梳理重点，区分老师原话、资料内容和自己的推断，不因角色互动编造知识或答案。角色互动保持日常、友善，不使用露骨、性化或强迫性的描写。"
+
+// 兼容旧版内置默认值：用户从未改过身份时，读取阶段迁移到中性默认值。
+const legacyDefaultPersona = "你是 Zynote，连酱的学习伙伴。你反应快、靠谱，带着一点幽默感，偶尔会俏皮地回嘴，但分寸得当；主动、自信，尊重彼此的意愿和边界。日常对话自然、亲切，不过度表演，不重复口头禅；陪连酱学习时认真清楚：先回答问题，再按需要解释概念、举例和梳理重点，区分老师原话、资料内容和自己的推断，不因角色互动编造知识或答案。角色互动保持日常、友善，不使用露骨、性化或强迫性的描写。"
 
 var DefaultIdentity = Identity{
-	UserName:        "连酱",
-	AssistantName:   "Zynote",
+	UserName:        "我",
+	AssistantName:   "Qwen",
 	UserAvatar:      "",
 	AssistantAvatar: "",
 	Persona:         defaultPersona,
@@ -45,13 +48,13 @@ func ReadIdentity(dataRoot string) (Identity, error) {
 		!validAvatar(value.UserAvatar) || !validAvatar(value.AssistantAvatar) {
 		return Identity{}, contract.InputInvalid("身份文件字段无效")
 	}
-	if strings.TrimSpace(value.Persona) == "" {
+	if strings.TrimSpace(value.Persona) == "" || strings.TrimSpace(value.Persona) == legacyDefaultPersona {
 		value.Persona = DefaultIdentity.Persona
 	}
-	if value.UserName == "你" {
+	if value.UserName == "你" || value.UserName == "连酱" {
 		value.UserName = DefaultIdentity.UserName
 	}
-	if value.AssistantName == "听课助手" || value.AssistantName == "梅酱" {
+	if value.AssistantName == "听课助手" || value.AssistantName == "梅酱" || value.AssistantName == "Zynote" {
 		value.AssistantName = DefaultIdentity.AssistantName
 	}
 	return value, nil
@@ -105,5 +108,5 @@ func IdentityPrompt(value Identity) string {
 	if persona != "" {
 		return base + "\n助手角色设定：\n" + value.Persona
 	}
-	return base + "你是 Zynote，连酱的学习伙伴。性格活泼俏皮，喜欢轻轻开玩笑，分寸得当；被夸奖时自然地接受并继续认真帮忙。和连酱交流时亲切、有边界，偶尔用轻松的语气。把这份性格融入陪伴学习：先清楚回答问题，再按需要解释概念、举例和梳理重点。涉及课堂知识与答案时认真准确，区分老师原话、资料内容和自己的推断，不能为了角色表演编造事实。保持日常、友善的互动，不使用露骨、性化或强迫性的描写。"
+	return base + defaultPersona
 }

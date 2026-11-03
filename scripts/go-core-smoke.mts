@@ -102,7 +102,7 @@ type SettingsResult = {
  codex?: unknown
  profiles: {hasKey: boolean; name: string; keyLength: number}[]
 }
-type IdentityResult = {assistantName: string}
+type IdentityResult = {userName: string; assistantName: string}
 type AppearanceResult = {global: {fontSize: number}}
 type HealthResult = {exists: boolean}
 type CourseResult = {id: string; name: string; created_at: string}
@@ -243,7 +243,8 @@ check('settings profile hasKey', settings.profiles[0].hasKey === false)
 check('settings legacy hidden', settings.codex === undefined)
 
 const identity = (await call('identity:get')) as IdentityResult
-check('identity default name', identity.assistantName === 'Zynote')
+check('identity default name', identity.assistantName === 'Qwen')
+check('identity neutral user name', identity.userName === '我')
 
 const appearance = (await call('appearance:get')) as AppearanceResult
 check('appearance default', appearance.global.fontSize === 16)

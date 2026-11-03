@@ -2,6 +2,14 @@
 
 生成日期：2026-10-03。Electron 的 LICENSES.chromium.html 与运行包一起提供。
 
+## Qwen 标识（助手默认头像）
+
+Copyright © Alibaba Cloud. Licensed under the Apache License, Version 2.0. Source: https://commons.wikimedia.org/wiki/File:Qwen_Logo.svg 与 https://github.com/QwenLM/Qwen/blob/main/assets/logo.jpg 。Qwen 是 Alibaba Cloud 的商标，此处仅用于标识 Qwen 模型接入。
+
+## 默认用户头像
+
+Default silhouette avatar，来自 OpenIconLibrary 的 Cartoon icons 包（OpenClipart），以 CC0-1.0 放弃版权。Source: https://openiconlibrary.com/packs/cartoon-icons/default-silhouette-avatar-647363
+
 FFmpeg 二进制来自 ffmpeg-static 5.3.0，GPL-3.0-or-later。对应构建及源码入口：https://github.com/eugeneware/ffmpeg-static/releases/tag/b6.1.1 与 https://github.com/eugeneware/ffmpeg-static/tree/b6.1.1；FFmpeg 源码：https://ffmpeg.org/releases/ffmpeg-6.1.1.tar.xz 。
 
 ## @derhuerst/http-basic 8.2.4

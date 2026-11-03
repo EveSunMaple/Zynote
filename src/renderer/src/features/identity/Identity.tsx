@@ -1,8 +1,8 @@
 import {Button, Input, TextArea} from '@heroui/react'
 import {createContext, useContext, useState} from 'react'
 import {defaultIdentity, type Identity} from '@shared/identity'
-import buddy from '@renderer/ui/brand/zhaiyun-mark.svg'
-import lian from '@renderer/assets/lian-avatar.jpg'
+import qwenAvatar from '@renderer/assets/qwen-avatar.png'
+import userAvatar from '@renderer/assets/user-avatar.svg'
 import {notify} from '@renderer/ui/ToastHost'
 export const IdentityContext = createContext<Identity>(defaultIdentity)
 export function IdentityAvatar({role}: Readonly<{role: 'user' | 'assistant'}>) {
@@ -10,9 +10,9 @@ export function IdentityAvatar({role}: Readonly<{role: 'user' | 'assistant'}>) {
  const identity = useContext(IdentityContext),
   avatar = role === 'user' ? identity.userAvatar : identity.assistantAvatar,
   name = role === 'user' ? identity.userName : identity.assistantName
- let source = lian
+ let source = userAvatar
  if (avatar) source = avatar
- else if (role === 'assistant') source = buddy
+ else if (role === 'assistant') source = qwenAvatar
  return <img className="identity-avatar" src={source} alt={name + '的头像'} />
 }
 export function IdentityEditor({
@@ -56,7 +56,7 @@ export function IdentityEditor({
        </span>
        <span>
         <strong>{role === 'user' ? value.userName : value.assistantName}</strong>
-        <small>{role === 'user' ? '我的资料' : 'Zynote'}</small>
+        <small>{role === 'user' ? '我的资料' : '助手'}</small>
        </span>
       </button>
      ))}
@@ -72,7 +72,7 @@ export function IdentityEditor({
      }}
     >
      <header>
-      <h2>{selected === 'user' ? '我的资料' : 'Zynote'}</h2>
+      <h2>{selected === 'user' ? '我的资料' : value.assistantName}</h2>
       <div>
        {!embedded && (
         <Button variant="ghost" size="sm" type="button" isDisabled={busy} onClick={close}>

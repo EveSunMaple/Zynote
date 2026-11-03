@@ -283,7 +283,7 @@ func TestP0Contract(t *testing.T) { // NOSONAR: end-to-end test intentionally ex
 	if err := json.Unmarshal(f.lastResult, &identity); err != nil {
 		t.Fatal(err)
 	}
-	if identity["assistantName"] != "Zynote" || identity["persona"] != "自定义人格" {
+	if identity["userName"] != "我" || identity["assistantName"] != "Qwen" || identity["persona"] != "自定义人格" {
 		t.Fatalf("identity mapping broken: %v", identity)
 	}
 
