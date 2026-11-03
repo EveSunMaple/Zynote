@@ -4,13 +4,15 @@ import {Copy, Minus, Square, X} from 'lucide-react'
 import {invoke} from '@renderer/ui/UiParts'
 
 /** 自绘标题栏：macOS 保留红绿灯只做拖拽区，Linux 提供最小化/最大化/关闭。
- * Windows 使用系统标题栏，渲染层不再绘制标题和窗口按钮。 */
+ * Windows 使用应用底色和系统窗口按钮叠加层，只绘制标题与拖拽区。 */
 export function TitleBar() {
  const platform = window.assistant.platform
  const [maximized, setMaximized] = useState(false)
- const usesCustomTitleBar = platform !== 'win32'
+ const isMac = platform === 'darwin'
+ const isWindows = platform === 'win32'
+ const usesCustomControls = !isMac && !isWindows
  useEffect(() => {
-  if (!usesCustomTitleBar) return
+  if (!usesCustomControls) return
   let active = true
   void invoke<boolean>('window:is-maximized').then(value => {
    if (active) setMaximized(value)
@@ -22,15 +24,13 @@ export function TitleBar() {
    active = false
    off()
   }
- }, [usesCustomTitleBar])
+ }, [usesCustomControls])
  useLayoutEffect(() => {
   document.documentElement.dataset.platform = platform
  }, [platform])
  useEffect(() => {
   document.documentElement.dataset.maximized = maximized ? 'true' : 'false'
  }, [maximized])
- const isMac = platform === 'darwin'
- if (!usesCustomTitleBar) return null
  return (
   <header
    className={'titlebar' + (isMac ? ' titlebar-mac' : '')}
@@ -40,7 +40,7 @@ export function TitleBar() {
    }}
   >
    {!isMac && <span className="titlebar-title">摘云</span>}
-   {!isMac && (
+   {usesCustomControls && (
     <div className="titlebar-controls">
      <Button
       variant="ghost"
