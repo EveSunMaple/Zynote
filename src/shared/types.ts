@@ -244,6 +244,8 @@ export interface Bridge {
  invoke<T = unknown>(action: string, args?: unknown): Promise<T>
  onEvent(callback: (event: EventPayload) => void): () => void
  filePath(file: File): string
+ /** 运行平台，preload 在首帧渲染前同步提供。 */
+ platform: NodeJS.Platform
 }
 declare global {
  interface Window {

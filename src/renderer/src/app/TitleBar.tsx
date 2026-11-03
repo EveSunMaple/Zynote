@@ -1,17 +1,17 @@
 import {Button} from '@heroui/react'
-import {useEffect, useState} from 'react'
+import {useEffect, useLayoutEffect, useState} from 'react'
 import {Copy, Minus, Square, X} from 'lucide-react'
 import {invoke} from '@renderer/ui/UiParts'
 
-/** 自绘标题栏：macOS 保留红绿灯只做拖拽区，Windows/Linux 提供最小化/最大化/关闭。 */
+/** 自绘标题栏：macOS 保留红绿灯只做拖拽区，Linux 提供最小化/最大化/关闭。
+ * Windows 使用系统标题栏，渲染层不再绘制标题和窗口按钮。 */
 export function TitleBar() {
- const [platform, setPlatform] = useState('')
+ const platform = window.assistant.platform
  const [maximized, setMaximized] = useState(false)
+ const usesCustomTitleBar = platform !== 'win32'
  useEffect(() => {
+  if (!usesCustomTitleBar) return
   let active = true
-  void invoke<{platform: string}>('app:info').then(info => {
-   if (active) setPlatform(info.platform)
-  })
   void invoke<boolean>('window:is-maximized').then(value => {
    if (active) setMaximized(value)
   })
@@ -22,14 +22,15 @@ export function TitleBar() {
    active = false
    off()
   }
- }, [])
- useEffect(() => {
-  if (platform) document.documentElement.dataset.platform = platform
+ }, [usesCustomTitleBar])
+ useLayoutEffect(() => {
+  document.documentElement.dataset.platform = platform
  }, [platform])
  useEffect(() => {
   document.documentElement.dataset.maximized = maximized ? 'true' : 'false'
  }, [maximized])
  const isMac = platform === 'darwin'
+ if (!usesCustomTitleBar) return null
  return (
   <header
    className={'titlebar' + (isMac ? ' titlebar-mac' : '')}
@@ -38,8 +39,8 @@ export function TitleBar() {
     void invoke('window:toggle-maximize')
    }}
   >
-   {!isMac && <span className="titlebar-title">Zynote</span>}
-   {platform && !isMac && (
+   {!isMac && <span className="titlebar-title">摘云</span>}
+   {!isMac && (
     <div className="titlebar-controls">
      <Button
       variant="ghost"

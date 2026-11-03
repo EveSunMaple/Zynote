@@ -8,6 +8,7 @@ const bridge: Bridge = {
   ipcRenderer.on('assistant:event', handler)
   return () => ipcRenderer.removeListener('assistant:event', handler)
  },
- filePath: file => webUtils.getPathForFile(file)
+ filePath: file => webUtils.getPathForFile(file),
+ platform: process.platform
 }
 contextBridge.exposeInMainWorld('assistant', bridge)
