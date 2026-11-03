@@ -29,6 +29,9 @@ func (service *Service) verifyGlobalSummary(ctx context.Context, task *Task, ite
 		return false, observerError()
 	}
 	chunks, err := summaryinput.PlanSpans(item.Mode, segments, item.Recipe.ModeRecipe.ChunkLimit)
+	if item.Recipe.ModeRecipe.Version == 4 {
+		chunks, err = service.validatedSummaryPlan(ctx, *task, item, segments)
+	}
 	if err != nil {
 		return false, observerError()
 	}

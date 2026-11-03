@@ -24,7 +24,7 @@ func observationInput(ctx context.Context, encoded []byte) error {
 		return nil
 	}
 	if metadata.ProtocolVersion == 4 {
-		if (metadata.Purpose != "summary-reduce" && metadata.Purpose != "summary-verify") || metadata.StageID == "" || metadata.InputSHA256 != recipeDigest(string(encoded)) {
+		if (metadata.Purpose != "summary-reduce" && metadata.Purpose != "summary-verify" && metadata.Purpose != "summary-boundary") || metadata.StageID == "" || metadata.InputSHA256 != recipeDigest(string(encoded)) {
 			return fmt.Errorf("摘要独立阶段输入绑定无效")
 		}
 		return nil
@@ -67,7 +67,7 @@ func observationForRequest(ctx context.Context, profile Profile, endpoint string
 	if observer == nil {
 		return contract.GenerationAttemptEvidence{}, nil, nil
 	}
-	if (metadata.Purpose != "subtitle-summary" && !(metadata.ProtocolVersion == 4 && (metadata.Purpose == "summary-reduce" || metadata.Purpose == "summary-verify"))) || onText != nil || len(messages) != 2 || messages[0].Role != "system" || messages[1].Role != "user" {
+	if (metadata.Purpose != "subtitle-summary" && !(metadata.ProtocolVersion == 4 && (metadata.Purpose == "summary-reduce" || metadata.Purpose == "summary-verify" || metadata.Purpose == "summary-boundary"))) || onText != nil || len(messages) != 2 || messages[0].Role != "system" || messages[1].Role != "user" {
 		return contract.GenerationAttemptEvidence{}, nil, fmt.Errorf("摘要请求观察范围无效")
 	}
 	prompt, ok := messages[0].Content.(string)

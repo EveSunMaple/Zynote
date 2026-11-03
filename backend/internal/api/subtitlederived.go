@@ -13,6 +13,7 @@ import (
 	"github.com/EveSunMaple/Zynote/backend/internal/contract"
 	"github.com/EveSunMaple/Zynote/backend/internal/subtitlederived"
 	"github.com/EveSunMaple/Zynote/backend/internal/subtitlesync"
+	"github.com/EveSunMaple/Zynote/backend/internal/summaryglobal"
 	"github.com/EveSunMaple/Zynote/backend/internal/summaryinput"
 )
 
@@ -39,6 +40,13 @@ func (inv *Invoker) subtitleDerivedDependencies(store contract.StateStore, state
 		return client, nil
 	}
 	return subtitlederived.Dependencies{
+		ProposeBoundary: func(ctx context.Context, index int, input any) ([]byte, summaryglobal.StageRef, error) {
+			active, err := getClient()
+			if err != nil {
+				return nil, summaryglobal.StageRef{}, err
+			}
+			return proposeSummaryBoundary(ctx, active, index, input)
+		},
 		ResolveRecipes: func(ctx context.Context, modes []string) (contract.RequestedGenerationConfig, map[string]subtitlederived.ModeRecipe, error) {
 			active, err := getClient()
 			if err != nil {
@@ -243,6 +251,29 @@ func resolveSubtitleRecipesForContext(ctx context.Context, client *ai.Client, mo
 		if err != nil {
 			return configuration, nil, err
 		}
+		policy, hasPolicy := contract.SummaryPlanPolicyFrom(ctx, mode)
+		if contract.SummaryRecipeVersion(ctx, mode) == 0 && os.Getenv("ZYNOTE_SUMMARY_EXPERIMENTAL_PLAN") == "1" {
+			policy = contract.SummaryPlanPolicy{PlanPolicy: "deterministic-v1"}
+			if os.Getenv("ZYNOTE_SUMMARY_SEMANTIC_BOUNDARIES") == "1" {
+				policy.PlanPolicy = "semantic-candidate-v1"
+			}
+			if os.Getenv("ZYNOTE_SUMMARY_HALO") == "1" {
+				policy.HaloBudget = 128
+			}
+			hasPolicy = true
+		}
+		if contract.SummaryRecipeVersion(ctx, mode) == 4 || (contract.SummaryRecipeVersion(ctx, mode) == 0 && hasPolicy) {
+			recipe, err = globalSummaryModeRecipe(mode)
+			if err != nil {
+				return configuration, nil, err
+			}
+			recipe.Version = 4
+			recipe.PlanPolicy = policy.PlanPolicy
+			recipe.HaloBudget = policy.HaloBudget
+			recipe.BoundaryPromptSHA256 = summarytreeDigest(summaryinput.BoundaryPrompt)
+			prompt := experimentalSpanSummaryPrompt(mode, summaryMaxPoints(mode))
+			recipe.SystemPromptSHA256 = summarytreeDigest(prompt)
+		}
 		if contract.SummaryRecipeVersion(ctx, mode) == 1 || contract.SummaryRecipeVersion(ctx, mode) == 2 {
 			recipe.Version = contract.SummaryRecipeVersion(ctx, mode)
 			recipe.GlobalPolicy = ""
@@ -268,6 +299,7 @@ func projectSubtitleTask(task subtitlederived.Task) subtitlederived.Task {
 	task.Items = append([]subtitlederived.Item(nil), task.Items...)
 	for index := range task.Items {
 		task.Items[index].Stages = nil
+		task.Items[index].SummaryPlan = nil
 		task.Items[index].SourceBinding = nil
 		task.Items[index].BindingAuthoritySHA256 = ""
 		task.Items[index].PublicationRecord = subtitlederived.RecordedPublication(task.Items[index], task.OutputVersion)

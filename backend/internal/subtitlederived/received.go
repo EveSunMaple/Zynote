@@ -55,6 +55,14 @@ func (service *Service) verifyPointEvidenceAudit(ctx context.Context, task *Task
 	if audit.State != "complete" || len(audit.validated) != audit.TotalChunks {
 		return observerError()
 	}
+	if item.Recipe.ModeRecipe.Version == 4 {
+		stages, fallbacks := summaryPlanCounts(item.SummaryPlan)
+		if item.SummaryPlan == nil || facts.PlanSHA256 != item.SummaryPlan.Digest || facts.BoundaryStages != stages || facts.BoundaryFallbacks != fallbacks {
+			return observerError()
+		}
+	} else if facts.PlanSHA256 != "" || facts.BoundaryStages != 0 || facts.BoundaryFallbacks != 0 {
+		return observerError()
+	}
 	rows, err := canonicalDerivedPoints(points)
 	if err != nil {
 		return err

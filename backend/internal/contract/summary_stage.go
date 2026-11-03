@@ -11,6 +11,15 @@ type SummaryStageFactory interface {
 	Check(context.Context, string, GenerationEventRef, string, string, string) error
 }
 type summaryStageKey struct{}
+type summaryStageAttemptKey struct{}
+
+func WithSummaryStageAttempt(ctx context.Context, attempted bool) context.Context {
+	return context.WithValue(ctx, summaryStageAttemptKey{}, attempted)
+}
+func SummaryStageAttempted(ctx context.Context) bool {
+	value, _ := ctx.Value(summaryStageAttemptKey{}).(bool)
+	return value
+}
 
 func WithSummaryStages(ctx context.Context, factory SummaryStageFactory) context.Context {
 	return context.WithValue(ctx, summaryStageKey{}, factory)

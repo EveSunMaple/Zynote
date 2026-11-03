@@ -16,7 +16,7 @@ This is an incremental implementation. It does not yet claim the full v2.1 desig
 
 ## Remaining work
 
-Optional semantic-boundary proposals with deterministic fallback, an independent halo ablation control, product-facing cache-revocation/explicit reauthorization operations and benchmark ablations remain pending. The internal revoke/tombstone transaction is tested, but is not yet a product action. Cancellation is not permanent revocation. No token hard limit is asserted without a verified tokenizer/usage adapter.
+Product-facing cache-revocation/explicit reauthorization operations and measured benchmark ablations remain pending. The internal revoke/tombstone transaction is tested, but is not yet a product action. Cancellation is not permanent revocation. No token hard limit is asserted without a verified tokenizer/usage adapter.
 
 ## Experimental global organization and risk review
 
@@ -29,3 +29,13 @@ Independent reduce and original-span risk-review calls use protocol4 stage chain
 Synthetic service tests cover interleaved chunk calls, independent stage payload/format recovery, budget-limited publication and three-page parent reduction. Fault injection returns errors; it is not a process-kill experiment. Full relevant Go packages pass race checks.
 
 Two exploratory real-provider runs used official `https://api.deepseek.com`, requested alias `deepseek-flash`, temperature0 and max_tokens8192. The actual server snapshot and token/billing usage were not captured. On a public one-chunk source, legacy/v2/v3 took15.286/24.483/27.302 seconds (1/1/3 requests). On the same public full-course source with832 cues and3 chunks, they took28.981/22.950/58.673 seconds (3/3/10 requests); v3 recorded7 global stages and partial status because the parent was unreviewed. These are one-run observations with different output points, not a stable speedup, p95 or quality non-inferiority result. The single-chunk v2 run was slower than legacy.
+
+## Experimental frozen plan and halo controls
+
+New tasks may separately opt into recipe schema4 with `ZYNOTE_SUMMARY_EXPERIMENTAL_PLAN=1`. Within that schema, `ZYNOTE_SUMMARY_SEMANTIC_BOUNDARIES=1` enables actual model boundary proposals; otherwise the plan stays deterministic. `ZYNOTE_SUMMARY_HALO=1` independently enables up to128 adjacent codepoints on each side. All three switches default off. Schema4 includes the global organization/risk policy above. It is not promoted as the default and has no settings UI. Existing frozen1/2/3 hashes and behavior are preserved; a frozen4 retains its plan policy and halo budget when the environment changes.
+
+Boundary proposals use independent protocol4 calls under the same persistent physical-attempt guard. Each deterministic core window supplies at most512 legal original cue/punctuation offsets; the model can select one candidate or decline. Proposal calls are limited to the first256 windows and page256KiB inputs. Invalid candidates, lack of candidates, unavailable capability and resource limits record explicit deterministic fallback. Transport/unknown evidence is an error, never a fallback that authorizes automatic replay.
+
+The incremental plan binds source, recipe, exact response bytes and actual stage refs before extraction. Resume validates the actual durable prefix, adopts staged successful responses, and reuses the complete frozen plan. Publication independently reconstructs the original span partition and model decisions. Even a rehashed fallback plan cannot replace an already attempted boundary stage. Halo text has a separate readonly input field; it contributes no processing coverage and cannot own a card quote or invent timing. Synthetic tests cover non-BMP characters, all strategy combinations used here, invalid and null proposals, budget/input/window fallbacks, durable-stage/plan interruption, repeated resume and rehashed UNKNOWN-plan tampering. These fixtures do not establish improved topic quality.
+
+One authorized real schema4 semantic/nohalo run failed after39.897 seconds before verified publication. Its original report's zero counters were uncollected defaults, not observed zero attempts/cost; a separate erratum preserves that distinction. No paid rerun was performed. A synthetic two-leaf boundary plan under the same shared four-attempt gate published explicit partial evidence after exactly four HTTP requests, but the real failure cause remains undetermined. Schema4 real-provider acceptance is therefore blocked; keep it experimental and default-off.

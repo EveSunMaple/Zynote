@@ -7,6 +7,8 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -16,17 +18,22 @@ import (
 	"github.com/EveSunMaple/Zynote/backend/internal/documents"
 	"github.com/EveSunMaple/Zynote/backend/internal/generationjob"
 	"github.com/EveSunMaple/Zynote/backend/internal/subtitlederived"
+	"github.com/EveSunMaple/Zynote/backend/internal/summaryglobal"
 	"github.com/EveSunMaple/Zynote/backend/internal/summaryinput"
 )
 
 // Opt-in only. The launcher supplies the key in the child environment; no
 // configuration, request headers, raw provider errors or credentials are saved.
 func TestRealDeepSeekSummaryProfiles(t *testing.T) {
-	runRealDeepSeekSummaryProfiles(t, false)
+	runRealDeepSeekSummaryProfiles(t, false, false)
 }
 
 func TestRealDeepSeekMultiChunkProfiles(t *testing.T) {
-	runRealDeepSeekSummaryProfiles(t, true)
+	runRealDeepSeekSummaryProfiles(t, true, false)
+}
+
+func TestRealDeepSeekExperimentalPlanProfile(t *testing.T) {
+	runRealDeepSeekSummaryProfiles(t, false, true)
 }
 
 func TestPublicFullCourseChunkPlan(t *testing.T) {
@@ -48,7 +55,7 @@ func TestPublicFullCourseChunkPlan(t *testing.T) {
 	t.Logf("public full-course source bytes=%d cues=%d chunks=%d", len(body), len(segments), len(chunks))
 }
 
-func runRealDeepSeekSummaryProfiles(t *testing.T, multi bool) {
+func runRealDeepSeekSummaryProfiles(t *testing.T, multi, experimentalPlan bool) {
 	key := os.Getenv("ZYNOTE_REAL_API_KEY")
 	if os.Getenv("ZYNOTE_REAL_PROVIDER_TEST") != "1" || key == "" {
 		t.Skip("real provider test requires explicit ephemeral launcher authorization")
@@ -83,17 +90,42 @@ func runRealDeepSeekSummaryProfiles(t *testing.T, multi bool) {
 		PhysicalAttempts                                      int64
 		TokenUsage                                            any
 		Failure                                               string `json:"failure,omitempty"`
+		PlanPolicy                                            string `json:"planPolicy,omitempty"`
+		HaloBudget                                            int    `json:"haloBudget"`
+		BoundaryStages, BoundaryFallbacks                     int
+		BoundaryDecisions                                     []string `json:"boundaryDecisions,omitempty"`
+		AttemptCap                                            int64
+		MetricsObserved                                       bool   `json:"metricsObserved"`
+		SummaryEvidenceObserved                               bool   `json:"summaryEvidenceObserved"`
+		PlanObserved                                          bool   `json:"planObserved"`
+		AuditObserved                                         bool   `json:"auditObserved"`
+		AuditState                                            string `json:"auditState,omitempty"`
+		ObservationFailure                                    bool   `json:"observationFailure"`
+		LedgerObserved                                        bool   `json:"ledgerObserved"`
+		ReservationInvocations                                int64  `json:"reservationInvocations"`
 	}
 	results := []resultRow{}
 	defer func() {
 		body, _ := json.MarshalIndent(map[string]any{"sourcePath": sourcePath, "sourceSHA256": hex.EncodeToString(sourceHash[:]), "sourceBytes": len(source), "provider": "https://api.deepseek.com", "requestedModel": "deepseek-flash", "requestedModelSnapshot": "deepseek-flash alias; latest official documentation snapshot Oct17 V4.1-Flash-1017; actual server snapshot not captured", "timezone": "America/New_York", "runs": results, "measurementLimit": "one run per profile, exploratory; no p95, speedup or quality non-inferiority claim; token usage unknown"}, "", "  ")
 		_ = os.WriteFile(filepath.Join(reportRoot, "report.json"), body, 0600)
 	}()
-	for _, profile := range []struct {
+	profiles := []struct {
 		name    string
 		version int
-	}{{"legacy-sequential", 1}, {"parallel-core", 2}, {"experimental-global-risk", 3}} {
-		row := resultRow{Profile: profile.name, RecipeVersion: profile.version}
+	}{{"legacy-sequential", 1}, {"parallel-core", 2}, {"experimental-global-risk", 3}}
+	if experimentalPlan {
+		profiles = profiles[:0]
+		profiles = append(profiles, struct {
+			name    string
+			version int
+		}{"experimental-semantic-plan-nohalo", 4})
+	}
+	for _, profile := range profiles {
+		row := resultRow{Profile: profile.name, RecipeVersion: profile.version, AttemptCap: 256}
+		var capUsed atomic.Int64
+		if experimentalPlan {
+			row.AttemptCap = 4
+		}
 		state := &contract.State{LibraryRoot: t.TempDir()}
 		service := subtitleDerivedService(state)
 		task, err := service.CreateDirectOperation(string(source), "MIT public transcript fixture", "brief", "", "e1e1e1e1-e1e1-41e1-81e1-e1e1e1e1e1e1")
@@ -102,28 +134,94 @@ func runRealDeepSeekSummaryProfiles(t *testing.T, multi bool) {
 			results = append(results, row)
 			t.Fatal("real fixture task creation failed")
 		}
-		deps := subtitlederived.Dependencies{ResolveRecipes: func(ctx context.Context, modes []string) (contract.RequestedGenerationConfig, map[string]subtitlederived.ModeRecipe, error) {
+		capContext := func(ctx context.Context) context.Context {
+			if !experimentalPlan {
+				return ctx
+			}
+			return contract.WithPhysicalRequestGuard(ctx, realProfileCap{inner: contract.PhysicalRequestGuardFrom(ctx), used: &capUsed, limit: 4})
+		}
+		deps := subtitlederived.Dependencies{ProposeBoundary: func(ctx context.Context, index int, input any) ([]byte, summaryglobal.StageRef, error) {
+			return proposeSummaryBoundary(capContext(ctx), client, index, input)
+		}, ResolveRecipes: func(ctx context.Context, modes []string) (contract.RequestedGenerationConfig, map[string]subtitlederived.ModeRecipe, error) {
 			versions := map[string]int{}
 			for _, mode := range modes {
 				versions[mode] = profile.version
 			}
-			return resolveSubtitleRecipesForContext(contract.WithSummaryRecipeVersions(ctx, versions), client, modes)
+			ctx = contract.WithSummaryRecipeVersions(ctx, versions)
+			if experimentalPlan {
+				policies := map[string]contract.SummaryPlanPolicy{}
+				for _, mode := range modes {
+					policies[mode] = contract.SummaryPlanPolicy{PlanPolicy: "semantic-candidate-v1", HaloBudget: 0}
+				}
+				ctx = contract.WithSummaryPlanPolicies(ctx, policies)
+			}
+			return resolveSubtitleRecipesForContext(ctx, client, modes)
 		}, SummarizeWithEvidence: func(ctx context.Context, srt, mode string) (subtitlederived.SummaryResult, error) {
-			return summarizeDerivedText(ctx, client, srt, mode, nil)
+			return summarizeDerivedText(capContext(ctx), client, srt, mode, nil)
 		}}
 		ctx, cancel := context.WithTimeout(context.Background(), 4*time.Minute)
 		started := time.Now()
 		value, runErr := service.Run(ctx, task.ID, deps)
 		row.ElapsedMS = time.Since(started).Milliseconds()
 		cancel()
+		row.ReservationInvocations = capUsed.Load()
+		row.ObservationFailure = contract.IsObservationFailure(runErr)
+		if durable, readErr := service.Read(task.ID); readErr == nil {
+			value = durable
+		}
+		failureLedger, openFailureErr := generationjob.Open(filepath.Join(service.Root, "job-state"))
+		if openFailureErr == nil {
+			budget, budgetErr := failureLedger.Budget(context.Background(), task.ID)
+			if budgetErr == nil {
+				row.LedgerObserved = true
+				row.PhysicalAttempts = budget.Spent + budget.UnknownHeld + budget.Reserved
+			}
+			_ = failureLedger.Close()
+		}
+		if len(value.Items) == 1 {
+			row.MetricsObserved = true
+			item := value.Items[0]
+			if item.Recipe != nil {
+				row.PlanPolicy = item.Recipe.ModeRecipe.PlanPolicy
+				row.HaloBudget = item.Recipe.ModeRecipe.HaloBudget
+			}
+			if item.SummaryPlan != nil {
+				row.PlanObserved = true
+				for _, window := range item.SummaryPlan.Windows {
+					row.BoundaryDecisions = append(row.BoundaryDecisions, window.State)
+					if window.Stage.ID != "" {
+						row.BoundaryStages++
+					}
+					if strings.HasPrefix(window.State, "fallback_") {
+						row.BoundaryFallbacks++
+					}
+				}
+			}
+			audit := service.AuditAttemptEvidence(context.Background(), value, 0)
+			row.AuditObserved = true
+			row.AuditState = audit.State
+			row.CompleteChunks = audit.CompleteChunks
+			row.TotalChunks = audit.TotalChunks
+			if item.SummaryEvidence != nil {
+				row.SummaryEvidenceObserved = true
+				row.PointCount = item.SummaryEvidence.PointCount
+				row.Partial = item.SummaryEvidence.Partial
+				row.GlobalStages = item.SummaryEvidence.GlobalStages
+			}
+		}
 		if runErr != nil || len(value.Items) != 1 || len(value.Items[0].Outputs) != 2 {
 			row.Failure = "provider_or_evidence_failure"
 			results = append(results, row)
 			t.Fatal("real profile did not reach verified publication; raw provider error suppressed")
 		}
 		item := value.Items[0]
+		row.PlanPolicy = item.Recipe.ModeRecipe.PlanPolicy
+		row.HaloBudget = item.Recipe.ModeRecipe.HaloBudget
 		audit := service.AuditAttemptEvidence(context.Background(), value, 0)
 		row.Success = audit.State == "complete"
+		if experimentalPlan && (item.Recipe.ModeRecipe.Version != 4 || row.PlanPolicy != "semantic-candidate-v1" || row.HaloBudget != 0 || item.SummaryPlan == nil || !item.SummaryPlan.Complete) {
+			row.Success = false
+		}
 		row.CompleteChunks = audit.CompleteChunks
 		row.TotalChunks = audit.TotalChunks
 		if multi && row.TotalChunks < 2 {
@@ -133,6 +231,8 @@ func runRealDeepSeekSummaryProfiles(t *testing.T, multi bool) {
 			row.PointCount = item.SummaryEvidence.PointCount
 			row.Partial = item.SummaryEvidence.Partial
 			row.GlobalStages = item.SummaryEvidence.GlobalStages
+			row.BoundaryStages = item.SummaryEvidence.BoundaryStages
+			row.BoundaryFallbacks = item.SummaryEvidence.BoundaryFallbacks
 		}
 		ledger, openErr := generationjob.Open(filepath.Join(service.Root, "job-state"))
 		if openErr == nil {
@@ -161,4 +261,17 @@ func runRealDeepSeekSummaryProfiles(t *testing.T, multi bool) {
 			t.Fatal("real profile evidence or artifact verification failed")
 		}
 	}
+}
+
+type realProfileCap struct {
+	inner contract.PhysicalRequestGuard
+	used  *atomic.Int64
+	limit int64
+}
+
+func (guard realProfileCap) Reserve(ctx context.Context, digest string, size int64) (contract.PhysicalRequestAttempt, error) {
+	if guard.used.Add(1) > guard.limit {
+		return nil, generationjob.ErrBudget
+	}
+	return guard.inner.Reserve(ctx, digest, size)
 }

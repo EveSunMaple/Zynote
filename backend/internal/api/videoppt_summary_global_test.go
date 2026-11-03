@@ -78,6 +78,20 @@ func globalRecoveryFixture(t *testing.T, source ...string) (*subtitlederived.Ser
 		wire, _ := request.Messages[1].Content.(string)
 		var output any
 		switch prompt {
+		case summaryinput.BoundaryPrompt:
+			var input summaryinput.BoundaryInput
+			_ = json.Unmarshal([]byte(wire), &input)
+			boundary := -1
+			if len(input.Candidates) > 0 {
+				boundary = input.Candidates[0]
+			}
+			if len(source) > 1 && source[1] == "invalid" {
+				boundary = -999
+			}
+			output = map[string]any{"boundary": boundary}
+			if len(source) > 1 && source[1] == "null" {
+				output = nil
+			}
 		case summaryglobal.ReducePrompt:
 			var input summaryglobal.Input
 			_ = json.Unmarshal([]byte(wire), &input)
@@ -125,6 +139,9 @@ func globalRecoveryFixture(t *testing.T, source ...string) (*subtitlederived.Ser
 	}, SummarizeWithEvidence: func(ctx context.Context, srt, mode string) (subtitlederived.SummaryResult, error) {
 		return summarizeDerivedText(ctx, client, srt, mode, nil)
 	}}
+	deps.ProposeBoundary = func(ctx context.Context, index int, input any) ([]byte, summaryglobal.StageRef, error) {
+		return proposeSummaryBoundary(ctx, client, index, input)
+	}
 	return service, task, client, calls, deps
 }
 func TestGlobalMultiPageParentProseIsSuppressedAndLeafSummariesRetained(t *testing.T) {

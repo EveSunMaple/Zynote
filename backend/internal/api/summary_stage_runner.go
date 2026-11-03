@@ -92,6 +92,9 @@ func runSummaryStage(ctx context.Context, client *ai.Client, purpose string, ind
 		}
 		return complete(saved.Body, receipt)
 	}
+	if contract.SummaryStageAttempted(stageContext) {
+		return nil, summaryglobal.StageRef{}, contract.ObservationFailure(fmt.Errorf("独立阶段已尝试但无可复用成功结果，未自动重试"))
+	}
 	output, err := client.JSON(stageContext, prompt, input, func(output []byte) error {
 		if len(output) > summarytree.MaxNodeBytes {
 			return fmt.Errorf("独立摘要阶段响应超过页面预算")

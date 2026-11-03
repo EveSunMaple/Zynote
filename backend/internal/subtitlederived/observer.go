@@ -162,7 +162,7 @@ func validAttemptTransition(previous *contract.GenerationAttemptEvidence, event 
 	return false
 }
 func (service *Service) observationContext(ctx context.Context, task *Task, item *Item, srt string) (context.Context, error) {
-	if item.Recipe != nil && (item.Recipe.ModeRecipe.Version == 2 || item.Recipe.ModeRecipe.Version == 3) {
+	if item.Recipe != nil && item.Recipe.ModeRecipe.Version >= 2 {
 		return service.observationContextVersion(ctx, task, item, srt, 3)
 	}
 	return service.observationContextVersion(ctx, task, item, srt, 2)
@@ -339,7 +339,7 @@ const statusFormatResult = "format-result"
 // against the versioned planner by the audit; historical v1/v2 is unchanged.
 func validSpanAttemptTransition(previous *contract.GenerationAttemptEvidence, event contract.GenerationAttemptEvidence, totalCues int, recipe *ItemRecipe) bool {
 	m := event.Observation
-	if m.ProtocolVersion != 3 || (recipe.ModeRecipe.Version != 2 && recipe.ModeRecipe.Version != 3) || m.ChunkCount < 1 || m.ChunkCount > 40000 || m.ChunkIndex < 0 || m.ChunkIndex >= m.ChunkCount || len(m.CoreSpans) == 0 || len(m.CoreSpans) != len(m.CueIDs) {
+	if m.ProtocolVersion != 3 || recipe.ModeRecipe.Version < 2 || recipe.ModeRecipe.Version > 4 || m.ChunkCount < 1 || m.ChunkCount > 40000 || m.ChunkIndex < 0 || m.ChunkIndex >= m.ChunkCount || len(m.CoreSpans) == 0 || len(m.CoreSpans) != len(m.CueIDs) {
 		return false
 	}
 	for index, span := range m.CoreSpans {

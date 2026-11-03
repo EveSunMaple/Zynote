@@ -11,16 +11,19 @@ import (
 )
 
 type ModeRecipe struct {
-	GlobalPolicy       string                        `json:"globalPolicy,omitempty"`
-	ReducePromptSHA256 string                        `json:"reducePromptSHA256,omitempty"`
-	VerifyPromptSHA256 string                        `json:"verifyPromptSHA256,omitempty"`
-	Version            int                           `json:"version"`
-	Mode               string                        `json:"mode"`
-	SystemPromptSHA256 string                        `json:"systemPromptSHA256"`
-	ChunkPolicy        string                        `json:"chunkPolicy"`
-	ChunkLimit         int                           `json:"chunkLimit"`
-	MaxPoints          int                           `json:"maxPoints"`
-	JSONPolicy         contract.JSONGenerationPolicy `json:"jsonPolicy"`
+	PlanPolicy           string                        `json:"planPolicy,omitempty"`
+	HaloBudget           int                           `json:"haloBudget,omitempty"`
+	BoundaryPromptSHA256 string                        `json:"boundaryPromptSHA256,omitempty"`
+	GlobalPolicy         string                        `json:"globalPolicy,omitempty"`
+	ReducePromptSHA256   string                        `json:"reducePromptSHA256,omitempty"`
+	VerifyPromptSHA256   string                        `json:"verifyPromptSHA256,omitempty"`
+	Version              int                           `json:"version"`
+	Mode                 string                        `json:"mode"`
+	SystemPromptSHA256   string                        `json:"systemPromptSHA256"`
+	ChunkPolicy          string                        `json:"chunkPolicy"`
+	ChunkLimit           int                           `json:"chunkLimit"`
+	MaxPoints            int                           `json:"maxPoints"`
+	JSONPolicy           contract.JSONGenerationPolicy `json:"jsonPolicy"`
 }
 type TaskRecipe struct {
 	Version       int                                `json:"version"`
@@ -57,7 +60,7 @@ func canBindRecipe(item Item) bool {
 	return item.Prepared == nil && len(item.Outputs) == 0 && (item.GenerationState == "" || resumableSpanItem(item))
 }
 func resumableSpanItem(item Item) bool {
-	return item.GenerationState == "dispatched" && item.Recipe != nil && (item.Recipe.ModeRecipe.Version == 2 || item.Recipe.ModeRecipe.Version == 3) && item.AttemptEvidence != nil && item.AttemptEvidence.Version == 3
+	return item.GenerationState == "dispatched" && item.Recipe != nil && item.Recipe.ModeRecipe.Version >= 2 && ((item.AttemptEvidence != nil && item.AttemptEvidence.Version == 3) || item.Recipe.ModeRecipe.Version == 4)
 }
 
 func validRequestedConfig(value contract.RequestedGenerationConfig) bool {
@@ -95,8 +98,14 @@ func validRequestedConfig(value contract.RequestedGenerationConfig) bool {
 	return recipeHash(value) != ""
 }
 func validModeRecipe(value ModeRecipe, mode string) bool {
-	policy := (value.Version == 1 && value.ChunkPolicy == "subtitle-text-runes") || ((value.Version == 2 || value.Version == 3) && value.ChunkPolicy == "subtitle-core-codepoints-v2")
-	if value.Version == 3 && (value.GlobalPolicy != "paged-organize-risk-v1" || !recipeHashPattern.MatchString(value.ReducePromptSHA256) || !recipeHashPattern.MatchString(value.VerifyPromptSHA256)) {
+	policy := (value.Version == 1 && value.ChunkPolicy == "subtitle-text-runes") || ((value.Version >= 2 && value.Version <= 4) && value.ChunkPolicy == "subtitle-core-codepoints-v2")
+	if value.Version >= 3 && (value.GlobalPolicy != "paged-organize-risk-v1" || !recipeHashPattern.MatchString(value.ReducePromptSHA256) || !recipeHashPattern.MatchString(value.VerifyPromptSHA256)) {
+		return false
+	}
+	if value.Version == 4 && ((value.PlanPolicy != "deterministic-v1" && value.PlanPolicy != "semantic-candidate-v1") || value.HaloBudget < 0 || value.HaloBudget > 256 || !recipeHashPattern.MatchString(value.BoundaryPromptSHA256)) {
+		return false
+	}
+	if value.Version < 4 && (value.PlanPolicy != "" || value.HaloBudget != 0 || value.BoundaryPromptSHA256 != "") {
 		return false
 	}
 	return policy && value.Mode == mode && validMode(mode) && recipeHashPattern.MatchString(value.SystemPromptSHA256) && value.ChunkLimit > 0 && value.MaxPoints > 0 && value.JSONPolicy.Version == 1 && value.JSONPolicy.Encoding == "json-no-html-escape" && value.JSONPolicy.MaxAttempts > 0 && recipeHashPattern.MatchString(value.JSONPolicy.RepairFeedbackSHA256)
@@ -114,12 +123,17 @@ func (service *Service) bindRecipe(ctx context.Context, task *Task, dependencies
 		}
 	}
 	versions := map[string]int{}
+	policies := map[string]contract.SummaryPlanPolicy{}
 	for _, item := range task.Items {
 		if item.Recipe != nil {
 			versions[item.Mode] = item.Recipe.ModeRecipe.Version
+			if item.Recipe.ModeRecipe.Version == 4 {
+				p := item.Recipe.ModeRecipe
+				policies[item.Mode] = contract.SummaryPlanPolicy{PlanPolicy: p.PlanPolicy, HaloBudget: p.HaloBudget, BoundaryPromptSHA256: p.BoundaryPromptSHA256}
+			}
 		}
 	}
-	configuration, recipes, err := dependencies.ResolveRecipes(contract.WithSummaryRecipeVersions(ctx, versions), modes)
+	configuration, recipes, err := dependencies.ResolveRecipes(contract.WithSummaryPlanPolicies(contract.WithSummaryRecipeVersions(ctx, versions), policies), modes)
 	if err != nil {
 		return err
 	}

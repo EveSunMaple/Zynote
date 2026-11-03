@@ -47,10 +47,15 @@ func validStageTransition(previous *contract.GenerationAttemptEvidence, event co
 		expectedPrompt = recipe.ModeRecipe.ReducePromptSHA256
 	case "summary-verify":
 		expectedPrompt = recipe.ModeRecipe.VerifyPromptSHA256
+	case "summary-boundary":
+		if recipe.ModeRecipe.Version != 4 || recipe.ModeRecipe.PlanPolicy != "semantic-candidate-v1" {
+			return false
+		}
+		expectedPrompt = recipe.ModeRecipe.BoundaryPromptSHA256
 	default:
 		return false
 	}
-	if recipe.ModeRecipe.Version != 3 || event.Version != 4 || m.ProtocolVersion != 4 || m.ChunkIndex < 0 || m.ChunkIndex >= 8192 || m.ChunkCount != 1 || len(m.CueIDs) != 0 || len(m.CoreSpans) != 0 || event.SystemPromptSHA256 != expectedPrompt || m.StageID != stageIdentity(m.Purpose, m.ChunkIndex, m.InputSHA256, event.SystemPromptSHA256, m.SourceSHA256, m.ItemRecipeSHA256) {
+	if (recipe.ModeRecipe.Version != 3 && recipe.ModeRecipe.Version != 4) || event.Version != 4 || m.ProtocolVersion != 4 || m.ChunkIndex < 0 || m.ChunkIndex >= 8192 || m.ChunkCount != 1 || len(m.CueIDs) != 0 || len(m.CoreSpans) != 0 || event.SystemPromptSHA256 != expectedPrompt || m.StageID != stageIdentity(m.Purpose, m.ChunkIndex, m.InputSHA256, event.SystemPromptSHA256, m.SourceSHA256, m.ItemRecipeSHA256) {
 		return false
 	}
 	convert := func(input contract.GenerationAttemptEvidence) contract.GenerationAttemptEvidence {
@@ -124,7 +129,7 @@ func (service *Service) stageReceipt(ctx context.Context, task Task, index int, 
 }
 func (factory *summaryStageFactory) Open(ctx context.Context, purpose string, index int, input, prompt string) (context.Context, error) {
 	item, task := factory.item, factory.task
-	if factory.index < 0 || item.Recipe == nil || item.Recipe.ModeRecipe.Version != 3 || !recipeHashPattern.MatchString(input) || !recipeHashPattern.MatchString(prompt) {
+	if factory.index < 0 || item.Recipe == nil || (item.Recipe.ModeRecipe.Version != 3 && item.Recipe.ModeRecipe.Version != 4) || !recipeHashPattern.MatchString(input) || !recipeHashPattern.MatchString(prompt) {
 		return ctx, observerError()
 	}
 	expected := ""
@@ -133,6 +138,11 @@ func (factory *summaryStageFactory) Open(ctx context.Context, purpose string, in
 		expected = item.Recipe.ModeRecipe.ReducePromptSHA256
 	case "summary-verify":
 		expected = item.Recipe.ModeRecipe.VerifyPromptSHA256
+	case "summary-boundary":
+		if item.Recipe.ModeRecipe.Version != 4 || item.Recipe.ModeRecipe.PlanPolicy != "semantic-candidate-v1" {
+			return ctx, observerError()
+		}
+		expected = item.Recipe.ModeRecipe.BoundaryPromptSHA256
 	default:
 		return ctx, observerError()
 	}
@@ -214,6 +224,7 @@ func (factory *summaryStageFactory) Open(ctx context.Context, purpose string, in
 		return contract.GenerationReceipt{Ref: contract.GenerationEventRef{Version: 4, Sequence: count, SHA256: head}, PreviousRef: priorRef, Event: contract.CloneGenerationEvent(*previous)}, nil
 	}
 	ctx = contract.WithGenerationReceiptReader(ctx, reader)
+	ctx = contract.WithSummaryStageAttempt(ctx, previous != nil)
 	return contract.WithGenerationObservation(ctx, scope, observer), nil
 }
 

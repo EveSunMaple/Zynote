@@ -39,6 +39,9 @@ type ValidatedSummaryPoint struct {
 	Timestamp string `json:"timestamp"`
 }
 type SummaryEvidence struct {
+	PlanSHA256            string             `json:"planSHA256,omitempty"`
+	BoundaryStages        int                `json:"boundaryStages,omitempty"`
+	BoundaryFallbacks     int                `json:"boundaryFallbacks,omitempty"`
 	GlobalRootSHA256      string             `json:"globalRootSHA256,omitempty"`
 	GlobalState           string             `json:"globalState,omitempty"`
 	GlobalStages          int                `json:"globalStages,omitempty"`

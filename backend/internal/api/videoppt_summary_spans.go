@@ -23,6 +23,10 @@ func spanSummaryPrompt(mode string, maxPoints int) string {
 	return prompt + " 仅返回对象 {processing:\"complete\"或\"insufficient\",cards:[上述要点]}。每条text是coreStartCodepoint到coreEndCodepoint的核心正文，按Unicode码点计数；必须处理本批全部核心区间。无有用内容但已处理可返回complete和空cards；原文不足以判断时返回insufficient。引文必须是给定text中的连续原话，不得跨核心区间拼接。startMs/endMs是父字幕完整时段，不是子句精确对齐。"
 }
 
+func experimentalSpanSummaryPrompt(mode string, maxPoints int) string {
+	return spanSummaryPrompt(mode, maxPoints) + " halo字段仅是只读上下文，不参与本批处理覆盖；cards只能归属并引用cues核心正文，不得用halo补充core所有权。"
+}
+
 func summarizeSpanVideoText(ctx context.Context, client *ai.Client, srt, mode string, progress func(string)) (summaryResult, error) {
 	heading, ok := videoNoteTitles[mode]
 	if !ok {
@@ -33,6 +37,16 @@ func summarizeSpanVideoText(ctx context.Context, client *ai.Client, srt, mode st
 		return summaryResult{}, contract.InputInvalid("字幕数量或格式无效")
 	}
 	chunks, err := summaryinput.PlanSpans(mode, segments, summaryChunkLimit)
+	policy, planned := contract.SummaryPlanFrom(ctx)
+	prompt := spanSummaryPrompt(mode, summaryMaxPoints(mode))
+	if policy.PlanPolicy != "" {
+		var ok bool
+		chunks, ok = planned.([]summaryinput.SpanChunk)
+		if !ok || summaryinput.ValidateCorePartition(segments, chunks) != nil {
+			return summaryResult{}, fmt.Errorf("冻结实验分区计划无效")
+		}
+		prompt = experimentalSpanSummaryPrompt(mode, summaryMaxPoints(mode))
+	}
 	if err != nil {
 		return summaryResult{}, err
 	}
@@ -84,7 +98,7 @@ func summarizeSpanVideoText(ctx context.Context, client *ai.Client, srt, mode st
 			dm.AttemptIndex = 0
 			empty := sha256.Sum256(nil)
 			dm.FeedbackSHA256 = hex.EncodeToString(empty[:])
-			wire, err := client.JSONRequestDigest(contract.WithGenerationObservation(ctx, dm, observer), spanSummaryPrompt(mode, summaryMaxPoints(mode)), chunk.Input, ai.JSONOptions{})
+			wire, err := client.JSONRequestDigest(contract.WithGenerationObservation(ctx, dm, observer), prompt, chunk.Input, ai.JSONOptions{})
 			if err != nil {
 				return chunkResult{}, err
 			}
@@ -146,7 +160,7 @@ func summarizeSpanVideoText(ctx context.Context, client *ai.Client, srt, mode st
 		}
 		var points []videoNotePoint
 		processing := ""
-		_, err = client.JSON(chunkContext, spanSummaryPrompt(mode, summaryMaxPoints(mode)), chunk.Input, func(body []byte) error {
+		_, err = client.JSON(chunkContext, prompt, chunk.Input, func(body []byte) error {
 			var response struct {
 				Processing string          `json:"processing"`
 				Cards      json.RawMessage `json:"cards"`
@@ -287,7 +301,7 @@ func summarizeSpanVideoText(ctx context.Context, client *ai.Client, srt, mode st
 		lines = append(lines, "已处理全部核心区间，但没有可核实的要点。")
 	}
 	if partial {
-		lines = append([]string{"> 部分结果：存在原文不足的处理区间；处理覆盖不等于语义完整。", ""}, lines...)
+		lines = append([]string{"> 部分结果：存在原文不足或尚未复核内容；处理覆盖不等于语义完整。", ""}, lines...)
 	}
 	receipt, err := contract.ReadGenerationReceipt(ctx)
 	if err != nil {
@@ -306,6 +320,9 @@ func summarizeSpanVideoText(ctx context.Context, client *ai.Client, srt, mode st
 		}
 		evidence.GlobalStages = globalStats.Stages
 		evidence.GlobalUnreviewed = globalStats.Unreviewed
+		evidence.PlanSHA256 = policy.PlanSHA256
+		evidence.BoundaryStages = policy.BoundaryStages
+		evidence.BoundaryFallbacks = policy.BoundaryFallbacks
 		evidence.GlobalUpperUnreviewed = globalStats.UpperUnreviewed
 	}
 	return summaryResult{Markdown: globalNote + strings.Join(lines, "\n"), Points: allPoints, Evidence: evidence}, nil

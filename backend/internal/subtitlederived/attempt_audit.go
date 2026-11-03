@@ -106,7 +106,7 @@ func (service *Service) auditAttemptEvidence(ctx context.Context, task Task, ind
 	}
 	policy := item.Recipe.ModeRecipe
 	legacyPolicy := policy.Version == 1 && policy.ChunkPolicy == summaryinput.ChunkPolicy && reference.Version <= 2
-	spanPolicy := (policy.Version == 2 || policy.Version == 3) && policy.ChunkPolicy == summaryinput.SpanChunkPolicy && reference.Version == 3
+	spanPolicy := (policy.Version >= 2 && policy.Version <= 4) && policy.ChunkPolicy == summaryinput.SpanChunkPolicy && reference.Version == 3
 	if (!legacyPolicy && !spanPolicy) || policy.JSONPolicy.Version != 1 || policy.JSONPolicy.Encoding != "json-no-html-escape" {
 		return AttemptAudit{State: "unknown", Reason: "policy-unsupported"}
 	}
@@ -154,6 +154,9 @@ func (service *Service) auditAttemptEvidence(ctx context.Context, task Task, ind
 	var spanParts []summaryinput.SpanChunk
 	if spanPolicy {
 		spanParts, err = summaryinput.PlanSpans(item.Mode, segments, policy.ChunkLimit)
+		if policy.Version == 4 {
+			spanParts, err = service.validatedSummaryPlan(ctx, task, &task.Items[index], segments)
+		}
 		if err != nil {
 			return invalidAudit("core-plan-invalid")
 		}

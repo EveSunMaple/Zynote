@@ -19,6 +19,7 @@ import (
 	"github.com/EveSunMaple/Zynote/backend/internal/ids"
 	"github.com/EveSunMaple/Zynote/backend/internal/library"
 	"github.com/EveSunMaple/Zynote/backend/internal/subtitlesync"
+	"github.com/EveSunMaple/Zynote/backend/internal/summaryglobal"
 	"github.com/EveSunMaple/Zynote/backend/internal/videoppt"
 )
 
@@ -53,6 +54,7 @@ type Prepared struct {
 }
 
 type Item struct {
+	SummaryPlan            *SummaryPlan                    `json:"summaryPlan,omitempty"`
 	Stages                 map[string]*AttemptEvidenceRef  `json:"stages,omitempty"`
 	SourceBinding          *contract.PlaybackSourceBinding `json:"sourceBinding,omitempty"`
 	SourceBindingSHA256    string                          `json:"sourceBindingSHA256,omitempty"`
@@ -89,6 +91,7 @@ type Task struct {
 }
 
 type Dependencies struct {
+	ProposeBoundary       func(context.Context, int, any) ([]byte, summaryglobal.StageRef, error)
 	SummarizeWithEvidence func(ctx context.Context, srt, mode string) (SummaryResult, error)
 	Generation            func(ctx context.Context, url string) (string, error)
 	ValidateModel         func(ctx context.Context) error
@@ -468,15 +471,32 @@ func (service *Service) ensurePrepared(ctx context.Context, task *Task, item *It
 	if err := service.bindRecipe(ctx, task, dependencies); err != nil {
 		return err
 	}
+	var planned any
+	if item.Recipe.ModeRecipe.Version == 4 {
+		item.GenerationState = "dispatched"
+		if err := service.save(*task); err != nil {
+			return err
+		}
+		chunks, err := service.ensureSummaryPlan(ctx, task, item, dependencies, srt)
+		if err != nil {
+			return err
+		}
+		planned = chunks
+	}
 	observedContext, err := service.observationContext(ctx, task, item, srt)
 	if err != nil {
 		return err
 	}
 	if item.Recipe.ModeRecipe.Version >= 2 {
 		observedContext = service.withSummaryTree(observedContext, task, item)
-		if item.Recipe.ModeRecipe.Version == 3 {
+		if item.Recipe.ModeRecipe.Version >= 3 {
 			observedContext = contract.WithSummaryStages(observedContext, newSummaryStageFactory(service, task, item))
 		}
+	}
+	if item.Recipe.ModeRecipe.Version == 4 {
+		p := item.Recipe.ModeRecipe
+		stages, fallbacks := summaryPlanCounts(item.SummaryPlan)
+		observedContext = contract.WithSummaryPlan(observedContext, contract.SummaryPlanPolicy{PlanPolicy: p.PlanPolicy, HaloBudget: p.HaloBudget, BoundaryPromptSHA256: p.BoundaryPromptSHA256, PlanSHA256: item.SummaryPlan.Digest, BoundaryStages: stages, BoundaryFallbacks: fallbacks}, planned)
 	}
 	if item.SourceBinding != nil {
 		checkContext, cancel := context.WithTimeout(ctx, 5*time.Second)

@@ -23,6 +23,7 @@ type SpanCue struct {
 type SpanInput struct {
 	Mode string    `json:"mode"`
 	Cues []SpanCue `json:"cues"`
+	Halo []SpanCue `json:"halo,omitempty"`
 }
 type SpanChunk struct {
 	Input     SpanInput
