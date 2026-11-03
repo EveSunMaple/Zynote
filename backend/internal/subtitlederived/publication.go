@@ -498,7 +498,7 @@ func (service *Service) publishSummary(ctx context.Context, task *Task, index in
 			if err := service.publicationStep(ctx, "blob-before"); err != nil {
 				return err
 			}
-			if _, err := publishPublicationBytes(ctx, directory, "blob", body, publicationLimit); err != nil {
+			if _, err := service.publishTaskBytes(ctx, *task, directory, "blob", body, publicationLimit); err != nil {
 				return err
 			}
 		}
@@ -509,7 +509,7 @@ func (service *Service) publishSummary(ctx context.Context, task *Task, index in
 		if err := service.publicationStep(ctx, "plan-before"); err != nil {
 			return err
 		}
-		hash, err := publishPublicationBytes(ctx, directory, "plan", body, publicationLimit)
+		hash, err := service.publishTaskBytes(ctx, *task, directory, "plan", body, publicationLimit)
 		if err != nil {
 			return err
 		}
@@ -560,7 +560,7 @@ func (service *Service) publishSummary(ctx context.Context, task *Task, index in
 			syncErr := temporary.Sync()
 			closeErr := temporary.Close()
 			if writeErr == nil && syncErr == nil && closeErr == nil && ctx.Err() == nil {
-				_ = os.Link(temporary.Name(), path)
+				writeErr = service.withTaskFence(ctx, *task, func() error { return os.Link(temporary.Name(), path) })
 			}
 			_ = os.Remove(temporary.Name())
 			if writeErr != nil || syncErr != nil || closeErr != nil || ctx.Err() != nil {
@@ -591,7 +591,7 @@ func (service *Service) publishSummary(ctx context.Context, task *Task, index in
 	if err := service.publicationStep(ctx, "receipt-before"); err != nil {
 		return err
 	}
-	hash, err := publishPublicationBytes(ctx, directory, "receipt", body, receiptLimit)
+	hash, err := service.publishTaskBytes(ctx, *task, directory, "receipt", body, receiptLimit)
 	if err != nil {
 		return err
 	}
@@ -622,6 +622,16 @@ func (service *Service) publishSummary(ctx context.Context, task *Task, index in
 	}
 	*item = completed
 	return service.publicationStep(ctx, "commit-durable")
+}
+
+func (service *Service) publishTaskBytes(ctx context.Context, task Task, directory, kind string, body []byte, limit int) (string, error) {
+	var hash string
+	err := service.withTaskFence(ctx, task, func() error {
+		var err error
+		hash, err = publishPublicationBytes(ctx, directory, kind, body, limit)
+		return err
+	})
+	return hash, err
 }
 func (service *Service) restorePublication(ctx context.Context, task *Task, index int, srt string) error {
 	if err := service.verifyPublication(ctx, task, index, srt, nil); err != nil {

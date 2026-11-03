@@ -55,6 +55,9 @@ func New(mode string, part []documents.Segment, start int) Input {
 	return Input{Mode: mode, Cues: Cues(part, start)}
 }
 func Encode(input Input) ([]byte, error) {
+	return encodeValue(input)
+}
+func encodeValue(input any) ([]byte, error) {
 	var buffer bytes.Buffer
 	encoder := json.NewEncoder(&buffer)
 	encoder.SetEscapeHTML(false)

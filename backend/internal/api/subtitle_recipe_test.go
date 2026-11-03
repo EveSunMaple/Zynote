@@ -16,6 +16,21 @@ import (
 	"github.com/EveSunMaple/Zynote/backend/internal/subtitlederived"
 )
 
+// Pin the historical transport/receipt fixtures to their original recipe. The
+// default production resolver is v2/v3 and has separate end-to-end span tests.
+func resolveLegacySubtitleRecipes(client *ai.Client, modes []string) (contract.RequestedGenerationConfig, map[string]subtitlederived.ModeRecipe, error) {
+	configuration, recipes, err := resolveSubtitleRecipes(client, modes)
+	for mode, recipe := range recipes {
+		prompt := summaryPrompt(mode, summaryMaxPoints(mode))
+		sum := sha256.Sum256([]byte(prompt))
+		recipe.Version = 1
+		recipe.ChunkPolicy = "subtitle-text-runes"
+		recipe.SystemPromptSHA256 = hex.EncodeToString(sum[:])
+		recipes[mode] = recipe
+	}
+	return configuration, recipes, err
+}
+
 func TestSubtitleRecipeDurableBeforeActualSummaryRequest(t *testing.T) {
 	state := &contract.State{LibraryRoot: t.TempDir()}
 	service := subtitleDerivedService(state)
@@ -55,7 +70,7 @@ func TestSubtitleRecipeDurableBeforeActualSummaryRequest(t *testing.T) {
 	client := ai.New(ai.Profile{BaseURL: server.URL, Model: "local-controlled-model"})
 	result, err := service.Run(context.Background(), task.ID, subtitlederived.Dependencies{
 		ResolveRecipes: func(_ context.Context, modes []string) (contract.RequestedGenerationConfig, map[string]subtitlederived.ModeRecipe, error) {
-			return resolveSubtitleRecipes(client, modes)
+			return resolveLegacySubtitleRecipes(client, modes)
 		},
 		Summarize: func(ctx context.Context, srt, mode string) (string, []subtitlederived.Point, error) {
 			result, err := summarizeVideoText(ctx, client, srt, mode, nil)

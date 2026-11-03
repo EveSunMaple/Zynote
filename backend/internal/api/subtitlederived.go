@@ -2,6 +2,8 @@ package api
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"path/filepath"
 
@@ -10,6 +12,7 @@ import (
 	"github.com/EveSunMaple/Zynote/backend/internal/contract"
 	"github.com/EveSunMaple/Zynote/backend/internal/subtitlederived"
 	"github.com/EveSunMaple/Zynote/backend/internal/subtitlesync"
+	"github.com/EveSunMaple/Zynote/backend/internal/summaryinput"
 )
 
 func subtitleDerivedService(state *contract.State) *subtitlederived.Service {
@@ -35,12 +38,12 @@ func (inv *Invoker) subtitleDerivedDependencies(store contract.StateStore, state
 		return client, nil
 	}
 	return subtitlederived.Dependencies{
-		ResolveRecipes: func(_ context.Context, modes []string) (contract.RequestedGenerationConfig, map[string]subtitlederived.ModeRecipe, error) {
+		ResolveRecipes: func(ctx context.Context, modes []string) (contract.RequestedGenerationConfig, map[string]subtitlederived.ModeRecipe, error) {
 			active, err := getClient()
 			if err != nil {
 				return contract.RequestedGenerationConfig{}, nil, err
 			}
-			return resolveSubtitleRecipes(active, modes)
+			return resolveSubtitleRecipesForContext(ctx, active, modes)
 		},
 		ValidateModel: func(context.Context) error {
 			_, err := getClient()
@@ -223,6 +226,9 @@ func (inv *Invoker) handleSubtitleDerivedStart(store contract.StateStore, state 
 
 // resolveSubtitleRecipes binds the same client and prompt construction used by dispatch.
 func resolveSubtitleRecipes(client *ai.Client, modes []string) (contract.RequestedGenerationConfig, map[string]subtitlederived.ModeRecipe, error) {
+	return resolveSubtitleRecipesForContext(context.Background(), client, modes)
+}
+func resolveSubtitleRecipesForContext(ctx context.Context, client *ai.Client, modes []string) (contract.RequestedGenerationConfig, map[string]subtitlederived.ModeRecipe, error) {
 	configuration, err := client.TextRequestConfiguration()
 	if err != nil {
 		return configuration, nil, err
@@ -232,6 +238,13 @@ func resolveSubtitleRecipes(client *ai.Client, modes []string) (contract.Request
 		recipe, err := summaryModeRecipe(mode)
 		if err != nil {
 			return configuration, nil, err
+		}
+		if contract.SummaryRecipeVersion(ctx, mode) == 1 {
+			prompt := summaryPrompt(mode, summaryMaxPoints(mode))
+			hash := sha256.Sum256([]byte(prompt))
+			recipe.Version = 1
+			recipe.ChunkPolicy = summaryinput.ChunkPolicy
+			recipe.SystemPromptSHA256 = hex.EncodeToString(hash[:])
 		}
 		recipes[mode] = recipe
 	}

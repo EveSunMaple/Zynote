@@ -15,10 +15,22 @@ type GenerationEventRef struct {
 	SHA256   string `json:"sha256"`
 }
 type ValidatedPointEvidence struct {
-	AcceptedFormatRef GenerationEventRef `json:"acceptedFormatRef"`
-	PointsSHA256      string             `json:"pointsSHA256"`
-	PointCount        int                `json:"pointCount"`
+	Processing        *ChunkProcessingReceipt `json:"processing,omitempty"`
+	AcceptedFormatRef GenerationEventRef      `json:"acceptedFormatRef"`
+	PointsSHA256      string                  `json:"pointsSHA256"`
+	PointCount        int                     `json:"pointCount"`
 }
+type ChunkProcessingReceipt struct {
+	State          string `json:"state"`
+	CoreSpanSHA256 string `json:"coreSpanSHA256"`
+}
+
+func CoreSpansDigest(spans []CoreSpan) string {
+	body, _ := json.Marshal(spans)
+	sum := sha256.Sum256(body)
+	return hex.EncodeToString(sum[:])
+}
+
 type ValidatedSummaryPoint struct {
 	Cue       int    `json:"cue"`
 	Quote     string `json:"quote"`
@@ -27,6 +39,7 @@ type ValidatedSummaryPoint struct {
 	Timestamp string `json:"timestamp"`
 }
 type SummaryEvidence struct {
+	Partial           bool               `json:"partial,omitempty"`
 	Version           int                `json:"version"`
 	SourceSHA256      string             `json:"sourceSHA256"`
 	ItemRecipeHash    string             `json:"itemRecipeHash"`
@@ -70,6 +83,7 @@ func ReadGenerationReceipt(ctx context.Context) (GenerationReceipt, error) {
 	return reader(ctx)
 }
 func CloneGenerationEvent(event GenerationAttemptEvidence) GenerationAttemptEvidence {
+	event.Observation.CoreSpans = append([]CoreSpan(nil), event.Observation.CoreSpans...)
 	event.Observation.CueIDs = append([]int(nil), event.Observation.CueIDs...)
 	if event.FormatValid != nil {
 		value := *event.FormatValid
@@ -77,6 +91,10 @@ func CloneGenerationEvent(event GenerationAttemptEvidence) GenerationAttemptEvid
 	}
 	if event.ValidatedPoints != nil {
 		value := *event.ValidatedPoints
+		if value.Processing != nil {
+			processing := *value.Processing
+			value.Processing = &processing
+		}
 		event.ValidatedPoints = &value
 	}
 	return event

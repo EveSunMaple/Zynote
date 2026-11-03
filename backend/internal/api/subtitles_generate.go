@@ -18,6 +18,7 @@ import (
 	"github.com/EveSunMaple/Zynote/backend/internal/contract"
 	"github.com/EveSunMaple/Zynote/backend/internal/courseware"
 	"github.com/EveSunMaple/Zynote/backend/internal/documents"
+	"github.com/EveSunMaple/Zynote/backend/internal/generationjob"
 	"github.com/EveSunMaple/Zynote/backend/internal/learning"
 	"github.com/EveSunMaple/Zynote/backend/internal/storage"
 )
@@ -118,13 +119,15 @@ func (inv *Invoker) handleSubtitlesGenerate(store contract.StateStore, state *co
 }
 
 type correctionRun struct {
-	inv       *Invoker
-	ctx       context.Context // NOSONAR: request-scoped context is owned by the caller for a single operation.
-	store     contract.StateStore
-	state     *contract.State
-	write     *storage.WriteDB
-	lectureID string
-	mode      learning.CorrectionMode
+	requestLedger *generationjob.Store
+	requestFence  generationjob.Fence
+	inv           *Invoker
+	ctx           context.Context // NOSONAR: request-scoped context is owned by the caller for a single operation.
+	store         contract.StateStore
+	state         *contract.State
+	write         *storage.WriteDB
+	lectureID     string
+	mode          learning.CorrectionMode
 
 	lecture          map[string]any
 	source           documents.SplitResult
@@ -416,6 +419,18 @@ func correctionRequestFor(run *correctionRun, batch learning.CorrectionBatch, in
 	return input, requestImages
 }
 
+func correctionEffectiveRequest(run *correctionRun, batch learning.CorrectionBatch, index int) (correctionRequest, []ai.Image) {
+	images := run.contexts[index].Images
+	if len(images) > 0 && strings.Contains(strings.ToLower(strings.TrimSpace(run.profile.VisionModel)), "ocr") {
+		images = nil
+	}
+	input, requestImages := correctionRequestFor(run, batch, index, images)
+	if len(images) == 0 && len(run.contexts[index].Images) > 0 {
+		input.CoursewareLimitations = append(input.CoursewareLimitations, "视觉模型为 OCR 专用，本批未发送图片，仅依据课件文字与原文校订。")
+	}
+	return input, requestImages
+}
+
 func (run *correctionRun) retryBatch(ctx context.Context, callErr error, attempt, index int) error {
 	if ctx.Err() != nil || attempt == 2 || !ai.IsRetryable(callErr) {
 		return callErr
@@ -475,11 +490,7 @@ func (run *correctionRun) runBatch(ctx context.Context, batch learning.Correctio
 		delete(run.active, index)
 		run.activeMu.Unlock()
 	}()
-	input, requestImages := correctionRequestFor(run, batch, index, batchImages)
-	if len(batchImages) == 0 && len(correctionContext.Images) > 0 {
-		input.CoursewareLimitations = append(input.CoursewareLimitations,
-			"视觉模型为 OCR 专用，本批未发送图片，仅依据课件文字与原文校订。")
-	}
+	input, requestImages := correctionEffectiveRequest(run, batch, index)
 	for attempt := 0; attempt < 3; attempt++ {
 		if err := ctx.Err(); err != nil {
 			return nil, err
@@ -548,10 +559,17 @@ func (run *correctionRun) commitBatch(corrected []learning.CorrectedSegment, bat
 	run.resultMu.Lock()
 	next := append(append([]learning.CorrectedSegment{}, run.rows...), corrected...)
 	run.resultMu.Unlock()
-	if err := run.write.SaveCorrectionBatch(
-		run.lectureID, run.fingerprint, len(run.sourceSegments), next, len(next),
-	); err != nil {
-		return err
+	save := func() error {
+		return run.write.SaveCorrectionBatch(run.lectureID, run.fingerprint, len(run.sourceSegments), next, len(next))
+	}
+	var saveErr error
+	if run.requestLedger != nil {
+		saveErr = run.requestLedger.WithFence(run.ctx, run.requestFence, save)
+	} else {
+		saveErr = save()
+	}
+	if saveErr != nil {
+		return saveErr
 	}
 	run.resultMu.Lock()
 	run.rows = next
@@ -608,6 +626,35 @@ func (run *correctionRun) finish() (any, error) {
 }
 
 func (run *correctionRun) execute() (any, error) {
+	jobID := "correction-" + run.lectureID + "-" + run.fingerprint
+	root := filepath.Join(run.state.DataRoot, "generation-jobs")
+	release, err := generationjob.AcquireRunLock(root, jobID)
+	if err != nil {
+		return nil, err
+	}
+	defer release()
+	ledger, err := generationjob.Open(root)
+	if err != nil {
+		return nil, err
+	}
+	defer ledger.Close()
+	expected, err := ledger.CurrentGeneration(run.ctx, jobID)
+	if err != nil {
+		return nil, err
+	}
+	fence, err := ledger.Acquire(run.ctx, jobID, expected, 256)
+	if err != nil {
+		return nil, err
+	}
+	budget, err := ledger.Budget(run.ctx, jobID)
+	if err != nil {
+		return nil, err
+	}
+	if budget.UnknownHeld > 0 {
+		return nil, fmt.Errorf("上次校订请求结果或计费未确认，预算仍保留；未自动重放，请先核对服务端记录")
+	}
+	run.requestLedger, run.requestFence = ledger, fence
+	run.ctx = contract.WithPhysicalRequestGuard(run.ctx, generationjob.Guard{Store: ledger, Fence: fence})
 	run.started = time.Now()
 	run.resumed = len(run.rows)
 	run.inv.reportCorrection(
@@ -631,10 +678,12 @@ func (run *correctionRun) execute() (any, error) {
 		defer close(heartbeatDone)
 		run.heartbeat(heartbeatCtx)
 	}()
-	if err := learning.RunCorrectionBatches(run.ctx, run.batches, run.runBatch, run.commitBatch); err != nil {
+	if err := learning.RunCorrectionBatches(run.ctx, run.batches, run.cachedBatch, run.commitBatch); err != nil {
 		return nil, err
 	}
-	return run.finish()
+	var result any
+	err = ledger.WithFence(run.ctx, fence, func() error { var err error; result, err = run.finish(); return err })
+	return result, err
 }
 
 func (inv *Invoker) transcribeLecture(

@@ -25,7 +25,9 @@ func observationInput(ctx context.Context, encoded []byte) error {
 	}
 	var input struct {
 		Cues []struct {
-			Cue int `json:"cue"`
+			Cue       int `json:"cue"`
+			CoreStart int `json:"coreStartCodepoint"`
+			CoreEnd   int `json:"coreEndCodepoint"`
 		} `json:"cues"`
 	}
 	if json.Unmarshal(encoded, &input) != nil || metadata.Purpose != "subtitle-summary" || metadata.InputSHA256 != recipeDigest(string(encoded)) || len(input.Cues) == 0 {
@@ -34,6 +36,11 @@ func observationInput(ctx context.Context, encoded []byte) error {
 	ids := make([]int, len(input.Cues))
 	for i, cue := range input.Cues {
 		ids[i] = cue.Cue
+		if metadata.ProtocolVersion == 3 {
+			if len(metadata.CoreSpans) != len(input.Cues) || metadata.CoreSpans[i] != (contract.CoreSpan{ParentCueID: cue.Cue, StartCodepoint: cue.CoreStart, EndCodepoint: cue.CoreEnd}) {
+				return fmt.Errorf("摘要核心区间绑定无效")
+			}
+		}
 	}
 	if !reflect.DeepEqual(ids, metadata.CueIDs) {
 		return fmt.Errorf("摘要输入字幕编号不匹配，未调用模型")
@@ -117,8 +124,8 @@ func observationForRequest(ctx context.Context, profile Profile, endpoint string
 	}
 	configBody, _ := json.Marshal(configuration)
 	version := 1
-	if metadata.ProtocolVersion == 2 {
-		version = 2
+	if metadata.ProtocolVersion == 2 || metadata.ProtocolVersion == 3 {
+		version = metadata.ProtocolVersion
 	} else if metadata.ProtocolVersion != 0 {
 		return contract.GenerationAttemptEvidence{}, nil, fmt.Errorf("摘要观察协议不受支持")
 	}

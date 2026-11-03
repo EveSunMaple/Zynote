@@ -107,6 +107,9 @@ func sameAttempt(a, b contract.GenerationAttemptEvidence) bool {
 	return reflect.DeepEqual(a.Observation, b.Observation) && a.ConfigurationSHA256 == b.ConfigurationSHA256 && a.EndpointSHA256 == b.EndpointSHA256 && a.SystemPromptSHA256 == b.SystemPromptSHA256 && a.RequestBodySHA256 == b.RequestBodySHA256
 }
 func validAttemptTransition(previous *contract.GenerationAttemptEvidence, event contract.GenerationAttemptEvidence, totalCues int, recipe *ItemRecipe) bool {
+	if event.Version == 3 {
+		return validSpanAttemptTransition(previous, event, totalCues, recipe)
+	}
 	m := event.Observation
 	if (event.Version != 1 && event.Version != 2) || (event.Version == 1 && m.ProtocolVersion != 0) || (event.Version == 2 && m.ProtocolVersion != 2) || m.Purpose != "subtitle-summary" || m.ChunkCount < 1 || m.ChunkCount > totalCues || m.ChunkIndex < 0 || m.ChunkIndex >= m.ChunkCount || m.AttemptIndex < 0 || m.AttemptIndex > 1 || len(m.CueIDs) < 1 || !recipeHashPattern.MatchString(m.InputSHA256) || !recipeHashPattern.MatchString(event.ConfigurationSHA256) || !recipeHashPattern.MatchString(event.EndpointSHA256) || !recipeHashPattern.MatchString(event.RequestBodySHA256) || event.SystemPromptSHA256 != recipe.ModeRecipe.SystemPromptSHA256 {
 		return false
@@ -158,6 +161,9 @@ func validAttemptTransition(previous *contract.GenerationAttemptEvidence, event 
 	return false
 }
 func (service *Service) observationContext(ctx context.Context, task *Task, item *Item, srt string) (context.Context, error) {
+	if item.Recipe != nil && item.Recipe.ModeRecipe.Version == 2 {
+		return service.observationContextVersion(ctx, task, item, srt, 3)
+	}
 	return service.observationContextVersion(ctx, task, item, srt, 2)
 }
 func (service *Service) observationContextVersion(ctx context.Context, task *Task, item *Item, srt string, traceVersion int) (context.Context, error) {
@@ -177,8 +183,8 @@ func (service *Service) observationContextVersion(ctx context.Context, task *Tas
 	}
 	protocolVersion := 0
 	maxEvents := 160000
-	if traceVersion == 2 {
-		protocolVersion = 2
+	if traceVersion == 2 || traceVersion == 3 {
+		protocolVersion = traceVersion
 		maxEvents = 180000
 	} else if traceVersion != 1 {
 		return ctx, observerError()
@@ -223,7 +229,12 @@ func (service *Service) observationContextVersion(ctx context.Context, task *Tas
 				return observerError()
 			}
 		}
-		hash, err := publishAttempt(directory, attemptRecord{Version: traceVersion, Sequence: count + 1, PreviousSHA256: head, Event: event})
+		var hash string
+		err = service.withTaskFence(ctx, *task, func() error {
+			var err error
+			hash, err = publishAttempt(directory, attemptRecord{Version: traceVersion, Sequence: count + 1, PreviousSHA256: head, Event: event})
+			return err
+		})
 		if err != nil {
 			return err
 		}
@@ -252,3 +263,47 @@ func (service *Service) observationContextVersion(ctx context.Context, task *Tas
 }
 
 const statusFormatResult = "format-result"
+
+// v3 keeps the immutable ordered chain but uses chunk identity for transport
+// transitions. Actual source core spans are checked independently and replayed
+// against the versioned planner by the audit; historical v1/v2 is unchanged.
+func validSpanAttemptTransition(previous *contract.GenerationAttemptEvidence, event contract.GenerationAttemptEvidence, totalCues int, recipe *ItemRecipe) bool {
+	m := event.Observation
+	if m.ProtocolVersion != 3 || recipe.ModeRecipe.Version != 2 || m.ChunkCount < 1 || m.ChunkCount > 40000 || len(m.CoreSpans) == 0 || len(m.CoreSpans) != len(m.CueIDs) {
+		return false
+	}
+	for index, span := range m.CoreSpans {
+		if span.ParentCueID < 0 || span.ParentCueID >= totalCues || span.ParentCueID != m.CueIDs[index] || span.StartCodepoint < 0 || span.EndCodepoint <= span.StartCodepoint {
+			return false
+		}
+	}
+	if event.State == statusValidatedPoints {
+		if event.ValidatedPoints == nil || event.ValidatedPoints.Processing == nil {
+			return false
+		}
+		processing := event.ValidatedPoints.Processing
+		if (processing.State != "complete" && processing.State != "insufficient") || processing.CoreSpanSHA256 != contract.CoreSpansDigest(m.CoreSpans) {
+			return false
+		}
+	}
+	convert := func(input contract.GenerationAttemptEvidence) contract.GenerationAttemptEvidence {
+		input = contract.CloneGenerationEvent(input)
+		input.Version = 2
+		input.Observation.ProtocolVersion = 2
+		input.Observation.CueIDs = []int{input.Observation.ChunkIndex}
+		if input.ValidatedPoints != nil {
+			input.ValidatedPoints.AcceptedFormatRef.Version = 2
+		}
+		return input
+	}
+	converted := convert(event)
+	var prior *contract.GenerationAttemptEvidence
+	if previous != nil {
+		if previous.Version != 3 {
+			return false
+		}
+		value := convert(*previous)
+		prior = &value
+	}
+	return validAttemptTransition(prior, converted, m.ChunkCount, recipe)
+}

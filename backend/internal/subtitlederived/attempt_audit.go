@@ -7,6 +7,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strconv"
 
 	"github.com/EveSunMaple/Zynote/backend/internal/contract"
@@ -23,13 +24,14 @@ type validatedChunkAudit struct {
 	Ref          contract.GenerationEventRef
 }
 type AttemptAudit struct {
-	sourceText     string
-	validated      []validatedChunkAudit
-	State          string `json:"state"` // unknown, incomplete, invalid, complete
-	Reason         string `json:"reason,omitempty"`
-	CheckedEvents  int    `json:"checkedEvents"`
-	CompleteChunks int    `json:"completeChunks"`
-	TotalChunks    int    `json:"totalChunks"`
+	InsufficientChunks int `json:"insufficientChunks,omitempty"`
+	sourceText         string
+	validated          []validatedChunkAudit
+	State              string `json:"state"` // unknown, incomplete, invalid, complete
+	Reason             string `json:"reason,omitempty"`
+	CheckedEvents      int    `json:"checkedEvents"`
+	CompleteChunks     int    `json:"completeChunks"`
+	TotalChunks        int    `json:"totalChunks"`
 }
 
 func invalidAudit(reason string) AttemptAudit { return AttemptAudit{State: "invalid", Reason: reason} }
@@ -57,7 +59,7 @@ func readAttemptRecord(ctx context.Context, directory string, sequence int, hash
 	var record attemptRecord
 	decoder := json.NewDecoder(bytes.NewReader(body))
 	decoder.DisallowUnknownFields()
-	if decoder.Decode(&record) != nil || decoder.Decode(&struct{}{}) != io.EOF || (record.Version != 1 && record.Version != 2) || record.Sequence != sequence {
+	if decoder.Decode(&record) != nil || decoder.Decode(&struct{}{}) != io.EOF || (record.Version != 1 && record.Version != 2 && record.Version != 3) || record.Sequence != sequence {
 		return attemptRecord{}, observerError()
 	}
 	return record, nil
@@ -83,12 +85,12 @@ func (service *Service) auditAttemptEvidence(ctx context.Context, task Task, ind
 	if reference == nil {
 		return AttemptAudit{State: "unknown", Reason: "no-observer-record"}
 	}
-	if reference.Version != 1 && reference.Version != 2 {
+	if reference.Version != 1 && reference.Version != 2 && reference.Version != 3 {
 		return AttemptAudit{State: "unknown", Reason: "protocol-unsupported"}
 	}
 	maxEvents := 160000
 	eventsPerCue := 8
-	if reference.Version == 2 {
+	if reference.Version >= 2 {
 		maxEvents = 180000
 		eventsPerCue = 9
 	}
@@ -102,7 +104,9 @@ func (service *Service) auditAttemptEvidence(ctx context.Context, task Task, ind
 		return invalidAudit("item-recipe-invalid")
 	}
 	policy := item.Recipe.ModeRecipe
-	if policy.Version != 1 || policy.ChunkPolicy != summaryinput.ChunkPolicy || policy.JSONPolicy.Version != 1 || policy.JSONPolicy.Encoding != "json-no-html-escape" {
+	legacyPolicy := policy.Version == 1 && policy.ChunkPolicy == summaryinput.ChunkPolicy && reference.Version <= 2
+	spanPolicy := policy.Version == 2 && policy.ChunkPolicy == summaryinput.SpanChunkPolicy && reference.Version == 3
+	if (!legacyPolicy && !spanPolicy) || policy.JSONPolicy.Version != 1 || policy.JSONPolicy.Encoding != "json-no-html-escape" {
 		return AttemptAudit{State: "unknown", Reason: "policy-unsupported"}
 	}
 	if !validModeRecipe(policy, item.Mode) {
@@ -146,6 +150,21 @@ func (service *Service) auditAttemptEvidence(ctx context.Context, task Task, ind
 		return invalidAudit("source-invalid")
 	}
 	parts := summaryinput.Chunks(segments, policy.ChunkLimit)
+	var spanParts []summaryinput.SpanChunk
+	if spanPolicy {
+		spanParts, err = summaryinput.PlanSpans(item.Mode, segments, policy.ChunkLimit)
+		if err != nil {
+			return invalidAudit("core-plan-invalid")
+		}
+		parts = nil
+		for _, chunk := range spanParts {
+			part := []documents.Segment{}
+			for _, cue := range chunk.Input.Cues {
+				part = append(part, documents.Segment{Start: cue.StartMs, End: cue.EndMs, Text: cue.Text})
+			}
+			parts = append(parts, part)
+		}
+	}
 	inputHashes := make([]string, len(parts))
 	starts := make([]int, len(parts))
 	start := 0
@@ -155,13 +174,17 @@ func (service *Service) auditAttemptEvidence(ctx context.Context, task Task, ind
 		}
 		starts[chunkIndex] = start
 		hash, err := summaryinput.Digest(summaryinput.New(item.Mode, part, start))
+		if spanPolicy {
+			starts[chunkIndex] = spanParts[chunkIndex].Input.Cues[0].Cue
+			hash, err = summaryinput.SpanDigest(spanParts[chunkIndex].Input)
+		}
 		if err != nil {
 			return invalidAudit("input-contract-invalid")
 		}
 		inputHashes[chunkIndex] = hash
 		start += len(part)
 	}
-	if reference.EventCount > len(segments)*eventsPerCue {
+	if reference.EventCount > len(parts)*eventsPerCue {
 		return invalidAudit("event-count-invalid")
 	}
 	directory, err := locateEvidenceDirectory(service.Root, task.ID, index, false)
@@ -221,22 +244,28 @@ func (service *Service) auditAttemptEvidence(ctx context.Context, task Task, ind
 		if m.AttemptIndex >= policy.JSONPolicy.MaxAttempts || m.ChunkCount != len(parts) || m.ChunkIndex >= len(parts) || m.InputSHA256 != inputHashes[m.ChunkIndex] || len(m.CueIDs) != len(parts[m.ChunkIndex]) || m.CueIDs[0] != starts[m.ChunkIndex] {
 			return invalidAudit("input-contract-invalid")
 		}
+		if spanPolicy && !reflect.DeepEqual(m.CoreSpans, spanParts[m.ChunkIndex].CoreSpans) {
+			return invalidAudit("core-plan-invalid")
+		}
 		if event.State == statusValidatedPoints {
-			if reference.Version != 2 || indexInChain < 1 || event.ValidatedPoints.AcceptedFormatRef != (contract.GenerationEventRef{Version: 2, Sequence: indexInChain, SHA256: hashes[indexInChain-1]}) {
+			if reference.Version < 2 || indexInChain < 1 || event.ValidatedPoints.AcceptedFormatRef != (contract.GenerationEventRef{Version: reference.Version, Sequence: indexInChain, SHA256: hashes[indexInChain-1]}) {
 				return invalidAudit("validated-reference-invalid")
 			}
 			if collect {
-				result.validated = append(result.validated, validatedChunkAudit{Index: m.ChunkIndex, Start: starts[m.ChunkIndex], CueCount: len(parts[m.ChunkIndex]), PointCount: event.ValidatedPoints.PointCount, PointsSHA256: event.ValidatedPoints.PointsSHA256, Ref: contract.GenerationEventRef{Version: 2, Sequence: indexInChain + 1, SHA256: hash}})
+				result.validated = append(result.validated, validatedChunkAudit{Index: m.ChunkIndex, Start: starts[m.ChunkIndex], CueCount: len(parts[m.ChunkIndex]), PointCount: event.ValidatedPoints.PointCount, PointsSHA256: event.ValidatedPoints.PointsSHA256, Ref: contract.GenerationEventRef{Version: reference.Version, Sequence: indexInChain + 1, SHA256: hash}})
+			}
+			if spanPolicy && event.ValidatedPoints.Processing.State == "insufficient" {
+				result.InsufficientChunks++
 			}
 		}
 		result.CheckedEvents++
 		result.TotalChunks = m.ChunkCount
-		if ((reference.Version == 1 && event.State == "format-result") || (reference.Version == 2 && event.State == statusValidatedPoints)) && event.FormatValid != nil && *event.FormatValid {
+		if ((reference.Version == 1 && event.State == "format-result") || (reference.Version >= 2 && event.State == statusValidatedPoints)) && event.FormatValid != nil && *event.FormatValid {
 			result.CompleteChunks++
 		}
 		previous = &event
 	}
-	if previous != nil && ((reference.Version == 1 && previous.State == "format-result") || (reference.Version == 2 && previous.State == statusValidatedPoints)) && previous.FormatValid != nil && *previous.FormatValid && previous.Observation.ChunkIndex == previous.Observation.ChunkCount-1 && result.CompleteChunks == result.TotalChunks {
+	if previous != nil && ((reference.Version == 1 && previous.State == "format-result") || (reference.Version >= 2 && previous.State == statusValidatedPoints)) && previous.FormatValid != nil && *previous.FormatValid && previous.Observation.ChunkIndex == previous.Observation.ChunkCount-1 && result.CompleteChunks == result.TotalChunks {
 		result.State = "complete"
 		if collect {
 			result.sourceText = string(body)

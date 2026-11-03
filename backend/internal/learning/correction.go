@@ -638,80 +638,93 @@ func minInt(left, right int) int {
 	return right
 }
 
-func runCorrectionChunk[T any](
-	ctx context.Context,
-	batches []CorrectionBatch,
-	start int,
-	run func(context.Context, CorrectionBatch, int) (T, error),
-	commit func(T, CorrectionBatch) error,
-) error {
-	chunkContext, cancel := context.WithCancel(ctx)
-	defer cancel()
-	var mutex sync.Mutex
-	pending := map[int]T{}
-	next := start
-	var firstErr error
-	var once sync.Once
-	var wait sync.WaitGroup
-	for offset := 0; offset < 2 && start+offset < len(batches); offset++ {
-		index := start + offset
-		batch := batches[index]
-		wait.Add(1)
-		go func() {
-			defer wait.Done()
-			result, err := run(chunkContext, batch, index)
-			if err != nil {
-				once.Do(func() {
-					firstErr = err
-					cancel()
-				})
-				return
-			}
-			mutex.Lock()
-			defer mutex.Unlock()
-			pending[index] = result
-			for {
-				ready, ok := pending[next]
-				if !ok {
-					break
-				}
-				if err := commit(ready, batches[next]); err != nil {
-					once.Do(func() {
-						firstErr = err
-						cancel()
-					})
-					return
-				}
-				delete(pending, next)
-				next++
-			}
-		}()
-	}
-	wait.Wait()
-	return firstErr
-}
-
+// RunCorrectionBatches keeps two calls active while bounding all admitted but
+// uncommitted work to four batches. Only the coordinator commits results, in
+// source order; a slow front batch therefore cannot grow the pending set.
 func RunCorrectionBatches[T any](
 	ctx context.Context,
 	batches []CorrectionBatch,
 	run func(context.Context, CorrectionBatch, int) (T, error),
 	commit func(T, CorrectionBatch) error,
 ) error {
-	for start := 0; start < len(batches); start += 2 {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	workerContext, cancel := context.WithCancel(ctx)
+	type completion struct {
+		index int
+		value T
+		err   error
+	}
+	completed := make(chan completion, 2)
+	var workers sync.WaitGroup
+	defer func() { cancel(); workers.Wait() }()
+	var failureMutex sync.Mutex
+	var firstFailure error
+	failure := func() error {
 		if err := ctx.Err(); err != nil {
 			return err
 		}
-		err := runCorrectionChunk(ctx, batches, start, run, commit)
-		if ctxErr := ctx.Err(); ctxErr != nil {
-			return ctxErr
+		failureMutex.Lock()
+		defer failureMutex.Unlock()
+		if firstFailure != nil {
+			return firstFailure
 		}
-		if err != nil {
-			return err
+		return workerContext.Err()
+	}
+	next, admitted, active := 0, 0, 0
+	pending := make(map[int]T)
+	for next < len(batches) {
+		for active < 2 && admitted < len(batches) && admitted-next < 4 {
+			if workerContext.Err() != nil {
+				return failure()
+			}
+			index := admitted
+			admitted++
+			active++
+			workers.Add(1)
+			go func() {
+				defer workers.Done()
+				value, err := run(workerContext, batches[index], index)
+				if err != nil {
+					failureMutex.Lock()
+					if firstFailure == nil {
+						firstFailure = err
+					}
+					failureMutex.Unlock()
+					cancel()
+				}
+				completed <- completion{index: index, value: value, err: err}
+			}()
+		}
+		select {
+		case <-workerContext.Done():
+			return failure()
+		case result := <-completed:
+			active--
+			if result.err != nil {
+				return failure()
+			}
+			pending[result.index] = result.value
+			for {
+				value, ok := pending[next]
+				if !ok {
+					break
+				}
+				if workerContext.Err() != nil {
+					return failure()
+				}
+				if err := commit(value, batches[next]); err != nil {
+					cancel()
+					return err
+				}
+				delete(pending, next)
+				next++
+			}
 		}
 	}
 	return nil
 }
-
 func CorrectedSegmentsToDocuments(segments []CorrectedSegment) []documents.Segment {
 	result := make([]documents.Segment, 0, len(segments))
 	for _, segment := range segments {

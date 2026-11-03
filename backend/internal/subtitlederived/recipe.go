@@ -89,7 +89,8 @@ func validRequestedConfig(value contract.RequestedGenerationConfig) bool {
 	return recipeHash(value) != ""
 }
 func validModeRecipe(value ModeRecipe, mode string) bool {
-	return value.Version == 1 && value.Mode == mode && validMode(mode) && recipeHashPattern.MatchString(value.SystemPromptSHA256) && value.ChunkPolicy == "subtitle-text-runes" && value.ChunkLimit > 0 && value.MaxPoints > 0 && value.JSONPolicy.Version == 1 && value.JSONPolicy.Encoding == "json-no-html-escape" && value.JSONPolicy.MaxAttempts > 0 && recipeHashPattern.MatchString(value.JSONPolicy.RepairFeedbackSHA256)
+	policy := (value.Version == 1 && value.ChunkPolicy == "subtitle-text-runes") || (value.Version == 2 && value.ChunkPolicy == "subtitle-core-codepoints-v2")
+	return policy && value.Mode == mode && validMode(mode) && recipeHashPattern.MatchString(value.SystemPromptSHA256) && value.ChunkLimit > 0 && value.MaxPoints > 0 && value.JSONPolicy.Version == 1 && value.JSONPolicy.Encoding == "json-no-html-escape" && value.JSONPolicy.MaxAttempts > 0 && recipeHashPattern.MatchString(value.JSONPolicy.RepairFeedbackSHA256)
 }
 func (service *Service) bindRecipe(ctx context.Context, task *Task, dependencies Dependencies) error {
 	if dependencies.ResolveRecipes == nil {
@@ -103,7 +104,13 @@ func (service *Service) bindRecipe(ctx context.Context, task *Task, dependencies
 			seen[item.Mode] = true
 		}
 	}
-	configuration, recipes, err := dependencies.ResolveRecipes(ctx, modes)
+	versions := map[string]int{}
+	for _, item := range task.Items {
+		if item.Recipe != nil {
+			versions[item.Mode] = item.Recipe.ModeRecipe.Version
+		}
+	}
+	configuration, recipes, err := dependencies.ResolveRecipes(contract.WithSummaryRecipeVersions(ctx, versions), modes)
 	if err != nil {
 		return err
 	}

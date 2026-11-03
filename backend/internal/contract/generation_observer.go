@@ -6,18 +6,24 @@ import (
 )
 
 type GenerationObservation struct {
-	ProtocolVersion  int    `json:"protocolVersion,omitempty"`
-	Purpose          string `json:"purpose"`
-	TaskID           string `json:"taskID"`
-	ItemIndex        int    `json:"itemIndex"`
-	ItemRecipeSHA256 string `json:"itemRecipeSHA256"`
-	SourceSHA256     string `json:"sourceSHA256"`
-	ChunkIndex       int    `json:"chunkIndex"`
-	ChunkCount       int    `json:"chunkCount"`
-	CueIDs           []int  `json:"cueIDs"`
-	InputSHA256      string `json:"inputSHA256"`
-	AttemptIndex     int    `json:"attemptIndex"`
-	FeedbackSHA256   string `json:"feedbackSHA256"`
+	CoreSpans        []CoreSpan `json:"coreSpans,omitempty"`
+	ProtocolVersion  int        `json:"protocolVersion,omitempty"`
+	Purpose          string     `json:"purpose"`
+	TaskID           string     `json:"taskID"`
+	ItemIndex        int        `json:"itemIndex"`
+	ItemRecipeSHA256 string     `json:"itemRecipeSHA256"`
+	SourceSHA256     string     `json:"sourceSHA256"`
+	ChunkIndex       int        `json:"chunkIndex"`
+	ChunkCount       int        `json:"chunkCount"`
+	CueIDs           []int      `json:"cueIDs"`
+	InputSHA256      string     `json:"inputSHA256"`
+	AttemptIndex     int        `json:"attemptIndex"`
+	FeedbackSHA256   string     `json:"feedbackSHA256"`
+}
+type CoreSpan struct {
+	ParentCueID    int `json:"parentCueId"`
+	StartCodepoint int `json:"startCodepoint"`
+	EndCodepoint   int `json:"endCodepoint"`
 }
 type GenerationAttemptEvidence struct {
 	Version             int                     `json:"version"`
@@ -42,11 +48,13 @@ type generationObservationContext struct {
 
 func WithGenerationObservation(ctx context.Context, metadata GenerationObservation, observer GenerationObserver) context.Context {
 	metadata.CueIDs = append([]int(nil), metadata.CueIDs...)
+	metadata.CoreSpans = append([]CoreSpan(nil), metadata.CoreSpans...)
 	return context.WithValue(ctx, generationObservationKey{}, generationObservationContext{metadata, observer})
 }
 func GenerationObservationFrom(ctx context.Context) (GenerationObservation, GenerationObserver) {
 	value, _ := ctx.Value(generationObservationKey{}).(generationObservationContext)
 	value.metadata.CueIDs = append([]int(nil), value.metadata.CueIDs...)
+	value.metadata.CoreSpans = append([]CoreSpan(nil), value.metadata.CoreSpans...)
 	return value.metadata, value.observer
 }
 
