@@ -11,9 +11,9 @@ import (
 	"regexp"
 	"sort"
 	"strings"
-	"sync"
 
 	"github.com/EveSunMaple/Zynote/backend/internal/documents"
+	"github.com/EveSunMaple/Zynote/backend/internal/orderedwork"
 )
 
 type CorrectionMode string
@@ -641,89 +641,8 @@ func minInt(left, right int) int {
 // RunCorrectionBatches keeps two calls active while bounding all admitted but
 // uncommitted work to four batches. Only the coordinator commits results, in
 // source order; a slow front batch therefore cannot grow the pending set.
-func RunCorrectionBatches[T any](
-	ctx context.Context,
-	batches []CorrectionBatch,
-	run func(context.Context, CorrectionBatch, int) (T, error),
-	commit func(T, CorrectionBatch) error,
-) error {
-	if err := ctx.Err(); err != nil {
-		return err
-	}
-	workerContext, cancel := context.WithCancel(ctx)
-	type completion struct {
-		index int
-		value T
-		err   error
-	}
-	completed := make(chan completion, 2)
-	var workers sync.WaitGroup
-	defer func() { cancel(); workers.Wait() }()
-	var failureMutex sync.Mutex
-	var firstFailure error
-	failure := func() error {
-		if err := ctx.Err(); err != nil {
-			return err
-		}
-		failureMutex.Lock()
-		defer failureMutex.Unlock()
-		if firstFailure != nil {
-			return firstFailure
-		}
-		return workerContext.Err()
-	}
-	next, admitted, active := 0, 0, 0
-	pending := make(map[int]T)
-	for next < len(batches) {
-		for active < 2 && admitted < len(batches) && admitted-next < 4 {
-			if workerContext.Err() != nil {
-				return failure()
-			}
-			index := admitted
-			admitted++
-			active++
-			workers.Add(1)
-			go func() {
-				defer workers.Done()
-				value, err := run(workerContext, batches[index], index)
-				if err != nil {
-					failureMutex.Lock()
-					if firstFailure == nil {
-						firstFailure = err
-					}
-					failureMutex.Unlock()
-					cancel()
-				}
-				completed <- completion{index: index, value: value, err: err}
-			}()
-		}
-		select {
-		case <-workerContext.Done():
-			return failure()
-		case result := <-completed:
-			active--
-			if result.err != nil {
-				return failure()
-			}
-			pending[result.index] = result.value
-			for {
-				value, ok := pending[next]
-				if !ok {
-					break
-				}
-				if workerContext.Err() != nil {
-					return failure()
-				}
-				if err := commit(value, batches[next]); err != nil {
-					cancel()
-					return err
-				}
-				delete(pending, next)
-				next++
-			}
-		}
-	}
-	return nil
+func RunCorrectionBatches[T any](ctx context.Context, batches []CorrectionBatch, run func(context.Context, CorrectionBatch, int) (T, error), commit func(T, CorrectionBatch) error) error {
+	return orderedwork.Run(ctx, len(batches), func(ctx context.Context, index int) (T, error) { return run(ctx, batches[index], index) }, func(value T, index int) error { return commit(value, batches[index]) })
 }
 func CorrectedSegmentsToDocuments(segments []CorrectedSegment) []documents.Segment {
 	result := make([]documents.Segment, 0, len(segments))

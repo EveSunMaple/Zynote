@@ -51,7 +51,10 @@ func taskRecipeHash(config contract.RequestedGenerationConfig, course string) st
 }
 func itemRecipeHash(value ItemRecipe) string { value.Hash = ""; return recipeHash(value) }
 func canBindRecipe(item Item) bool {
-	return item.Prepared == nil && len(item.Outputs) == 0 && item.GenerationState == ""
+	return item.Prepared == nil && len(item.Outputs) == 0 && (item.GenerationState == "" || resumableSpanItem(item))
+}
+func resumableSpanItem(item Item) bool {
+	return item.GenerationState == "dispatched" && item.Recipe != nil && item.Recipe.ModeRecipe.Version == 2 && item.AttemptEvidence != nil && item.AttemptEvidence.Version == 3
 }
 
 func validRequestedConfig(value contract.RequestedGenerationConfig) bool {

@@ -455,7 +455,7 @@ func (service *Service) ensurePrepared(ctx context.Context, task *Task, item *It
 	if dependencies.Summarize == nil && dependencies.SummarizeWithEvidence == nil {
 		return fmt.Errorf("摘要不可用")
 	}
-	if item.GenerationState != "" {
+	if item.GenerationState != "" && !resumableSpanItem(*item) {
 		return fmt.Errorf("上次模型调用结果未知，未自动重试；请先核对服务端记录")
 	}
 	if dependencies.ValidateModel != nil {
@@ -680,6 +680,7 @@ func (service *Service) Run(ctx context.Context, id string, dependencies Depende
 		}
 		task.ExecutionGeneration, task.CacheEpoch = fence.Generation, fence.Epoch
 		ctx = contract.WithPhysicalRequestGuard(ctx, generationjob.Guard{Store: ledger, Fence: fence})
+		ctx = contract.WithSuccessCache(ctx, generationjob.ScopedCache{Store: ledger, Fence: fence})
 	}
 	task.Interrupted = true
 	if err := service.save(task); err != nil {

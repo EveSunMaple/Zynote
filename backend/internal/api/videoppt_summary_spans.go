@@ -2,13 +2,17 @@ package api
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/EveSunMaple/Zynote/backend/internal/ai"
 	"github.com/EveSunMaple/Zynote/backend/internal/contract"
 	"github.com/EveSunMaple/Zynote/backend/internal/documents"
+	"github.com/EveSunMaple/Zynote/backend/internal/orderedwork"
 	"github.com/EveSunMaple/Zynote/backend/internal/summaryinput"
 )
 
@@ -35,12 +39,21 @@ func summarizeSpanVideoText(ctx context.Context, client *ai.Client, srt, mode st
 	allPoints := []videoNotePoint{}
 	partial := false
 	metadata, observer := contract.GenerationObservationFrom(ctx)
-	for index, chunk := range chunks {
+	type chunkResult struct {
+		points     []videoNotePoint
+		processing string
+	}
+	type cachedChunk struct {
+		Version    int
+		Points     []videoNotePoint
+		Processing string
+		Receipt    contract.GenerationEventRef
+	}
+	cache := contract.SuccessCacheFrom(ctx)
+	err = orderedwork.Run(ctx, len(chunks), func(ctx context.Context, index int) (chunkResult, error) {
+		chunk := chunks[index]
 		if err := ctx.Err(); err != nil {
-			return summaryResult{}, err
-		}
-		if progress != nil {
-			progress(fmt.Sprintf("正在处理字幕核心区间 %d/%d", index+1, len(chunks)))
+			return chunkResult{}, err
 		}
 		m := metadata
 		m.ChunkIndex = index
@@ -50,11 +63,79 @@ func summarizeSpanVideoText(ctx context.Context, client *ai.Client, srt, mode st
 		for i, cue := range chunk.Input.Cues {
 			m.CueIDs[i] = cue.Cue
 		}
-		m.InputSHA256, err = summaryinput.SpanDigest(chunk.Input)
+		inputHash, err := summaryinput.SpanDigest(chunk.Input)
+		m.InputSHA256 = inputHash
 		if err != nil {
-			return summaryResult{}, err
+			return chunkResult{}, err
 		}
 		chunkContext := contract.WithGenerationObservation(ctx, m, observer)
+		key := fmt.Sprintf("summary:%d:%d", metadata.ItemIndex, index)
+		identity := ""
+		if cache != nil {
+			dm := m
+			dm.AttemptIndex = 0
+			empty := sha256.Sum256(nil)
+			dm.FeedbackSHA256 = hex.EncodeToString(empty[:])
+			wire, err := client.JSONRequestDigest(contract.WithGenerationObservation(ctx, dm, observer), spanSummaryPrompt(mode, summaryMaxPoints(mode)), chunk.Input, ai.JSONOptions{})
+			if err != nil {
+				return chunkResult{}, err
+			}
+			body, _ := json.Marshal(struct {
+				Version int
+				Scope   contract.GenerationObservation
+				Wire    string
+				Policy  any
+			}{1, m, wire, ai.JSONRecipePolicy()})
+			hash := sha256.Sum256(body)
+			identity = hex.EncodeToString(hash[:])
+			raw, found, err := cache.Adopt(chunkContext, key, identity)
+			if err != nil {
+				return chunkResult{}, err
+			}
+			if found {
+				var saved cachedChunk
+				if json.Unmarshal(raw, &saved) != nil || saved.Version != 1 {
+					return chunkResult{}, contract.ObservationFailure(fmt.Errorf("摘要成功缓存无效"))
+				}
+				receipt, err := contract.ReadGenerationReceipt(chunkContext)
+				if err != nil {
+					return chunkResult{}, err
+				}
+				pointHash, err := contract.SummaryPointsDigest(canonicalVideoPoints(saved.Points))
+				if err != nil || len(saved.Points) > summaryMaxPoints(mode) || (saved.Processing != "complete" && saved.Processing != "insufficient") {
+					return chunkResult{}, contract.ObservationFailure(fmt.Errorf("摘要缓存结构无效"))
+				}
+				for _, point := range saved.Points {
+					valid := false
+					for _, cue := range chunk.Input.Cues {
+						if point.Cue == cue.Cue && strings.Contains(cue.Text, point.Quote) && len([]rune(point.Quote)) >= 2 {
+							valid = true
+							break
+						}
+					}
+					if !valid {
+						return chunkResult{}, contract.ObservationFailure(fmt.Errorf("摘要缓存与核心原文不一致"))
+					}
+				}
+				if receipt.Event.State == "format-result" && receipt.Ref == saved.Receipt && receipt.Event.FormatValid != nil && *receipt.Event.FormatValid {
+					event := receipt.Event
+					event.State = "validated-points"
+					event.ValidatedPoints = &contract.ValidatedPointEvidence{AcceptedFormatRef: receipt.Ref, PointsSHA256: pointHash, PointCount: len(saved.Points), Processing: &contract.ChunkProcessingReceipt{State: saved.Processing, CoreSpanSHA256: contract.CoreSpansDigest(chunk.CoreSpans)}}
+					if err := observer(chunkContext, event); err != nil {
+						return chunkResult{}, contract.ObservationFailure(err)
+					}
+					receipt, err = contract.ReadGenerationReceipt(chunkContext)
+					if err != nil {
+						return chunkResult{}, err
+					}
+				}
+				evidence := receipt.Event.ValidatedPoints
+				if receipt.Event.State != "validated-points" || evidence == nil || evidence.AcceptedFormatRef != saved.Receipt || evidence.Processing == nil || evidence.PointsSHA256 != pointHash || evidence.PointCount != len(saved.Points) || evidence.Processing.State != saved.Processing || evidence.Processing.CoreSpanSHA256 != contract.CoreSpansDigest(chunk.CoreSpans) {
+					return chunkResult{}, contract.ObservationFailure(fmt.Errorf("摘要缓存与原处理回执不一致"))
+				}
+				return chunkResult{saved.Points, saved.Processing}, nil
+			}
+		}
 		var points []videoNotePoint
 		processing := ""
 		_, err = client.JSON(chunkContext, spanSummaryPrompt(mode, summaryMaxPoints(mode)), chunk.Input, func(body []byte) error {
@@ -93,24 +174,46 @@ func summarizeSpanVideoText(ctx context.Context, client *ai.Client, srt, mode st
 			return nil
 		})
 		if err != nil {
-			return summaryResult{}, err
+			return chunkResult{}, err
 		}
-		receipt, err := contract.ReadGenerationReceipt(chunkContext)
+		// A locally complete validated response survives sibling cancellation.
+		// The finite generation/epoch fence still owns every evidence/cache write.
+		localContext, finishLocal := context.WithTimeout(context.WithoutCancel(chunkContext), 5*time.Second)
+		defer finishLocal()
+		receipt, err := contract.ReadGenerationReceipt(localContext)
 		if err != nil {
-			return summaryResult{}, err
+			return chunkResult{}, err
 		}
 		if receipt.Ref.Version != 3 || receipt.Event.State != "format-result" || receipt.Event.FormatValid == nil || !*receipt.Event.FormatValid {
-			return summaryResult{}, contract.ObservationFailure(fmt.Errorf("摘要处理回执缺少格式凭证"))
+			return chunkResult{}, contract.ObservationFailure(fmt.Errorf("摘要处理回执缺少格式凭证"))
 		}
 		event := receipt.Event
 		event.State = "validated-points"
 		pointHash, err := contract.SummaryPointsDigest(canonicalVideoPoints(points))
 		if err != nil {
-			return summaryResult{}, err
+			return chunkResult{}, err
 		}
 		event.ValidatedPoints = &contract.ValidatedPointEvidence{AcceptedFormatRef: receipt.Ref, PointsSHA256: pointHash, PointCount: len(points), Processing: &contract.ChunkProcessingReceipt{State: processing, CoreSpanSHA256: contract.CoreSpansDigest(chunk.CoreSpans)}}
-		if err := observer(chunkContext, event); err != nil {
-			return summaryResult{}, contract.ObservationFailure(err)
+		// Persist the locally validated payload before linking the validated
+		// event. A crash at either boundary can reuse the original format ref.
+		if cache != nil {
+			body, err := json.Marshal(cachedChunk{1, points, processing, receipt.Ref})
+			if err != nil {
+				return chunkResult{}, err
+			}
+			if err := cache.Save(localContext, key, identity, body); err != nil {
+				return chunkResult{}, err
+			}
+		}
+		if err := observer(localContext, event); err != nil {
+			return chunkResult{}, contract.ObservationFailure(err)
+		}
+		return chunkResult{points, processing}, nil
+	}, func(result chunkResult, index int) error {
+		chunk := chunks[index]
+		points, processing := result.points, result.processing
+		if progress != nil {
+			progress(fmt.Sprintf("已处理字幕核心区间 %d/%d", index+1, len(chunks)))
 		}
 		partial = partial || processing == "insufficient"
 		part := make([]documents.Segment, len(chunk.Input.Cues))
@@ -120,6 +223,10 @@ func summarizeSpanVideoText(ctx context.Context, client *ai.Client, srt, mode st
 		var section []videoNotePoint
 		lines, section = appendSummarySection(lines, part, points)
 		allPoints = append(allPoints, section...)
+		return nil
+	})
+	if err != nil {
+		return summaryResult{}, err
 	}
 	if len(allPoints) == 0 {
 		lines = append(lines, "已处理全部核心区间，但没有可核实的要点。")

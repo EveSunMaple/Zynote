@@ -49,6 +49,11 @@ CREATE TABLE IF NOT EXISTS generation_success_cache (
  job_id TEXT NOT NULL, cache_key TEXT NOT NULL, identity TEXT NOT NULL,
  epoch INTEGER NOT NULL,generation INTEGER NOT NULL,body BLOB NOT NULL,digest TEXT NOT NULL,
  PRIMARY KEY(job_id,cache_key)
+);
+CREATE TABLE IF NOT EXISTS generation_cache_adoptions (
+ job_id TEXT NOT NULL,cache_key TEXT NOT NULL,generation INTEGER NOT NULL,epoch INTEGER NOT NULL,
+ identity TEXT NOT NULL,digest TEXT NOT NULL,source_generation INTEGER NOT NULL,
+ PRIMARY KEY(job_id,cache_key,generation,epoch)
 );`)
 	if err != nil {
 		db.Close()

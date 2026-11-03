@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"sort"
 	"strconv"
 
 	"github.com/EveSunMaple/Zynote/backend/internal/contract"
@@ -221,6 +222,7 @@ func (service *Service) auditAttemptEvidence(ctx context.Context, task Task, ind
 	// Then replay every event forward, re-reading and hashing each immutable file.
 	configurationHash := recipeHash(task.Recipe.Configuration)
 	var previous *contract.GenerationAttemptEvidence
+	chunkReceipts := map[int]contract.GenerationReceipt{}
 	result := AttemptAudit{State: "incomplete"}
 	for indexInChain, hash := range hashes {
 		if ctx.Err() != nil {
@@ -238,7 +240,20 @@ func (service *Service) auditAttemptEvidence(ctx context.Context, task Task, ind
 		}
 		event := record.Event
 		m := event.Observation
-		if m.TaskID != task.ID || m.ItemIndex != index || m.SourceSHA256 != item.Source.Hash || m.ItemRecipeSHA256 != item.Recipe.Hash || event.ConfigurationSHA256 != configurationHash || event.EndpointSHA256 != task.Recipe.Configuration.EndpointSHA256 || !validAttemptTransition(previous, event, len(segments), item.Recipe) {
+		prior := previous
+		expectedRef := contract.GenerationEventRef{}
+		if indexInChain > 0 {
+			expectedRef = contract.GenerationEventRef{Version: reference.Version, Sequence: indexInChain, SHA256: hashes[indexInChain-1]}
+		}
+		if spanPolicy {
+			prior = nil
+			if receipt, ok := chunkReceipts[m.ChunkIndex]; ok {
+				copy := receipt.Event
+				prior = &copy
+				expectedRef = receipt.Ref
+			}
+		}
+		if m.TaskID != task.ID || m.ItemIndex != index || m.SourceSHA256 != item.Source.Hash || m.ItemRecipeSHA256 != item.Recipe.Hash || event.ConfigurationSHA256 != configurationHash || event.EndpointSHA256 != task.Recipe.Configuration.EndpointSHA256 || !validAttemptTransition(prior, event, len(segments), item.Recipe) {
 			return invalidAudit("event-invalid")
 		}
 		if m.AttemptIndex >= policy.JSONPolicy.MaxAttempts || m.ChunkCount != len(parts) || m.ChunkIndex >= len(parts) || m.InputSHA256 != inputHashes[m.ChunkIndex] || len(m.CueIDs) != len(parts[m.ChunkIndex]) || m.CueIDs[0] != starts[m.ChunkIndex] {
@@ -248,7 +263,7 @@ func (service *Service) auditAttemptEvidence(ctx context.Context, task Task, ind
 			return invalidAudit("core-plan-invalid")
 		}
 		if event.State == statusValidatedPoints {
-			if reference.Version < 2 || indexInChain < 1 || event.ValidatedPoints.AcceptedFormatRef != (contract.GenerationEventRef{Version: reference.Version, Sequence: indexInChain, SHA256: hashes[indexInChain-1]}) {
+			if reference.Version < 2 || indexInChain < 1 || event.ValidatedPoints.AcceptedFormatRef != expectedRef {
 				return invalidAudit("validated-reference-invalid")
 			}
 			if collect {
@@ -264,9 +279,23 @@ func (service *Service) auditAttemptEvidence(ctx context.Context, task Task, ind
 			result.CompleteChunks++
 		}
 		previous = &event
+		if spanPolicy {
+			chunkReceipts[m.ChunkIndex] = contract.GenerationReceipt{Ref: contract.GenerationEventRef{Version: 3, Sequence: indexInChain + 1, SHA256: hash}, Event: contract.CloneGenerationEvent(event)}
+		}
 	}
-	if previous != nil && ((reference.Version == 1 && previous.State == "format-result") || (reference.Version >= 2 && previous.State == statusValidatedPoints)) && previous.FormatValid != nil && *previous.FormatValid && previous.Observation.ChunkIndex == previous.Observation.ChunkCount-1 && result.CompleteChunks == result.TotalChunks {
+	if previous != nil && ((reference.Version == 1 && previous.State == "format-result") || (reference.Version >= 2 && previous.State == statusValidatedPoints)) && previous.FormatValid != nil && *previous.FormatValid && (spanPolicy || previous.Observation.ChunkIndex == previous.Observation.ChunkCount-1) && result.CompleteChunks == result.TotalChunks {
+		if spanPolicy {
+			for chunk := range parts {
+				receipt, ok := chunkReceipts[chunk]
+				if !ok || receipt.Event.State != statusValidatedPoints {
+					return invalidAudit("chunk-incomplete")
+				}
+			}
+		}
 		result.State = "complete"
+		if spanPolicy && collect {
+			sort.Slice(result.validated, func(i, j int) bool { return result.validated[i].Index < result.validated[j].Index })
+		}
 		if collect {
 			result.sourceText = string(body)
 		}
