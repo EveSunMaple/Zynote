@@ -17,6 +17,7 @@ import (
 	"github.com/EveSunMaple/Zynote/backend/internal/learning"
 	"github.com/EveSunMaple/Zynote/backend/internal/library"
 	"github.com/EveSunMaple/Zynote/backend/internal/subtitlederived"
+	"github.com/EveSunMaple/Zynote/backend/internal/summaryglobal"
 	"github.com/EveSunMaple/Zynote/backend/internal/summaryinput"
 )
 
@@ -39,11 +40,12 @@ var videoNoteTitles = map[string]string{
 }
 
 type videoNotePoint struct {
-	Cue       int    `json:"cue"`
-	Quote     string `json:"quote"`
-	Point     string `json:"point"`
-	Topic     string `json:"topic,omitempty"`
-	Timestamp string `json:"timestamp"`
+	ReviewState string `json:"reviewState,omitempty"`
+	Cue         int    `json:"cue"`
+	Quote       string `json:"quote"`
+	Point       string `json:"point"`
+	Topic       string `json:"topic,omitempty"`
+	Timestamp   string `json:"timestamp"`
 }
 
 type summaryCue = summaryinput.Cue
@@ -141,7 +143,7 @@ func appendSummarySection(lines []string, part []documents.Segment, points []vid
 	lines = append(lines, "## "+subtitleClock(part[0].Start, false)+"–"+subtitleClock(part[len(part)-1].End, false), "")
 	for _, point := range points {
 		lines = append(lines, fmt.Sprintf(
-			"- **%s**（%s；原话：%s）", point.Point, point.Timestamp, point.Quote,
+			"- **%s**（%s；原话：%s）", contract.SummaryReviewLabel(point.ReviewState)+point.Point, point.Timestamp, point.Quote,
 		))
 	}
 	return append(lines, ""), points
@@ -374,3 +376,17 @@ func recordValidatedSummaryPoints(ctx context.Context, points []videoNotePoint) 
 }
 
 const errSummaryModeInvalid = "摘要模式无效"
+
+func summarytreeDigest(value string) string {
+	sum := sha256.Sum256([]byte(value))
+	return hex.EncodeToString(sum[:])
+}
+
+func globalSummaryModeRecipe(mode string) (subtitlederived.ModeRecipe, error) {
+	recipe, err := summaryModeRecipe(mode)
+	recipe.Version = 3
+	recipe.GlobalPolicy = "paged-organize-risk-v1"
+	recipe.ReducePromptSHA256 = summarytreeDigest(summaryglobal.ReducePrompt)
+	recipe.VerifyPromptSHA256 = summarytreeDigest(summaryglobal.VerifyPrompt)
+	return recipe, err
+}

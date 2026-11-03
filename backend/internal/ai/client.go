@@ -900,7 +900,10 @@ func (client *Client) JSONWithOptions(
 		}
 		clean := repairJSONEscapes([]byte(stripJSONFence(reply)))
 		validationErr := validate(clean)
-		if err := emitFormatResult(attemptContext, validationErr == nil); err != nil {
+		if contract.IsObservationFailure(validationErr) {
+			return nil, validationErr
+		}
+		if err := emitFormatResult(attemptContext, validationErr == nil, clean); err != nil {
 			return nil, contract.ObservationFailure(err)
 		}
 		if err := validationErr; err != nil {

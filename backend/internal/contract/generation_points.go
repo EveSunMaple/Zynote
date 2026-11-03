@@ -39,13 +39,25 @@ type ValidatedSummaryPoint struct {
 	Timestamp string `json:"timestamp"`
 }
 type SummaryEvidence struct {
-	Partial           bool               `json:"partial,omitempty"`
-	Version           int                `json:"version"`
-	SourceSHA256      string             `json:"sourceSHA256"`
-	ItemRecipeHash    string             `json:"itemRecipeHash"`
-	FinalPointsSHA256 string             `json:"finalPointsSHA256"`
-	PointCount        int                `json:"pointCount"`
-	ValidatedHead     GenerationEventRef `json:"validatedHead"`
+	GlobalRootSHA256      string             `json:"globalRootSHA256,omitempty"`
+	GlobalState           string             `json:"globalState,omitempty"`
+	GlobalStages          int                `json:"globalStages,omitempty"`
+	GlobalUnreviewed      int                `json:"globalUnreviewed,omitempty"`
+	GlobalUpperUnreviewed int                `json:"globalUpperUnreviewed,omitempty"`
+	TreeRootSHA256        string             `json:"treeRootSHA256,omitempty"`
+	TreeLeafSetSHA256     string             `json:"treeLeafSetSHA256,omitempty"`
+	TreeDispositionSHA256 string             `json:"treeDispositionSHA256,omitempty"`
+	TreeGeneration        int64              `json:"treeGeneration,omitempty"`
+	TreeEpoch             int64              `json:"treeEpoch,omitempty"`
+	TreePages             int                `json:"treePages,omitempty"`
+	TreeNodes             int                `json:"treeNodes,omitempty"`
+	Partial               bool               `json:"partial,omitempty"`
+	Version               int                `json:"version"`
+	SourceSHA256          string             `json:"sourceSHA256"`
+	ItemRecipeHash        string             `json:"itemRecipeHash"`
+	FinalPointsSHA256     string             `json:"finalPointsSHA256"`
+	PointCount            int                `json:"pointCount"`
+	ValidatedHead         GenerationEventRef `json:"validatedHead"`
 }
 
 func SummaryPointsDigest(points []ValidatedSummaryPoint) (string, error) {
@@ -63,8 +75,9 @@ func SummaryPointsDigest(points []ValidatedSummaryPoint) (string, error) {
 }
 
 type GenerationReceipt struct {
-	Ref   GenerationEventRef
-	Event GenerationAttemptEvidence
+	PreviousRef GenerationEventRef
+	Ref         GenerationEventRef
+	Event       GenerationAttemptEvidence
 }
 type GenerationReceiptReader func(context.Context) (GenerationReceipt, error)
 type generationReceiptReaderKey struct{}

@@ -37,12 +37,13 @@ type Output struct {
 }
 
 type Point struct {
-	Anchor    *CueAnchor `json:"anchor,omitempty"`
-	Cue       float64    `json:"cue"`
-	Quote     string     `json:"quote"`
-	Point     string     `json:"point"`
-	Topic     string     `json:"topic"`
-	Timestamp string     `json:"timestamp"`
+	ReviewState string     `json:"reviewState,omitempty"`
+	Anchor      *CueAnchor `json:"anchor,omitempty"`
+	Cue         float64    `json:"cue"`
+	Quote       string     `json:"quote"`
+	Point       string     `json:"point"`
+	Topic       string     `json:"topic"`
+	Timestamp   string     `json:"timestamp"`
 }
 
 type Prepared struct {
@@ -52,6 +53,7 @@ type Prepared struct {
 }
 
 type Item struct {
+	Stages                 map[string]*AttemptEvidenceRef  `json:"stages,omitempty"`
 	SourceBinding          *contract.PlaybackSourceBinding `json:"sourceBinding,omitempty"`
 	SourceBindingSHA256    string                          `json:"sourceBindingSHA256,omitempty"`
 	BindingAuthoritySHA256 string                          `json:"bindingAuthoritySHA256,omitempty"`
@@ -469,6 +471,12 @@ func (service *Service) ensurePrepared(ctx context.Context, task *Task, item *It
 	observedContext, err := service.observationContext(ctx, task, item, srt)
 	if err != nil {
 		return err
+	}
+	if item.Recipe.ModeRecipe.Version >= 2 {
+		observedContext = service.withSummaryTree(observedContext, task, item)
+		if item.Recipe.ModeRecipe.Version == 3 {
+			observedContext = contract.WithSummaryStages(observedContext, newSummaryStageFactory(service, task, item))
+		}
 	}
 	if item.SourceBinding != nil {
 		checkContext, cancel := context.WithTimeout(ctx, 5*time.Second)

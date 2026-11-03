@@ -54,6 +54,10 @@ CREATE TABLE IF NOT EXISTS generation_cache_adoptions (
  job_id TEXT NOT NULL,cache_key TEXT NOT NULL,generation INTEGER NOT NULL,epoch INTEGER NOT NULL,
  identity TEXT NOT NULL,digest TEXT NOT NULL,source_generation INTEGER NOT NULL,
  PRIMARY KEY(job_id,cache_key,generation,epoch)
+);
+CREATE TABLE IF NOT EXISTS generation_spool_reservations (
+ job_id TEXT NOT NULL, artifact_key TEXT NOT NULL, bytes INTEGER NOT NULL CHECK(bytes>0),
+ PRIMARY KEY(job_id,artifact_key)
 );`)
 	if err != nil {
 		db.Close()

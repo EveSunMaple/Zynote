@@ -6,6 +6,7 @@ import (
 )
 
 type GenerationObservation struct {
+	StageID          string     `json:"stageID,omitempty"`
 	CoreSpans        []CoreSpan `json:"coreSpans,omitempty"`
 	ProtocolVersion  int        `json:"protocolVersion,omitempty"`
 	Purpose          string     `json:"purpose"`
@@ -26,6 +27,7 @@ type CoreSpan struct {
 	EndCodepoint   int `json:"endCodepoint"`
 }
 type GenerationAttemptEvidence struct {
+	JSONBodySHA256      string                  `json:"jsonBodySHA256,omitempty"`
 	Version             int                     `json:"version"`
 	Observation         GenerationObservation   `json:"observation"`
 	State               string                  `json:"state"`

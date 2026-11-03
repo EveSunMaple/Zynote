@@ -55,9 +55,6 @@ func (service *Service) verifyPointEvidenceAudit(ctx context.Context, task *Task
 	if audit.State != "complete" || len(audit.validated) != audit.TotalChunks {
 		return observerError()
 	}
-	if facts.Partial != (audit.InsufficientChunks > 0) {
-		return observerError()
-	}
 	rows, err := canonicalDerivedPoints(points)
 	if err != nil {
 		return err
@@ -86,6 +83,16 @@ func (service *Service) verifyPointEvidenceAudit(ctx context.Context, task *Task
 		}
 	}
 	if offset != len(rows) {
+		return observerError()
+	}
+	if err := service.verifySummaryTree(ctx, task, item, rows, facts, audit); err != nil {
+		return err
+	}
+	globalPartial, err := service.verifyGlobalSummary(ctx, task, item, facts, audit, points)
+	if err != nil {
+		return err
+	}
+	if facts.Partial != (audit.InsufficientChunks > 0 || globalPartial) {
 		return observerError()
 	}
 	return nil

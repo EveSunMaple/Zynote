@@ -17,11 +17,12 @@ import (
 const msgNotesExportFailed = "笔记导出失败"
 
 type notePoint struct {
-	Cue       float64 `json:"cue"`
-	Quote     string  `json:"quote"`
-	Point     string  `json:"point"`
-	Topic     string  `json:"topic"`
-	Timestamp string  `json:"timestamp"`
+	ReviewState string  `json:"reviewState,omitempty"`
+	Cue         float64 `json:"cue"`
+	Quote       string  `json:"quote"`
+	Point       string  `json:"point"`
+	Topic       string  `json:"topic"`
+	Timestamp   string  `json:"timestamp"`
 }
 
 type noteGroup struct {
@@ -67,7 +68,7 @@ func notesSVG(title string, points []notePoint) string {
 		))
 		y += 44
 		for _, point := range group.Items {
-			text := []rune(point.Point)
+			text := []rune(contract.SummaryReviewLabel(point.ReviewState) + point.Point)
 			first := string(text[:minNoteInt(38, len(text))])
 			second := ""
 			if len(text) > 38 {

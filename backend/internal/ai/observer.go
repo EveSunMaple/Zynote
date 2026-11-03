@@ -23,6 +23,12 @@ func observationInput(ctx context.Context, encoded []byte) error {
 	if observer == nil {
 		return nil
 	}
+	if metadata.ProtocolVersion == 4 {
+		if (metadata.Purpose != "summary-reduce" && metadata.Purpose != "summary-verify") || metadata.StageID == "" || metadata.InputSHA256 != recipeDigest(string(encoded)) {
+			return fmt.Errorf("摘要独立阶段输入绑定无效")
+		}
+		return nil
+	}
 	var input struct {
 		Cues []struct {
 			Cue       int `json:"cue"`
@@ -61,7 +67,7 @@ func observationForRequest(ctx context.Context, profile Profile, endpoint string
 	if observer == nil {
 		return contract.GenerationAttemptEvidence{}, nil, nil
 	}
-	if metadata.Purpose != "subtitle-summary" || onText != nil || len(messages) != 2 || messages[0].Role != "system" || messages[1].Role != "user" {
+	if (metadata.Purpose != "subtitle-summary" && !(metadata.ProtocolVersion == 4 && (metadata.Purpose == "summary-reduce" || metadata.Purpose == "summary-verify"))) || onText != nil || len(messages) != 2 || messages[0].Role != "system" || messages[1].Role != "user" {
 		return contract.GenerationAttemptEvidence{}, nil, fmt.Errorf("摘要请求观察范围无效")
 	}
 	prompt, ok := messages[0].Content.(string)
@@ -124,7 +130,7 @@ func observationForRequest(ctx context.Context, profile Profile, endpoint string
 	}
 	configBody, _ := json.Marshal(configuration)
 	version := 1
-	if metadata.ProtocolVersion == 2 || metadata.ProtocolVersion == 3 {
+	if metadata.ProtocolVersion == 2 || metadata.ProtocolVersion == 3 || metadata.ProtocolVersion == 4 {
 		version = metadata.ProtocolVersion
 	} else if metadata.ProtocolVersion != 0 {
 		return contract.GenerationAttemptEvidence{}, nil, fmt.Errorf("摘要观察协议不受支持")
@@ -140,7 +146,7 @@ func observedHTTPClient(client *http.Client, observer contract.GenerationObserve
 	clientCopy.CheckRedirect = func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }
 	return &clientCopy
 }
-func emitFormatResult(ctx context.Context, valid bool) error {
+func emitFormatResult(ctx context.Context, valid bool, body []byte) error {
 	metadata, observer := contract.GenerationObservationFrom(ctx)
 	if observer == nil {
 		return nil
@@ -154,6 +160,9 @@ func emitFormatResult(ctx context.Context, valid bool) error {
 	event.Observation = metadata
 	event.State = "format-result"
 	event.FormatValid = &valid
+	if metadata.ProtocolVersion == 4 {
+		event.JSONBodySHA256 = recipeDigest(string(body))
+	}
 	return observer(ctx, event)
 }
 

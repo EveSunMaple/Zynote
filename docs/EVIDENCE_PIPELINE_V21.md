@@ -16,4 +16,16 @@ This is an incremental implementation. It does not yet claim the full v2.1 desig
 
 ## Remaining work
 
-Bounded global reduction with recomputable leaf dispositions, independent global organization/model risk verification, product-facing cache-revocation/explicit reauthorization operations and benchmark ablations remain pending. The internal revoke/tombstone transaction is tested, but is not yet a product action. Cancellation is not permanent revocation. No token hard limit is asserted without a verified tokenizer/usage adapter.
+Optional semantic-boundary proposals with deterministic fallback, an independent halo ablation control, product-facing cache-revocation/explicit reauthorization operations and benchmark ablations remain pending. The internal revoke/tombstone transaction is tested, but is not yet a product action. Cancellation is not permanent revocation. No token hard limit is asserted without a verified tokenizer/usage adapter.
+
+## Experimental global organization and risk review
+
+Default remains recipe v2. New tasks opt into recipe v3 only when the operator sets `ZYNOTE_SUMMARY_EXPERIMENTAL_GLOBAL=1`; existing frozen v3 tasks resume with that switch off. There is no settings UI for this experiment.
+
+Content-addressed tree pages bind source, recipe, generation, epoch, per-chunk ordinal and every leaf disposition. Limits are fanout4, depth8, nodes8192, page256KiB, card64KiB and builder32MiB. A stable job also conservatively reserves at most64MiB for tree/global blobs across generations before filesystem publication; a crash retains the reservation. Final encoded points are limited to16MiB.
+
+Independent reduce and original-span risk-review calls use protocol4 stage chains, the same persistent physical-attempt guard, exact-input success caches and durable adoption. A reduce must explicitly consume or omit each child. Leaf-page review receives the full original core text and up to eight selected cards. This is selected risk review, not semantic completeness. Unsupported/uncertain conclusions carry explicit per-point states in Markdown, JSON and SVG. Unreviewed parent model prose is suppressed; supported leaf summaries remain available in source order. Leaf-unreviewed and parent-unreviewed counts are separate, and any unreviewed parent makes the result partial. Missing or corrupt attempted evidence never automatically replays HTTP.
+
+Synthetic service tests cover interleaved chunk calls, independent stage payload/format recovery, budget-limited publication and three-page parent reduction. Fault injection returns errors; it is not a process-kill experiment. Full relevant Go packages pass race checks.
+
+Two exploratory real-provider runs used official `https://api.deepseek.com`, requested alias `deepseek-flash`, temperature0 and max_tokens8192. The actual server snapshot and token/billing usage were not captured. On a public one-chunk source, legacy/v2/v3 took15.286/24.483/27.302 seconds (1/1/3 requests). On the same public full-course source with832 cues and3 chunks, they took28.981/22.950/58.673 seconds (3/3/10 requests); v3 recorded7 global stages and partial status because the parent was unreviewed. These are one-run observations with different output points, not a stable speedup, p95 or quality non-inferiority result. The single-chunk v2 run was slower than legacy.

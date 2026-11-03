@@ -59,7 +59,7 @@ func TestSpanSummaryInterleavedRepairUsesChunkReceipt(t *testing.T) {
 	defer server.Close()
 	client := ai.New(ai.Profile{BaseURL: server.URL, Model: "synthetic-fixture"})
 	deps := subtitlederived.Dependencies{ResolveRecipes: func(ctx context.Context, modes []string) (contract.RequestedGenerationConfig, map[string]subtitlederived.ModeRecipe, error) {
-		return resolveSubtitleRecipesForContext(ctx, client, modes)
+		return resolveSpanFixtureRecipes(ctx, client, modes)
 	}, SummarizeWithEvidence: func(ctx context.Context, srt, mode string) (subtitlederived.SummaryResult, error) {
 		return summarizeDerivedText(ctx, client, srt, mode, nil)
 	}}
@@ -92,7 +92,7 @@ func TestSpanSummarySuccessfulCacheRecoveryWithoutProviderReplay(t *testing.T) {
 	client := ai.New(ai.Profile{BaseURL: server.URL, Model: "synthetic-fixture"})
 	fail := true
 	deps := subtitlederived.Dependencies{ResolveRecipes: func(ctx context.Context, modes []string) (contract.RequestedGenerationConfig, map[string]subtitlederived.ModeRecipe, error) {
-		return resolveSubtitleRecipesForContext(ctx, client, modes)
+		return resolveSpanFixtureRecipes(ctx, client, modes)
 	}, SummarizeWithEvidence: func(ctx context.Context, srt, mode string) (subtitlederived.SummaryResult, error) {
 		value, err := summarizeDerivedText(ctx, client, srt, mode, nil)
 		if err == nil && fail {
@@ -133,7 +133,7 @@ func TestSpanSummaryCancellationAfterValidatedReceiptKeepsSuccessCache(t *testin
 	client := ai.New(ai.Profile{BaseURL: server.URL, Model: "synthetic-fixture"})
 	cancelAfterValidated := true
 	deps := subtitlederived.Dependencies{ResolveRecipes: func(ctx context.Context, modes []string) (contract.RequestedGenerationConfig, map[string]subtitlederived.ModeRecipe, error) {
-		return resolveSubtitleRecipesForContext(ctx, client, modes)
+		return resolveSpanFixtureRecipes(ctx, client, modes)
 	}, SummarizeWithEvidence: func(ctx context.Context, srt, mode string) (subtitlederived.SummaryResult, error) {
 		if !cancelAfterValidated {
 			return summarizeDerivedText(ctx, client, srt, mode, nil)
@@ -179,7 +179,7 @@ func TestSpanSummaryDurablePayloadFaultBoundariesRecoverWithoutHTTP(t *testing.T
 			client := ai.New(ai.Profile{BaseURL: server.URL, Model: "synthetic-fixture"})
 			inject := true
 			deps := subtitlederived.Dependencies{ResolveRecipes: func(ctx context.Context, modes []string) (contract.RequestedGenerationConfig, map[string]subtitlederived.ModeRecipe, error) {
-				return resolveSubtitleRecipesForContext(ctx, client, modes)
+				return resolveSpanFixtureRecipes(ctx, client, modes)
 			}, SummarizeWithEvidence: func(ctx context.Context, srt, mode string) (subtitlederived.SummaryResult, error) {
 				if !inject {
 					return summarizeDerivedText(ctx, client, srt, mode, nil)
@@ -267,7 +267,7 @@ func TestSpanSummarySlidingWindowOrderedPublication(t *testing.T) {
 	defer server.Close()
 	client := ai.New(ai.Profile{BaseURL: server.URL, Model: "synthetic-fixture"})
 	deps := subtitlederived.Dependencies{ResolveRecipes: func(ctx context.Context, modes []string) (contract.RequestedGenerationConfig, map[string]subtitlederived.ModeRecipe, error) {
-		return resolveSubtitleRecipesForContext(ctx, client, modes)
+		return resolveSpanFixtureRecipes(ctx, client, modes)
 	}, SummarizeWithEvidence: func(ctx context.Context, srt, mode string) (subtitlederived.SummaryResult, error) {
 		return summarizeDerivedText(ctx, client, srt, mode, nil)
 	}}
@@ -369,7 +369,7 @@ func TestSpanSummaryRealServiceReceiptsEmptyCardsAndInsufficiency(t *testing.T) 
 			defer server.Close()
 			client := ai.New(ai.Profile{BaseURL: server.URL, Model: "synthetic-fixture"})
 			deps := subtitlederived.Dependencies{ResolveRecipes: func(_ context.Context, modes []string) (contract.RequestedGenerationConfig, map[string]subtitlederived.ModeRecipe, error) {
-				return resolveSubtitleRecipes(client, modes)
+				return resolveSpanFixtureRecipes(context.Background(), client, modes)
 			}, SummarizeWithEvidence: func(ctx context.Context, srt, mode string) (subtitlederived.SummaryResult, error) {
 				return summarizeDerivedText(ctx, client, srt, mode, nil)
 			}}
@@ -414,7 +414,7 @@ func TestSpanSummaryAllEmptyCardsFinishAdapter(t *testing.T) {
 			defer server.Close()
 			client := ai.New(ai.Profile{BaseURL: server.URL, Model: "synthetic-fixture"})
 			deps := subtitlederived.Dependencies{ResolveRecipes: func(ctx context.Context, modes []string) (contract.RequestedGenerationConfig, map[string]subtitlederived.ModeRecipe, error) {
-				return resolveSubtitleRecipesForContext(ctx, client, modes)
+				return resolveSpanFixtureRecipes(ctx, client, modes)
 			}, SummarizeWithEvidence: func(ctx context.Context, srt, mode string) (subtitlederived.SummaryResult, error) {
 				return summarizeDerivedText(ctx, client, srt, mode, nil)
 			}}
@@ -444,11 +444,22 @@ func TestLegacyFrozenRecipeRemainingModeUsesRealResolver(t *testing.T) {
 	}
 	frozen := checkpoint.Items[1].Recipe.Hash
 	deps.ResolveRecipes = func(ctx context.Context, modes []string) (contract.RequestedGenerationConfig, map[string]subtitlederived.ModeRecipe, error) {
-		return resolveSubtitleRecipesForContext(ctx, client, modes)
+		return resolveSpanFixtureRecipes(ctx, client, modes)
 	}
 	restarted := subtitlederived.New(service.Root, service.Library)
 	result, err := restarted.Run(context.Background(), task.ID, deps)
 	if err != nil || len(result.Items[1].Outputs) != 2 || calls.Load() != 2 || result.Items[1].Recipe.Hash != frozen || result.Items[1].Recipe.ModeRecipe.Version != 1 || result.Items[1].AttemptEvidence.Version != 2 {
 		t.Fatalf("frozen legacy resume: %+v err=%v calls=%d", result, err, calls.Load())
 	}
+}
+
+func resolveSpanFixtureRecipes(ctx context.Context, client *ai.Client, modes []string) (contract.RequestedGenerationConfig, map[string]subtitlederived.ModeRecipe, error) {
+	versions := map[string]int{}
+	for _, mode := range modes {
+		versions[mode] = 2
+		if contract.SummaryRecipeVersion(ctx, mode) == 1 {
+			versions[mode] = 1
+		}
+	}
+	return resolveSubtitleRecipesForContext(contract.WithSummaryRecipeVersions(ctx, versions), client, modes)
 }

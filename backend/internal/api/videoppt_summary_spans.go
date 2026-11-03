@@ -13,6 +13,7 @@ import (
 	"github.com/EveSunMaple/Zynote/backend/internal/contract"
 	"github.com/EveSunMaple/Zynote/backend/internal/documents"
 	"github.com/EveSunMaple/Zynote/backend/internal/orderedwork"
+	"github.com/EveSunMaple/Zynote/backend/internal/summaryglobal"
 	"github.com/EveSunMaple/Zynote/backend/internal/summaryinput"
 )
 
@@ -38,6 +39,13 @@ func summarizeSpanVideoText(ctx context.Context, client *ai.Client, srt, mode st
 	lines := []string{"# " + heading, "", "以下内容根据字幕生成。区间按Unicode码点处理；时间沿用父字幕，未推算子句精确时间。", ""}
 	allPoints := []videoNotePoint{}
 	partial := false
+	tree := contract.SummaryTreeFrom(ctx)
+	var treeEvidence contract.SummaryTreeEvidence
+	globalRoot, globalNote := "", ""
+	var globalStats summaryglobal.Stats
+	const maxSummaryOutputBytes = 16 << 20
+	outputBytes := 0
+	chunkPointCounts := make([]int, len(chunks))
 	metadata, observer := contract.GenerationObservationFrom(ctx)
 	type chunkResult struct {
 		points     []videoNotePoint
@@ -212,6 +220,7 @@ func summarizeSpanVideoText(ctx context.Context, client *ai.Client, srt, mode st
 	}, func(result chunkResult, index int) error {
 		chunk := chunks[index]
 		points, processing := result.points, result.processing
+		chunkPointCounts[index] = len(points)
 		if progress != nil {
 			progress(fmt.Sprintf("已处理字幕核心区间 %d/%d", index+1, len(chunks)))
 		}
@@ -220,14 +229,60 @@ func summarizeSpanVideoText(ctx context.Context, client *ai.Client, srt, mode st
 		for i, cue := range chunk.Input.Cues {
 			part[i] = documents.Segment{Start: cue.StartMs, End: cue.EndMs, Text: cue.Text}
 		}
+		body, _ := json.Marshal(points)
+		outputBytes += len(body)
+		if outputBytes > maxSummaryOutputBytes {
+			return fmt.Errorf("摘要成果超过有界输出预算，未截断保存")
+		}
+		if tree != nil {
+			if err := tree.Append(ctx, index, canonicalVideoPoints(points)); err != nil {
+				return err
+			}
+		}
 		var section []videoNotePoint
 		lines, section = appendSummarySection(lines, part, points)
-		allPoints = append(allPoints, section...)
+		if tree == nil {
+			allPoints = append(allPoints, section...)
+		}
 		return nil
 	})
 	if err != nil {
 		return summaryResult{}, err
 	}
+	if tree != nil {
+		treeEvidence, err = tree.Finish(ctx, func(point contract.ValidatedSummaryPoint) error {
+			allPoints = append(allPoints, videoNotePoint{Cue: point.Cue, Quote: point.Quote, Point: point.Point, Topic: point.Topic, Timestamp: point.Timestamp})
+			return nil
+		})
+		if err != nil {
+			return summaryResult{}, err
+		}
+	}
+
+	if contract.SummaryStagesFrom(ctx) != nil {
+		globalRoot, globalNote, globalStats, err = organizeSummaryTree(ctx, client, treeEvidence.RootSHA256, chunks)
+		if err != nil {
+			return summaryResult{}, err
+		}
+		partial = partial || globalStats.Partial
+		if len(globalStats.OrderedReviews) != len(allPoints) {
+			return summaryResult{}, fmt.Errorf("风险复核投影数量无效")
+		}
+		for i := range allPoints {
+			allPoints[i].ReviewState = globalStats.OrderedReviews[i]
+		}
+		lines = []string{"# " + heading, "", "以下原始要点逐项标明核验状态；未复核、不确定、不支持和省略项只作证据供核对，不作为已确认结论。", ""}
+		offset := 0
+		for index, chunk := range chunks {
+			part := make([]documents.Segment, len(chunk.Input.Cues))
+			for i, cue := range chunk.Input.Cues {
+				part[i] = documents.Segment{Start: cue.StartMs, End: cue.EndMs, Text: cue.Text}
+			}
+			lines, _ = appendSummarySection(lines, part, allPoints[offset:offset+chunkPointCounts[index]])
+			offset += chunkPointCounts[index]
+		}
+	}
+
 	if len(allPoints) == 0 {
 		lines = append(lines, "已处理全部核心区间，但没有可核实的要点。")
 	}
@@ -242,5 +297,16 @@ func summarizeSpanVideoText(ctx context.Context, client *ai.Client, srt, mode st
 	if err != nil {
 		return summaryResult{}, err
 	}
-	return summaryResult{Markdown: strings.Join(lines, "\n"), Points: allPoints, Evidence: &contract.SummaryEvidence{Version: 1, Partial: partial, SourceSHA256: metadata.SourceSHA256, ItemRecipeHash: metadata.ItemRecipeSHA256, FinalPointsSHA256: hash, PointCount: len(allPoints), ValidatedHead: receipt.Ref}}, nil
+	evidence := &contract.SummaryEvidence{Version: 1, Partial: partial, SourceSHA256: metadata.SourceSHA256, ItemRecipeHash: metadata.ItemRecipeSHA256, FinalPointsSHA256: hash, PointCount: len(allPoints), ValidatedHead: receipt.Ref, TreeRootSHA256: treeEvidence.RootSHA256, TreeLeafSetSHA256: treeEvidence.LeafSetSHA256, TreeDispositionSHA256: treeEvidence.DispositionSHA256, TreeGeneration: treeEvidence.Generation, TreeEpoch: treeEvidence.Epoch, TreePages: treeEvidence.Pages, TreeNodes: treeEvidence.Nodes}
+	evidence.GlobalRootSHA256 = globalRoot
+	if globalRoot != "" {
+		evidence.GlobalState = "complete_selected_review"
+		if globalStats.Partial {
+			evidence.GlobalState = "partial"
+		}
+		evidence.GlobalStages = globalStats.Stages
+		evidence.GlobalUnreviewed = globalStats.Unreviewed
+		evidence.GlobalUpperUnreviewed = globalStats.UpperUnreviewed
+	}
+	return summaryResult{Markdown: globalNote + strings.Join(lines, "\n"), Points: allPoints, Evidence: evidence}, nil
 }

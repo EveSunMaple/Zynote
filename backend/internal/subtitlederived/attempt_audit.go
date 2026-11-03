@@ -60,7 +60,7 @@ func readAttemptRecord(ctx context.Context, directory string, sequence int, hash
 	var record attemptRecord
 	decoder := json.NewDecoder(bytes.NewReader(body))
 	decoder.DisallowUnknownFields()
-	if decoder.Decode(&record) != nil || decoder.Decode(&struct{}{}) != io.EOF || (record.Version != 1 && record.Version != 2 && record.Version != 3) || record.Sequence != sequence {
+	if decoder.Decode(&record) != nil || decoder.Decode(&struct{}{}) != io.EOF || (record.Version != 1 && record.Version != 2 && record.Version != 3 && record.Version != 4) || record.Sequence != sequence {
 		return attemptRecord{}, observerError()
 	}
 	return record, nil
@@ -106,7 +106,7 @@ func (service *Service) auditAttemptEvidence(ctx context.Context, task Task, ind
 	}
 	policy := item.Recipe.ModeRecipe
 	legacyPolicy := policy.Version == 1 && policy.ChunkPolicy == summaryinput.ChunkPolicy && reference.Version <= 2
-	spanPolicy := policy.Version == 2 && policy.ChunkPolicy == summaryinput.SpanChunkPolicy && reference.Version == 3
+	spanPolicy := (policy.Version == 2 || policy.Version == 3) && policy.ChunkPolicy == summaryinput.SpanChunkPolicy && reference.Version == 3
 	if (!legacyPolicy && !spanPolicy) || policy.JSONPolicy.Version != 1 || policy.JSONPolicy.Encoding != "json-no-html-escape" {
 		return AttemptAudit{State: "unknown", Reason: "policy-unsupported"}
 	}

@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"os"
 	"path/filepath"
 
 	"github.com/EveSunMaple/Zynote/backend/internal/ai"
@@ -74,7 +75,7 @@ func (inv *Invoker) subtitleDerivedDependencies(store contract.StateStore, state
 			converted := make([]notePoint, 0, len(points))
 			for _, point := range points {
 				converted = append(converted, notePoint{
-					Cue: point.Cue, Quote: point.Quote, Point: point.Point,
+					ReviewState: point.ReviewState, Cue: point.Cue, Quote: point.Quote, Point: point.Point,
 					Topic: point.Topic, Timestamp: point.Timestamp,
 				})
 			}
@@ -236,8 +237,17 @@ func resolveSubtitleRecipesForContext(ctx context.Context, client *ai.Client, mo
 	recipes := map[string]subtitlederived.ModeRecipe{}
 	for _, mode := range modes {
 		recipe, err := summaryModeRecipe(mode)
+		if contract.SummaryRecipeVersion(ctx, mode) == 3 || (contract.SummaryRecipeVersion(ctx, mode) == 0 && os.Getenv("ZYNOTE_SUMMARY_EXPERIMENTAL_GLOBAL") == "1") {
+			recipe, err = globalSummaryModeRecipe(mode)
+		}
 		if err != nil {
 			return configuration, nil, err
+		}
+		if contract.SummaryRecipeVersion(ctx, mode) == 1 || contract.SummaryRecipeVersion(ctx, mode) == 2 {
+			recipe.Version = contract.SummaryRecipeVersion(ctx, mode)
+			recipe.GlobalPolicy = ""
+			recipe.ReducePromptSHA256 = ""
+			recipe.VerifyPromptSHA256 = ""
 		}
 		if contract.SummaryRecipeVersion(ctx, mode) == 1 {
 			prompt := summaryPrompt(mode, summaryMaxPoints(mode))
@@ -257,6 +267,7 @@ func projectSubtitleTask(task subtitlederived.Task) subtitlederived.Task {
 	task.Recipe = nil
 	task.Items = append([]subtitlederived.Item(nil), task.Items...)
 	for index := range task.Items {
+		task.Items[index].Stages = nil
 		task.Items[index].SourceBinding = nil
 		task.Items[index].BindingAuthoritySHA256 = ""
 		task.Items[index].PublicationRecord = subtitlederived.RecordedPublication(task.Items[index], task.OutputVersion)
@@ -280,7 +291,7 @@ func summarizeDerivedText(ctx context.Context, client *ai.Client, srt, mode stri
 	}
 	points := make([]subtitlederived.Point, 0, len(result.Points))
 	for _, point := range result.Points {
-		points = append(points, subtitlederived.Point{Cue: float64(point.Cue), Quote: point.Quote, Point: point.Point, Topic: point.Topic, Timestamp: point.Timestamp})
+		points = append(points, subtitlederived.Point{ReviewState: point.ReviewState, Cue: float64(point.Cue), Quote: point.Quote, Point: point.Point, Topic: point.Topic, Timestamp: point.Timestamp})
 	}
 	return subtitlederived.SummaryResult{Markdown: result.Markdown, Points: points, Facts: result.Evidence}, nil
 }

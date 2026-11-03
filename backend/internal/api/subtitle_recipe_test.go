@@ -24,6 +24,9 @@ func resolveLegacySubtitleRecipes(client *ai.Client, modes []string) (contract.R
 		prompt := summaryPrompt(mode, summaryMaxPoints(mode))
 		sum := sha256.Sum256([]byte(prompt))
 		recipe.Version = 1
+		recipe.GlobalPolicy = ""
+		recipe.ReducePromptSHA256 = ""
+		recipe.VerifyPromptSHA256 = ""
 		recipe.ChunkPolicy = "subtitle-text-runes"
 		recipe.SystemPromptSHA256 = hex.EncodeToString(sum[:])
 		recipes[mode] = recipe
