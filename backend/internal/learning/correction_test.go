@@ -188,19 +188,25 @@ func TestRunCorrectionBatchesCommitsInOrder(t *testing.T) {
 	}
 }
 
-func TestRunCorrectionBatchesAbortsSiblings(t *testing.T) {
+func TestRunCorrectionBatchesDrainsSiblingsWithoutCancellingRequests(t *testing.T) {
 	batches := []CorrectionBatch{{Start: 0}, {Start: 1}}
 	failure := errors.New("批量失败")
+	started := make(chan struct{}, 1)
+	cancelled := make(chan bool, 1)
 	err := RunCorrectionBatches(
 		context.Background(), batches,
 		func(ctx context.Context, batch CorrectionBatch, index int) (int, error) {
 			if index == 1 {
+				started <- struct{}{}
 				return 0, failure
 			}
+			<-started
 			select {
 			case <-ctx.Done():
+				cancelled <- true
 				return 0, ctx.Err()
-			case <-time.After(time.Second):
+			case <-time.After(50 * time.Millisecond):
+				cancelled <- false
 				return index, nil
 			}
 		},
@@ -208,6 +214,9 @@ func TestRunCorrectionBatchesAbortsSiblings(t *testing.T) {
 	)
 	if !errors.Is(err, failure) {
 		t.Fatalf("failure mismatch: %v", err)
+	}
+	if <-cancelled {
+		t.Fatal("already-started sibling was cancelled instead of being allowed to settle")
 	}
 }
 

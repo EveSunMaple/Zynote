@@ -3,6 +3,7 @@ package learning
 import (
 	"encoding/json"
 	"github.com/EveSunMaple/Zynote/backend/internal/documents"
+	"strings"
 	"testing"
 )
 
@@ -28,6 +29,18 @@ func TestCompactCorrectionReceiptAndConservativeUncertainty(t *testing.T) {
 	bad, _ := json.Marshal(duplicate)
 	if _, err := ValidateCompactCorrection(bad, batch); err == nil {
 		t.Fatal("duplicate patch accepted")
+	}
+}
+
+func TestCompactCorrectionFailureIncludesStructuralDetail(t *testing.T) {
+	batch := CorrectionBatch{Start: 4, Rows: []documents.Segment{{Text: "一"}, {Text: "二"}, {Text: "三"}}}
+	_, err := ValidateCompactCorrection([]byte(`{"processing":"complete","processed":[4,5],"patches":[]}`), batch)
+	if err == nil || !strings.Contains(err.Error(), "processed 数量 2，应为 3") {
+		t.Fatalf("missing structural detail: %v", err)
+	}
+	_, err = ValidateCompactCorrection([]byte(`{"processing":"complete","processed":[4,5,6],"patches":[{"id":4,"text":"一","uncertain":false,"reason":"依据"}]}`), batch)
+	if err == nil || !strings.Contains(err.Error(), "标记为已修改但文本未变") {
+		t.Fatalf("missing unchanged patch detail: %v", err)
 	}
 }
 

@@ -536,7 +536,8 @@ func (run *correctionRun) runBatch(ctx context.Context, batch learning.Correctio
 		_, callErr := run.client.JSONWithOptions(
 			ctx, run.prompt, input, validate,
 			ai.JSONOptions{
-				Images: requestImages,
+				Images:          requestImages,
+				DisableThinking: run.compact && run.profile.Parameters[model].ReasoningEffort == nil,
 				OnRetry: func() {
 					count := atomic.AddInt64(&run.retries, 1)
 					run.inv.reportCorrection(
