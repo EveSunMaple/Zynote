@@ -26,13 +26,17 @@ func (run *correctionRun) withCachedBatch(ctx context.Context, batch learning.Co
 	if err != nil {
 		return nil, err
 	}
+	version := 1
+	if run.compact {
+		version = 2
+	}
 	identityBody, _ := json.Marshal(struct {
 		RecipeVersion int
 		Fingerprint   string
 		Batch         learning.CorrectionBatch
 		WireDigest    string
 		RepairPolicy  any
-	}{1, run.fingerprint, batch, wireDigest, ai.JSONRecipePolicy()})
+	}{version, run.fingerprint, batch, wireDigest, ai.JSONRecipePolicy()})
 	identityHash := sha256.Sum256(identityBody)
 	identity := hex.EncodeToString(identityHash[:])
 	body, found, err := run.requestLedger.AdoptSuccess(ctx, run.requestFence, key, identity)

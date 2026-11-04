@@ -133,6 +133,7 @@ type correctionRun struct {
 	source           documents.SplitResult
 	sourceSegments   []documents.Segment
 	prompt           string
+	compact          bool
 	profile          config.RuntimeProfile
 	pptPath          string
 	pptData          []byte
@@ -309,6 +310,16 @@ func (run *correctionRun) preparePlan() error {
 	if err != nil {
 		return err
 	}
+	compactFingerprint := learning.CorrectionFingerprint(run.profile.Fingerprint, run.sourceSegments, compactCorrectionPrompt, run.pptData, run.selectedText, run.limitations, run.mode)
+	compact, err := freshCompactCorrection(run.ctx, filepath.Join(run.state.DataRoot, "generation-jobs"), run.lectureID, run.fingerprint, checkpointFingerprint, run.prompt, compactFingerprint)
+	if err != nil {
+		return err
+	}
+	if compact {
+		run.compact = true
+		run.prompt = compactCorrectionPrompt
+		run.fingerprint = compactFingerprint
+	}
 	resumable := learning.ResumableCorrection(checkpoint, run.fingerprint, run.sourceSegments)
 	if resumable != nil {
 		run.rows = append(run.rows, resumable...)
@@ -416,6 +427,9 @@ func correctionRequestFor(run *correctionRun, batch learning.CorrectionBatch, in
 		Courseware: run.contexts[index].Courseware, CoursewareLimitations: requestLimitations,
 		LectureContext: run.contexts[index].LectureContext, Instructions: correctionInstructions, Rows: requestRows,
 	}
+	if run.compact {
+		input.Instructions = compactCorrectionInstructions
+	}
 	return input, requestImages
 }
 
@@ -510,6 +524,9 @@ func (run *correctionRun) runBatch(ctx context.Context, batch learning.Correctio
 		var corrected []learning.CorrectedRow
 		validate := func(value []byte) error {
 			parsed, parseErr := learning.ValidateCorrectionRows(value, batch)
+			if run.compact {
+				parsed, parseErr = learning.ValidateCompactCorrection(value, batch)
+			}
 			if parseErr != nil {
 				return parseErr
 			}
