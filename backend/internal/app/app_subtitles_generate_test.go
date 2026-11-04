@@ -24,6 +24,7 @@ type correctionCall struct {
 }
 
 type correctionServer struct {
+	hostile  bool
 	mu       sync.Mutex
 	calls    []correctionCall
 	failText string
@@ -127,7 +128,7 @@ func (server *correctionServer) handler(t *testing.T) http.HandlerFunc {
 		}
 		rows := make([]map[string]any, 0, len(parsed.Rows))
 		processed := []int{}
-		for _, row := range parsed.Rows {
+		for index, row := range parsed.Rows {
 			processed = append(processed, row.ID)
 			uncertain := row.Text == "第二句话"
 			rows = append(rows, map[string]any{
@@ -136,6 +137,15 @@ func (server *correctionServer) handler(t *testing.T) http.HandlerFunc {
 			})
 			if call.Compact {
 				rows[len(rows)-1]["reason"] = "术语依据"
+			}
+			if server.hostile {
+				rows[len(rows)-1]["uncertain"] = false
+				rows[len(rows)-1]["reason"] = "PDF大小写"
+				rows[len(rows)-1]["text"] = "呃，然后转化成PDF文件提交到这个平台上面去。"
+				if index == 0 {
+					rows[len(rows)-1]["text"] = "后两篇"
+					rows[len(rows)-1]["reason"] = "量词纠正"
+				}
 			}
 		}
 		payload, err := json.Marshal(rows)
@@ -182,14 +192,19 @@ func buildCourseware(t *testing.T, withImage bool) []byte {
 }
 
 type subtitleFixture struct {
-	core        *fixture
-	courseID    string
-	lectureID   string
-	dataRoot    string
-	libraryRoot string
+	transcriptPath string
+	core           *fixture
+	courseID       string
+	lectureID      string
+	dataRoot       string
+	libraryRoot    string
 }
 
 func startSubtitleFixture(t *testing.T, serverURL string, withImage bool, canonical ...bool) subtitleFixture {
+	return startSubtitleFixtureSource(t, serverURL, withImage, "1\n00:00:01,000 --> 00:00:02,000\n第一句话\n\n2\n00:00:02,000 --> 00:00:03,000\n第二句话\n", canonical...)
+}
+
+func startSubtitleFixtureSource(t *testing.T, serverURL string, withImage bool, transcriptBody string, canonical ...bool) subtitleFixture {
 	t.Helper()
 	dataRoot := t.TempDir()
 	libraryRoot := t.TempDir()
@@ -234,7 +249,7 @@ func startSubtitleFixture(t *testing.T, serverURL string, withImage bool, canoni
 	_ = json.Unmarshal(courseRaw, &course)
 	courseID := course["id"].(string)
 	transcript := filepath.Join(t.TempDir(), "原文.srt")
-	if err := os.WriteFile(transcript, []byte("1\n00:00:01,000 --> 00:00:02,000\n第一句话\n\n2\n00:00:02,000 --> 00:00:03,000\n第二句话\n"), 0o644); err != nil {
+	if err := os.WriteFile(transcript, []byte(transcriptBody), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	ppt := filepath.Join(t.TempDir(), "课件.pptx")
@@ -250,12 +265,13 @@ func startSubtitleFixture(t *testing.T, serverURL string, withImage bool, canoni
 	var lecture map[string]any
 	_ = json.Unmarshal(lectureRaw, &lecture)
 	return subtitleFixture{
-		core: f, courseID: courseID, lectureID: lecture["id"].(string),
+		transcriptPath: transcript,
+		core:           f, courseID: courseID, lectureID: lecture["id"].(string),
 		dataRoot: dataRoot, libraryRoot: libraryRoot,
 	}
 }
 
-func TestSubtitlesGenerateCanonicalCompactPublishesAndResumesWithoutHTTP(t *testing.T) {
+func TestSubtitlesGenerateCanonicalCompactDefaultsAndResumesWithoutHTTP(t *testing.T) {
 	fake := &correctionServer{}
 	server := httptest.NewServer(fake.handler(t))
 	defer server.Close()
@@ -287,7 +303,7 @@ func TestSubtitlesGenerateCanonicalCompactPublishesAndResumesWithoutHTTP(t *test
 	}
 	for _, call := range calls {
 		if !call.Compact {
-			t.Fatal("canonical fresh gate did not choose compact", calls)
+			t.Fatal("canonical fresh gate did not choose compact v3", calls)
 		}
 	}
 	if _, errReply = f.core.call("subtitles:generate", map[string]any{"id": f.lectureID, "mode": "text"}); errReply != nil {
@@ -329,7 +345,7 @@ func TestSubtitlesGenerateText(t *testing.T) {
 		t.Fatalf("checkpoint should be cleared: %s", raw)
 	}
 	srt := detail["srt"].(string)
-	if !strings.Contains(srt, "第一句话（校订）") || !strings.Contains(srt, "第二句话（校订）") {
+	if !strings.Contains(srt, "第一句话（校订）") || !strings.Contains(srt, "第二句话") || strings.Contains(srt, "第二句话（校订）") {
 		t.Fatalf("srt mismatch: %s", srt)
 	}
 	path := filepath.Join(f.dataRoot, "courses", f.courseID, "transcript-results", f.lectureID, "校订字幕.srt")

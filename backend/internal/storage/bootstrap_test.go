@@ -26,4 +26,10 @@ func TestAddColumnIfMissingUsesAllowlist(t *testing.T) {
 	if err := addColumnIfMissing(db, "unknown", "transcript_path"); err == nil {
 		t.Fatal("unknown table accepted")
 	}
+	if _, err := db.Exec("CREATE TABLE correction_checkpoints(lecture_id TEXT)"); err != nil {
+		t.Fatal(err)
+	}
+	if err := addColumnIfMissing(db, "correction_checkpoints", "compact_version"); err != nil {
+		t.Fatalf("checkpoint version column rejected: %v", err)
+	}
 }

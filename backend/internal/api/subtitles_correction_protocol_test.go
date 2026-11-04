@@ -2,6 +2,8 @@ package api
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -67,7 +69,7 @@ func TestCanonicalCorrectionSelectionPreservesLegacyLiabilityAndCustomPrompt(t *
 
 func TestCompactCorrectionRequestUsesOneBasedRowIDs(t *testing.T) {
 	batch := learning.CorrectionBatch{Start: 7, Rows: []documents.Segment{{Text: "甲"}, {Text: "乙"}}}
-	run := &correctionRun{compact: true, contexts: []learning.CorrectionContext{{}}}
+	run := &correctionRun{compact: true, compactVersion: compactProtocolOneBased, contexts: []learning.CorrectionContext{{}}}
 	input, _ := correctionRequestFor(run, batch, 0, nil)
 	if input.Rows[0].ID != 8 || input.Rows[1].ID != 9 {
 		t.Fatalf("compact ids must be one-based: %+v", input.Rows)
@@ -91,7 +93,7 @@ func TestCompactCorrectionDurableSuccessReusesGenerationWithoutPaidReplay(t *tes
 		t.Fatal(err)
 	}
 	batch := learning.CorrectionBatch{Rows: []documents.Segment{{Start: 0, End: 1000, Text: "线立体"}}}
-	run := &correctionRun{compact: true, prompt: compactCorrectionPrompt, fingerprint: "compact-source-v2", client: ai.New(ai.Profile{BaseURL: "https://fixture.invalid", Model: "fixture"}), contexts: []learning.CorrectionContext{{}}, requestLedger: ledger, requestFence: fence}
+	run := &correctionRun{compact: true, compactVersion: compactProtocolOneBased, prompt: compactCorrectionPrompt, fingerprint: "compact-source-v2", client: ai.New(ai.Profile{BaseURL: "https://fixture.invalid", Model: "fixture"}), contexts: []learning.CorrectionContext{{}}, requestLedger: ledger, requestFence: fence}
 	calls := 0
 	paid := func(context.Context, learning.CorrectionBatch, int) ([]learning.CorrectedSegment, error) {
 		calls++
@@ -141,7 +143,7 @@ func TestCompactCorrectionActualHTTPAndRepairPreserveGold(t *testing.T) {
 				_ = json.NewEncoder(w).Encode(map[string]any{"choices": []any{map[string]any{"message": map[string]any{"content": content}}}})
 			}))
 			defer server.Close()
-			run := &correctionRun{compact: compact, inv: &Invoker{}, prompt: "controlled legacy", client: ai.New(ai.Profile{BaseURL: server.URL, Model: "fixture"}), sourceSegments: source, contexts: []learning.CorrectionContext{{Courseware: "线粒体"}}, batches: []learning.CorrectionBatch{{Start: 0, Rows: source}}, active: map[int]string{}, started: time.Now()}
+			run := &correctionRun{compact: compact, compactVersion: compactProtocolOneBased, inv: &Invoker{}, prompt: "controlled legacy", client: ai.New(ai.Profile{BaseURL: server.URL, Model: "fixture"}), sourceSegments: source, contexts: []learning.CorrectionContext{{Courseware: "线粒体"}}, batches: []learning.CorrectionBatch{{Start: 0, Rows: source}}, active: map[int]string{}, started: time.Now()}
 			if compact {
 				run.prompt = compactCorrectionPrompt
 			}
@@ -152,6 +154,121 @@ func TestCompactCorrectionActualHTTPAndRepairPreserveGold(t *testing.T) {
 			for i, row := range rows {
 				if row.Text != gold[i].Text || row.Start != source[i].Start || row.End != source[i].End || row.OriginalText != source[i].Text {
 					t.Fatal("gold/negation/formula/time invariant", rows)
+				}
+			}
+		})
+	}
+}
+
+func TestHistoricalCorrectionCacheGuardDoesNotCallProvider(t *testing.T) {
+	for _, compact := range []bool{false, true} {
+		t.Run(map[bool]string{false: "legacy", true: "compact"}[compact], func(t *testing.T) {
+			ctx := context.Background()
+			ledger, err := generationjob.Open(t.TempDir())
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer ledger.Close()
+			fence, err := ledger.Acquire(ctx, "historical", 0, 8)
+			if err != nil {
+				t.Fatal(err)
+			}
+			source := []documents.Segment{{Start: 12000, End: 15000, Text: "前三篇主要对应的是牙体，后两片对应的是牙髓。"}}
+			batch := learning.CorrectionBatch{Start: 27, Rows: source}
+			run := &correctionRun{compact: compact, prompt: "historical-prompt", fingerprint: "unchanged-paid-fingerprint", client: ai.New(ai.Profile{BaseURL: "https://fixture.invalid", Model: "fixture"}), contexts: []learning.CorrectionContext{{}}, sourceSegments: source, requestLedger: ledger, requestFence: fence}
+			input, images := correctionEffectiveRequest(run, batch, 0)
+			digest, err := run.client.JSONRequestDigest(ctx, run.prompt, input, ai.JSONOptions{Images: images})
+			if err != nil {
+				t.Fatal(err)
+			}
+			version := 1
+			if compact {
+				version = 2
+			}
+			identityBody, _ := json.Marshal(struct {
+				RecipeVersion int
+				Fingerprint   string
+				Batch         learning.CorrectionBatch
+				WireDigest    string
+				RepairPolicy  any
+			}{version, run.fingerprint, batch, digest, ai.JSONRecipePolicy()})
+			sum := sha256.Sum256(identityBody)
+			historical := []learning.CorrectedSegment{{Start: 12000, End: 15000, OriginalText: source[0].Text, Text: "后两篇", Reason: "量词纠正"}}
+			body, _ := json.Marshal(historical)
+			if err := ledger.SaveSuccess(ctx, fence, "correction:27:1", hex.EncodeToString(sum[:]), body); err != nil {
+				t.Fatal(err)
+			}
+			calls := 0
+			rows, err := run.withCachedBatch(ctx, batch, 0, func(context.Context, learning.CorrectionBatch, int) ([]learning.CorrectedSegment, error) {
+				calls++
+				return nil, nil
+			})
+			if err != nil || calls != 0 || len(rows) != 1 || rows[0].Text != source[0].Text || !rows[0].Uncertain || rows[0].Reason == "" {
+				t.Fatal("cache unsafe/replayed", rows, calls, err)
+			}
+			if run.fingerprint != "unchanged-paid-fingerprint" {
+				t.Fatal("identity changed")
+			}
+		})
+	}
+}
+
+func TestHistoricalCompactCorrectionDoesNotIntroduceUnversionedThinkingFlag(t *testing.T) {
+	var calls atomic.Int64
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls.Add(1)
+		var body map[string]json.RawMessage
+		if json.NewDecoder(r.Body).Decode(&body) != nil {
+			t.Error("bad request")
+		}
+		if _, found := body["enable_thinking"]; found {
+			t.Error("unversioned thinking flag changed historical wire")
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{"choices": []any{map[string]any{"message": map[string]any{"content": `{"processing":"complete","processed":[0],"patches":[]}`}}}})
+	}))
+	defer server.Close()
+	batch := learning.CorrectionBatch{Rows: []documents.Segment{{Text: "保留原文"}}}
+	run := &correctionRun{compact: true, inv: &Invoker{}, prompt: compactCorrectionPrompt, client: ai.New(ai.Profile{BaseURL: server.URL + "/dashscope/v1", Model: "fixture"}), sourceSegments: batch.Rows, contexts: []learning.CorrectionContext{{}}, active: map[int]string{}, started: time.Now()}
+	input, images := correctionEffectiveRequest(run, batch, 0)
+	ctx := context.Background()
+	historical, err := run.client.JSONRequestDigest(ctx, run.prompt, input, ai.JSONOptions{Images: images})
+	if err != nil {
+		t.Fatal(err)
+	}
+	changed, err := run.client.JSONRequestDigest(ctx, run.prompt, input, ai.JSONOptions{Images: images, DisableThinking: true})
+	if err != nil || historical == changed {
+		t.Fatal("thinking distinction lost", err)
+	}
+	if _, err := run.runBatch(ctx, batch, 0); err != nil || calls.Load() != 1 {
+		t.Fatal(err, calls.Load())
+	}
+}
+
+func TestCorrectionUnsafeHTTPResultGuardedWithoutRepairAtNonzeroStart(t *testing.T) {
+	source := []documents.Segment{{Start: 12000, End: 15000, Text: "前三篇主要对应的是牙体，后两片对应的是牙髓。"}, {Start: 27000, End: 30000, Text: "呃，你不要拍照片啊，这个现在这个手机都很好，高清照片，一个照片，这是个AM。"}}
+	for _, compact := range []bool{false, true} {
+		t.Run(map[bool]string{false: "legacy", true: "compact"}[compact], func(t *testing.T) {
+			var calls atomic.Int64
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				calls.Add(1)
+				patches := []any{map[string]any{"id": 27, "text": "后两篇", "uncertain": false, "reason": "量词纠正"}, map[string]any{"id": 28, "text": "呃，然后转化成PDF文件提交到这个平台上面去。", "uncertain": false, "reason": "PDF大小写"}}
+				var output any = patches
+				if compact {
+					output = map[string]any{"processing": "complete", "processed": []int{27, 28}, "patches": patches}
+				}
+				content, _ := json.Marshal(output)
+				_ = json.NewEncoder(w).Encode(map[string]any{"choices": []any{map[string]any{"message": map[string]any{"content": string(content)}}}})
+			}))
+			defer server.Close()
+			batch := learning.CorrectionBatch{Start: 27, Rows: source}
+			run := &correctionRun{compact: compact, inv: &Invoker{}, prompt: "fixture", client: ai.New(ai.Profile{BaseURL: server.URL, Model: "fixture"}), sourceSegments: source, contexts: []learning.CorrectionContext{{}}, active: map[int]string{}, started: time.Now()}
+			rows, err := run.runBatch(context.Background(), batch, 0)
+			if err != nil || calls.Load() != 1 {
+				t.Fatal("guard caused paid repair", err, calls.Load())
+			}
+			for i, row := range rows {
+				if row.Text != source[i].Text || row.OriginalText != source[i].Text || row.Start != source[i].Start || row.End != source[i].End || !row.Uncertain || row.Reason == "" {
+					t.Fatal("unsafe publication", rows)
 				}
 			}
 		})

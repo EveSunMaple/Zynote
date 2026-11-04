@@ -32,8 +32,9 @@ var bootstrapColumns = map[string]map[string]string{
 		"time_estimated":    "INTEGER NOT NULL DEFAULT 0",
 		"ppt_processed":     "INTEGER NOT NULL DEFAULT 0",
 	},
-	"chat_sessions": {"lecture_id": "TEXT REFERENCES lectures(id) ON DELETE SET NULL"},
-	"messages":      {"session_id": "TEXT REFERENCES chat_sessions(id) ON DELETE CASCADE"},
+	"chat_sessions":          {"lecture_id": "TEXT REFERENCES lectures(id) ON DELETE SET NULL"},
+	"messages":               {"session_id": "TEXT REFERENCES chat_sessions(id) ON DELETE CASCADE"},
+	"correction_checkpoints": {"compact_version": "INTEGER NOT NULL DEFAULT 0"},
 }
 
 var lecturesColumns = []string{
@@ -59,6 +60,9 @@ func Bootstrap(db *sql.DB) error {
 		return err
 	}
 	if err := addColumnIfMissing(db, "messages", "session_id"); err != nil {
+		return err
+	}
+	if err := addColumnIfMissing(db, "correction_checkpoints", "compact_version"); err != nil {
 		return err
 	}
 	tx, err := db.Begin()

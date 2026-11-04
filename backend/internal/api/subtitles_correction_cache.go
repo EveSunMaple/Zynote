@@ -29,6 +29,9 @@ func (run *correctionRun) withCachedBatch(ctx context.Context, batch learning.Co
 	version := 1
 	if run.compact {
 		version = 2
+		if run.compactVersion >= compactProtocolOneBased {
+			version = 3
+		}
 	}
 	identityBody, _ := json.Marshal(struct {
 		RecipeVersion int
@@ -54,7 +57,23 @@ func (run *correctionRun) withCachedBatch(ctx context.Context, batch learning.Co
 				return nil, fmt.Errorf("校订成功缓存与原文不一致")
 			}
 		}
-		return rows, nil
+		guarded, guardErr := learning.GuardCorrectedSegments(rows, batch.Rows)
+		if guardErr != nil {
+			return nil, guardErr
+		}
+		for index := range guarded {
+			if reason := learning.CorrectionFidelityReason(
+				batch.Rows[index].Text, guarded[index].Text, run.sourceSegments,
+			); reason != "" {
+				guarded[index].Text = batch.Rows[index].Text
+				guarded[index].Uncertain = true
+				guarded[index].Reason = reason
+			}
+		}
+		if run.compact && run.compactVersion == compactProtocolHistorical {
+			guarded = learning.QuarantineCompactChanges(guarded)
+		}
+		return guarded, nil
 	}
 	rows, err := paid(ctx, batch, index)
 	if err != nil {

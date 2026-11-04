@@ -44,13 +44,13 @@ func TestPlanCorrectionRejectsOversizeRow(t *testing.T) {
 
 func TestValidateCorrectionRows(t *testing.T) {
 	batch := CorrectionBatch{Start: 2, Rows: []documents.Segment{
-		segment(2000, 3000, "原文一"), segment(3000, 4000, "原文二"),
+		segment(2000, 3000, "线立体提供能量"), segment(3000, 4000, "第二句原文"),
 	}}
 	rows, err := ValidateCorrectionRows(
-		[]byte(`[{"id":2,"text":"校订一","uncertain":false,"reason":""},{"id":3,"text":"校订二","uncertain":true,"reason":"术语"}]`),
+		[]byte(`[{"id":2,"text":"线粒体提供能量","uncertain":false,"reason":""},{"id":3,"text":"第二句原文","uncertain":true,"reason":"术语"}]`),
 		batch,
 	)
-	if err != nil || len(rows) != 2 || rows[1].Uncertain != true || rows[1].Reason != "术语" {
+	if err != nil || len(rows) != 2 || rows[1].Uncertain != true || rows[1].Text != "第二句原文" || rows[1].Reason == "" {
 		t.Fatalf("validation mismatch: %+v %v", rows, err)
 	}
 	for _, value := range []string{
