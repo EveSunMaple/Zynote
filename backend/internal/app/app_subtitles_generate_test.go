@@ -329,7 +329,7 @@ func TestSubtitlesGenerateText(t *testing.T) {
 		t.Fatalf("checkpoint should be cleared: %s", raw)
 	}
 	srt := detail["srt"].(string)
-	if !strings.Contains(srt, "第一句话（校订）") || !strings.Contains(srt, "第二句话（校订）") {
+	if !strings.Contains(srt, "第一句话（校订）") || !strings.Contains(srt, "第二句话\n") {
 		t.Fatalf("srt mismatch: %s", srt)
 	}
 	path := filepath.Join(f.dataRoot, "courses", f.courseID, "transcript-results", f.lectureID, "校订字幕.srt")

@@ -134,6 +134,7 @@ type correctionRun struct {
 	sourceSegments   []documents.Segment
 	prompt           string
 	compact          bool
+	compactVersion   int
 	profile          config.RuntimeProfile
 	pptPath          string
 	pptData          []byte
@@ -165,7 +166,7 @@ func (run *correctionRun) recoverStatus(err *error) {
 	}
 	aborted := run.ctx.Err() != nil || errors.Is(*err, context.Canceled)
 	checkpoint := (*learning.CorrectionCheckpoint)(nil)
-	savedFingerprint, savedTotal, savedRaw, checkpointErr := run.write.CorrectionCheckpoint(run.lectureID)
+	savedFingerprint, savedTotal, savedRaw, _, checkpointErr := run.write.CorrectionCheckpoint(run.lectureID)
 	if checkpointErr == nil && savedFingerprint != "" {
 		if segments, parseErr := learning.ParseCorrectedSegments(savedRaw); parseErr == nil {
 			checkpoint = &learning.CorrectionCheckpoint{
@@ -270,7 +271,7 @@ func (run *correctionRun) prepareCourseware() error {
 }
 
 func (run *correctionRun) loadCheckpoint() (*learning.CorrectionCheckpoint, string, error) {
-	fingerprint, total, raw, err := run.write.CorrectionCheckpoint(run.lectureID)
+	fingerprint, total, raw, compactVersion, err := run.write.CorrectionCheckpoint(run.lectureID)
 	if err != nil {
 		return nil, "", err
 	}
@@ -281,7 +282,9 @@ func (run *correctionRun) loadCheckpoint() (*learning.CorrectionCheckpoint, stri
 	if parseErr != nil {
 		return nil, fingerprint, nil
 	}
-	return &learning.CorrectionCheckpoint{Fingerprint: fingerprint, Total: total, Segments: segments}, fingerprint, nil
+	return &learning.CorrectionCheckpoint{
+		Fingerprint: fingerprint, Total: total, CompactVersion: compactVersion, Segments: segments,
+	}, fingerprint, nil
 }
 
 func correctionOutputBudget(profile config.RuntimeProfile, mode learning.CorrectionMode, imageCount int) int {
@@ -319,9 +322,17 @@ func (run *correctionRun) preparePlan() error {
 		run.compact = true
 		run.prompt = compactCorrectionPrompt
 		run.fingerprint = compactFingerprint
+		run.compactVersion = compactProtocolOneBased
+		if checkpoint != nil && checkpoint.Fingerprint == run.fingerprint &&
+			checkpoint.CompactVersion < compactProtocolOneBased {
+			run.compactVersion = compactProtocolHistorical
+		}
 	}
 	resumable := learning.ResumableCorrection(checkpoint, run.fingerprint, run.sourceSegments)
 	if resumable != nil {
+		if run.compact && run.compactVersion == compactProtocolHistorical {
+			resumable = learning.QuarantineCompactChanges(resumable)
+		}
 		run.rows = append(run.rows, resumable...)
 	}
 	switch {
@@ -422,7 +433,7 @@ func correctionRequestFor(run *correctionRun, batch learning.CorrectionBatch, in
 		// Compact rows are numbered from 1 so the model can echo the same id for
 		// both processed receipts and sparse patches without an off-by-one shift.
 		id := batch.Start + offset
-		if run.compact {
+		if run.compact && run.compactVersion >= compactProtocolOneBased {
 			id++
 		}
 		requestRows = append(requestRows, correctionRequestRow{ID: id, Text: row.Text})
@@ -531,19 +542,22 @@ func (run *correctionRun) runBatch(ctx context.Context, batch learning.Correctio
 		validate := func(value []byte) error {
 			parsed, parseErr := learning.ValidateCorrectionRows(value, batch)
 			if run.compact {
-				parsed, parseErr = learning.ValidateCompactCorrection(value, batch)
+				parsed, parseErr = learning.ValidateCompactCorrectionWithBase(
+					value, batch, run.compactVersion >= compactProtocolOneBased,
+				)
 			}
 			if parseErr != nil {
 				return parseErr
 			}
-			corrected = parsed
+			corrected = learning.GuardCorrectionRows(parsed, batch, run.sourceSegments)
 			return nil
 		}
 		_, callErr := run.client.JSONWithOptions(
 			ctx, run.prompt, input, validate,
 			ai.JSONOptions{
-				Images:          requestImages,
-				DisableThinking: run.compact && run.profile.Parameters[model].ReasoningEffort == nil,
+				Images: requestImages,
+				DisableThinking: run.compact && run.compactVersion >= compactProtocolOneBased &&
+					run.profile.Parameters[model].ReasoningEffort == nil,
 				OnRetry: func() {
 					count := atomic.AddInt64(&run.retries, 1)
 					run.inv.reportCorrection(
@@ -570,6 +584,9 @@ func (run *correctionRun) runBatch(ctx context.Context, batch learning.Correctio
 					Reason: corrected[offset].Reason,
 				}
 			}
+			if run.compact && run.compactVersion == compactProtocolHistorical {
+				out = learning.QuarantineCompactChanges(out)
+			}
 			return out, nil
 		}
 		if retryErr := run.retryBatch(ctx, callErr, attempt, index); retryErr != nil {
@@ -584,7 +601,9 @@ func (run *correctionRun) commitBatch(corrected []learning.CorrectedSegment, bat
 	next := append(append([]learning.CorrectedSegment{}, run.rows...), corrected...)
 	run.resultMu.Unlock()
 	save := func() error {
-		return run.write.SaveCorrectionBatch(run.lectureID, run.fingerprint, len(run.sourceSegments), next, len(next))
+		return run.write.SaveCorrectionBatch(
+			run.lectureID, run.fingerprint, len(run.sourceSegments), next, len(next), run.compactVersion,
+		)
 	}
 	var saveErr error
 	if run.requestLedger != nil {
@@ -622,6 +641,17 @@ func (run *correctionRun) finish() (any, error) {
 	run.resultMu.Lock()
 	final := append([]learning.CorrectedSegment{}, run.rows...)
 	run.resultMu.Unlock()
+	var guardErr error
+	final, guardErr = learning.GuardCorrectedSegments(final, run.sourceSegments)
+	if guardErr != nil {
+		return nil, guardErr
+	}
+	if len(final) != len(run.sourceSegments) {
+		return nil, fmt.Errorf("校订结果未覆盖全部原文，未发布")
+	}
+	if run.compact && run.compactVersion == compactProtocolHistorical {
+		final = learning.QuarantineCompactChanges(final)
+	}
 	courseID := storage.ToStringValue(run.lecture["course_id"])
 	folder := filepath.Join(run.state.DataRoot, "courses", courseID, "transcript-results", run.lectureID)
 	if err := os.MkdirAll(folder, 0o755); err != nil {

@@ -667,19 +667,19 @@ func (w *WriteDB) UpdateLectureCorrection(id, transcriptText string, estimated i
 	return err
 }
 
-func (w *WriteDB) CorrectionCheckpoint(id string) (fingerprint string, total int, segmentsJSON string, err error) {
+func (w *WriteDB) CorrectionCheckpoint(id string) (fingerprint string, total int, segmentsJSON string, compactVersion int, err error) {
 	row, err := queryOne(
 		w.db,
-		"SELECT fingerprint,total,segments_json FROM correction_checkpoints WHERE lecture_id=?",
+		"SELECT fingerprint,total,segments_json,compact_version FROM correction_checkpoints WHERE lecture_id=?",
 		id,
 	)
 	if err != nil || row == nil {
-		return "", 0, "", err
+		return "", 0, "", 0, err
 	}
-	return ToStringValue(row["fingerprint"]), toIntValue(row["total"]), ToStringValue(row["segments_json"]), nil
+	return ToStringValue(row["fingerprint"]), toIntValue(row["total"]), ToStringValue(row["segments_json"]), toIntValue(row["compact_version"]), nil
 }
 
-func (w *WriteDB) SaveCorrectionBatch(id, fingerprint string, total int, segments any, completed int) error {
+func (w *WriteDB) SaveCorrectionBatch(id, fingerprint string, total int, segments any, completed, compactVersion int) error {
 	if _, err := w.Lecture(id); err != nil {
 		return err
 	}
@@ -693,8 +693,8 @@ func (w *WriteDB) SaveCorrectionBatch(id, fingerprint string, total int, segment
 	}
 	defer tx.Rollback()
 	if _, err := tx.Exec(
-		"INSERT OR REPLACE INTO correction_checkpoints(lecture_id,fingerprint,total,segments_json) VALUES(?,?,?,?)",
-		id, fingerprint, total, string(encoded),
+		"INSERT OR REPLACE INTO correction_checkpoints(lecture_id,fingerprint,total,segments_json,compact_version) VALUES(?,?,?,?,?)",
+		id, fingerprint, total, string(encoded), compactVersion,
 	); err != nil {
 		return err
 	}

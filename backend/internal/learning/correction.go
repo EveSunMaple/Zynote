@@ -80,9 +80,10 @@ type CorrectedSegment struct {
 }
 
 type CorrectionCheckpoint struct {
-	Fingerprint string
-	Total       int
-	Segments    []CorrectedSegment
+	Fingerprint    string
+	Total          int
+	CompactVersion int
+	Segments       []CorrectedSegment
 }
 
 func encodeJSONValue(value any) []byte {
@@ -212,7 +213,7 @@ func ValidateCorrectionRows(value []byte, batch CorrectionBatch) ([]CorrectedRow
 		}
 		result = append(result, CorrectedRow{Text: *row.Text, Uncertain: *row.Uncertain, Reason: *row.Reason})
 	}
-	return result, nil
+	return GuardCorrectionRows(result, batch, batch.Rows), nil
 }
 
 func ParseCorrectedSegments(raw string) ([]CorrectedSegment, error) {
@@ -264,7 +265,11 @@ func ResumableCorrection(checkpoint *CorrectionCheckpoint, fingerprint string, s
 	if checkpoint.Segments == nil {
 		return []CorrectedSegment{}
 	}
-	return checkpoint.Segments
+	guarded, err := GuardCorrectedSegments(checkpoint.Segments, source)
+	if err != nil {
+		return []CorrectedSegment{}
+	}
+	return guarded
 }
 
 func CorrectionNeedsVision(contexts []CorrectionContext, visionModel string) bool {

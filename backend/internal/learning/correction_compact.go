@@ -12,9 +12,16 @@ func compactCorrectionFailure(detail string) error {
 	return fmt.Errorf("紧凑校订结果缺少完整处理确认或有效改动，已拒绝保存（%s）", detail)
 }
 
-// ValidateCompactCorrection requires an explicit ordered processing receipt for
-// every source row. An empty patches list never implies unlisted rows processed.
+// ValidateCompactCorrection validates the current one-based compact protocol.
+// Historical jobs must call ValidateCompactCorrectionWithBase with oneBased=false.
 func ValidateCompactCorrection(value []byte, batch CorrectionBatch) ([]CorrectedRow, error) {
+	return ValidateCompactCorrectionWithBase(value, batch, true)
+}
+
+// ValidateCompactCorrectionWithBase requires an explicit ordered processing
+// receipt for every source row. An empty patches list never implies unlisted
+// rows processed.
+func ValidateCompactCorrectionWithBase(value []byte, batch CorrectionBatch, oneBased bool) ([]CorrectedRow, error) {
 	var output struct {
 		Processing string `json:"processing"`
 		Processed  []*int `json:"processed"`
@@ -49,9 +56,13 @@ func ValidateCompactCorrection(value []byte, batch CorrectionBatch) ([]Corrected
 		if output.Processed[index] == nil {
 			return nil, compactCorrectionFailure(fmt.Sprintf("processed[%d] 为空", index))
 		}
-		if *output.Processed[index] != batch.Start+index+1 {
+		expected := batch.Start + index
+		if oneBased {
+			expected++
+		}
+		if *output.Processed[index] != expected {
 			return nil, compactCorrectionFailure(fmt.Sprintf(
-				"processed[%d]=%d，应为 %d", index, *output.Processed[index], batch.Start+index+1,
+				"processed[%d]=%d，应为 %d", index, *output.Processed[index], expected,
 			))
 		}
 		result[index] = CorrectedRow{Text: source.Text}
@@ -72,10 +83,17 @@ func ValidateCompactCorrection(value []byte, batch CorrectionBatch) ([]Corrected
 		case strings.TrimSpace(*patch.Reason) == "" || len([]rune(*patch.Reason)) > 240:
 			return nil, compactCorrectionFailure(fmt.Sprintf("patch id=%d 的 reason 为空或过长", *patch.ID))
 		}
-		index := *patch.ID - batch.Start - 1
+		index := *patch.ID - batch.Start
+		if oneBased {
+			index--
+		}
+		lower, upper := batch.Start, batch.Start+len(batch.Rows)-1
+		if oneBased {
+			lower, upper = lower+1, upper+1
+		}
 		if index < 0 || index >= len(batch.Rows) {
 			return nil, compactCorrectionFailure(fmt.Sprintf(
-				"patch id=%d 超出本批范围 %d–%d", *patch.ID, batch.Start+1, batch.Start+len(batch.Rows),
+				"patch id=%d 超出本批范围 %d–%d", *patch.ID, lower, upper,
 			))
 		}
 		if seen[index] {
@@ -87,7 +105,7 @@ func ValidateCompactCorrection(value []byte, batch CorrectionBatch) ([]Corrected
 			// original text is safe and must not discard the whole batch.
 			continue
 		}
-		if !*patch.Uncertain {
+		if oneBased && !*patch.Uncertain {
 			for _, neighbor := range []int{index - 1, index + 1} {
 				if neighbor >= 0 && neighbor < len(batch.Rows) &&
 					*patch.Text == batch.Rows[neighbor].Text && *patch.Text != batch.Rows[index].Text {
@@ -104,5 +122,5 @@ func ValidateCompactCorrection(value []byte, batch CorrectionBatch) ([]Corrected
 		}
 		result[index] = CorrectedRow{Text: text, Uncertain: *patch.Uncertain, Reason: *patch.Reason}
 	}
-	return result, nil
+	return GuardCorrectionRows(result, batch, batch.Rows), nil
 }

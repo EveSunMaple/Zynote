@@ -67,7 +67,7 @@ func TestCanonicalCorrectionSelectionPreservesLegacyLiabilityAndCustomPrompt(t *
 
 func TestCompactCorrectionRequestUsesOneBasedRowIDs(t *testing.T) {
 	batch := learning.CorrectionBatch{Start: 7, Rows: []documents.Segment{{Text: "甲"}, {Text: "乙"}}}
-	run := &correctionRun{compact: true, contexts: []learning.CorrectionContext{{}}}
+	run := &correctionRun{compact: true, compactVersion: compactProtocolOneBased, contexts: []learning.CorrectionContext{{}}}
 	input, _ := correctionRequestFor(run, batch, 0, nil)
 	if input.Rows[0].ID != 8 || input.Rows[1].ID != 9 {
 		t.Fatalf("compact ids must be one-based: %+v", input.Rows)
@@ -91,7 +91,7 @@ func TestCompactCorrectionDurableSuccessReusesGenerationWithoutPaidReplay(t *tes
 		t.Fatal(err)
 	}
 	batch := learning.CorrectionBatch{Rows: []documents.Segment{{Start: 0, End: 1000, Text: "线立体"}}}
-	run := &correctionRun{compact: true, prompt: compactCorrectionPrompt, fingerprint: "compact-source-v2", client: ai.New(ai.Profile{BaseURL: "https://fixture.invalid", Model: "fixture"}), contexts: []learning.CorrectionContext{{}}, requestLedger: ledger, requestFence: fence}
+	run := &correctionRun{compact: true, compactVersion: compactProtocolOneBased, prompt: compactCorrectionPrompt, fingerprint: "compact-source-v2", client: ai.New(ai.Profile{BaseURL: "https://fixture.invalid", Model: "fixture"}), contexts: []learning.CorrectionContext{{}}, requestLedger: ledger, requestFence: fence}
 	calls := 0
 	paid := func(context.Context, learning.CorrectionBatch, int) ([]learning.CorrectedSegment, error) {
 		calls++
@@ -141,7 +141,7 @@ func TestCompactCorrectionActualHTTPAndRepairPreserveGold(t *testing.T) {
 				_ = json.NewEncoder(w).Encode(map[string]any{"choices": []any{map[string]any{"message": map[string]any{"content": content}}}})
 			}))
 			defer server.Close()
-			run := &correctionRun{compact: compact, inv: &Invoker{}, prompt: "controlled legacy", client: ai.New(ai.Profile{BaseURL: server.URL, Model: "fixture"}), sourceSegments: source, contexts: []learning.CorrectionContext{{Courseware: "线粒体"}}, batches: []learning.CorrectionBatch{{Start: 0, Rows: source}}, active: map[int]string{}, started: time.Now()}
+			run := &correctionRun{compact: compact, compactVersion: compactProtocolOneBased, inv: &Invoker{}, prompt: "controlled legacy", client: ai.New(ai.Profile{BaseURL: server.URL, Model: "fixture"}), sourceSegments: source, contexts: []learning.CorrectionContext{{Courseware: "线粒体"}}, batches: []learning.CorrectionBatch{{Start: 0, Rows: source}}, active: map[int]string{}, started: time.Now()}
 			if compact {
 				run.prompt = compactCorrectionPrompt
 			}
