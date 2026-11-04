@@ -94,5 +94,5 @@ func ValidateCompactCorrection(value []byte, batch CorrectionBatch) ([]Corrected
 		}
 		result[index] = CorrectedRow{Text: text, Uncertain: *patch.Uncertain, Reason: *patch.Reason}
 	}
-	return result, nil
+	return GuardCorrectionRows(result, batch, batch.Rows), nil
 }

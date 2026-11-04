@@ -530,7 +530,7 @@ func (run *correctionRun) runBatch(ctx context.Context, batch learning.Correctio
 			if parseErr != nil {
 				return parseErr
 			}
-			corrected = parsed
+			corrected = learning.GuardCorrectionRows(parsed, batch, run.sourceSegments)
 			return nil
 		}
 		_, callErr := run.client.JSONWithOptions(
@@ -616,6 +616,14 @@ func (run *correctionRun) finish() (any, error) {
 	run.resultMu.Lock()
 	final := append([]learning.CorrectedSegment{}, run.rows...)
 	run.resultMu.Unlock()
+	var guardErr error
+	final, guardErr = learning.GuardCorrectedSegments(final, run.sourceSegments)
+	if guardErr != nil {
+		return nil, guardErr
+	}
+	if len(final) != len(run.sourceSegments) {
+		return nil, fmt.Errorf("校订结果未覆盖全部原文，未发布")
+	}
 	courseID := storage.ToStringValue(run.lecture["course_id"])
 	folder := filepath.Join(run.state.DataRoot, "courses", courseID, "transcript-results", run.lectureID)
 	if err := os.MkdirAll(folder, 0o755); err != nil {

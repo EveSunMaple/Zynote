@@ -2,6 +2,8 @@ package api
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -27,8 +29,8 @@ func TestCanonicalCorrectionSelectionPreservesLegacyLiabilityAndCustomPrompt(t *
 	if !canonicalCorrectionPrompt(string(prompt)) {
 		t.Fatal("packaged prompt identity drift")
 	}
-	if ok, err := freshCompactCorrection(ctx, root, "lecture", "old", "", string(prompt)); err != nil || !ok {
-		t.Fatal("fresh canonical not eligible", err)
+	if ok, err := freshCompactCorrection(ctx, root, "lecture", "old", "", string(prompt)); err != nil || ok {
+		t.Fatal("fresh canonical must use legacy", err)
 	}
 	if ok, _ := freshCompactCorrection(ctx, root, "lecture", "old", "", string(prompt)+" 自定义"); ok {
 		t.Fatal("custom prompt changed")
@@ -48,6 +50,9 @@ func TestCanonicalCorrectionSelectionPreservesLegacyLiabilityAndCustomPrompt(t *
 	if ok, _ := freshCompactCorrection(ctx, root, "lecture", "old", "", string(prompt)); ok {
 		t.Fatal("prior attempted job bypassed by new format")
 	}
+	if _, err := freshCompactCorrection(ctx, root, "lecture", "old", "checkpoint-only-compact", string(prompt), "checkpoint-only-compact"); err == nil {
+		t.Fatal("compact checkpoint bypassed historical legacy job")
+	}
 	ledger, err = generationjob.Open(root)
 	if err != nil {
 		t.Fatal(err)
@@ -62,6 +67,59 @@ func TestCanonicalCorrectionSelectionPreservesLegacyLiabilityAndCustomPrompt(t *
 	}
 	if ok, err := freshCompactCorrection(ctx, root, "lecture", "absent", "new", string(prompt), "new"); err != nil || !ok {
 		t.Fatal("compact resume changed recipe", err)
+	}
+}
+
+func TestHistoricalCorrectionCacheGuardDoesNotCallProvider(t *testing.T) {
+	for _, compact := range []bool{false, true} {
+		t.Run(map[bool]string{false: "legacy", true: "compact"}[compact], func(t *testing.T) {
+			ctx := context.Background()
+			ledger, err := generationjob.Open(t.TempDir())
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer ledger.Close()
+			fence, err := ledger.Acquire(ctx, "historical", 0, 8)
+			if err != nil {
+				t.Fatal(err)
+			}
+			source := []documents.Segment{{Start: 12000, End: 15000, Text: "前三篇主要对应的是牙体，后两片对应的是牙髓。"}}
+			batch := learning.CorrectionBatch{Start: 27, Rows: source}
+			run := &correctionRun{compact: compact, prompt: "historical-prompt", fingerprint: "unchanged-paid-fingerprint", client: ai.New(ai.Profile{BaseURL: "https://fixture.invalid", Model: "fixture"}), contexts: []learning.CorrectionContext{{}}, sourceSegments: source, requestLedger: ledger, requestFence: fence}
+			input, images := correctionEffectiveRequest(run, batch, 0)
+			digest, err := run.client.JSONRequestDigest(ctx, run.prompt, input, ai.JSONOptions{Images: images})
+			if err != nil {
+				t.Fatal(err)
+			}
+			version := 1
+			if compact {
+				version = 2
+			}
+			identityBody, _ := json.Marshal(struct {
+				RecipeVersion int
+				Fingerprint   string
+				Batch         learning.CorrectionBatch
+				WireDigest    string
+				RepairPolicy  any
+			}{version, run.fingerprint, batch, digest, ai.JSONRecipePolicy()})
+			sum := sha256.Sum256(identityBody)
+			historical := []learning.CorrectedSegment{{Start: 12000, End: 15000, OriginalText: source[0].Text, Text: "后两篇", Reason: "量词纠正"}}
+			body, _ := json.Marshal(historical)
+			if err := ledger.SaveSuccess(ctx, fence, "correction:27:1", hex.EncodeToString(sum[:]), body); err != nil {
+				t.Fatal(err)
+			}
+			calls := 0
+			rows, err := run.withCachedBatch(ctx, batch, 0, func(context.Context, learning.CorrectionBatch, int) ([]learning.CorrectedSegment, error) {
+				calls++
+				return nil, nil
+			})
+			if err != nil || calls != 0 || len(rows) != 1 || rows[0].Text != source[0].Text || !rows[0].Uncertain || rows[0].Reason == "" {
+				t.Fatal("cache unsafe/replayed", rows, calls, err)
+			}
+			if run.fingerprint != "unchanged-paid-fingerprint" {
+				t.Fatal("identity changed")
+			}
+		})
 	}
 }
 
@@ -138,6 +196,37 @@ func TestCompactCorrectionActualHTTPAndRepairPreserveGold(t *testing.T) {
 			for i, row := range rows {
 				if row.Text != gold[i].Text || row.Start != source[i].Start || row.End != source[i].End || row.OriginalText != source[i].Text {
 					t.Fatal("gold/negation/formula/time invariant", rows)
+				}
+			}
+		})
+	}
+}
+
+func TestCorrectionUnsafeHTTPResultGuardedWithoutRepairAtNonzeroStart(t *testing.T) {
+	source := []documents.Segment{{Start: 12000, End: 15000, Text: "前三篇主要对应的是牙体，后两片对应的是牙髓。"}, {Start: 27000, End: 30000, Text: "呃，你不要拍照片啊，这个现在这个手机都很好，高清照片，一个照片，这是个AM。"}}
+	for _, compact := range []bool{false, true} {
+		t.Run(map[bool]string{false: "legacy", true: "compact"}[compact], func(t *testing.T) {
+			var calls atomic.Int64
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				calls.Add(1)
+				patches := []any{map[string]any{"id": 27, "text": "后两篇", "uncertain": false, "reason": "量词纠正"}, map[string]any{"id": 28, "text": "呃，然后转化成PDF文件提交到这个平台上面去。", "uncertain": false, "reason": "PDF大小写"}}
+				var output any = patches
+				if compact {
+					output = map[string]any{"processing": "complete", "processed": []int{27, 28}, "patches": patches}
+				}
+				content, _ := json.Marshal(output)
+				_ = json.NewEncoder(w).Encode(map[string]any{"choices": []any{map[string]any{"message": map[string]any{"content": string(content)}}}})
+			}))
+			defer server.Close()
+			batch := learning.CorrectionBatch{Start: 27, Rows: source}
+			run := &correctionRun{compact: compact, inv: &Invoker{}, prompt: "fixture", client: ai.New(ai.Profile{BaseURL: server.URL, Model: "fixture"}), sourceSegments: source, contexts: []learning.CorrectionContext{{}}, active: map[int]string{}, started: time.Now()}
+			rows, err := run.runBatch(context.Background(), batch, 0)
+			if err != nil || calls.Load() != 1 {
+				t.Fatal("guard caused paid repair", err, calls.Load())
+			}
+			for i, row := range rows {
+				if row.Text != source[i].Text || row.OriginalText != source[i].Text || row.Start != source[i].Start || row.End != source[i].End || !row.Uncertain || row.Reason == "" {
+					t.Fatal("unsafe publication", rows)
 				}
 			}
 		})

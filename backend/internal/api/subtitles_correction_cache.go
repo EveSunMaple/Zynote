@@ -54,7 +54,19 @@ func (run *correctionRun) withCachedBatch(ctx context.Context, batch learning.Co
 				return nil, fmt.Errorf("校订成功缓存与原文不一致")
 			}
 		}
-		return rows, nil
+		guarded, guardErr := learning.GuardCorrectedSegments(rows, batch.Rows)
+		if guardErr != nil {
+			return nil, guardErr
+		}
+		// Include adjacent/global cues in copy detection without altering identity.
+		for i := range guarded {
+			if reason := learning.CorrectionFidelityReason(batch.Rows[i].Text, guarded[i].Text, run.sourceSegments); reason != "" {
+				guarded[i].Text = batch.Rows[i].Text
+				guarded[i].Uncertain = true
+				guarded[i].Reason = reason
+			}
+		}
+		return guarded, nil
 	}
 	rows, err := paid(ctx, batch, index)
 	if err != nil {

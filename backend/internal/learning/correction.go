@@ -212,7 +212,7 @@ func ValidateCorrectionRows(value []byte, batch CorrectionBatch) ([]CorrectedRow
 		}
 		result = append(result, CorrectedRow{Text: *row.Text, Uncertain: *row.Uncertain, Reason: *row.Reason})
 	}
-	return result, nil
+	return GuardCorrectionRows(result, batch, batch.Rows), nil
 }
 
 func ParseCorrectedSegments(raw string) ([]CorrectedSegment, error) {
@@ -264,7 +264,8 @@ func ResumableCorrection(checkpoint *CorrectionCheckpoint, fingerprint string, s
 	if checkpoint.Segments == nil {
 		return []CorrectedSegment{}
 	}
-	return checkpoint.Segments
+	guarded, _ := GuardCorrectedSegments(checkpoint.Segments, source)
+	return guarded
 }
 
 func CorrectionNeedsVision(contexts []CorrectionContext, visionModel string) bool {

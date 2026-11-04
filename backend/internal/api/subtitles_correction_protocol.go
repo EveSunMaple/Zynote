@@ -41,8 +41,12 @@ func freshCompactCorrection(ctx context.Context, root, lectureID, legacyFingerpr
 			return false, err
 		}
 	}
-	if compactGeneration > 0 && (generation > 0 || checkpointFingerprint == legacyFingerprint) {
+	compactHistory := compactGeneration > 0 || (len(compactFingerprint) > 0 && checkpointFingerprint == compactFingerprint[0])
+	legacyHistory := generation > 0 || checkpointFingerprint == legacyFingerprint
+	if compactHistory && legacyHistory {
 		return false, fmt.Errorf("同一原文存在两种校订协议历史，未自动切换或重放，请先核对任务记录")
 	}
-	return compactGeneration > 0 || (generation == 0 && checkpointFingerprint != legacyFingerprint), nil
+	// Unsafe sparse full-row replacement is withdrawn for fresh jobs. Existing
+	// compact identities remain resumable, under the shared fidelity guard.
+	return compactHistory, nil
 }
