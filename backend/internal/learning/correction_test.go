@@ -211,6 +211,107 @@ func TestRunCorrectionBatchesAbortsSiblings(t *testing.T) {
 	}
 }
 
+func TestRunCorrectionBatchesSlidesWithBoundedWindow(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	batches := make([]CorrectionBatch, 8)
+	releaseFront := make(chan struct{})
+	started := make(chan int, len(batches))
+	done := make(chan error, 1)
+	var committed []int
+	go func() {
+		done <- RunCorrectionBatches(ctx, batches, func(ctx context.Context, _ CorrectionBatch, index int) (int, error) {
+			started <- index
+			if index == 0 {
+				select {
+				case <-releaseFront:
+				case <-ctx.Done():
+					return 0, ctx.Err()
+				}
+			}
+			return index, nil
+		}, func(value int, _ CorrectionBatch) error { committed = append(committed, value); return nil })
+	}()
+	seen := map[int]bool{}
+	for len(seen) < 4 {
+		select {
+		case index := <-started:
+			seen[index] = true
+		case <-ctx.Done():
+			t.Fatal("sliding worker did not admit four batches")
+		}
+	}
+	for index := 0; index < 4; index++ {
+		if !seen[index] {
+			t.Fatalf("unexpected admission: %v", seen)
+		}
+	}
+	select {
+	case index := <-started:
+		t.Fatalf("window exceeded before front committed: %d", index)
+	case <-time.After(40 * time.Millisecond):
+	}
+	close(releaseFront)
+	if err := <-done; err != nil {
+		t.Fatal(err)
+	}
+	if len(committed) != len(batches) {
+		t.Fatalf("committed %v", committed)
+	}
+	for index, value := range committed {
+		if index != value {
+			t.Fatalf("out of order: %v", committed)
+		}
+	}
+}
+
+func TestRunCorrectionBatchesCommitFailureStopsAdmission(t *testing.T) {
+	failure := errors.New("save failed")
+	var calls atomic.Int64
+	err := RunCorrectionBatches(context.Background(), make([]CorrectionBatch, 12),
+		func(ctx context.Context, _ CorrectionBatch, index int) (int, error) { calls.Add(1); return index, nil },
+		func(int, CorrectionBatch) error { return failure },
+	)
+	if !errors.Is(err, failure) {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if calls.Load() > 4 {
+		t.Fatalf("admission continued after failure: %d", calls.Load())
+	}
+}
+
+func TestRunCorrectionBatchesCancelledDoesNotCommit(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	commits := 0
+	err := RunCorrectionBatches(ctx, []CorrectionBatch{{}},
+		func(context.Context, CorrectionBatch, int) (int, error) { cancel(); return 1, nil },
+		func(int, CorrectionBatch) error { commits++; return nil },
+	)
+	if !errors.Is(err, context.Canceled) || commits != 0 {
+		t.Fatalf("error=%v commits=%d", err, commits)
+	}
+}
+
+func TestRunCorrectionBatchesCommitCancellationStopsAdmission(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	var calls atomic.Int64
+	err := RunCorrectionBatches(ctx, make([]CorrectionBatch, 12),
+		func(ctx context.Context, _ CorrectionBatch, index int) (int, error) {
+			calls.Add(1)
+			if index == 1 {
+				<-ctx.Done()
+				return 0, ctx.Err()
+			}
+			return 0, nil
+		},
+		func(int, CorrectionBatch) error { cancel(); return nil },
+	)
+	if !errors.Is(err, context.Canceled) || calls.Load() > 2 {
+		t.Fatalf("error=%v calls=%d", err, calls.Load())
+	}
+}
+
 func TestCorrectionContextParityWithTypeScript(t *testing.T) {
 	segments := []documents.Segment{
 		segment(1000, 2000, "第一句话 机器学习"),

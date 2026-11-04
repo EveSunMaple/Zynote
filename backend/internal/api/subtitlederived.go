@@ -2,7 +2,10 @@ package api
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
+	"os"
 	"path/filepath"
 
 	"github.com/EveSunMaple/Zynote/backend/internal/ai"
@@ -10,6 +13,8 @@ import (
 	"github.com/EveSunMaple/Zynote/backend/internal/contract"
 	"github.com/EveSunMaple/Zynote/backend/internal/subtitlederived"
 	"github.com/EveSunMaple/Zynote/backend/internal/subtitlesync"
+	"github.com/EveSunMaple/Zynote/backend/internal/summaryglobal"
+	"github.com/EveSunMaple/Zynote/backend/internal/summaryinput"
 )
 
 func subtitleDerivedService(state *contract.State) *subtitlederived.Service {
@@ -35,12 +40,19 @@ func (inv *Invoker) subtitleDerivedDependencies(store contract.StateStore, state
 		return client, nil
 	}
 	return subtitlederived.Dependencies{
-		ResolveRecipes: func(_ context.Context, modes []string) (contract.RequestedGenerationConfig, map[string]subtitlederived.ModeRecipe, error) {
+		ProposeBoundary: func(ctx context.Context, index int, input any) ([]byte, summaryglobal.StageRef, error) {
+			active, err := getClient()
+			if err != nil {
+				return nil, summaryglobal.StageRef{}, err
+			}
+			return proposeSummaryBoundary(ctx, active, index, input)
+		},
+		ResolveRecipes: func(ctx context.Context, modes []string) (contract.RequestedGenerationConfig, map[string]subtitlederived.ModeRecipe, error) {
 			active, err := getClient()
 			if err != nil {
 				return contract.RequestedGenerationConfig{}, nil, err
 			}
-			return resolveSubtitleRecipes(active, modes)
+			return resolveSubtitleRecipesForContext(ctx, active, modes)
 		},
 		ValidateModel: func(context.Context) error {
 			_, err := getClient()
@@ -71,7 +83,7 @@ func (inv *Invoker) subtitleDerivedDependencies(store contract.StateStore, state
 			converted := make([]notePoint, 0, len(points))
 			for _, point := range points {
 				converted = append(converted, notePoint{
-					Cue: point.Cue, Quote: point.Quote, Point: point.Point,
+					ReviewState: point.ReviewState, Cue: point.Cue, Quote: point.Quote, Point: point.Point,
 					Topic: point.Topic, Timestamp: point.Timestamp,
 				})
 			}
@@ -223,6 +235,9 @@ func (inv *Invoker) handleSubtitleDerivedStart(store contract.StateStore, state 
 
 // resolveSubtitleRecipes binds the same client and prompt construction used by dispatch.
 func resolveSubtitleRecipes(client *ai.Client, modes []string) (contract.RequestedGenerationConfig, map[string]subtitlederived.ModeRecipe, error) {
+	return resolveSubtitleRecipesForContext(context.Background(), client, modes)
+}
+func resolveSubtitleRecipesForContext(ctx context.Context, client *ai.Client, modes []string) (contract.RequestedGenerationConfig, map[string]subtitlederived.ModeRecipe, error) {
 	configuration, err := client.TextRequestConfiguration()
 	if err != nil {
 		return configuration, nil, err
@@ -230,8 +245,47 @@ func resolveSubtitleRecipes(client *ai.Client, modes []string) (contract.Request
 	recipes := map[string]subtitlederived.ModeRecipe{}
 	for _, mode := range modes {
 		recipe, err := summaryModeRecipe(mode)
+		if contract.SummaryRecipeVersion(ctx, mode) == 3 || (contract.SummaryRecipeVersion(ctx, mode) == 0 && os.Getenv("ZYNOTE_SUMMARY_EXPERIMENTAL_GLOBAL") == "1") {
+			recipe, err = globalSummaryModeRecipe(mode)
+		}
 		if err != nil {
 			return configuration, nil, err
+		}
+		policy, hasPolicy := contract.SummaryPlanPolicyFrom(ctx, mode)
+		if contract.SummaryRecipeVersion(ctx, mode) == 0 && os.Getenv("ZYNOTE_SUMMARY_EXPERIMENTAL_PLAN") == "1" {
+			policy = contract.SummaryPlanPolicy{PlanPolicy: "deterministic-v1"}
+			if os.Getenv("ZYNOTE_SUMMARY_SEMANTIC_BOUNDARIES") == "1" {
+				policy.PlanPolicy = "semantic-candidate-v1"
+			}
+			if os.Getenv("ZYNOTE_SUMMARY_HALO") == "1" {
+				policy.HaloBudget = 128
+			}
+			hasPolicy = true
+		}
+		if contract.SummaryRecipeVersion(ctx, mode) == 4 || (contract.SummaryRecipeVersion(ctx, mode) == 0 && hasPolicy) {
+			recipe, err = globalSummaryModeRecipe(mode)
+			if err != nil {
+				return configuration, nil, err
+			}
+			recipe.Version = 4
+			recipe.PlanPolicy = policy.PlanPolicy
+			recipe.HaloBudget = policy.HaloBudget
+			recipe.BoundaryPromptSHA256 = summarytreeDigest(summaryinput.BoundaryPrompt)
+			prompt := experimentalSpanSummaryPrompt(mode, summaryMaxPoints(mode))
+			recipe.SystemPromptSHA256 = summarytreeDigest(prompt)
+		}
+		if contract.SummaryRecipeVersion(ctx, mode) == 1 || contract.SummaryRecipeVersion(ctx, mode) == 2 {
+			recipe.Version = contract.SummaryRecipeVersion(ctx, mode)
+			recipe.GlobalPolicy = ""
+			recipe.ReducePromptSHA256 = ""
+			recipe.VerifyPromptSHA256 = ""
+		}
+		if contract.SummaryRecipeVersion(ctx, mode) == 1 {
+			prompt := summaryPrompt(mode, summaryMaxPoints(mode))
+			hash := sha256.Sum256([]byte(prompt))
+			recipe.Version = 1
+			recipe.ChunkPolicy = summaryinput.ChunkPolicy
+			recipe.SystemPromptSHA256 = hex.EncodeToString(hash[:])
 		}
 		recipes[mode] = recipe
 	}
@@ -244,6 +298,8 @@ func projectSubtitleTask(task subtitlederived.Task) subtitlederived.Task {
 	task.Recipe = nil
 	task.Items = append([]subtitlederived.Item(nil), task.Items...)
 	for index := range task.Items {
+		task.Items[index].Stages = nil
+		task.Items[index].SummaryPlan = nil
 		task.Items[index].SourceBinding = nil
 		task.Items[index].BindingAuthoritySHA256 = ""
 		task.Items[index].PublicationRecord = subtitlederived.RecordedPublication(task.Items[index], task.OutputVersion)
@@ -267,7 +323,7 @@ func summarizeDerivedText(ctx context.Context, client *ai.Client, srt, mode stri
 	}
 	points := make([]subtitlederived.Point, 0, len(result.Points))
 	for _, point := range result.Points {
-		points = append(points, subtitlederived.Point{Cue: float64(point.Cue), Quote: point.Quote, Point: point.Point, Topic: point.Topic, Timestamp: point.Timestamp})
+		points = append(points, subtitlederived.Point{ReviewState: point.ReviewState, Cue: float64(point.Cue), Quote: point.Quote, Point: point.Point, Topic: point.Topic, Timestamp: point.Timestamp})
 	}
 	return subtitlederived.SummaryResult{Markdown: result.Markdown, Points: points, Facts: result.Evidence}, nil
 }

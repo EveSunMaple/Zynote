@@ -17,6 +17,7 @@ import (
 	"github.com/EveSunMaple/Zynote/backend/internal/learning"
 	"github.com/EveSunMaple/Zynote/backend/internal/library"
 	"github.com/EveSunMaple/Zynote/backend/internal/subtitlederived"
+	"github.com/EveSunMaple/Zynote/backend/internal/summaryglobal"
 	"github.com/EveSunMaple/Zynote/backend/internal/summaryinput"
 )
 
@@ -27,9 +28,9 @@ func summaryModeRecipe(mode string) (subtitlederived.ModeRecipe, error) {
 	if !validVideoNoteMode(mode) {
 		return subtitlederived.ModeRecipe{}, contract.InputInvalid(errSummaryModeInvalid)
 	}
-	prompt := summaryPrompt(mode, summaryMaxPoints(mode))
+	prompt := spanSummaryPrompt(mode, summaryMaxPoints(mode))
 	sum := sha256.Sum256([]byte(prompt))
-	return subtitlederived.ModeRecipe{Version: 1, Mode: mode, SystemPromptSHA256: hex.EncodeToString(sum[:]), ChunkPolicy: "subtitle-text-runes", ChunkLimit: summaryChunkLimit, MaxPoints: summaryMaxPoints(mode), JSONPolicy: ai.JSONRecipePolicy()}, nil
+	return subtitlederived.ModeRecipe{Version: 2, Mode: mode, SystemPromptSHA256: hex.EncodeToString(sum[:]), ChunkPolicy: summaryinput.SpanChunkPolicy, ChunkLimit: summaryChunkLimit, MaxPoints: summaryMaxPoints(mode), JSONPolicy: ai.JSONRecipePolicy()}, nil
 }
 
 func validVideoNoteMode(mode string) bool { _, ok := videoNoteTitles[mode]; return ok }
@@ -39,11 +40,12 @@ var videoNoteTitles = map[string]string{
 }
 
 type videoNotePoint struct {
-	Cue       int    `json:"cue"`
-	Quote     string `json:"quote"`
-	Point     string `json:"point"`
-	Topic     string `json:"topic,omitempty"`
-	Timestamp string `json:"timestamp"`
+	ReviewState string `json:"reviewState,omitempty"`
+	Cue         int    `json:"cue"`
+	Quote       string `json:"quote"`
+	Point       string `json:"point"`
+	Topic       string `json:"topic,omitempty"`
+	Timestamp   string `json:"timestamp"`
 }
 
 type summaryCue = summaryinput.Cue
@@ -141,7 +143,7 @@ func appendSummarySection(lines []string, part []documents.Segment, points []vid
 	lines = append(lines, "## "+subtitleClock(part[0].Start, false)+"–"+subtitleClock(part[len(part)-1].End, false), "")
 	for _, point := range points {
 		lines = append(lines, fmt.Sprintf(
-			"- **%s**（%s；原话：%s）", point.Point, point.Timestamp, point.Quote,
+			"- **%s**（%s；原话：%s）", contract.SummaryReviewLabel(point.ReviewState)+point.Point, point.Timestamp, point.Quote,
 		))
 	}
 	return append(lines, ""), points
@@ -154,6 +156,9 @@ func summarizeVideoText(
 	mode string,
 	progress func(string),
 ) (summaryResult, error) {
+	if metadata, observer := contract.GenerationObservationFrom(ctx); observer != nil && metadata.ProtocolVersion == 3 {
+		return summarizeSpanVideoText(ctx, client, srt, mode, progress)
+	}
 	heading, ok := videoNoteTitles[mode]
 	if !ok {
 		return summaryResult{}, contract.InputInvalid(errSummaryModeInvalid)
@@ -294,7 +299,8 @@ func (inv *Invoker) finishVideoSummary(store contract.StateStore, state *contrac
 			}
 		}
 	}
-	if path == "" || len(points) == 0 {
+	emptyValidated := item.SummaryEvidence != nil && item.SummaryEvidence.Version == 1 && item.SummaryEvidence.PointCount == 0 && item.SummaryEvidence.ValidatedHead.Version == 3 && item.AttemptEvidence != nil && item.AttemptEvidence.Version == 3 && item.PublicationRecord != nil && item.PublicationRecord.State == "recorded"
+	if path == "" || (len(points) == 0 && !emptyValidated) {
 		return nil, contract.Unavailable(msgSummarySaveInvalid)
 	}
 	result := map[string]any{"path": path, "count": len(points), "markdown": markdown, "points": points, "sourceHash": item.Source.Hash, "auditTarget": map[string]any{"id": completed.ID, "itemIndex": 0, "record": item.PublicationRecord}}
@@ -357,7 +363,7 @@ func recordValidatedSummaryPoints(ctx context.Context, points []videoNotePoint) 
 	}
 	event := receipt.Event
 	m := event.Observation
-	if receipt.Ref.Version != 2 || event.State != "format-result" || event.FormatValid == nil || !*event.FormatValid || m.TaskID != metadata.TaskID || m.ItemIndex != metadata.ItemIndex || m.SourceSHA256 != metadata.SourceSHA256 || m.ItemRecipeSHA256 != metadata.ItemRecipeSHA256 || m.ChunkIndex != metadata.ChunkIndex || m.ChunkCount != metadata.ChunkCount || m.InputSHA256 != metadata.InputSHA256 {
+	if (receipt.Ref.Version != 2 && receipt.Ref.Version != 3) || event.State != "format-result" || event.FormatValid == nil || !*event.FormatValid || m.TaskID != metadata.TaskID || m.ItemIndex != metadata.ItemIndex || m.SourceSHA256 != metadata.SourceSHA256 || m.ItemRecipeSHA256 != metadata.ItemRecipeSHA256 || m.ChunkIndex != metadata.ChunkIndex || m.ChunkCount != metadata.ChunkCount || m.InputSHA256 != metadata.InputSHA256 {
 		return contract.ObservationFailure(fmt.Errorf("摘要格式记录与实际分块不匹配"))
 	}
 	digest, err := contract.SummaryPointsDigest(canonicalVideoPoints(points))
@@ -370,3 +376,17 @@ func recordValidatedSummaryPoints(ctx context.Context, points []videoNotePoint) 
 }
 
 const errSummaryModeInvalid = "摘要模式无效"
+
+func summarytreeDigest(value string) string {
+	sum := sha256.Sum256([]byte(value))
+	return hex.EncodeToString(sum[:])
+}
+
+func globalSummaryModeRecipe(mode string) (subtitlederived.ModeRecipe, error) {
+	recipe, err := summaryModeRecipe(mode)
+	recipe.Version = 3
+	recipe.GlobalPolicy = "paged-organize-risk-v1"
+	recipe.ReducePromptSHA256 = summarytreeDigest(summaryglobal.ReducePrompt)
+	recipe.VerifyPromptSHA256 = summarytreeDigest(summaryglobal.VerifyPrompt)
+	return recipe, err
+}

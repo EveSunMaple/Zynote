@@ -90,7 +90,7 @@ func TestSummaryObserverActualChunksRepairAndFailureStops(t *testing.T) {
 			defer server.Close()
 			client := ai.New(ai.Profile{BaseURL: server.URL, Model: "controlled-model"})
 			deps := subtitlederived.Dependencies{ResolveRecipes: func(_ context.Context, modes []string) (contract.RequestedGenerationConfig, map[string]subtitlederived.ModeRecipe, error) {
-				return resolveSubtitleRecipes(client, modes)
+				return resolveLegacySubtitleRecipes(client, modes)
 			}, Summarize: func(ctx context.Context, srt, mode string) (string, []subtitlederived.Point, error) {
 				if failure != "" {
 					metadata, persist := contract.GenerationObservationFrom(ctx)
@@ -208,7 +208,7 @@ func TestObservedSummaryRejectsRedirectButOrdinaryChatKeepsIt(t *testing.T) {
 	}
 	client := ai.New(ai.Profile{BaseURL: origin.URL, Model: "model"})
 	deps := subtitlederived.Dependencies{ResolveRecipes: func(_ context.Context, modes []string) (contract.RequestedGenerationConfig, map[string]subtitlederived.ModeRecipe, error) {
-		return resolveSubtitleRecipes(client, modes)
+		return resolveLegacySubtitleRecipes(client, modes)
 	}, Summarize: func(ctx context.Context, srt, mode string) (string, []subtitlederived.Point, error) {
 		result, err := summarizeVideoText(ctx, client, srt, mode, nil)
 		return result.Markdown, nil, err
@@ -255,7 +255,7 @@ func TestSummaryObserverTransportAndCancellationRemainUnknown(t *testing.T) {
 			defer server.Close()
 			client := ai.New(ai.Profile{BaseURL: server.URL, Model: "model"})
 			deps := subtitlederived.Dependencies{ResolveRecipes: func(_ context.Context, modes []string) (contract.RequestedGenerationConfig, map[string]subtitlederived.ModeRecipe, error) {
-				return resolveSubtitleRecipes(client, modes)
+				return resolveLegacySubtitleRecipes(client, modes)
 			}, Summarize: func(ctx context.Context, srt, mode string) (string, []subtitlederived.Point, error) {
 				if kind == "config-drift" {
 					client.Profile.Model = "changed-after-binding"
@@ -335,7 +335,7 @@ func TestSummaryObserverResponsesWireInputAndReceipts(t *testing.T) {
 	defer server.Close()
 	client := ai.New(ai.Profile{BaseURL: server.URL, Model: "model", APIFormat: "responses"})
 	deps := subtitlederived.Dependencies{ResolveRecipes: func(_ context.Context, modes []string) (contract.RequestedGenerationConfig, map[string]subtitlederived.ModeRecipe, error) {
-		return resolveSubtitleRecipes(client, modes)
+		return resolveLegacySubtitleRecipes(client, modes)
 	}, Summarize: func(ctx context.Context, srt, mode string) (string, []subtitlederived.Point, error) {
 		result, err := summarizeVideoText(ctx, client, srt, mode, nil)
 		return result.Markdown, nil, err
@@ -375,7 +375,7 @@ func TestObserverPersistenceFailureStopsEntireTwoModeTask(t *testing.T) {
 			defer server.Close()
 			client := ai.New(ai.Profile{BaseURL: server.URL, Model: "model"})
 			deps := subtitlederived.Dependencies{ResolveRecipes: func(_ context.Context, modes []string) (contract.RequestedGenerationConfig, map[string]subtitlederived.ModeRecipe, error) {
-				return resolveSubtitleRecipes(client, modes)
+				return resolveLegacySubtitleRecipes(client, modes)
 			}, Summarize: func(ctx context.Context, srt, mode string) (string, []subtitlederived.Point, error) {
 				metadata, persist := contract.GenerationObservationFrom(ctx)
 				ctx = contract.WithGenerationObservation(ctx, metadata, func(ctx context.Context, event contract.GenerationAttemptEvidence) error {

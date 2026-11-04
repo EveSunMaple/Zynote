@@ -15,9 +15,11 @@ import (
 
 	"github.com/EveSunMaple/Zynote/backend/internal/contract"
 	"github.com/EveSunMaple/Zynote/backend/internal/documents"
+	"github.com/EveSunMaple/Zynote/backend/internal/generationjob"
 	"github.com/EveSunMaple/Zynote/backend/internal/ids"
 	"github.com/EveSunMaple/Zynote/backend/internal/library"
 	"github.com/EveSunMaple/Zynote/backend/internal/subtitlesync"
+	"github.com/EveSunMaple/Zynote/backend/internal/summaryglobal"
 	"github.com/EveSunMaple/Zynote/backend/internal/videoppt"
 )
 
@@ -36,12 +38,13 @@ type Output struct {
 }
 
 type Point struct {
-	Anchor    *CueAnchor `json:"anchor,omitempty"`
-	Cue       float64    `json:"cue"`
-	Quote     string     `json:"quote"`
-	Point     string     `json:"point"`
-	Topic     string     `json:"topic"`
-	Timestamp string     `json:"timestamp"`
+	ReviewState string     `json:"reviewState,omitempty"`
+	Anchor      *CueAnchor `json:"anchor,omitempty"`
+	Cue         float64    `json:"cue"`
+	Quote       string     `json:"quote"`
+	Point       string     `json:"point"`
+	Topic       string     `json:"topic"`
+	Timestamp   string     `json:"timestamp"`
 }
 
 type Prepared struct {
@@ -51,6 +54,8 @@ type Prepared struct {
 }
 
 type Item struct {
+	SummaryPlan            *SummaryPlan                    `json:"summaryPlan,omitempty"`
+	Stages                 map[string]*AttemptEvidenceRef  `json:"stages,omitempty"`
 	SourceBinding          *contract.PlaybackSourceBinding `json:"sourceBinding,omitempty"`
 	SourceBindingSHA256    string                          `json:"sourceBindingSHA256,omitempty"`
 	BindingAuthoritySHA256 string                          `json:"bindingAuthoritySHA256,omitempty"`
@@ -71,19 +76,22 @@ type Item struct {
 }
 
 type Task struct {
-	OutputVersion   int         `json:"outputVersion,omitempty"`
-	ID              string      `json:"id"`
-	CreatedAt       string      `json:"createdAt"`
-	CourseName      string      `json:"courseName,omitempty"`
-	Interrupted     bool        `json:"interrupted"`
-	Items           []Item      `json:"items"`
-	QueueState      string      `json:"queueState,omitempty"`
-	RequestHash     string      `json:"requestHash,omitempty"`
-	EvidenceVersion int         `json:"evidenceVersion,omitempty"`
-	Recipe          *TaskRecipe `json:"recipe,omitempty"`
+	ExecutionGeneration int64       `json:"executionGeneration,omitempty"`
+	CacheEpoch          int64       `json:"cacheEpoch,omitempty"`
+	OutputVersion       int         `json:"outputVersion,omitempty"`
+	ID                  string      `json:"id"`
+	CreatedAt           string      `json:"createdAt"`
+	CourseName          string      `json:"courseName,omitempty"`
+	Interrupted         bool        `json:"interrupted"`
+	Items               []Item      `json:"items"`
+	QueueState          string      `json:"queueState,omitempty"`
+	RequestHash         string      `json:"requestHash,omitempty"`
+	EvidenceVersion     int         `json:"evidenceVersion,omitempty"`
+	Recipe              *TaskRecipe `json:"recipe,omitempty"`
 }
 
 type Dependencies struct {
+	ProposeBoundary       func(context.Context, int, any) ([]byte, summaryglobal.StageRef, error)
 	SummarizeWithEvidence func(ctx context.Context, srt, mode string) (SummaryResult, error)
 	Generation            func(ctx context.Context, url string) (string, error)
 	ValidateModel         func(ctx context.Context) error
@@ -133,6 +141,22 @@ func inside(root, target string) bool {
 }
 
 func (service *Service) save(task Task) error {
+	return service.withTaskFence(context.Background(), task, func() error { return service.saveUnchecked(task) })
+}
+
+func (service *Service) withTaskFence(ctx context.Context, task Task, publish func() error) error {
+	if task.ExecutionGeneration > 0 {
+		ledger, err := generationjob.Open(filepath.Join(service.Root, "job-state"))
+		if err != nil {
+			return err
+		}
+		defer ledger.Close()
+		return ledger.WithFence(ctx, generationjob.Fence{JobID: task.ID, Generation: task.ExecutionGeneration, Epoch: task.CacheEpoch}, publish)
+	}
+	return publish()
+}
+
+func (service *Service) saveUnchecked(task Task) error {
 	if err := os.MkdirAll(service.Root, 0o755); err != nil {
 		return fmt.Errorf("笔记任务目录不可用")
 	}
@@ -436,7 +460,7 @@ func (service *Service) ensurePrepared(ctx context.Context, task *Task, item *It
 	if dependencies.Summarize == nil && dependencies.SummarizeWithEvidence == nil {
 		return fmt.Errorf("摘要不可用")
 	}
-	if item.GenerationState != "" {
+	if item.GenerationState != "" && !resumableSpanItem(*item) {
 		return fmt.Errorf("上次模型调用结果未知，未自动重试；请先核对服务端记录")
 	}
 	if dependencies.ValidateModel != nil {
@@ -447,9 +471,32 @@ func (service *Service) ensurePrepared(ctx context.Context, task *Task, item *It
 	if err := service.bindRecipe(ctx, task, dependencies); err != nil {
 		return err
 	}
+	var planned any
+	if item.Recipe.ModeRecipe.Version == 4 {
+		item.GenerationState = "dispatched"
+		if err := service.save(*task); err != nil {
+			return err
+		}
+		chunks, err := service.ensureSummaryPlan(ctx, task, item, dependencies, srt)
+		if err != nil {
+			return err
+		}
+		planned = chunks
+	}
 	observedContext, err := service.observationContext(ctx, task, item, srt)
 	if err != nil {
 		return err
+	}
+	if item.Recipe.ModeRecipe.Version >= 2 {
+		observedContext = service.withSummaryTree(observedContext, task, item)
+		if item.Recipe.ModeRecipe.Version >= 3 {
+			observedContext = contract.WithSummaryStages(observedContext, newSummaryStageFactory(service, task, item))
+		}
+	}
+	if item.Recipe.ModeRecipe.Version == 4 {
+		p := item.Recipe.ModeRecipe
+		stages, fallbacks := summaryPlanCounts(item.SummaryPlan)
+		observedContext = contract.WithSummaryPlan(observedContext, contract.SummaryPlanPolicy{PlanPolicy: p.PlanPolicy, HaloBudget: p.HaloBudget, BoundaryPromptSHA256: p.BoundaryPromptSHA256, PlanSHA256: item.SummaryPlan.Digest, BoundaryStages: stages, BoundaryFallbacks: fallbacks}, planned)
 	}
 	if item.SourceBinding != nil {
 		checkContext, cancel := context.WithTimeout(ctx, 5*time.Second)
@@ -592,7 +639,12 @@ func (service *Service) processDerivedItem(ctx context.Context, task *Task, inde
 	if item.Mode == "mindmap" && dependencies.RenderSVG != nil {
 		files = append(files, derivedFile{Path: filepath.Join(directory, stem+".svg"), Text: dependencies.RenderSVG(item.Source.Title, item.Prepared.Points)})
 	}
-	outputs, err := writeDerivedFiles(files, created)
+	var outputs []Output
+	err = service.withTaskFence(ctx, *task, func() error {
+		var writeErr error
+		outputs, writeErr = writeDerivedFiles(files, created)
+		return writeErr
+	})
 	if err != nil {
 		return err
 	}
@@ -611,8 +663,52 @@ func (service *Service) Run(ctx context.Context, id string, dependencies Depende
 	if err != nil {
 		return Task{}, err
 	}
+	release, err := generationjob.AcquireRunLock(filepath.Join(service.Root, "job-state"), id)
+	if err != nil {
+		return Task{}, err
+	}
+	defer release()
+	task, err = service.Read(id)
+	if err != nil {
+		return Task{}, err
+	}
 	if task.OutputVersion != 0 && task.OutputVersion != 2 {
 		return Task{}, fmt.Errorf("笔记成果版本不受支持，原任务保留")
+	}
+	needsProvider := false
+	for _, item := range task.Items {
+		if item.Prepared == nil && item.Received == nil && len(item.Outputs) == 0 && item.GenerationState == "" {
+			needsProvider = true
+		}
+	}
+	if needsProvider || task.ExecutionGeneration > 0 {
+		ledger, err := generationjob.Open(filepath.Join(service.Root, "job-state"))
+		if err != nil {
+			return Task{}, err
+		}
+		defer ledger.Close()
+		// Policy v1: a finite engineering request-count cap, not a token or
+		// monetary budget. Large jobs stop before exceeding it. The persisted
+		// cap is shared by all modes, chunks, retries and repairs, across resume.
+		const physicalAttemptLimit int64 = 256
+		// SQLite is the generation authority. Re-read the durable manifest after
+		// CAS so a crash between CAS and JSON publication is recoverable, without
+		// losing a prefix saved just before rollover.
+		expected, err := ledger.CurrentGeneration(ctx, task.ID)
+		if err != nil {
+			return Task{}, err
+		}
+		fence, err := ledger.Acquire(ctx, task.ID, expected, physicalAttemptLimit)
+		if err != nil {
+			return Task{}, err
+		}
+		task, err = service.Read(id)
+		if err != nil {
+			return Task{}, err
+		}
+		task.ExecutionGeneration, task.CacheEpoch = fence.Generation, fence.Epoch
+		ctx = contract.WithPhysicalRequestGuard(ctx, generationjob.Guard{Store: ledger, Fence: fence})
+		ctx = contract.WithSuccessCache(ctx, generationjob.ScopedCache{Store: ledger, Fence: fence})
 	}
 	task.Interrupted = true
 	if err := service.save(task); err != nil {
@@ -631,9 +727,12 @@ func (service *Service) Run(ctx context.Context, id string, dependencies Depende
 		}
 		created := []string{}
 		if err := service.processDerivedItem(ctx, &task, index, dependencies, &created); err != nil {
-			for _, path := range created {
-				_ = os.Remove(path)
-			}
+			_ = service.withTaskFence(context.WithoutCancel(ctx), task, func() error {
+				for _, path := range created {
+					_ = os.Remove(path)
+				}
+				return nil
+			})
 			if ctx.Err() != nil {
 				return Task{}, ctx.Err()
 			}

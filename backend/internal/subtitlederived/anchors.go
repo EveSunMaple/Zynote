@@ -5,6 +5,7 @@ import (
 	"math"
 	"strings"
 
+	"github.com/EveSunMaple/Zynote/backend/internal/contract"
 	"github.com/EveSunMaple/Zynote/backend/internal/documents"
 	"github.com/EveSunMaple/Zynote/backend/internal/learning"
 )
@@ -41,7 +42,7 @@ func anchorPoints(srt string, points []Point) ([]Point, string, error) {
 		point.Anchor = &CueAnchor{SourceHash: hash, CueIndex: cue, StartMs: segment.Start, EndMs: segment.End, Text: segment.Text}
 		seconds := segment.Start / 1000
 		point.Timestamp = fmt.Sprintf("%02d:%02d:%02d", seconds/3600, (seconds/60)%60, seconds%60)
-		lines = append(lines, fmt.Sprintf("- 字幕 #%d · %d–%d ms · 原文：%s", cue+1, segment.Start, segment.End, strings.ReplaceAll(segment.Text, "\n", " ")))
+		lines = append(lines, fmt.Sprintf("- %s字幕 #%d · %d–%d ms · 原文：%s", contract.SummaryReviewLabel(point.ReviewState), cue+1, segment.Start, segment.End, strings.ReplaceAll(segment.Text, "\n", " ")))
 	}
 	return anchored, strings.Join(lines, "\n"), nil
 }

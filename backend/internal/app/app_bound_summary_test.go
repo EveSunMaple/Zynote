@@ -25,7 +25,7 @@ func TestRetainedSummaryPublicQueueHTTPAndPrivateDeclaration(t *testing.T) {
 				t.Error(err)
 			}
 		}
-		fmt.Fprintf(w, `{"choices":[{"finish_reason":"stop","message":{"content":%q}}]}`, `[{"cue":0,"quote":"Saved words","point":"Key point","topic":"Topic"}]`)
+		fmt.Fprintf(w, `{"choices":[{"finish_reason":"stop","message":{"content":%q}}]}`, `{"processing":"complete","cards":[{"cue":0,"quote":"Saved words","point":"Key point","topic":"Topic"}]}`)
 	}))
 	defer server.Close()
 	root, err := filepath.EvalSymlinks(t.TempDir())

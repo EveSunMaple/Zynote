@@ -16,10 +16,11 @@ import (
 )
 
 type correctionCall struct {
-	Model  string
-	Rows   []int
-	Images int
-	Labels []string
+	Compact bool
+	Model   string
+	Rows    []int
+	Images  int
+	Labels  []string
 }
 
 type correctionServer struct {
@@ -108,6 +109,9 @@ func (server *correctionServer) handler(t *testing.T) http.HandlerFunc {
 			return
 		}
 		call := correctionCall{Model: body.Model, Images: len(labels), Labels: labels}
+		var system string
+		_ = json.Unmarshal(body.Messages[0].Content, &system)
+		call.Compact = strings.Contains(system, "processed:") && strings.Contains(system, "patches:")
 		for _, row := range parsed.Rows {
 			call.Rows = append(call.Rows, row.ID)
 		}
@@ -122,14 +126,22 @@ func (server *correctionServer) handler(t *testing.T) http.HandlerFunc {
 			}
 		}
 		rows := make([]map[string]any, 0, len(parsed.Rows))
+		processed := []int{}
 		for _, row := range parsed.Rows {
+			processed = append(processed, row.ID)
 			uncertain := row.ID == 1
 			rows = append(rows, map[string]any{
 				"id": row.ID, "text": row.Text + "（校订）", "uncertain": uncertain,
 				"reason": map[bool]string{true: "术语依据", false: ""}[uncertain],
 			})
+			if call.Compact {
+				rows[len(rows)-1]["reason"] = "术语依据"
+			}
 		}
 		payload, err := json.Marshal(rows)
+		if call.Compact {
+			payload, err = json.Marshal(map[string]any{"processing": "complete", "processed": processed, "patches": rows})
+		}
 		if err != nil {
 			t.Errorf("payload: %v", err)
 			return
@@ -177,12 +189,32 @@ type subtitleFixture struct {
 	libraryRoot string
 }
 
-func startSubtitleFixture(t *testing.T, serverURL string, withImage bool) subtitleFixture {
+func startSubtitleFixture(t *testing.T, serverURL string, withImage bool, canonical ...bool) subtitleFixture {
 	t.Helper()
 	dataRoot := t.TempDir()
 	libraryRoot := t.TempDir()
 	resourcesRoot := t.TempDir()
 	writeFixtureFile(t, dataRoot, "settings.json", `{"profiles":[],"activeProfile":"","theme":"light","prompts":{"correction":"校订提示词"},"qwenProfile":{"id":"qwen-default","name":"通义千问","provider":"qwen","baseUrl":"`+serverURL+`/v1","model":"text-test","visionModel":"vision-test","apiFormat":"chat_completions","encryptedKey":"encrypted","parameters":{"text-test":{"maxTokens":250},"vision-test":{"maxTokens":250}}}}`)
+	if len(canonical) > 0 && canonical[0] {
+		prompt, err := os.ReadFile("../../../src/prompts/correction.txt")
+		if err != nil {
+			t.Fatal(err)
+		}
+		path := filepath.Join(dataRoot, "settings.json")
+		body, err := os.ReadFile(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var settings map[string]any
+		if json.Unmarshal(body, &settings) != nil {
+			t.Fatal("fixture settings invalid")
+		}
+		settings["prompts"] = map[string]string{"correction": string(prompt)}
+		body, err = json.Marshal(settings)
+		if err != nil || os.WriteFile(path, body, 0600) != nil {
+			t.Fatal("canonical fixture settings unavailable")
+		}
+	}
 	f := startCore(t, dataRoot, resourcesRoot)
 	if _, errReply := f.call("core.hello", map[string]any{
 		"protocol": 1, "appVersion": "0.0.1", "electronVersion": "42.11.10",
@@ -220,6 +252,49 @@ func startSubtitleFixture(t *testing.T, serverURL string, withImage bool) subtit
 	return subtitleFixture{
 		core: f, courseID: courseID, lectureID: lecture["id"].(string),
 		dataRoot: dataRoot, libraryRoot: libraryRoot,
+	}
+}
+
+func TestSubtitlesGenerateCanonicalCompactPublishesAndResumesWithoutHTTP(t *testing.T) {
+	fake := &correctionServer{}
+	server := httptest.NewServer(fake.handler(t))
+	defer server.Close()
+	f := startSubtitleFixture(t, server.URL, false, true)
+	raw, errReply := f.core.call("subtitles:generate", map[string]any{"id": f.lectureID, "mode": "text"})
+	if errReply != nil {
+		t.Fatalf("canonical generate failed %+v", errReply)
+	}
+	var detail map[string]any
+	if json.Unmarshal(raw, &detail) != nil {
+		t.Fatal("invalid detail")
+	}
+	lecture := detail["lecture"].(map[string]any)
+	if lecture["status"] != "字幕完成" {
+		t.Fatal("not published", lecture)
+	}
+	segments := detail["segments"].([]any)
+	if len(segments) != 2 {
+		t.Fatal("coverage lost")
+	}
+	first := segments[0].(map[string]any)
+	second := segments[1].(map[string]any)
+	if first["text"] != "第一句话（校订）" || first["originalText"] != "第一句话" || second["text"] != "第二句话" || second["uncertain"] != true || second["reason"] != "术语依据" {
+		t.Fatal("compact reconstruction/uncertainty failed", segments)
+	}
+	calls := fake.callsSnapshot()
+	if len(calls) != 2 {
+		t.Fatal("conservative250planner changed", calls)
+	}
+	for _, call := range calls {
+		if !call.Compact {
+			t.Fatal("canonical fresh gate did not choose compact", calls)
+		}
+	}
+	if _, errReply = f.core.call("subtitles:generate", map[string]any{"id": f.lectureID, "mode": "text"}); errReply != nil {
+		t.Fatal("compact checkpoint resume failed", errReply)
+	}
+	if len(fake.callsSnapshot()) != len(calls) {
+		t.Fatal("completed compact checkpoint replayed HTTP")
 	}
 }
 

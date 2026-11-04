@@ -33,7 +33,7 @@ func (service *Service) verifyPointEvidence(ctx context.Context, task *Task, ite
 	return service.verifyPointEvidenceAudit(ctx, task, item, points, facts, nil)
 }
 func (service *Service) verifyPointEvidenceAudit(ctx context.Context, task *Task, item *Item, points []Point, facts *contract.SummaryEvidence, checked *AttemptAudit) error {
-	if facts == nil || facts.Version != 1 || facts.SourceSHA256 != item.Source.Hash || item.Recipe == nil || facts.ItemRecipeHash != item.Recipe.Hash || facts.PointCount != len(points) || item.AttemptEvidence == nil || item.AttemptEvidence.Version != 2 || facts.ValidatedHead != (contract.GenerationEventRef{Version: 2, Sequence: item.AttemptEvidence.EventCount, SHA256: item.AttemptEvidence.HeadSHA256}) {
+	if facts == nil || facts.Version != 1 || facts.SourceSHA256 != item.Source.Hash || item.Recipe == nil || facts.ItemRecipeHash != item.Recipe.Hash || facts.PointCount != len(points) || item.AttemptEvidence == nil || (item.AttemptEvidence.Version != 2 && item.AttemptEvidence.Version != 3) || facts.ValidatedHead != (contract.GenerationEventRef{Version: item.AttemptEvidence.Version, Sequence: item.AttemptEvidence.EventCount, SHA256: item.AttemptEvidence.HeadSHA256}) {
 		return observerError()
 	}
 	index := -1
@@ -55,6 +55,14 @@ func (service *Service) verifyPointEvidenceAudit(ctx context.Context, task *Task
 	if audit.State != "complete" || len(audit.validated) != audit.TotalChunks {
 		return observerError()
 	}
+	if item.Recipe.ModeRecipe.Version == 4 {
+		stages, fallbacks := summaryPlanCounts(item.SummaryPlan)
+		if item.SummaryPlan == nil || facts.PlanSHA256 != item.SummaryPlan.Digest || facts.BoundaryStages != stages || facts.BoundaryFallbacks != fallbacks {
+			return observerError()
+		}
+	} else if facts.PlanSHA256 != "" || facts.BoundaryStages != 0 || facts.BoundaryFallbacks != 0 {
+		return observerError()
+	}
 	rows, err := canonicalDerivedPoints(points)
 	if err != nil {
 		return err
@@ -68,7 +76,13 @@ func (service *Service) verifyPointEvidenceAudit(ctx context.Context, task *Task
 		start := offset
 		// Preserve exactly the original per-chunk verified order, including
 		// repeated cue IDs. No sorting or deduplication is introduced here.
-		for offset < len(rows) && rows[offset].Cue >= chunk.Start && rows[offset].Cue < chunk.Start+chunk.CueCount {
+		if chunk.PointCount < 0 || offset+chunk.PointCount > len(rows) {
+			return observerError()
+		}
+		for offset < start+chunk.PointCount {
+			if rows[offset].Cue < chunk.Start || rows[offset].Cue >= chunk.Start+chunk.CueCount {
+				return observerError()
+			}
 			offset++
 		}
 		digest, err := contract.SummaryPointsDigest(rows[start:offset])
@@ -77,6 +91,16 @@ func (service *Service) verifyPointEvidenceAudit(ctx context.Context, task *Task
 		}
 	}
 	if offset != len(rows) {
+		return observerError()
+	}
+	if err := service.verifySummaryTree(ctx, task, item, rows, facts, audit); err != nil {
+		return err
+	}
+	globalPartial, err := service.verifyGlobalSummary(ctx, task, item, facts, audit, points)
+	if err != nil {
+		return err
+	}
+	if facts.Partial != (audit.InsufficientChunks > 0 || globalPartial) {
 		return observerError()
 	}
 	return nil

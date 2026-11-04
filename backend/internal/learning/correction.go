@@ -11,9 +11,9 @@ import (
 	"regexp"
 	"sort"
 	"strings"
-	"sync"
 
 	"github.com/EveSunMaple/Zynote/backend/internal/documents"
+	"github.com/EveSunMaple/Zynote/backend/internal/orderedwork"
 )
 
 type CorrectionMode string
@@ -638,80 +638,12 @@ func minInt(left, right int) int {
 	return right
 }
 
-func runCorrectionChunk[T any](
-	ctx context.Context,
-	batches []CorrectionBatch,
-	start int,
-	run func(context.Context, CorrectionBatch, int) (T, error),
-	commit func(T, CorrectionBatch) error,
-) error {
-	chunkContext, cancel := context.WithCancel(ctx)
-	defer cancel()
-	var mutex sync.Mutex
-	pending := map[int]T{}
-	next := start
-	var firstErr error
-	var once sync.Once
-	var wait sync.WaitGroup
-	for offset := 0; offset < 2 && start+offset < len(batches); offset++ {
-		index := start + offset
-		batch := batches[index]
-		wait.Add(1)
-		go func() {
-			defer wait.Done()
-			result, err := run(chunkContext, batch, index)
-			if err != nil {
-				once.Do(func() {
-					firstErr = err
-					cancel()
-				})
-				return
-			}
-			mutex.Lock()
-			defer mutex.Unlock()
-			pending[index] = result
-			for {
-				ready, ok := pending[next]
-				if !ok {
-					break
-				}
-				if err := commit(ready, batches[next]); err != nil {
-					once.Do(func() {
-						firstErr = err
-						cancel()
-					})
-					return
-				}
-				delete(pending, next)
-				next++
-			}
-		}()
-	}
-	wait.Wait()
-	return firstErr
+// RunCorrectionBatches keeps two calls active while bounding all admitted but
+// uncommitted work to four batches. Only the coordinator commits results, in
+// source order; a slow front batch therefore cannot grow the pending set.
+func RunCorrectionBatches[T any](ctx context.Context, batches []CorrectionBatch, run func(context.Context, CorrectionBatch, int) (T, error), commit func(T, CorrectionBatch) error) error {
+	return orderedwork.Run(ctx, len(batches), func(ctx context.Context, index int) (T, error) { return run(ctx, batches[index], index) }, func(value T, index int) error { return commit(value, batches[index]) })
 }
-
-func RunCorrectionBatches[T any](
-	ctx context.Context,
-	batches []CorrectionBatch,
-	run func(context.Context, CorrectionBatch, int) (T, error),
-	commit func(T, CorrectionBatch) error,
-) error {
-	for start := 0; start < len(batches); start += 2 {
-		if err := ctx.Err(); err != nil {
-			return err
-		}
-		err := runCorrectionChunk(ctx, batches, start, run, commit)
-		if ctxErr := ctx.Err(); ctxErr != nil {
-			return ctxErr
-		}
-		if err != nil {
-			return err
-		}
-	}
-	return nil
-}
-
 func CorrectedSegmentsToDocuments(segments []CorrectedSegment) []documents.Segment {
 	result := make([]documents.Segment, 0, len(segments))
 	for _, segment := range segments {

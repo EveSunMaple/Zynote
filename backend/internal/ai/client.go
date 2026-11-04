@@ -337,8 +337,15 @@ func choiceContent(raw json.RawMessage) string {
 }
 
 func decodeChatResponse(response *http.Response, responses bool) (string, error) {
+	body, err := io.ReadAll(boundedChatResponse(response.Body))
+	if err != nil {
+		return "", publicResponseReadError(err)
+	}
+	if err := validateResponseJSONBounds(body); err != nil {
+		return "", err
+	}
 	var payload chatPayload
-	if err := json.NewDecoder(response.Body).Decode(&payload); err != nil {
+	if err := json.Unmarshal(body, &payload); err != nil {
 		return "", fmt.Errorf("API 响应格式异常，请稍后重试")
 	}
 	if payload.Status == "incomplete" || payload.Status == "failed" || (responses && payload.Status != "completed") {
@@ -445,7 +452,7 @@ func newChatHTTPRequest(
 	return request, cancel, nil
 }
 
-func (client *Client) chat(ctx context.Context, messages []Message, onText func(string), options JSONOptions) (string, error) {
+func (client *Client) chat(ctx context.Context, messages []Message, onText func(string), options JSONOptions) (result string, resultErr error) {
 	profile := client.Profile
 	parts, err := buildChatRequest(ctx, profile, messages, options, onText)
 	if err != nil {
@@ -460,8 +467,36 @@ func (client *Client) chat(ctx context.Context, messages []Message, onText func(
 	if err != nil {
 		return "", contract.ObservationFailure(err)
 	}
+	var attempt contract.PhysicalRequestAttempt
+	complete := false
+	dispatched := false
+	if guard := contract.PhysicalRequestGuardFrom(ctx); guard != nil {
+		attempt, err = guard.Reserve(ctx, recipeDigest(string(parts.encoded)), int64(len(parts.encoded)))
+		if err != nil {
+			return "", err
+		}
+		defer func() {
+			settlementContext, settlementCancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
+			defer settlementCancel()
+			if err := attempt.Finish(settlementContext, complete); err != nil {
+				result, resultErr = "", err
+			}
+			if dispatched && !complete && IsRetryable(resultErr) {
+				result, resultErr = "", fmt.Errorf("模型请求结果或计费未确认，已保留请求预算；未自动重试")
+			}
+		}()
+	}
 	if err := emitChatObservation(ctx, observer, &event); err != nil {
 		return "", contract.ObservationFailure(err)
+	}
+	if err := ctx.Err(); err != nil {
+		return "", err
+	}
+	if attempt != nil {
+		if err := attempt.Dispatch(ctx); err != nil {
+			return "", err
+		}
+		dispatched = true
 	}
 	response, err := observedHTTPClient(client.HTTP, observer).Do(request)
 	if err != nil {
@@ -480,12 +515,15 @@ func (client *Client) chat(ctx context.Context, messages []Message, onText func(
 		return "", requestError(response, parts.nativeFile, parts.hasFile)
 	}
 	if onText != nil && response.Body != nil {
-		return readSSEWithReasoning(response.Body, onText, client.OnReasoning)
+		text, err := readSSEWithReasoning(response.Body, onText, client.OnReasoning)
+		complete = err == nil
+		return text, err
 	}
 	reply, err := decodeChatResponse(response, parts.responses)
 	if err != nil {
 		return "", err
 	}
+	complete = true
 	event.State = "response-decoded"
 	event.DecodedTextSHA256 = recipeDigest(reply)
 	if err := emitChatObservation(ctx, observer, &event); err != nil {
@@ -651,6 +689,9 @@ func (state *sseState) handle(value string) error {
 		return nil
 	}
 	var payload map[string]any
+	if err := validateResponseJSONBounds([]byte(data)); err != nil {
+		return err
+	}
 	if err := json.Unmarshal([]byte(data), &payload); err != nil {
 		return sseError{message: "API 流式响应格式异常"}
 	}
@@ -680,7 +721,7 @@ func readSSE(body io.Reader, onText func(string)) (string, error) {
 }
 
 func readSSEWithReasoning(body io.Reader, onText, onReasoning func(string)) (string, error) {
-	reader := bufio.NewReaderSize(body, 64*1024)
+	reader := bufio.NewReaderSize(boundedChatResponse(body), 64*1024)
 	buffer := ""
 	state := &sseState{onText: onText, onReasoning: onReasoning}
 	for {
@@ -706,7 +747,7 @@ func readSSEWithReasoning(body io.Reader, onText, onReasoning func(string)) (str
 				}
 				break
 			}
-			return "", err
+			return "", publicResponseReadError(err)
 		}
 	}
 	if !state.completed {
@@ -849,30 +890,20 @@ func (client *Client) JSONWithOptions(
 	feedback := ""
 	var lastErr error
 	for attempt := 0; attempt < jsonMaxAttempts; attempt++ {
-		text := string(encoded) + feedback
-		var content any = text
-		if len(options.Images) > 0 {
-			parts := []ContentPart{{Type: "text", Text: text}}
-			for _, image := range options.Images {
-				parts = append(parts, ContentPart{Type: "text", Text: image.Label})
-				parts = append(parts, ContentPart{Type: "image_url", ImageURL: &ImageURL{URL: image.URL}})
-			}
-			content = parts
-		}
 		attemptContext := observedJSONAttempt(ctx, attempt, feedback)
 		if _, observer := contract.GenerationObservationFrom(attemptContext); observer != nil {
 			attemptContext = context.WithValue(attemptContext, generationRequestFactsKey{}, &contract.GenerationAttemptEvidence{})
 		}
-		reply, err := client.chat(attemptContext, []Message{
-			{Role: "system", Content: prompt},
-			{Role: "user", Content: content},
-		}, nil, options)
+		reply, err := client.chat(attemptContext, jsonAttemptMessages(prompt, encoded, feedback, options.Images), nil, options)
 		if err != nil {
 			return nil, err
 		}
 		clean := repairJSONEscapes([]byte(stripJSONFence(reply)))
 		validationErr := validate(clean)
-		if err := emitFormatResult(attemptContext, validationErr == nil); err != nil {
+		if contract.IsObservationFailure(validationErr) {
+			return nil, validationErr
+		}
+		if err := emitFormatResult(attemptContext, validationErr == nil, clean); err != nil {
 			return nil, contract.ObservationFailure(err)
 		}
 		if err := validationErr; err != nil {

@@ -80,7 +80,7 @@ func pointEvidenceFixture(t *testing.T) (*subtitlederived.Service, subtitlederiv
 func pointEvidenceDependencies(client *ai.Client) subtitlederived.Dependencies {
 	return subtitlederived.Dependencies{
 		ResolveRecipes: func(_ context.Context, modes []string) (contract.RequestedGenerationConfig, map[string]subtitlederived.ModeRecipe, error) {
-			return resolveSubtitleRecipes(client, modes)
+			return resolveLegacySubtitleRecipes(client, modes)
 		},
 		SummarizeWithEvidence: func(ctx context.Context, srt, mode string) (subtitlederived.SummaryResult, error) {
 			return summarizeDerivedText(ctx, client, srt, mode, nil)

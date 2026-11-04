@@ -17,7 +17,7 @@ func TestVideoSummary(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
 		calls.Add(1)
 		fmt.Fprintf(writer, `{"choices":[{"finish_reason":"stop","message":{"content":%q}}]}`,
-			`[{"cue":0,"quote":"第一句","point":"核心结论","topic":"主题"}]`)
+			`{"processing":"complete","cards":[{"cue":0,"quote":"第一句","point":"核心结论","topic":"主题"}]}`)
 	}))
 	defer server.Close()
 	dataRoot := t.TempDir()

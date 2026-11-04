@@ -9,6 +9,7 @@ import (
 	"reflect"
 	"strconv"
 	"strings"
+	"sync"
 
 	"github.com/EveSunMaple/Zynote/backend/internal/contract"
 	"github.com/EveSunMaple/Zynote/backend/internal/documents"
@@ -107,6 +108,9 @@ func sameAttempt(a, b contract.GenerationAttemptEvidence) bool {
 	return reflect.DeepEqual(a.Observation, b.Observation) && a.ConfigurationSHA256 == b.ConfigurationSHA256 && a.EndpointSHA256 == b.EndpointSHA256 && a.SystemPromptSHA256 == b.SystemPromptSHA256 && a.RequestBodySHA256 == b.RequestBodySHA256
 }
 func validAttemptTransition(previous *contract.GenerationAttemptEvidence, event contract.GenerationAttemptEvidence, totalCues int, recipe *ItemRecipe) bool {
+	if event.Version == 3 {
+		return validSpanAttemptTransition(previous, event, totalCues, recipe)
+	}
 	m := event.Observation
 	if (event.Version != 1 && event.Version != 2) || (event.Version == 1 && m.ProtocolVersion != 0) || (event.Version == 2 && m.ProtocolVersion != 2) || m.Purpose != "subtitle-summary" || m.ChunkCount < 1 || m.ChunkCount > totalCues || m.ChunkIndex < 0 || m.ChunkIndex >= m.ChunkCount || m.AttemptIndex < 0 || m.AttemptIndex > 1 || len(m.CueIDs) < 1 || !recipeHashPattern.MatchString(m.InputSHA256) || !recipeHashPattern.MatchString(event.ConfigurationSHA256) || !recipeHashPattern.MatchString(event.EndpointSHA256) || !recipeHashPattern.MatchString(event.RequestBodySHA256) || event.SystemPromptSHA256 != recipe.ModeRecipe.SystemPromptSHA256 {
 		return false
@@ -158,6 +162,9 @@ func validAttemptTransition(previous *contract.GenerationAttemptEvidence, event 
 	return false
 }
 func (service *Service) observationContext(ctx context.Context, task *Task, item *Item, srt string) (context.Context, error) {
+	if item.Recipe != nil && item.Recipe.ModeRecipe.Version >= 2 {
+		return service.observationContextVersion(ctx, task, item, srt, 3)
+	}
 	return service.observationContextVersion(ctx, task, item, srt, 2)
 }
 func (service *Service) observationContextVersion(ctx context.Context, task *Task, item *Item, srt string, traceVersion int) (context.Context, error) {
@@ -168,7 +175,7 @@ func (service *Service) observationContextVersion(ctx context.Context, task *Tas
 			break
 		}
 	}
-	if index < 0 || task.Recipe == nil || item.Recipe == nil || item.AttemptEvidence != nil {
+	if index < 0 || task.Recipe == nil || item.Recipe == nil || (item.AttemptEvidence != nil && traceVersion != 3) {
 		return ctx, observerError()
 	}
 	segments, err := documents.ParseSrt(srt)
@@ -177,8 +184,8 @@ func (service *Service) observationContextVersion(ctx context.Context, task *Tas
 	}
 	protocolVersion := 0
 	maxEvents := 160000
-	if traceVersion == 2 {
-		protocolVersion = 2
+	if traceVersion == 2 || traceVersion == 3 {
+		protocolVersion = traceVersion
 		maxEvents = 180000
 	} else if traceVersion != 1 {
 		return ctx, observerError()
@@ -186,10 +193,41 @@ func (service *Service) observationContextVersion(ctx context.Context, task *Tas
 	scope := contract.GenerationObservation{ProtocolVersion: protocolVersion, Purpose: "subtitle-summary", TaskID: task.ID, ItemIndex: index, ItemRecipeSHA256: item.Recipe.Hash, SourceSHA256: item.Source.Hash, ChunkIndex: -1, AttemptIndex: -1}
 	configurationHash := recipeHash(task.Recipe.Configuration)
 	var previous *contract.GenerationAttemptEvidence
+	chunkReceipts := map[int]contract.GenerationReceipt{}
+	var observationMutex sync.Mutex
 	var head string
 	count := 0
 	failed := false
+	if item.AttemptEvidence != nil {
+		audit := service.auditAttemptEvidence(ctx, *task, index, false)
+		if audit.State != "complete" && audit.State != "incomplete" {
+			return ctx, observerError()
+		}
+		directory, err := locateEvidenceDirectory(service.Root, task.ID, index, false)
+		if err != nil {
+			return ctx, err
+		}
+		count = item.AttemptEvidence.EventCount
+		head = item.AttemptEvidence.HeadSHA256
+		hash := head
+		for sequence := count; sequence >= 1; sequence-- {
+			record, err := readAttemptRecord(ctx, directory, sequence, hash)
+			if err != nil {
+				return ctx, err
+			}
+			event := contract.CloneGenerationEvent(record.Event)
+			if sequence == count {
+				previous = &event
+			}
+			if _, ok := chunkReceipts[event.Observation.ChunkIndex]; !ok {
+				chunkReceipts[event.Observation.ChunkIndex] = contract.GenerationReceipt{Ref: contract.GenerationEventRef{Version: 3, Sequence: sequence, SHA256: hash}, Event: event}
+			}
+			hash = record.PreviousSHA256
+		}
+	}
 	observer := func(_ context.Context, event contract.GenerationAttemptEvidence) (resultErr error) {
+		observationMutex.Lock()
+		defer observationMutex.Unlock()
 		if failed {
 			return observerError()
 		}
@@ -199,10 +237,20 @@ func (service *Service) observationContextVersion(ctx context.Context, task *Tas
 			}
 		}()
 		m := event.Observation
-		if event.Version != traceVersion || m.TaskID != scope.TaskID || m.ItemIndex != scope.ItemIndex || m.SourceSHA256 != scope.SourceSHA256 || m.ItemRecipeSHA256 != scope.ItemRecipeSHA256 || event.ConfigurationSHA256 != configurationHash || event.EndpointSHA256 != task.Recipe.Configuration.EndpointSHA256 || !validAttemptTransition(previous, event, len(segments), item.Recipe) || count >= maxEvents {
+		prior := previous
+		expectedRef := contract.GenerationEventRef{Version: traceVersion, Sequence: count, SHA256: head}
+		if traceVersion == 3 {
+			prior = nil
+			if receipt, ok := chunkReceipts[m.ChunkIndex]; ok {
+				value := receipt.Event
+				prior = &value
+				expectedRef = receipt.Ref
+			}
+		}
+		if event.Version != traceVersion || m.TaskID != scope.TaskID || m.ItemIndex != scope.ItemIndex || m.SourceSHA256 != scope.SourceSHA256 || m.ItemRecipeSHA256 != scope.ItemRecipeSHA256 || event.ConfigurationSHA256 != configurationHash || event.EndpointSHA256 != task.Recipe.Configuration.EndpointSHA256 || !validAttemptTransition(prior, event, len(segments), item.Recipe) || count >= maxEvents {
 			return observerError()
 		}
-		if event.State == statusValidatedPoints && event.ValidatedPoints.AcceptedFormatRef != (contract.GenerationEventRef{Version: traceVersion, Sequence: count, SHA256: head}) {
+		if event.State == statusValidatedPoints && event.ValidatedPoints.AcceptedFormatRef != expectedRef {
 			return observerError()
 		}
 		directory, err := evidenceDirectory(service.Root, task.ID, index)
@@ -223,7 +271,12 @@ func (service *Service) observationContextVersion(ctx context.Context, task *Tas
 				return observerError()
 			}
 		}
-		hash, err := publishAttempt(directory, attemptRecord{Version: traceVersion, Sequence: count + 1, PreviousSHA256: head, Event: event})
+		var hash string
+		err = service.withTaskFence(ctx, *task, func() error {
+			var err error
+			hash, err = publishAttempt(directory, attemptRecord{Version: traceVersion, Sequence: count + 1, PreviousSHA256: head, Event: event})
+			return err
+		})
 		if err != nil {
 			return err
 		}
@@ -239,11 +292,39 @@ func (service *Service) observationContextVersion(ctx context.Context, task *Tas
 		count++
 		event = contract.CloneGenerationEvent(event)
 		previous = &event
+		if traceVersion == 3 {
+			chunkReceipts[m.ChunkIndex] = contract.GenerationReceipt{Ref: contract.GenerationEventRef{Version: 3, Sequence: count, SHA256: head}, Event: event}
+		}
 		return nil
 	}
 	reader := func(ctx context.Context) (contract.GenerationReceipt, error) {
+		observationMutex.Lock()
+		defer observationMutex.Unlock()
 		if ctx.Err() != nil || failed || previous == nil || count == 0 {
 			return contract.GenerationReceipt{}, observerError()
+		}
+		if traceVersion == 3 {
+			m, observer := contract.GenerationObservationFrom(ctx)
+			if observer == nil {
+				return contract.GenerationReceipt{}, observerError()
+			}
+			if m.ChunkIndex >= 0 {
+				receipt, ok := chunkReceipts[m.ChunkIndex]
+				if !ok {
+					return contract.GenerationReceipt{}, observerError()
+				}
+				receipt.Event = contract.CloneGenerationEvent(receipt.Event)
+				return receipt, nil
+			}
+			if len(chunkReceipts) != previous.Observation.ChunkCount {
+				return contract.GenerationReceipt{}, observerError()
+			}
+			for index := 0; index < previous.Observation.ChunkCount; index++ {
+				receipt, ok := chunkReceipts[index]
+				if !ok || receipt.Event.State != statusValidatedPoints {
+					return contract.GenerationReceipt{}, observerError()
+				}
+			}
 		}
 		return contract.GenerationReceipt{Ref: contract.GenerationEventRef{Version: traceVersion, Sequence: count, SHA256: head}, Event: contract.CloneGenerationEvent(*previous)}, nil
 	}
@@ -252,3 +333,49 @@ func (service *Service) observationContextVersion(ctx context.Context, task *Tas
 }
 
 const statusFormatResult = "format-result"
+
+// v3 keeps the immutable ordered chain but uses chunk identity for transport
+// transitions. Actual source core spans are checked independently and replayed
+// against the versioned planner by the audit; historical v1/v2 is unchanged.
+func validSpanAttemptTransition(previous *contract.GenerationAttemptEvidence, event contract.GenerationAttemptEvidence, totalCues int, recipe *ItemRecipe) bool {
+	m := event.Observation
+	if m.ProtocolVersion != 3 || recipe.ModeRecipe.Version < 2 || recipe.ModeRecipe.Version > 4 || m.ChunkCount < 1 || m.ChunkCount > 40000 || m.ChunkIndex < 0 || m.ChunkIndex >= m.ChunkCount || len(m.CoreSpans) == 0 || len(m.CoreSpans) != len(m.CueIDs) {
+		return false
+	}
+	for index, span := range m.CoreSpans {
+		if span.ParentCueID < 0 || span.ParentCueID >= totalCues || span.ParentCueID != m.CueIDs[index] || span.StartCodepoint < 0 || span.EndCodepoint <= span.StartCodepoint {
+			return false
+		}
+	}
+	if event.State == statusValidatedPoints {
+		if event.ValidatedPoints == nil || event.ValidatedPoints.Processing == nil {
+			return false
+		}
+		processing := event.ValidatedPoints.Processing
+		if (processing.State != "complete" && processing.State != "insufficient") || processing.CoreSpanSHA256 != contract.CoreSpansDigest(m.CoreSpans) {
+			return false
+		}
+	}
+	convert := func(input contract.GenerationAttemptEvidence) contract.GenerationAttemptEvidence {
+		input = contract.CloneGenerationEvent(input)
+		input.Version = 2
+		input.Observation.ProtocolVersion = 2
+		input.Observation.CueIDs = []int{0}
+		input.Observation.ChunkIndex = 0
+		input.Observation.ChunkCount = 1
+		if input.ValidatedPoints != nil {
+			input.ValidatedPoints.AcceptedFormatRef.Version = 2
+		}
+		return input
+	}
+	converted := convert(event)
+	var prior *contract.GenerationAttemptEvidence
+	if previous != nil {
+		if previous.Version != 3 || previous.Observation.ChunkIndex != m.ChunkIndex || previous.Observation.ChunkCount != m.ChunkCount {
+			return false
+		}
+		value := convert(*previous)
+		prior = &value
+	}
+	return validAttemptTransition(prior, converted, 1, recipe)
+}
