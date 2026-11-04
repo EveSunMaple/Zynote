@@ -66,6 +66,9 @@ func (run *correctionRun) withCachedBatch(ctx context.Context, batch learning.Co
 				guarded[i].Reason = reason
 			}
 		}
+		if run.compact {
+			guarded = learning.QuarantineCompactChanges(guarded)
+		}
 		return guarded, nil
 	}
 	rows, err := paid(ctx, batch, index)

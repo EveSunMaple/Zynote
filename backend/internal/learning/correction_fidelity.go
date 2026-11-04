@@ -116,3 +116,17 @@ func GuardCorrectedSegments(rows []CorrectedSegment, source []documents.Segment)
 	}
 	return result, nil
 }
+
+// QuarantineCompactChanges cannot infer the model's ID basis from historical
+// sparse patches. Keep every changed cue for manual review, without paid replay.
+func QuarantineCompactChanges(rows []CorrectedSegment) []CorrectedSegment {
+	result := append([]CorrectedSegment{}, rows...)
+	for i := range result {
+		if result[i].Text != result[i].OriginalText {
+			result[i].Text = result[i].OriginalText
+			result[i].Uncertain = true
+			result[i].Reason = "历史紧凑校订补丁缺少逐条原文绑定，已保留原文，需人工核对"
+		}
+	}
+	return result
+}

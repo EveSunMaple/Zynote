@@ -322,6 +322,9 @@ func (run *correctionRun) preparePlan() error {
 	}
 	resumable := learning.ResumableCorrection(checkpoint, run.fingerprint, run.sourceSegments)
 	if resumable != nil {
+		if run.compact {
+			resumable = learning.QuarantineCompactChanges(resumable)
+		}
 		run.rows = append(run.rows, resumable...)
 	}
 	switch {
@@ -536,8 +539,10 @@ func (run *correctionRun) runBatch(ctx context.Context, batch learning.Correctio
 		_, callErr := run.client.JSONWithOptions(
 			ctx, run.prompt, input, validate,
 			ai.JSONOptions{
-				Images:          requestImages,
-				DisableThinking: run.compact && run.profile.Parameters[model].ReasoningEffort == nil,
+				// Preserve the historical correction wire under its frozen recipe:
+				// digest/adoption use the same Images-only options. A thinking-mode
+				// change requires an explicitly versioned recipe, not an in-place flag.
+				Images: requestImages,
 				OnRetry: func() {
 					count := atomic.AddInt64(&run.retries, 1)
 					run.inv.reportCorrection(
@@ -563,6 +568,9 @@ func (run *correctionRun) runBatch(ctx context.Context, batch learning.Correctio
 					OriginalText: row.Text, Uncertain: corrected[offset].Uncertain,
 					Reason: corrected[offset].Reason,
 				}
+			}
+			if run.compact {
+				out = learning.QuarantineCompactChanges(out)
 			}
 			return out, nil
 		}
@@ -623,6 +631,9 @@ func (run *correctionRun) finish() (any, error) {
 	}
 	if len(final) != len(run.sourceSegments) {
 		return nil, fmt.Errorf("校订结果未覆盖全部原文，未发布")
+	}
+	if run.compact {
+		final = learning.QuarantineCompactChanges(final)
 	}
 	courseID := storage.ToStringValue(run.lecture["course_id"])
 	folder := filepath.Join(run.state.DataRoot, "courses", courseID, "transcript-results", run.lectureID)

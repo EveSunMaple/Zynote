@@ -149,7 +149,7 @@ func TestCompactCorrectionDurableSuccessReusesGenerationWithoutPaidReplay(t *tes
 		t.Fatal(err)
 	}
 	rows, err := run.withCachedBatch(ctx, batch, 0, paid)
-	if err != nil || calls != 1 || rows[0].Text != "线粒体" {
+	if err != nil || calls != 1 || rows[0].Text != "线立体" || !rows[0].Uncertain {
 		t.Fatal("compact cache replayed", calls, err)
 	}
 	run.compact = false
@@ -168,6 +168,7 @@ func TestCompactCorrectionActualHTTPAndRepairPreserveGold(t *testing.T) {
 			var calls atomic.Int64
 			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				n := calls.Add(1)
+				// Correction keeps Images-only options for historical identity.
 				var request struct {
 					Messages []ai.Message `json:"messages"`
 				}
@@ -194,11 +195,48 @@ func TestCompactCorrectionActualHTTPAndRepairPreserveGold(t *testing.T) {
 				t.Fatal(err, calls.Load())
 			}
 			for i, row := range rows {
+				if compact && source[i].Text != gold[i].Text {
+					if row.Text != source[i].Text || !row.Uncertain {
+						t.Fatal("historical compact change not quarantined", rows)
+					}
+					continue
+				}
 				if row.Text != gold[i].Text || row.Start != source[i].Start || row.End != source[i].End || row.OriginalText != source[i].Text {
 					t.Fatal("gold/negation/formula/time invariant", rows)
 				}
 			}
 		})
+	}
+}
+
+func TestHistoricalCompactCorrectionDoesNotIntroduceUnversionedThinkingFlag(t *testing.T) {
+	var calls atomic.Int64
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls.Add(1)
+		var body map[string]json.RawMessage
+		if json.NewDecoder(r.Body).Decode(&body) != nil {
+			t.Error("bad request")
+		}
+		if _, found := body["enable_thinking"]; found {
+			t.Error("unversioned thinking flag changed historical wire")
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{"choices": []any{map[string]any{"message": map[string]any{"content": `{"processing":"complete","processed":[0],"patches":[]}`}}}})
+	}))
+	defer server.Close()
+	batch := learning.CorrectionBatch{Rows: []documents.Segment{{Text: "保留原文"}}}
+	run := &correctionRun{compact: true, inv: &Invoker{}, prompt: compactCorrectionPrompt, client: ai.New(ai.Profile{BaseURL: server.URL + "/dashscope/v1", Model: "fixture"}), sourceSegments: batch.Rows, contexts: []learning.CorrectionContext{{}}, active: map[int]string{}, started: time.Now()}
+	input, images := correctionEffectiveRequest(run, batch, 0)
+	ctx := context.Background()
+	historical, err := run.client.JSONRequestDigest(ctx, run.prompt, input, ai.JSONOptions{Images: images})
+	if err != nil {
+		t.Fatal(err)
+	}
+	changed, err := run.client.JSONRequestDigest(ctx, run.prompt, input, ai.JSONOptions{Images: images, DisableThinking: true})
+	if err != nil || historical == changed {
+		t.Fatal("thinking distinction lost", err)
+	}
+	if _, err := run.runBatch(ctx, batch, 0); err != nil || calls.Load() != 1 {
+		t.Fatal(err, calls.Load())
 	}
 }
 

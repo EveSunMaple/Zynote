@@ -38,6 +38,35 @@ func TestCompactCorrectionRejectsDestructiveCueReplacement(t *testing.T) {
 	}
 }
 
+func TestCompactMixedIDBasisNeverAutomaticallyRenumbers(t *testing.T) {
+	batch := CorrectionBatch{Rows: []documents.Segment{{Text: "线立体提供能量。"}, {Text: "请不要拍照片。"}}}
+	// A correct processed receipt does not bind each patch to its source text.
+	// Model relabeling 0 as 1 lands in-scope; guard must retain the target cue.
+	raw := []byte(`{"processing":"complete","processed":[0,1],"patches":[{"id":1,"text":"线粒体提供能量。","uncertain":false,"reason":"术语纠正"}]}`)
+	rows, err := ValidateCompactCorrection(raw, batch)
+	if err != nil || rows[0].Text != batch.Rows[0].Text || rows[1].Text != batch.Rows[1].Text || !rows[1].Uncertain {
+		t.Fatal(rows, err)
+	}
+	if _, err := ValidateCompactCorrection([]byte(`{"processing":"complete","processed":[1,2],"patches":[]}`), batch); err == nil {
+		t.Fatal("one-based processed accepted")
+	}
+	// Similar legitimate-looking rows are inherently ambiguous in historical
+	// v2: no source binding exists. Do not pretend the heuristic proves ID intent.
+	similar := CorrectionBatch{Rows: []documents.Segment{{Text: "这里线立体提供能量。"}, {Text: "那里线立体提供能量。"}}}
+	if _, err := ValidateCompactCorrection(raw, similar); err != nil {
+		t.Fatal("structure cannot infer a different ID basis", err)
+	}
+}
+
+func TestHistoricalCompactQuarantineDoesNotGuessSimilarCueIntent(t *testing.T) {
+	source := "那里线立体提供能量。"
+	rows := []CorrectedSegment{{Start: 1, End: 2, OriginalText: source, Text: "这里线粒体提供能量。", Reason: "术语纠正"}, {Start: 3, End: 4, OriginalText: "重复原句", Text: "重复原句"}}
+	got := QuarantineCompactChanges(rows)
+	if got[0].Text != source || !got[0].Uncertain || !strings.Contains(got[0].Reason, "原文绑定") || got[1] != rows[1] || rows[0].Text == source {
+		t.Fatal(got, rows)
+	}
+}
+
 func TestCorrectionFidelityPreservesValidEditsAndFlagsRisk(t *testing.T) {
 	for _, item := range []struct {
 		name, source, proposed string
