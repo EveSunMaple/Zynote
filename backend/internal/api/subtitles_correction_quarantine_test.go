@@ -91,6 +91,11 @@ func TestHistoricalCompactCheckpointQuarantinedOnResume(t *testing.T) {
 				if _, err := run.finish(); err != nil {
 					t.Fatal(err)
 				}
+				// Publication is independently guarded even if an unsafe row reappears.
+				run.rows = historical
+				if _, err := run.finish(); err != nil {
+					t.Fatal(err)
+				}
 			} else if len(run.batches) == 0 || run.batches[0].Start != 1 {
 				t.Fatal("paid prefix would replay", run.batches)
 			}

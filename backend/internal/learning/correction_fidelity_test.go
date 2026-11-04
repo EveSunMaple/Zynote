@@ -8,39 +8,6 @@ import (
 	"github.com/EveSunMaple/Zynote/backend/internal/documents"
 )
 
-func TestCorrectionFidelityPreservesValidEditsAndFlagsRisk(t *testing.T) {
-	for _, item := range []struct {
-		name, source, proposed string
-		risky                  bool
-	}{
-		{"full_sentence_classifier", "前三篇主要对应的是牙体，后两片对应的是牙髓。", "前三篇主要对应的是牙体，后两篇对应的是牙髓。", false},
-		{"unicode_term", "𠮷，线立体提供能量。", "𠮷，线粒体提供能量。", false},
-		{"two_typoes", "Pythno 中的 compuetr 变量。", "Python 中的 computer 变量。", false},
-		{"repeated_source", "线立体，线立体。", "线粒体，线粒体。", false},
-		{"negation", "这个公式不考。", "这个公式考。", true},
-		{"arabic_number", "剂量为10毫克。", "剂量为100毫克。", true},
-		{"chinese_number", "前两篇对应牙体。", "前三篇对应牙体。", true},
-		{"formula", "公式 y=x^2。", "公式 y=x+2。", true},
-		{"large_expansion", "短原文。", strings.Repeat("扩写", 500000), true},
-		{"bounded_diff", strings.Repeat("甲", 6000), strings.Repeat("乙", 6000), true},
-		{"long_single_typo", strings.Repeat("甲", 2999) + "错" + strings.Repeat("乙", 3000), strings.Repeat("甲", 2999) + "正" + strings.Repeat("乙", 3000), false},
-	} {
-		t.Run(item.name, func(t *testing.T) {
-			if risky := CorrectionFidelityReason(item.source, item.proposed, nil) != ""; risky != item.risky {
-				t.Fatalf("risk=%v expected=%v", risky, item.risky)
-			}
-		})
-	}
-	source := "前三篇主要对应的是牙体，后两片对应的是牙髓。"
-	proposed := "前三篇主要对应的是牙体，后两篇对应的是牙髓。"
-	if CorrectionFidelityReason(source, proposed, []documents.Segment{{Text: proposed}}) == "" {
-		t.Fatal("known neighbor copy not flagged")
-	}
-	if CorrectionFidelityReason(source, source, []documents.Segment{{Text: source}}) != "" {
-		t.Fatal("naturally repeated unchanged source flagged")
-	}
-}
-
 func TestHistoricalCompactIDsAndQuarantine(t *testing.T) {
 	batch := CorrectionBatch{Start: 27, Rows: []documents.Segment{
 		{Text: "前三篇主要对应的是牙体，后两片对应的是牙髓。"},

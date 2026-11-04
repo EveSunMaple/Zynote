@@ -88,3 +88,47 @@ func TestCorrectionProtocolBaselineDiagnostic(t *testing.T) {
 	encoded, _ := json.Marshal(report)
 	t.Log(string(encoded))
 }
+
+func TestCorrectionFidelityPublicResourceDiagnostic(t *testing.T) {
+	if os.Getenv("ZYNOTE_CORRECTION_DIAGNOSTIC") != "1" {
+		t.Skip("explicit local diagnostic only")
+	}
+	body, err := os.ReadFile("F:/BiliSum-dependencies/zynote-acceptance/full-course-20261031/mit-computation-full.srt")
+	if err != nil {
+		t.Fatal(err)
+	}
+	source, err := documents.ParseSrt(string(body))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, text := range []string{"前三篇主要对应的是牙体，后两片对应的是牙髓。", "呃，你不要拍照片啊，这个现在这个手机都很好，高清照片，一个照片，这是个AM。", "呃，然后转化成PDF文件提交到这个平台上面去。", "不考这个公式 x^2", "𠮷保持原样"} {
+		start := int64(len(source)) * 2000
+		source = append(source, documents.Segment{Start: start, End: start + 1000, Text: text})
+	}
+	rows := make([]learning.CorrectedSegment, len(source))
+	maximum := 0
+	for i, row := range source {
+		maximum = max(maximum, len([]rune(row.Text)))
+		rows[i] = learning.CorrectedSegment{Start: row.Start, End: row.End, OriginalText: row.Text, Text: row.Text + "。", Reason: "controlled local punctuation edit"}
+	}
+	rows[len(rows)-5].Text = "后两篇"
+	rows[len(rows)-4].Text = source[len(source)-3].Text
+	times := []int64{}
+	uncertain := 0
+	for repeat := 0; repeat < 5; repeat++ {
+		started := time.Now()
+		guarded, err := learning.GuardCorrectedSegments(rows, source)
+		times = append(times, time.Since(started).Nanoseconds())
+		if err != nil {
+			t.Fatal(err)
+		}
+		uncertain = 0
+		for _, row := range guarded {
+			if row.Uncertain {
+				uncertain++
+			}
+		}
+	}
+	report, _ := json.Marshal(map[string]any{"cues": len(source), "maxSourceCodepoints": maximum, "passesNS": times, "uncertainCues": uncertain, "networkCalls": 0, "scope": "five local full-prefix guard passes; all837 cues proposed changed; controlled punctuation plus two destructive proposals; not provider or model quality"})
+	t.Log(string(report))
+}

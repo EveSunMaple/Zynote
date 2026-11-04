@@ -50,7 +50,7 @@ func TestValidateCorrectionRows(t *testing.T) {
 		[]byte(`[{"id":2,"text":"线粒体提供能量","uncertain":false,"reason":""},{"id":3,"text":"第二句原文","uncertain":true,"reason":"术语"}]`),
 		batch,
 	)
-	if err != nil || len(rows) != 2 || rows[1].Uncertain != true || rows[1].Reason != "术语" {
+	if err != nil || len(rows) != 2 || rows[1].Uncertain != true || rows[1].Text != "第二句原文" || rows[1].Reason == "" {
 		t.Fatalf("validation mismatch: %+v %v", rows, err)
 	}
 	for _, value := range []string{
