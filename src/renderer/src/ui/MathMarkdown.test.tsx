@@ -33,3 +33,9 @@ it('keeps the chat Markdown wrapper math-aware', () => {
  expect(markup).toContain('class="katex"')
  expect(markup).not.toContain('$x^2$')
 })
+
+it('renders CJK punctuation emphasis in inline mode', () => {
+ const markup = renderToStaticMarkup(<MathMarkdown inline>{'搭好**“牙体vs牙髓”的章节地图**、理清'}</MathMarkdown>)
+ expect(markup).toContain('<strong>“牙体vs牙髓”的章节地图</strong>')
+ expect(markup).not.toContain('**')
+})

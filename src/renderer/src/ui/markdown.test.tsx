@@ -37,6 +37,20 @@ describe('chat Markdown actual rendering pipeline', () => {
   expect(mathCount(render('$x + y$'))).toBe(1)
   expect(mathCount(render(String.raw`\(x + y\)`))).toBe(1)
  })
+ it('renders emphasis and strikethrough next to CJK punctuation', () => {
+  const html = render('搭好**“牙体vs牙髓”的章节地图**、理清，前~~删除。~~后')
+  expect(html).toContain('<strong>“牙体vs牙髓”的章节地图</strong>')
+  expect(html).toContain('<del>删除。</del>')
+  expect(html).not.toContain('**')
+  expect(html).not.toContain('~~')
+ })
+ it('keeps CJK-friendly emphasis compatible with code, links and math', () => {
+  const html = render('`**中文。**` [**中文。**](https://example.org) $x^2$ **公式。**')
+  expect(html).toContain('<code>**中文。**</code>')
+  expect(html).toContain('<a href="https://example.org"><strong>中文。</strong></a>')
+  expect(mathCount(html)).toBe(1)
+  expect(html).toContain('<strong>公式。</strong>')
+ })
  it('retains GFM and safe link/HTML behavior and never trusts KaTeX HTML commands', () => {
   const html = render(
    '[safe](https://example.org) [bad](javascript:alert(1))\n\n<script>alert(1)</script>\n\n|a|b|\n|-|-|\n|1|2|\n\n$\\href{javascript:alert(1)}{x}$'
