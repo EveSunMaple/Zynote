@@ -129,7 +129,7 @@ func (server *correctionServer) handler(t *testing.T) http.HandlerFunc {
 		processed := []int{}
 		for _, row := range parsed.Rows {
 			processed = append(processed, row.ID)
-			uncertain := row.ID == 1
+			uncertain := row.Text == "第二句话"
 			rows = append(rows, map[string]any{
 				"id": row.ID, "text": row.Text + "（校订）", "uncertain": uncertain,
 				"reason": map[bool]string{true: "术语依据", false: ""}[uncertain],

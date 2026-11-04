@@ -419,7 +419,13 @@ func correctionRequestFor(run *correctionRun, batch learning.CorrectionBatch, in
 	}
 	requestRows := make([]correctionRequestRow, 0, len(batch.Rows))
 	for offset, row := range batch.Rows {
-		requestRows = append(requestRows, correctionRequestRow{ID: batch.Start + offset, Text: row.Text})
+		// Compact rows are numbered from 1 so the model can echo the same id for
+		// both processed receipts and sparse patches without an off-by-one shift.
+		id := batch.Start + offset
+		if run.compact {
+			id++
+		}
+		requestRows = append(requestRows, correctionRequestRow{ID: id, Text: row.Text})
 	}
 	requestLimitations := append([]string{}, run.modelLimitations...)
 	requestLimitations = append(requestLimitations, run.contexts[index].Omissions...)

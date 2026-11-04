@@ -65,6 +65,20 @@ func TestCanonicalCorrectionSelectionPreservesLegacyLiabilityAndCustomPrompt(t *
 	}
 }
 
+func TestCompactCorrectionRequestUsesOneBasedRowIDs(t *testing.T) {
+	batch := learning.CorrectionBatch{Start: 7, Rows: []documents.Segment{{Text: "甲"}, {Text: "乙"}}}
+	run := &correctionRun{compact: true, contexts: []learning.CorrectionContext{{}}}
+	input, _ := correctionRequestFor(run, batch, 0, nil)
+	if input.Rows[0].ID != 8 || input.Rows[1].ID != 9 {
+		t.Fatalf("compact ids must be one-based: %+v", input.Rows)
+	}
+	run.compact = false
+	input, _ = correctionRequestFor(run, batch, 0, nil)
+	if input.Rows[0].ID != 7 || input.Rows[1].ID != 8 {
+		t.Fatalf("legacy ids changed: %+v", input.Rows)
+	}
+}
+
 func TestCompactCorrectionDurableSuccessReusesGenerationWithoutPaidReplay(t *testing.T) {
 	ctx := context.Background()
 	ledger, err := generationjob.Open(t.TempDir())
@@ -120,7 +134,7 @@ func TestCompactCorrectionActualHTTPAndRepairPreserveGold(t *testing.T) {
 				if n == 1 {
 					content = `{"processing":"complete","processed":[0,1],"patches":[]}`
 				} else if compact {
-					content = `{"processing":"complete","processed":[0,1,2],"patches":[{"id":1,"text":"线粒体提供能量","uncertain":false,"reason":"课件术语明确"},{"id":2,"text":"甲","uncertain":true,"reason":"无法确认，不猜改"}]}`
+					content = `{"processing":"complete","processed":[1,2,3],"patches":[{"id":2,"text":"线粒体提供能量","uncertain":false,"reason":"课件术语明确"},{"id":3,"text":"甲","uncertain":true,"reason":"无法确认，不猜改"}]}`
 				} else {
 					content = `[{"id":0,"text":"不考这个公式 x^2","uncertain":false,"reason":""},{"id":1,"text":"线粒体提供能量","uncertain":false,"reason":"课件术语明确"},{"id":2,"text":"可能是甲或乙","uncertain":true,"reason":"无法确认，不猜改"}]`
 				}

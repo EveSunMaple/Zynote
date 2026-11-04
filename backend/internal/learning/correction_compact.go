@@ -49,9 +49,9 @@ func ValidateCompactCorrection(value []byte, batch CorrectionBatch) ([]Corrected
 		if output.Processed[index] == nil {
 			return nil, compactCorrectionFailure(fmt.Sprintf("processed[%d] 为空", index))
 		}
-		if *output.Processed[index] != batch.Start+index {
+		if *output.Processed[index] != batch.Start+index+1 {
 			return nil, compactCorrectionFailure(fmt.Sprintf(
-				"processed[%d]=%d，应为 %d", index, *output.Processed[index], batch.Start+index,
+				"processed[%d]=%d，应为 %d", index, *output.Processed[index], batch.Start+index+1,
 			))
 		}
 		result[index] = CorrectedRow{Text: source.Text}
@@ -72,10 +72,10 @@ func ValidateCompactCorrection(value []byte, batch CorrectionBatch) ([]Corrected
 		case strings.TrimSpace(*patch.Reason) == "" || len([]rune(*patch.Reason)) > 240:
 			return nil, compactCorrectionFailure(fmt.Sprintf("patch id=%d 的 reason 为空或过长", *patch.ID))
 		}
-		index := *patch.ID - batch.Start
+		index := *patch.ID - batch.Start - 1
 		if index < 0 || index >= len(batch.Rows) {
 			return nil, compactCorrectionFailure(fmt.Sprintf(
-				"patch id=%d 超出本批范围 %d–%d", *patch.ID, batch.Start, batch.Start+len(batch.Rows)-1,
+				"patch id=%d 超出本批范围 %d–%d", *patch.ID, batch.Start+1, batch.Start+len(batch.Rows),
 			))
 		}
 		if seen[index] {
@@ -83,9 +83,19 @@ func ValidateCompactCorrection(value []byte, batch CorrectionBatch) ([]Corrected
 		}
 		seen[index] = true
 		if !*patch.Uncertain && *patch.Text == batch.Rows[index].Text {
-			return nil, compactCorrectionFailure(fmt.Sprintf(
-				"patch id=%d 标记为已修改但文本未变", *patch.ID,
-			))
+			// A model sometimes lists a no-op patch as "changed". Keeping the
+			// original text is safe and must not discard the whole batch.
+			continue
+		}
+		if !*patch.Uncertain {
+			for _, neighbor := range []int{index - 1, index + 1} {
+				if neighbor >= 0 && neighbor < len(batch.Rows) &&
+					*patch.Text == batch.Rows[neighbor].Text && *patch.Text != batch.Rows[index].Text {
+					return nil, compactCorrectionFailure(fmt.Sprintf(
+						"patch id=%d 文本等于相邻行原文，疑似 id 错位", *patch.ID,
+					))
+				}
+			}
 		}
 		text := *patch.Text
 		// Speculative alternatives are not silently promoted to corrected text.
